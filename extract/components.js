@@ -11,6 +11,7 @@
 const path = require('path');
 const cs = require('./components-cs');
 const js = require('./components-js');
+const glob = require('./glob');
 
 const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 const CS_RE = /\.(cs|fs)$/i;
@@ -35,7 +36,17 @@ async function build(facts, opts = {}) {
     if (!byName.has(k)) byName.set(k, { name, owner, basis, evidence: [] });
     return byName.get(k);
   };
+  // rule 1: designc.json extract.components overrides, first matching entry wins
+  const specs = [], globHit = new Set();
+  const OVR = (what) => ({ where: 'designc.json', what, file: 'designc.json', line: 1, text: 'extract.components' });
+  (Array.isArray(opts.components) ? opts.components : []).forEach((o, i) => {
+    const ok = o && typeof o.name === 'string' && o.name.trim() && Array.isArray(o.paths) && o.paths.length && o.paths.every(g => typeof g === 'string' && g);
+    if (ok) specs.push({ name: o.name.trim(), paths: o.paths }); else unresolved.push(OVR(`extract.components entry ${i + 1} needs a string "name" and a non-empty "paths" array of globs`));
+  });
+  const deferred = []; // output-binding results follow their function class, wherever it ended up
   for (const u of units || []) {
+    for (const s of specs) for (const g of s.paths) if (glob.match(g, u.file)) globHit.add(`${s.name}\n${g}`);
+    const spec = specs.find(s => s.paths.some(g => glob.match(g, u.file)));
     const mod = moduleFor(u.file);
     const relFromRoot = u.file.startsWith(u.root + '/') ? u.file.slice(u.root.length + 1) : u.file.split('/').pop();
     const evidence = { file: u.file, line: 1, text: u.file.split('/').pop() };
@@ -43,16 +54,23 @@ async function build(facts, opts = {}) {
       const unit = { ...u, owner, relFromRoot, evidence };
       const where = elements.get(owner).name;
       // rule 4: a library project/package is one component, named after it, inside each owner
-      const result = u.projectKind === 'library' ? { name: u.project, basis: 'library', evidence } : mod && mod.assign(unit, mod === cs ? csIndex : undefined);
+      const result = spec ? { name: spec.name, basis: 'override', evidence } : u.projectKind === 'library' ? { name: u.project, basis: 'library', evidence } : mod && mod.assign(unit, mod === cs ? csIndex : undefined);
       if (!result) { unresolved.push({ where, what: `no component rule matched "${u.file}"`, ...evidence }); continue; }
-      const comp = entry(owner, result.name, result.basis);
-      comp.evidence.push(result.evidence);
-      fileComp.set(`${owner}|${u.file}`, comp);
+      if (result.basis === 'output-binding' && result.anchorFile) { deferred.push({ owner, u, result }); }
+      else { const comp = entry(owner, result.name, result.basis); comp.evidence.push(result.evidence); fileComp.set(`${owner}|${u.file}`, comp); }
       if (!projects.has(owner)) projects.set(owner, []);
-      if (u.projectKind === 'library') projects.get(owner).push({ root: u.root, library: comp });
+      if (u.projectKind === 'library') projects.get(owner).push({ root: u.root, library: fileComp.get(`${owner}|${u.file}`) });
       else projects.get(owner).push({ root: u.root, library: null });
     }
   }
+
+  for (const { owner, u, result } of deferred) {
+    const anchor = fileComp.get(`${owner}|${result.anchorFile}`);
+    const comp = anchor || entry(owner, result.name, result.basis);
+    comp.evidence.push(result.evidence);
+    fileComp.set(`${owner}|${u.file}`, comp);
+  }
+  for (const s of specs) for (const g of s.paths) if (!globHit.has(`${s.name}\n${g}`)) unresolved.push(OVR(`extract.components "${s.name}": "${g}" matches no source file`));
 
   // ---- keys: components sort by name per container; a key collision gets _2, _3 in that order
   const components = new Map();

@@ -93,6 +93,8 @@ async function prepare(units, read) {
     for (const [f, a] of files) for (const n of a.decls) if (declCount.get(n) === 1) declaredIn.set(n, f);
     const assigned = new Map();
     for (const [f, a] of files) if (a.anchors.length) assigned.set(f, { ...a.anchors[0], basis: 'anchor' });
+    const clsFile = new Map(); // anchor class name -> its file
+    for (const [f, a] of files) for (const x of a.anchors) if (!clsFile.has(x.name)) clsFile.set(x.name, f);
     const claims = new Map(); // file -> Set of class names claiming it by output binding
     for (const a of files.values()) for (const b of a.binds) {
       const f = declaredIn.get(b.type);
@@ -100,7 +102,7 @@ async function prepare(units, read) {
     }
     for (const [f, who] of claims) {
       if (who.size !== 1) continue; // two function classes claim it: attribute to neither
-      assigned.set(f, { name: [...who][0], line: 1, text: f.split('/').pop(), basis: 'output-binding' });
+      assigned.set(f, { name: [...who][0], line: 1, text: f.split('/').pop(), basis: 'output-binding', anchorFile: clsFile.get([...who][0]) });
     }
     index.set(pk, assigned);
   }
@@ -110,7 +112,7 @@ async function prepare(units, read) {
 function assign(unit, index) {
   const files = index && index.get(projectKey(unit));
   const hit = files && files.get(unit.file);
-  if (hit) return { name: hit.name, basis: hit.basis, evidence: { file: unit.file, line: hit.line, text: hit.text } };
+  if (hit) return { name: hit.name, basis: hit.basis, anchorFile: hit.anchorFile, evidence: { file: unit.file, line: hit.line, text: hit.text } };
   const segs = unit.relFromRoot.split('/').filter(Boolean);
   if (segs.length <= 1) return { name: 'App shell', basis: 'app-shell', evidence: unit.evidence };
   return { name: segs[0], basis: 'first-folder', evidence: unit.evidence };
