@@ -757,27 +757,48 @@ function layout(m, opts = {}) {
   const hasChild = new Set(all.filter(e => e.parent).map(e => e.parent));
   const leaves = all.filter(e => !hasChild.has(e.id)), leafSet = new Set(leaves.map(e => e.id));
   const edges = m.rels.filter(r => leafSet.has(r.src) && leafSet.has(r.dst) && r.src !== r.dst);
-  const out = new Map(leaves.map(e => [e.id, []])); edges.forEach(r => out.get(r.src).push(r));
+  // A unit is what gets layered and placed: a leaf, or (clustered) all leaves of one container, kept together in a grid.
+  const unitOf = new Map(leaves.map(e => [e.id, e.id]));
+  if (opts.groupEdges) for (const e of leaves) {
+    let u = e; while (u.parent && !['softwareSystem', 'person'].includes(m.elements.get(u.parent).kind)) u = m.elements.get(u.parent);
+    unitOf.set(e.id, u.id);
+  }
+  const units = [...new Set(leaves.map(e => unitOf.get(e.id)))];
+  const members = new Map(units.map(u => [u, leaves.filter(e => unitOf.get(e.id) === u)]));
+  const uedges = edges.filter(r => unitOf.get(r.src) !== unitOf.get(r.dst)).map(r => ({ src: unitOf.get(r.src), dst: unitOf.get(r.dst) }));
+  const out = new Map(units.map(u => [u, []])); uedges.forEach(r => out.get(r.src).push(r));
   const st = new Map(), back = new Set();
   const dfs = u => { st.set(u, 1); for (const r of out.get(u)) { const s = st.get(r.dst); if (s === 1) back.add(r); else if (!s) dfs(r.dst); } st.set(u, 2); };
-  const inc = new Set(edges.map(r => r.dst));
-  [...leaves.filter(e => !inc.has(e.id)), ...leaves].forEach(e => { if (!st.get(e.id)) dfs(e.id); });
-  const dag = edges.filter(r => !back.has(r));
-  const layer = new Map(leaves.map(e => [e.id, 0]));
-  for (let k = 0; k <= leaves.length; k++) { let ch = false; for (const r of dag) { const v = layer.get(r.src) + 1; if (layer.get(r.dst) < v) { layer.set(r.dst, v); ch = true; } } if (!ch) break; }
-  const nL = leaves.length ? Math.max(...layer.values()) + 1 : 0;
-  const layers = Array.from({ length: nL }, () => []); leaves.forEach(e => layers[layer.get(e.id)].push(e.id));
+  const inc = new Set(uedges.map(r => r.dst));
+  [...units.filter(u => !inc.has(u)), ...units].forEach(u => { if (!st.get(u)) dfs(u); });
+  const dag = uedges.filter(r => !back.has(r));
+  const layer = new Map(units.map(u => [u, 0]));
+  for (let k = 0; k <= units.length; k++) { let ch = false; for (const r of dag) { const v = layer.get(r.src) + 1; if (layer.get(r.dst) < v) { layer.set(r.dst, v); ch = true; } } if (!ch) break; }
+  const nL = units.length ? Math.max(...layer.values()) + 1 : 0;
+  const layers = Array.from({ length: nL }, () => []); units.forEach(u => layers[layer.get(u)].push(u));
   const pos = new Map();
   layers.forEach(l => { l.sort((a, b) => (m.elements.get(a).parent || '').localeCompare(m.elements.get(b).parent || '')); l.forEach((id, j) => pos.set(id, j)); });
-  const preds = new Map(leaves.map(e => [e.id, []])), succs = new Map(leaves.map(e => [e.id, []]));
+  const preds = new Map(units.map(u => [u, []])), succs = new Map(units.map(u => [u, []]));
   dag.forEach(r => { preds.get(r.dst).push(r.src); succs.get(r.src).push(r.dst); });
   const sweep = (i, nb) => { const bc = id => { const p = nb.get(id); return p.length ? p.reduce((a, x) => a + pos.get(x), 0) / p.length : pos.get(id); }; layers[i].sort((a, b) => bc(a) - bc(b)); layers[i].forEach((id, j) => pos.set(id, j)); };
   for (let it = 0; it < 4; it++) { for (let i = 1; i < nL; i++) sweep(i, preds); for (let i = nL - 2; i >= 0; i--) sweep(i, succs); }
-  const W = 176, H = 66, GX = 112, GY = 44, PAD = 60, maxN = Math.max(1, ...layers.map(l => l.length));
+  const W = 176, H = 66, GX = 112, GY = opts.groupEdges ? 84 : 44, PAD = 60, IX = 28, IY = 28;
+  const cols = u => opts.groupEdges ? Math.ceil(Math.sqrt(members.get(u).length)) : 1;
+  const uw = u => cols(u) * W + (cols(u) - 1) * IX, uh = u => Math.ceil(members.get(u).length / cols(u)) * H + (Math.ceil(members.get(u).length / cols(u)) - 1) * IY;
+  const colW = layers.map(l => Math.max(0, ...l.map(uw))), colH = layers.map(l => l.reduce((a, u) => a + uh(u), 0) + Math.max(0, l.length - 1) * GY);
+  const maxH = Math.max(H, ...colH);
   const nodes = new Map();
-  layers.forEach((l, i) => { const off = (maxN - l.length) * (H + GY) / 2; l.forEach((id, j) => nodes.set(id, { id, el: m.elements.get(id), x: PAD + i * (W + GX), y: PAD + off + j * (H + GY), w: W, h: H })); });
+  let x0_ = PAD;
+  layers.forEach((l, i) => {
+    let y = PAD + (maxH - colH[i]) / 2;
+    l.forEach(u => {
+      members.get(u).forEach((e, j) => { const c = cols(u); nodes.set(e.id, { id: e.id, el: e, x: x0_ + (j % c) * (W + IX), y: y + Math.floor(j / c) * (H + IY), w: W, h: H }); });
+      y += uh(u) + GY;
+    });
+    x0_ += colW[i] + GX;
+  });
   const groups = [];
-  for (const g of all.filter(e => hasChild.has(e.id))) {
+  for (const g of all.filter(e => hasChild.has(e.id) && !(opts.groupEdges && e.kind === 'softwareSystem'))) {
     const mem = [...nodes.values()].filter(n => m.isAncestor(g.id, n.id)); if (!mem.length) continue;
     const x0 = Math.min(...mem.map(n => n.x)) - 20, y0 = Math.min(...mem.map(n => n.y)) - 34, x1 = Math.max(...mem.map(n => n.x + n.w)) + 20, y1 = Math.max(...mem.map(n => n.y + n.h)) + 20;
     groups.push({ el: g, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
@@ -792,7 +813,7 @@ function layout(m, opts = {}) {
       if (a && b) groupEdges.push({ rel: r, a, b });
     }
   }
-  return { nodes, edges, groups, groupEdges, width: PAD * 2 + nL * W + Math.max(0, nL - 1) * GX, height: PAD * 2 + maxN * H + (maxN - 1) * GY + 110 };
+  return { nodes, edges, groups, groupEdges, width: PAD * 2 + colW.reduce((a, b) => a + b, 0) + Math.max(0, nL - 1) * GX, height: PAD * 2 + maxH + 110 };
 }
 function clip(cx, cy, tx, ty, w, h) { const dx = tx - cx, dy = ty - cy; if (!dx && !dy) return [cx, cy]; const s = Math.min((w / 2) / Math.abs(dx || 1e-9), (h / 2) / Math.abs(dy || 1e-9)); return [cx + dx * s, cy + dy * s]; }
 function fitZoom(el, L, zoom) {
