@@ -53,7 +53,7 @@ workspace "fullstack (as built)" {
         "d.interaction" "sync"
       }
     }
-    e_ui -> e_newrelic "Authenticates via" "New Relic agent" {
+    e_ui -> e_newrelic "Sends telemetry to" "New Relic agent" {
       properties {
         "d.interaction" "sync"
       }
@@ -67,7 +67,7 @@ workspace "fullstack (as built)" {
     c_shopfunctions_shopinfrastructure -> e_snowflake "Reads and writes" "Snowflake" { properties { "d.interaction" "sync" } }
     c_shopapi_appshell -> e_entraid "Authenticates via" "Identity provider" { properties { "d.interaction" "sync" } }
     c_ui_auth -> e_entraid "Authenticates via" "MSAL" { properties { "d.interaction" "sync" } }
-    c_ui_appshell -> e_newrelic "Authenticates via" "New Relic agent" { properties { "d.interaction" "sync" } }
+    c_ui_appshell -> e_newrelic "Sends telemetry to" "New Relic agent" { properties { "d.interaction" "sync" } }
     c_ui_api -> c_shopapi_customerscontroller "Calls 1 endpoint(s)" "HTTP" { properties { "d.interaction" "sync" } }
     c_ui_api -> c_shopapi_orderendpoints "Calls 2 endpoint(s)" "HTTP" { properties { "d.interaction" "sync" } }
   }
