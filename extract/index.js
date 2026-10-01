@@ -71,6 +71,7 @@ async function extract(repo, opts = {}) {
   const linked = link.link({ elements, consumes, provides }, opts);
   edges.push(...linked.edges);
   unresolved.push(...linked.unresolved);
+  const internal = linked.internal;
 
   const comp = components.build({ elements, units }, opts);
 
@@ -86,6 +87,7 @@ async function extract(repo, opts = {}) {
     edges: edges.map(e => ({ from: elements.get(e.from).name, to: elements.get(e.to).name, kind: e.kind, label: e.label, tech: e.tech, evidence: e.evidence })),
     unresolved: [...unresolved, ...comp.unresolved],
     components: [...comp.components.values()].map(c => ({ key: c.key, name: c.name, owner: elements.get(c.owner).name, basis: c.basis, evidence: c.evidence })),
+    internal,
     componentEdges: comp.componentEdges,
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };
