@@ -745,7 +745,9 @@ function renderWelcome() {
 }
 
 // ---------------------------------------------------------------- C4 sheet
-function layout(m) {
+// opts.groupEdges: also return rels with a grouped (container) end, resolved to node or group rects.
+// They stay out of layering, so node and group geometry is the same with or without it.
+function layout(m, opts = {}) {
   const all = [...m.elements.values()];
   const hasChild = new Set(all.filter(e => e.parent).map(e => e.parent));
   const leaves = all.filter(e => !hasChild.has(e.id)), leafSet = new Set(leaves.map(e => e.id));
@@ -775,7 +777,17 @@ function layout(m) {
     const x0 = Math.min(...mem.map(n => n.x)) - 20, y0 = Math.min(...mem.map(n => n.y)) - 34, x1 = Math.max(...mem.map(n => n.x + n.w)) + 20, y1 = Math.max(...mem.map(n => n.y + n.h)) + 20;
     groups.push({ el: g, x: x0, y: y0, w: x1 - x0, h: y1 - y0 });
   }
-  return { nodes, edges, groups, width: PAD * 2 + nL * W + Math.max(0, nL - 1) * GX, height: PAD * 2 + maxN * H + (maxN - 1) * GY + 110 };
+  const groupEdges = [];
+  if (opts.groupEdges) {
+    const rect = id => nodes.get(id) || groups.find(g => g.el.id === id);
+    for (const r of m.rels) {
+      if (r.src === r.dst || !(hasChild.has(r.src) || hasChild.has(r.dst))) continue;
+      if (m.isAncestor(r.src, r.dst) || m.isAncestor(r.dst, r.src)) continue; // structural
+      const a = rect(r.src), b = rect(r.dst);
+      if (a && b) groupEdges.push({ rel: r, a, b });
+    }
+  }
+  return { nodes, edges, groups, groupEdges, width: PAD * 2 + nL * W + Math.max(0, nL - 1) * GX, height: PAD * 2 + maxN * H + (maxN - 1) * GY + 110 };
 }
 function clip(cx, cy, tx, ty, w, h) { const dx = tx - cx, dy = ty - cy; if (!dx && !dy) return [cx, cy]; const s = Math.min((w / 2) / Math.abs(dx || 1e-9), (h / 2) / Math.abs(dy || 1e-9)); return [cx + dx * s, cy + dy * s]; }
 function fitZoom(el, L, zoom) {
@@ -787,7 +799,7 @@ function fitZoom(el, L, zoom) {
 function drawModel(m, L, o) {
   const mk = { n: 'var(--ink3)', error: 'var(--err)', warning: 'var(--warn)' };
   let svg = `<svg width="${L.width * o.zoom}" height="${L.height * o.zoom}" viewBox="0 0 ${L.width} ${L.height}" xmlns="http://www.w3.org/2000/svg" font-family="system-ui,Segoe UI,sans-serif"><defs>${Object.entries(mk).map(([k, c]) => `<marker id="mk-${o.attr}-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${c}"/></marker>`).join('')}</defs>`;
-  for (const g of L.groups) svg += `<rect x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="4" fill="none" stroke="var(--ink3)" stroke-width="1.2" stroke-dasharray="7 5"/><text x="${g.x + 12}" y="${g.y + 20}" font-size="12.5" font-weight="700" fill="var(--ink)">${esc(g.el.name)} <tspan font-weight="400" fill="var(--ink3)" font-size="11">[${g.el.kind === 'softwareSystem' ? 'Software System' : 'Container'}]</tspan></text>`;
+  for (const g of L.groups) svg += `<g data-${o.attr}g="${esc(g.el.id)}"><rect x="${g.x}" y="${g.y}" width="${g.w}" height="${g.h}" rx="4" fill="none" stroke="var(--ink3)" stroke-width="1.2" stroke-dasharray="7 5"/><text x="${g.x + 12}" y="${g.y + 20}" font-size="12.5" font-weight="700" fill="var(--ink)">${esc(g.el.name)} <tspan font-weight="400" fill="var(--ink3)" font-size="11">[${g.el.kind === 'softwareSystem' ? 'Software System' : 'Container'}]</tspan></text></g>`;
   const edge = (a, b, st, label) => {
     const ac = [a.x + a.w / 2, a.y + a.h / 2], bc = [b.x + b.w / 2, b.y + b.h / 2];
     const p1 = clip(ac[0], ac[1], bc[0], bc[1], a.w + 6, a.h + 6), p2 = clip(bc[0], bc[1], ac[0], ac[1], b.w + 10, b.h + 10);
@@ -796,6 +808,7 @@ function drawModel(m, L, o) {
     return h;
   };
   for (const x of o.extra || []) { const a = L.nodes.get(x.src), b = L.nodes.get(x.dst); if (a && b) svg += edge(a, b, { color: 'var(--ink3)', width: 1.2, dash: '2 4', labelColor: 'var(--ink3)' }, x.label); }
+  for (const x of L.groupEdges || []) { const st = o.edgeStyle(x.rel); svg += edge(x.a, x.b, st, st.label); }
   for (const r of L.edges) { const st = o.edgeStyle(r); svg += edge(L.nodes.get(r.src), L.nodes.get(r.dst), st, st.label); }
   for (const n of L.nodes.values()) {
     const e = n.el, st = o.nodeStyle(e), store = Core.isStore(e), person = e.kind === 'person', ext = e.tags.has('External');
