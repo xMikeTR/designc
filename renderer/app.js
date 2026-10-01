@@ -1015,6 +1015,8 @@ function renderCodemap() {
       <tr><td><span class="code">AddHttpClient</span> + base address in appsettings</td><td>Sync edges, matched to projects by launch port or name; other hosts become external systems.</td></tr>
       <tr><td>Service Bus senders and processors</td><td>Async edges, matched on queue or topic name.</td></tr>
       <tr><td>JS/TS <span class="code">package.json</span> dependencies</td><td>SPA and Node API containers; routers and dev-proxy config give their ports and provided routes.</td></tr>
+      <tr><td>Function classes, controllers and endpoint classes, libraries, first folders (override: <span class="code">designc.json</span> <span class="code">extract.components</span>)</td><td>Components inside each container, with edges where one type references another.</td></tr>
+      <tr><td>The Context · Containers · Components switcher</td><td>Zoom the map. Double-click a container to drill into its components; Backspace goes up. "Adopt these components" copies them into the design.</td></tr>
       <tr><td>HTTP and hub calls (fetch/axios/withUrl) across languages</td><td>Sync/realtime edges, matched to providers by route; a dev-proxy port breaks ties between multiple candidates.</td></tr>
       <tr><td><span class="code">designc.json</span> bindings</td><td>Env-only calls (no literal target in code) linked to a named element you declare, instead of staying unresolved.</td></tr>
       </table></div></div></div>`;

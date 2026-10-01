@@ -9,7 +9,7 @@ designc is an Electron desktop IDE for system design in which the design is the 
 | View | System | Purpose |
 | --- | --- | --- |
 | Design | System 1, design compiler | Structurizr DSL model with `d.*` design properties, live lint (DC000 to DC006), C4 sheet, decisions, requirements, definition-of-ready gate, grill-me, handover |
-| Code map | As-built | Deterministic extraction of a .NET codebase into a C4 model with evidence, overlaid on the design as drift (DC100 to DC102) |
+| Code map | As-built | Deterministic extraction of a .NET and JS/TS codebase into a C4 model with evidence, down to component level, overlaid on the design as drift (`Core.driftModels` for containers, `Core.driftComponents` for components) |
 | Build | System 2, coding pipeline | Agent runs from Langfuse plus pipeline events from the ledger: tokens per passing task, reruns, decision check results, needs-decision items, drift |
 | Improve | System 4, improvement loop | Escapes by the stage that should have caught them, rule health, proposals, escape suggestions from telemetry |
 | Agent panel | All | Chat pane with roles (Architect, Grill-me, Analyst). Three agent kinds: built-in through an OpenAI-compatible gateway, any Agent Client Protocol (ACP) agent, or a remote AG-UI agent service such as a MAF host |
@@ -207,6 +207,12 @@ Properties are **demand-driven**: nothing is globally required. A rule emits an 
 
 `Core.driftModels(design, asbuilt)` matches elements by normalised name (lowercase alphanumerics) or `d.aka`, and returns `toDesign`, `toBuilt`, `relStatus` (matched, undeclared, unmapped), `undeclared`, `unrealised`, `unknownEls` and `missingEls`.
 
+`Core.view(model, {level, scope})` projects a model for the Code map: `context` and `container` are `atLevel`; `component` keeps everything, or, with `scope` set to a container id, that container's components plus its neighbours folded to container level. Rollup rels covered by visible component rels are dropped; rel ids are preserved.
+
+`Core.driftComponents(design, built)` judges components only inside a container whose design declares components (*scored*). Components elsewhere are *neutral*, so a container-only design never shows component warnings. It also returns `adoptable` (built containers with components whose design match has none). Rel status adds `neutral` to matched, undeclared and unmapped; cross-container component rels also match the lifted container-level design rel.
+
+`Core.spliceComponents(designText, design, designId, built, builtId)` returns `{text}` or `{error}`. It inserts one built container's components and the rels between them into the design container's block (adding a block if there is none), changing no other line. It refuses if the design container already has components or its block cannot be located. The Code map's "Adopt these components" button calls it, and refuses while the design buffer has unsaved edits.
+
 ### Adding a lint rule
 
 Only add rules from an observed incident or post-mortem, and record it in `source`. Add an entry to `RULES` in `core.js` with `code`, `title`, `source`, `doc` and `fn(model, opts)` returning diagnostics built with `D(code, sev, msg, loc, {hint, unknown, related})`. If it needs a new property, add it to `SPECS` in `core.js` and to `PROPS` in `app.js` (completions and hovers). Mirror the rule in the Python `designc` package so CI and the IDE agree. Check it fires on the model that motivated it and that the sample findings above are unchanged unless intended.
@@ -312,9 +318,15 @@ Events handled: `TEXT_MESSAGE_START/CONTENT/END/CHUNK`, `TOOL_CALL_START/ARGS/EN
 
 **Change the layout of the C4 drawings.** `layout(m)` (layered, left to right, barycentric ordering) and `drawModel(m, L, opts)` in `app.js` are shared by the design sheet and the code map. Style hooks are `nodeStyle(e)` and `edgeStyle(r)` in the options, plus `extra` for ghost edges.
 
+### Levels, drill-down and adopting components
+
+The Code map has a Context, Containers and Components switcher. Double-clicking a container (or a group at Components level) scopes Components to it, the breadcrumb's All shows every container, and double-clicking empty canvas or pressing Backspace on the map goes up one level. Components is disabled when the as-built model has none (re-extract). Components come from function classes, controllers and endpoint classes, libraries, first folders, and overrides in `designc.json` `extract.components`.
+
 ## Known limitations
 
 The DSL parser covers the subset above, not all of Structurizr (no `!include`, deployment models, dynamic views or archetypes). P models are not run inside the app; only their checks run, as shell commands from decisions. The .NET extractor is regex-based and covers the common registrations listed; other languages are not extracted. The C4 layout is automatic and basic. The built-in agent loop is not MAF: it follows the same contract (role, tools, policy, ledger) so it can later be pointed at a MAF host. `integrations/DesigncTelemetry.cs` is an uncompiled sketch. ACP support targets protocol v1 and has been tested against the mock agent, not yet against real Claude Code, Codex or Gemini adapters, whose package names change often. AG-UI support has been tested against `dev/mock-agui-server.js`, not yet against a real MAF host; `integrations/maf-agui-host/` is uncompiled. Installers are unsigned.
+
+Adopted in-process component rels count as DC003 sync hops (only ancestor/descendant pairs are exempt), so a long in-process chain can raise a DC003 warning. Adopted async rels get a DC001 warning until a `d.delivery` is declared.
 
 ## Related systems
 
