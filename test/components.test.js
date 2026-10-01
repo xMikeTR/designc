@@ -30,6 +30,12 @@ test('every source file of every deployable lands in exactly one component', asy
   for (const want of ['ui:api', 'ui:auth', 'nodeapi:routes', 'shopapi:Controllers', 'ui:App shell']) assert.ok(names.includes(want), `missing ${want}`);
 });
 
+test('component ids follow the c_ scheme in the nested DSL', async () => {
+  const r = await extract(FULLSTACK);
+  assert.match(r.dsl, /^ +c_shopapi_controllers = component "Controllers"/m);
+  assert.ok(!/ e_\w+_\w+ = component/.test(r.dsl));
+});
+
 test('a container without components renders exactly as in slice 1', async () => {
   const r = await extract(SAMPLE);
   const els = new Map(r.facts.elements.map(e => [e.key, e]));
