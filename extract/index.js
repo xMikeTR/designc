@@ -73,7 +73,7 @@ async function extract(repo, opts = {}) {
   unresolved.push(...linked.unresolved);
   const internal = linked.internal;
 
-  const comp = await components.build({ elements, units, read: f => read(path.join(repo, f)) }, opts);
+  const comp = await components.build({ elements, units, edges, internal, read: f => read(path.join(repo, f)) }, opts);
 
   const repoName = path.basename(repo);
   const renderedDsl = dsl.render(repoName, elements, edges, comp.components, comp.componentEdges);
