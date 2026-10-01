@@ -1170,8 +1170,9 @@ document.addEventListener('wheel', e => {
   A.cmZoom = Math.max(0.3, Math.min(2, cur * (e.deltaY < 0 ? 1.1 : 0.9))); drawCodemap();
 }, { passive: false });
 document.addEventListener('dblclick', e => {
-  const c = e.target.closest && e.target.closest('#cmcanvas'); if (!c || !A.asbuiltFull) return;
-  const node = e.target.closest('.node[data-cm]'), grp = e.target.closest('[data-cmg]');
+  // the two clicks redraw the canvas, so e.target is already detached: hit-test the live DOM
+  const t = document.elementFromPoint(e.clientX, e.clientY), c = t && t.closest('#cmcanvas'); if (!c || !A.asbuiltFull) return;
+  const node = t.closest('.node[data-cm]'), grp = t.closest('[data-cmg]');
   const id = node ? node.dataset.cm : grp ? grp.dataset.cmg : null;
   if (!id) return cmUp();
   const el = A.asbuiltFull.elements.get(id); if (!el) return;

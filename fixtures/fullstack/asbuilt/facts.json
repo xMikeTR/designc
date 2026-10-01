@@ -1,6 +1,6 @@
 {
   "repo": "fullstack",
-  "extractedAt": "2026-10-01T14:13:27.061Z",
+  "extractedAt": "2026-10-01T14:31:43.695Z",
   "projects": [
     {
       "name": "Shop.Api",
@@ -225,7 +225,7 @@
       "from": "ui",
       "to": "New Relic",
       "kind": "sync",
-      "label": "Authenticates via",
+      "label": "Sends telemetry to",
       "tech": "New Relic agent",
       "evidence": [
         {
@@ -527,7 +527,7 @@
       "from": "c_ui_appshell",
       "to": "e_newrelic",
       "kind": "sync",
-      "label": "Authenticates via",
+      "label": "Sends telemetry to",
       "tech": "New Relic agent",
       "via": "container-edge",
       "evidence": [
