@@ -1,0 +1,33 @@
+{
+  "name": "designc-ide",
+  "productName": "designc",
+  "version": "0.1.0",
+  "description": "System design IDE: design compiler (S1), pipeline view (S2), improvement loop (S4)",
+  "main": "main.js",
+  "license": "UNLICENSED",
+  "scripts": {
+    "start": "electron .",
+    "test": "node --test \"test/**/*.test.js\"",
+    "dist": "electron-builder",
+    "dist:win": "electron-builder --win nsis",
+    "dist:mac": "electron-builder --mac dmg",
+    "dist:linux": "electron-builder --linux AppImage"
+  },
+  "dependencies": {
+    "js-yaml": "^4.1.0",
+    "monaco-editor": "0.52.0"
+  },
+  "devDependencies": {
+    "electron": "^33.0.0",
+    "electron-builder": "^25.1.8"
+  },
+  "build": {
+    "appId": "com.hiscox.designc",
+    "productName": "designc",
+    "files": ["main.js", "preload.js", "extract.js", "extract/**", "telemetry.js", "acp.js", "designc-mcp.js", "ledger-store.js", "sample-codebase/**", "renderer/**", "sample-registry/**", "node_modules/monaco-editor/min/**", "node_modules/js-yaml/dist/**", "package.json"],
+    "asarUnpack": ["sample-registry/**", "sample-codebase/**", "designc-mcp.js"],
+    "win": { "target": "nsis" },
+    "mac": { "target": "dmg", "category": "public.app-category.developer-tools" },
+    "linux": { "target": "AppImage", "category": "Development" }
+  }
+}

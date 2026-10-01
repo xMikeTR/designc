@@ -1,0 +1,349 @@
+{
+  "plan": "extract-components-s2",
+  "title": "Code map slice 2: component extraction (C# function/controller/endpoint classes, libraries, TS feature folders), component edges from pinned evidence, type references, DI and imports, nested component DSL, Core.atLevel; the code map still draws the container level",
+  "planned_at": "2026-09-28T16:46:26",
+  "project_root": "designc-desktop/app",
+  "test_runner": "node",
+  "quality_gate": {
+    "frontend-dev": {
+      "type_check": "node -e \"require('./extract.js'); require('./renderer/core.js')\"",
+      "test": "node --test \"test/**/*.test.js\"",
+      "security": "npm audit --audit-level=high"
+    }
+  },
+  "contract": {
+    "baseline": "Planned against feat/extract-multilang-s1 at d11f70f (slice 1 EXT-01..05 plus review fixes and facts.internal). Merge slice 1 first. Every file:line in this manifest refers to that commit. If line numbers have moved, re-anchor by the named function before editing.",
+    "invariants": "GOVERNANCE.md extract-no-app-specific-names (no Pricing-MaPS, Hiscox, AmunRa or maps_pricingjob in extract/*.js, so fixtures and tests use generic names) and extract-no-new-dependencies (extract/ requires only Node built-ins and sibling modules). renderer/core.js stays dependency-free and runs in both browser and node (module.exports guard at core.js:447). Vanilla JS, no framework, and esc() for all HTML. Never invent edges: a reference that doesn't resolve to exactly one declaration makes no edge. Sample compiler findings are unchanged: 2 errors, 4 warnings, 1 suppressed.",
+    "container_level_is_unchanged": "facts.elements, facts.edges, facts.provides, facts.consumes, facts.internal, facts.unresolved (existing entries) and stats keep their slice 1 shapes and values. BASELINE_STATS in test/extract.sample.test.js is deep-equal, so no new stats key. Component data lives only in the new facts.components and facts.componentEdges, plus new unresolved entries.",
+    "scanner_units": "Each scanner's Facts gains units: [{ file: rel posix, owners: [container key], project: project/package name, projectKind: csharp kind (web|worker|app|functions|library) or js kind (spa|api|library), root: rel dir of the project, or of the package's src/ when one exists, lang: 'C#'|'F#'|'TS'|'JS' }]. There is one unit per non-test source file under root. Files outside root are not units, such as vite.config.ts beside a package's src/. When pinning (component_edges a) meets such an evidence file, it maps to App shell, which is then created if absent. A library file's owners are the deployables whose closure includes it (csharp.js ownersOf :210 and owners :280; js-calls.js ownersOf :279). Test projects and TEST_RE files (js.js:9) produce no units. merge (index.js:28) concatenates units, and facts does not emit them.",
+    "js_imports": "js-calls.js scan additionally returns imports: [{ from: rel, to: rel }] for every import/require/dynamic import (importsOf :166) that resolves to a repo file: relative, through aliasesOf (:237) and the resolve helper (:283-290), or a bare spec whose module name (moduleName :165) is a workspace library package, which resolves to that package's main entry or src/index.*. Unresolvable specs produce nothing.",
+    "link_pairs": "edgeAdder (link.js:17-24) takes an optional 7th argument pair = { from: evidence, to: evidence|null, call?: string } and pushes it onto e.pairs (created lazily). linkQueues cross-owner edges (:57) record { from: snd.evidence, to: r.evidence }. linkHttp collect (:87-91) records { from: c.evidence, to: p.evidence, call } for provider matches (:126), and { from: c.evidence, to: null, call } for host and binding targets (:96, :104). index.js facts.edges (:63) stays an explicit field pick, so pairs are never emitted.",
+    "component_assignment": "extract/components.js assigns each unit, per owner container, to exactly one component. Precedence: (1) designc.json extract.components override, first match wins. (2) C# anchors: a class with at least one [Function(...)] method, a class whose name ends in Controller or that derives from ControllerBase/Controller, or a static class calling Map(Get|Post|Put|Patch|Delete|Methods|Group). The component is named after the class and holds the class's file(s). (3) C# output-binding types: the T in Task<T>/ValueTask<T>/T returned by a [Function] method joins that method's class component, even when declared in another file of the same project. (4) A library project or package becomes one component named after the project/package inside each owner container. (5) Files directly in root become 'App shell'. (6) TS/JS support folders (types, constants, styles, assets, test, tests, mocks, __mocks__, case-insensitive) become 'Shared'. (7) A grouping folder (features, modules, domains, case-insensitive) as the first folder steps down one level: root/features/orders/** becomes 'orders', and files directly in root/features become 'features'. (8) Otherwise the first folder under root names the component. F# files use rules 4, 5 and 8 only. Anchor detection runs on csharp.js blanked code (blankComments), so commented-out classes do not count.",
+    "component_ids": "The component id (DSL identifier) is 'c_' + keyOf(container name) + '_' + keyOf(component name). keyOf (link.js:4) is [a-z0-9] only, so '_' is unambiguous. On a collision inside one container, suffix _2, _3 in component-name order. Components sort by name (localeCompare 'en') for deterministic output. A library component in two containers therefore has two ids.",
+    "component_edges": "facts.componentEdges: [{ from: component id, to: component id | element id ('e_' + keyOf(name)), kind: 'sync'|'async'|'data'|'realtime', label, tech, via: 'container-edge'|'queue-internal'|'type'|'di'|'di-candidate'|'import', evidence: [{file,line,text}] }]. The layers are built as follows. (a) Pinned container edges: for every facts.edges entry, each pair (or, if the edge has no pairs, each evidence item as the from-end with a null to-end) maps its from-end file to a component of edge.from. The to-end maps to a component of edge.to when the target is a deployable with pinnable evidence; to the element itself when the target is a store or external; and to the target container element itself when the target is a deployable and the to-end is null. Evidence files that are not source units (.csproj, designc.json, package.json, appsettings) map to the deepest project: a library maps to its library component, a deployable to App shell. http edges are relabelled 'Calls N endpoint(s)' with N = distinct pair.call values per component pair, and all other kinds keep the container label verbatim. (b) facts.internal queue links become async edges from each send's component to each receive's component, labelled 'Sends via \"<key>\"' with the link tech. (c) C# type and DI edges and (d) TS/JS import edges are intra-container, kind 'sync', label 'Uses', tech 'in-process', except DI candidates, which are labelled 'Uses (DI candidate)'. Same-component edges are dropped. Edges are de-duplicated by (from, to, kind) with evidence appended, and a certain edge absorbs a DI-candidate edge for the same pair. Rollup invariant: folding every componentEdge end to its container and dropping self-loops yields exactly the (from, to, kind) set of facts.edges.",
+    "csharp_references": "Type index: class, record, struct and interface declarations per project from blanked code, with namespace (reuse the span logic at csharp.js:283-286). A referencing file sees the declarations in its project's closure (csharp.js closure :186). A simple name resolves only if exactly one declaration in that closure has it; otherwise nothing happens. References are collected from: ctor and primary-ctor parameters, minimal-API lambda parameters, parameters of [Function] and controller action methods, field and property types, generic arguments of those, new T(, GetRequiredService<T> and GetService<T>. DI registrations are collected per deployable closure: (Try)?Add(Singleton|Scoped|Transient)<I, Impl>, the typeof(I), typeof(Impl) forms, AddHttpClient<I, Impl>, factory lambdas containing new Impl(, and single-type Add*<T>, which counts as a reference from the registering file to T. A reference to an interface I produces an edge to I's declaring component and, per registration Impl of I in that deployable, an edge to Impl's component. If I has more than one registration in the deployable, those implementation edges are 'di-candidate' and one unresolved entry { where: container, what: '<I> has N registrations (<Impl1>, <Impl2>); component edges to them are marked DI candidate', file, line, text } is added at the first registration.",
+    "designc_json": "\"extract\": { \"bindings\": { ... }, \"components\": [ { \"name\": \"<component name>\", \"paths\": [\"<repo-relative posix glob>\", ...] } ] }. extract/glob.js is a built-in matcher supporting **, * and ? (no braces or negation), case-sensitive, on repo-relative posix paths. A file matched in several containers becomes the named component in each. An entry without a string name or a non-empty paths array goes to unresolved (where 'designc.json'). A glob that matches no unit goes to unresolved: extract.components \"<name>\": \"<glob>\" matches no source file. main.js:189-192 already passes readSettings().extract as opts, so main.js does not change.",
+    "dsl": "dsl.render(repoName, elements, edges, components, componentEdges). With no components, the output is byte-identical to slice 1. A container with components renders as '      e_x = container \"N\" \"\" \"T\" {' followed by one line per component, '        c_x_y = component \"Name\" \"\" \"tech\"', then '      }'. All container-level relationships render exactly as today (5-line blocks, same order, dsl.js:13) and come first. Component relationships follow, each on ONE line: '    <from> -> <to> \"label\" \"tech\" { properties { \"d.interaction\" \"sync|async\" } }'. The one-line form is what Core.containerLevelText relies on. No new d.* properties are allowed (core.js:212 raises DC000 on unknown d.* keys), and relationship tags are not parsed (core.js:79-88), so the DI-candidate marker is carried by the label.",
+    "core_atLevel": "Core.atLevel(model, level), level in 'context'|'container'|'component', is pure and returns a new model built with makeModel (core.js:135). Every element deeper than the level folds into its nearest ancestor at or above that level. At 'context', containers fold into their softwareSystem and people and systems stay. Each rel maps its src and dst to their fold targets. Self-loops are dropped. A rel whose endpoints are both already at or above the level ('explicit') is kept. A lifted rel is dropped if an explicit rel with the same (src, dst) exists; otherwise the first lifted rel per (src, dst, description) is kept. Rel ids, lines and props are preserved, and errors are copied. Core.containerLevelText(text) returns the text with every component-declaration line and every relationship line whose src or dst is a component removed, located by parse line numbers. It assumes the one-line forms written by dsl.js and leaves everything else byte-identical. Both are exported next to the existing API (core.js:445)."
+  },
+  "tasks": [
+    {
+      "task_id": "COMP-01",
+      "title": "Component seam end to end: scanner units, components.js with the first-folder convention, nested DSL, Core.atLevel and containerLevelText, renderer pinned to the container view",
+      "type": "sequential",
+      "depends_on": [],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "extract/index.js",
+          "extract/components.js",
+          "extract/components-cs.js",
+          "extract/components-js.js",
+          "extract/csharp.js",
+          "extract/js.js",
+          "extract/dsl.js",
+          "renderer/core.js",
+          "renderer/app.js",
+          "test/extract.sample.test.js",
+          "test/components-core.test.js",
+          "test/components.test.js"
+        ],
+        "modules": ["extract", "renderer/core"],
+        "boundaries": "Create the seam that later tasks fill in, and ship it working. csharp.js (return :443-447) and js.js (return :152-159) add units per the contract. index.js merge (:28) concatenates units. After link (:54), index.js calls require('./components').build(f, opts) -> { components, componentEdges, unresolved }, appends the unresolved entries, passes components and componentEdges to dsl.render (:57), and adds facts.components and facts.componentEdges after internal (:68). Do not change stats (:70-75). components.js owns precedence and ids and delegates language rules to components-cs.js and components-js.js, whose interface is assign(unit) -> { name, basis, evidence } | null, plus edges(ctx) -> []. In this task both implement only rules 5 (App shell) and 8 (first folder). No component edges yet: componentEdges is []. dsl.js nests per the contract. core.js adds atLevel and containerLevelText. app.js changes exactly three lines. :121 becomes A.asbuilt = Core.atLevel(Core.parse(dsl), 'container'), so the code map (layout :729-731 draws leaves only) keeps drawing containers. :129 becomes driftModels(Core.atLevel(A.model, 'container'), A.asbuilt), so a design that declares components is compared at container level until slice 3; today those design components are reported as not built. :851 (adoptAsDesign) passes the as-built text through Core.containerLevelText before the existing comment and '(as built)' stripping, so 'Start the design from this map' still adopts containers only. Do not touch the codemap functions (:836-937) or any grill-me region (app.js :39, :41, :493-523, :648-654, :993-1065, :1114-1117). Update test/extract.sample.test.js: container lines may end in ' {'; relationship counting and the Core.parse assertions use the container-level rels (idents starting 'e_' on both sides, or Core.atLevel(m, 'container').rels); the async count uses only the container-level blocks. Keep every existing test name."
+      },
+      "inputs": {
+        "context": [
+          "extract/index.js:10-76 (SCANNERS, merge, extract, facts pick at :62-68, stats :70-75)",
+          "extract/dsl.js:4-16 (render; 'e_' + keyOf ids; data edges render as d.interaction sync)",
+          "extract/csharp.js:142-196 (projects, kinds :156-161, sources to deepest project :166-170, closure :186, sourceFiles :190-196), :210 and :280 (owners)",
+          "extract/js.js:9 (TEST_RE), :38-65 (packages, files to deepest package), :144-159",
+          "renderer/core.js:39-133 (parse: elements carry parent, ident and line; rels resolved in pending order as ids r1..rN), :135-142 (makeModel), :212 (DC000 for unknown d.*), :395-443 (drift, driftModels), :445-447 (exports)",
+          "renderer/app.js:119-131 (loadAsbuilt, recompile), :727-758 (layout draws leaves and groups parents), :849-854 (adoptAsDesign)",
+          "test/extract.sample.test.js:36-72 (BASELINE_STATS deep-equal; container-line check uses l.trim().endsWith(line), which breaks with ' {'; rels counted by / -> /; async counted by regex; m.rels.length compared)",
+          "fixtures/fullstack: api/src/Shop.Api/{Controllers,Endpoints,Properties}, Program.cs; api/src/Shop.Functions/OrderFunctions.cs, Program.cs; api/src/Shop.Infrastructure (library, referenced by Shop.Api and Shop.Functions); ui/src/{api,auth,realtime}, ui/src/telemetry.ts; admin/src/{auth,features/customers,features/orders,services}; node-api/src/{routes/invoices.js,server.js}; shared-lib (package shop-shared, no dependants)"
+        ],
+        "prior_task_outputs": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-01-AC1",
+          "statement": "Existing sample-codebase tests stay green under their existing names after the minimal update described in boundaries. BASELINE_STATS, the 8 elements and the 9 edges are unchanged. The container-level view of the DSL parses with zero errors and has exactly BASELINE_EDGES.length rels.",
+          "verified_by": "test::test/extract.sample.test.js::sample-codebase DSL parses cleanly in the design compiler"
+        },
+        {
+          "id": "COMP-01-AC2",
+          "statement": "For sample-codebase and for fixtures/fullstack, Core.atLevel(Core.parse(nested dsl), 'container') equals Core.parse(dsl.render(name, elements, edges)) (the slice 1 flat form, called with no components). Compared on elements (ident, name, kind, technology, parent ident) and rels (src ident, dst ident, description, technology, props).",
+          "verified_by": "test::test/components-core.test.js::atLevel container view of the nested as-built equals the flat container model"
+        },
+        {
+          "id": "COMP-01-AC3",
+          "statement": "On an inline DSL with a system, two containers, components under each, an external, and rels at every level: component rels lift to container rels; self-loops are dropped; an explicit container rel suppresses a lifted duplicate; the first lifted rel per (src, dst, description) is kept with its original id; 'context' folds containers into the system and keeps the external and its rels; 'component' returns an equivalent model.",
+          "verified_by": "test::test/components-core.test.js::atLevel folds children into ancestors and lifts relationships without duplicates"
+        },
+        {
+          "id": "COMP-01-AC4",
+          "statement": "Core.containerLevelText on the nested fullstack DSL removes exactly the component declaration lines and the component relationship lines. The result parses with zero errors, has no component elements, and every other line is byte-identical to the input.",
+          "verified_by": "test::test/components-core.test.js::containerLevelText leaves a container-only design"
+        },
+        {
+          "id": "COMP-01-AC5",
+          "statement": "On fixtures/fullstack, every unit is assigned to exactly one component per owner container. shop-ui has exactly the components api, auth, realtime and App shell (src/telemetry.ts is in App shell). No component exists for a test file, the shop-shared package or a store/external. Ids follow the contract scheme. Extracting twice gives identical facts.components and identical DSL apart from the date line.",
+          "verified_by": "test::test/components.test.js::every source file of every deployable lands in exactly one component"
+        },
+        {
+          "id": "COMP-01-AC6",
+          "statement": "A repo with no source files under any deployable renders byte-identical DSL to dsl.render without components: no container gets a '{' block.",
+          "verified_by": "test::test/components.test.js::a container without components renders exactly as in slice 1"
+        },
+        {
+          "id": "COMP-01-AC7",
+          "statement": "In the running app on fixtures/fullstack: the Code map shows the same containers, externals and edges as before this task, with no component boxes. 'Start the design from this map' writes a design with no component lines, which recompiles with no DC000.",
+          "verified_by": "manual::run the app, extract fixtures/fullstack, compare the code map with a slice 1 screenshot, then adopt it as the design"
+        }
+      ],
+      "estimated_complexity": "high"
+    },
+    {
+      "task_id": "COMP-02",
+      "title": "C# components (Function classes with their output-binding types, controllers, endpoint classes, library projects) and cross-container edges pinned to components, including same-container queues",
+      "type": "blocked",
+      "depends_on": ["COMP-01"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "extract/components-cs.js",
+          "extract/components.js",
+          "extract/link.js",
+          "extract/csharp.js",
+          "test/components-cs.test.js",
+          "test/components.test.js"
+        ],
+        "modules": ["extract"],
+        "boundaries": "Implement component_assignment rules 2, 3 and 4 for C# in components-cs.js, using blanked code (csharp.js sourceFiles.code :190-196; expose it on the unit or re-read through ctx.read and csharp's blankComments). Output-binding types come from [Function] method return types; they are resolved by class name within the same project, and a name declared twice in the project is not attributed. Add link.js pairs per contract link_pairs. Pairs must not appear in facts.edges, and all existing link.test.js, queue-internal.test.js and spa-wrapper.test.js assertions stay unchanged. In components.js build componentEdges layers (a) and (b) per contract component_edges, and the rollup invariant. Do not add fixture files under fixtures/. Motivating shapes are withRepo inline temp-dir fixtures (pattern: test/queue-internal.test.js, test/review-fixes.test.js) with generic names only."
+      },
+      "inputs": {
+        "context": [
+          "extract/link.js:17-24 (edgeAdder), :28-60 (linkQueues; same-owner receives go to f.internal at :45-55; cross-owner evidence is the send site, :57), :82-133 (linkHttp; collect :87-91; provider matched at :125-126; binding :96; host :104), :141 (exports)",
+          "extract/csharp.js:283-300 (type/namespace spans, offer), :399-424 (HttpTrigger, ServiceBusTrigger provides, ServiceBusOutput consumes), :436-441 (package evidence is the .csproj line)",
+          "fixtures/fullstack/api: OrderFunctions.cs (one class: GetOrder sends %OrdersTopic% -> orders, AuditOrder receives orders; this internal link is same-component and is dropped), CustomersController.cs, Endpoints/OrderEndpoints.cs (static class with MapGet/MapPost), both Program.cs files, Shop.Infrastructure/Warehouse.cs (Snowflake)",
+          "Motivating shape to encode generically: in one Functions project folder, ReportJobFunction has [Function] returning Task<ReportJobOutput>; ReportJobOutput.cs declares a property with [ServiceBusOutput(\"jobs\")]; JobWatcherFunction has [Function] with [ServiceBusTrigger(\"jobs\")] returning Task<JobWatcherOutput>; JobWatcherOutput.cs declares [ServiceBusOutput(\"jobs\")] and [ServiceBusOutput(\"%NoticesTopic%\")]. Slice 1 records 'jobs' only in facts.internal."
+        ],
+        "prior_task_outputs": ["COMP-01: units, components.js seam, nested DSL, Core.atLevel"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-02-AC1",
+          "statement": "fixtures/fullstack: Shop.Api has exactly the components App shell, CustomersController, OrderEndpoints and Shop.Infrastructure. Shop.Functions has exactly App shell, OrderFunctions and Shop.Infrastructure. The two Shop.Infrastructure components have different ids. There is still no Shop.Infrastructure container element.",
+          "verified_by": "test::test/components-cs.test.js::controllers, endpoint classes, function classes and referenced libraries become components"
+        },
+        {
+          "id": "COMP-02-AC2",
+          "statement": "Inline Functions fixture (the motivating shape): the components are ReportJobFunction, holding ReportJobFunction.cs and ReportJobOutput.cs, and JobWatcherFunction, holding JobWatcherFunction.cs and JobWatcherOutput.cs. There is exactly one componentEdge ReportJobFunction -> JobWatcherFunction, kind async, label 'Sends via \"jobs\"', via 'queue-internal', with send and receive evidence. The JobWatcher self-send is dropped. facts.edges and facts.internal are identical to what slice 1 produces for the same fixture.",
+          "verified_by": "test::test/components-cs.test.js::a queue sent and received inside one Functions app becomes an edge between the two function classes"
+        },
+        {
+          "id": "COMP-02-AC3",
+          "statement": "A [Function] method whose return type is declared twice in the project, or not at all, attributes no output-binding file, and those files fall back to the folder rule. A class whose [Function] attribute is commented out is not an anchor.",
+          "verified_by": "test::test/components-cs.test.js::output-binding types join their function class only when unambiguous"
+        },
+        {
+          "id": "COMP-02-AC4",
+          "statement": "fixtures/fullstack: folding each componentEdge end to its container and dropping self-loops gives exactly the (from, to, kind) set of facts.edges. Every shop-ui -> Shop.Api http component edge starts at shop-ui component api and ends at OrderEndpoints or CustomersController, never App shell. Each such edge's label counts only the calls in that component pair. The Shop.Api -> Snowflake edge starts at Shop.Api's Shop.Infrastructure component.",
+          "verified_by": "test::test/components.test.js::component edges roll up to exactly the container edges on the fullstack fixture"
+        },
+        {
+          "id": "COMP-02-AC5",
+          "statement": "sample-codebase: for container edges whose provider end has no evidence (the AddHttpClient 'Calls via X' edges), the component edge targets the provider container element (e_ id). The rollup invariant holds and the nested DSL parses with zero errors.",
+          "verified_by": "test::test/components.test.js::an edge whose provider end has no evidence targets the container itself"
+        },
+        {
+          "id": "COMP-02-AC6",
+          "statement": "facts.edges entries have exactly the keys from, to, kind, label, tech, evidence (no pairs), and existing link, queue-internal and spa-wrapper tests pass unchanged.",
+          "verified_by": "test::test/components.test.js::facts.edges keep their slice 1 shape"
+        }
+      ],
+      "estimated_complexity": "high"
+    },
+    {
+      "task_id": "COMP-03",
+      "title": "C# type-reference and DI-registration edges between components, with DI candidates and unresolved multi-registration entries",
+      "type": "blocked",
+      "depends_on": ["COMP-02"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "extract/components-cs.js",
+          "test/components-di.test.js"
+        ],
+        "modules": ["extract"],
+        "boundaries": "Implement contract csharp_references as component_edges layer (c). Regex over blanked code only, with no compiler and no new dependencies. Resolution is closure-scoped and exact-one-or-nothing. Edges are intra-container only, because each deployable's closure is resolved separately, so a library type used in two deployables gives one edge per container. Do not emit edges into test projects. The only new unresolved entries are the multi-registration ones. Extension-method calls (e.g. app.MapOrderEndpoints()) are not type references and make no edge. That limitation goes in CLAUDE.md in COMP-06."
+      },
+      "inputs": {
+        "context": [
+          "extract/csharp.js:186 (closure), :190-196 (blanked code), :283-286 (namespace and type spans)",
+          "fixtures/fullstack: CustomersController ctor takes Warehouse; OrderEndpoints lambdas take Warehouse; Shop.Api/Program.cs AddSingleton<Warehouse>(); OrderFunctions primary ctor (Warehouse warehouse, ILogger<OrderFunctions> logger); Shop.Functions/Program.cs AddSingleton<Warehouse>()",
+          "Motivating shape to encode generically: an interface IJobRunner declared in one library, implemented by two classes in two different folders of a Functions project, both registered with AddScoped<IJobRunner, X>, and injected into a function class ctor. Plus AddSingleton<IClock, SystemClock> with a single registration."
+        ],
+        "prior_task_outputs": ["COMP-02: C# components and componentEdges layers (a) and (b)"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-03-AC1",
+          "statement": "fixtures/fullstack: Shop.Api has 'Uses' edges from CustomersController, OrderEndpoints and App shell to Shop.Api's Shop.Infrastructure component. Shop.Functions has OrderFunctions -> its Shop.Infrastructure and App shell -> its Shop.Infrastructure. There is no App shell -> OrderEndpoints edge (extension-method call). facts.edges is unchanged and the rollup invariant still holds.",
+          "verified_by": "test::test/components-di.test.js::constructor, lambda and registration references become Uses edges"
+        },
+        {
+          "id": "COMP-03-AC2",
+          "statement": "Inline fixture with IJobRunner and two registered implementations in folders Local and Cloud: the function class has a 'Uses' edge to the interface's library component and 'Uses (DI candidate)' edges to Local and Cloud. There is exactly one unresolved entry naming IJobRunner, 2 registrations and both implementations, and IClock -> SystemClock gives a plain 'Uses' edge to SystemClock's component.",
+          "verified_by": "test::test/components-di.test.js::an interface with several registrations gives DI-candidate edges and one unresolved entry"
+        },
+        {
+          "id": "COMP-03-AC3",
+          "statement": "A type name declared in two namespaces within the closure makes no edge. A type named only inside a comment or string makes no edge. A reference outside the referencing project's closure makes no edge.",
+          "verified_by": "test::test/components-di.test.js::ambiguous or out-of-closure type names never make an edge"
+        },
+        {
+          "id": "COMP-03-AC4",
+          "statement": "When the same component pair has both a certain and a DI-candidate reference, exactly one edge remains, labelled 'Uses', with via 'type' or 'di' and the evidence of both.",
+          "verified_by": "test::test/components-di.test.js::a certain reference absorbs a DI candidate for the same pair"
+        }
+      ],
+      "estimated_complexity": "high"
+    },
+    {
+      "task_id": "COMP-04",
+      "title": "TS/JS components (Shared, grouping-folder step-down, library packages) and import edges, including alias and workspace-package imports",
+      "type": "blocked",
+      "depends_on": ["COMP-01"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "extract/components-js.js",
+          "extract/js-calls.js",
+          "extract/js.js",
+          "test/components-js.test.js"
+        ],
+        "modules": ["extract"],
+        "boundaries": "Implement component_assignment rules 4, 6 and 7 for JS/TS in components-js.js, and componentEdges layer (d) from js-calls imports (contract js_imports). Library packages become units, owned by every deployable that depends on them (js-calls.js ownersOf :279); the package name is the component. Package-level js.js behaviour is unchanged: only non-library packages become containers (:144-148). Do not change what js-calls produces for consumes and provides: all js-calls, js-packages, review-fixes and spa-wrapper tests stay green unchanged. This task does not edit components.js; the seam from COMP-01 must be enough. If it is not, stop and report which field is missing instead of editing components.js concurrently with COMP-02."
+      },
+      "inputs": {
+        "context": [
+          "extract/js-calls.js:165-170 (moduleName, importsOf covers from, require(, import( and bare import), :237 (aliasesOf: tsconfig paths and vite alias), :273-290 (scan, ownersOf, resolve), :453 (exports)",
+          "extract/js.js:38-65 (package kinds spa, api and library; files to the deepest package), :144-159",
+          "fixtures/fullstack/admin: src/features/{customers,orders}/*Api.ts import '@/services/httpClient' through the tsconfig and vite alias; src/auth/session.ts; spa-wrapper.test.js asserts consumer evidence under admin/src/features/",
+          "fixtures/fullstack/node-api: src/server.js requires './routes/invoices'"
+        ],
+        "prior_task_outputs": ["COMP-01: units, components.js seam, nested DSL, Core.atLevel"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-04-AC1",
+          "statement": "fixtures/fullstack shop-admin has exactly the components auth, customers, orders and services, with 'Uses' import edges customers -> services and orders -> services. Every shop-admin -> Shop.Api component edge starts at customers or orders.",
+          "verified_by": "test::test/components-js.test.js::grouping folders step down and alias imports become Uses edges"
+        },
+        {
+          "id": "COMP-04-AC2",
+          "statement": "fixtures/fullstack billing-api has exactly the components App shell and routes, and an App shell -> routes 'Uses' edge from the require in src/server.js.",
+          "verified_by": "test::test/components-js.test.js::require calls become Uses edges in a Node API"
+        },
+        {
+          "id": "COMP-04-AC3",
+          "statement": "Inline SPA fixture: files under src/types, src/constants, src/styles, src/assets, src/__mocks__ and src/test form one 'Shared' component. src/features/index.ts forms 'features'. src/features/billing/** forms 'billing'. src/pages/a/b.tsx forms 'pages' (no step-down). src/main.tsx is in App shell. A package with no src/ uses the first folder under the package root. TEST_RE files are in no component.",
+          "verified_by": "test::test/components-js.test.js::support folders fold into Shared and only grouping folders step down"
+        },
+        {
+          "id": "COMP-04-AC4",
+          "statement": "Inline workspace: a library package imported by a SPA by its package name appears as a component named after the package inside that SPA, with a 'Uses' edge from the importing component. An import of a non-workspace npm package makes no edge and no component.",
+          "verified_by": "test::test/components-js.test.js::workspace library packages become components of their dependants"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "COMP-05",
+      "title": "designc.json extract.components overrides with a built-in glob matcher",
+      "type": "blocked",
+      "depends_on": ["COMP-03", "COMP-04"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "extract/glob.js",
+          "extract/components.js",
+          "test/components-override.test.js"
+        ],
+        "modules": ["extract"],
+        "boundaries": "Implement contract designc_json and component_assignment rule 1. Overrides take precedence over every convention rule, including anchors. An output-binding file that is not itself matched follows its function class's component, whatever that became. Unmatched files keep the convention. The glob matcher is pure, uses no dependencies, and has no filesystem access."
+      },
+      "inputs": {
+        "context": [
+          "main.js:189-192 (codebase:extract passes readSettings().extract || {} as opts) and main.js:317 (readSettings reads designc.json)",
+          "extract/link.js:64-75 (applyBinding: the pattern for declared, not extracted, evidence with file 'designc.json')"
+        ],
+        "prior_task_outputs": ["COMP-03 and COMP-04: all convention rules and edge layers"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-05-AC1",
+          "statement": "The glob matcher: '**' matches zero or more path segments, '*' matches within one segment, '?' matches one non-'/' character, and everything else is literal, including '.' and '['. Tested against a table of at least 12 path/glob cases, including leading '**/', a trailing '/**', and a glob with no wildcard.",
+          "verified_by": "test::test/components-override.test.js::glob matcher handles double star, star and question mark"
+        },
+        {
+          "id": "COMP-05-AC2",
+          "statement": "On fixtures/fullstack with components [{name:'Ordering', paths:['api/src/Shop.Api/Endpoints/**','ui/src/api/orders.ts']}]: OrderEndpoints.cs is in 'Ordering' in Shop.Api, and orders.ts is in 'Ordering' in shop-ui, a separate id per container. CustomersController is still its own component, and the rollup invariant holds.",
+          "verified_by": "test::test/components-override.test.js::overrides win over conventions and are scoped per container"
+        },
+        {
+          "id": "COMP-05-AC3",
+          "statement": "When two entries both match a file, the earlier one wins.",
+          "verified_by": "test::test/components-override.test.js::the first matching override wins"
+        },
+        {
+          "id": "COMP-05-AC4",
+          "statement": "A glob that matches no unit adds one unresolved entry (where 'designc.json') naming the component and the glob. An entry without a name or paths adds an unresolved entry instead of throwing. A missing, or non-array, components field changes nothing.",
+          "verified_by": "test::test/components-override.test.js::bad or empty overrides go to unresolved and never throw"
+        }
+      ],
+      "estimated_complexity": "low"
+    },
+    {
+      "task_id": "COMP-06",
+      "title": "Docs, invariant tests and real-repo acceptance for component extraction",
+      "type": "blocked",
+      "depends_on": ["COMP-05"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "CLAUDE.md",
+          "test/extract-invariants.test.js"
+        ],
+        "modules": ["docs"],
+        "boundaries": "CLAUDE.md: in 'Code map extraction' document the component rules and their precedence, overrides, facts.components and facts.componentEdges, the nested DSL and its one-line component-rel form, Core.atLevel and containerLevelText, and the known limits (no extension-method edges, exact-one-or-nothing type resolution, DI candidates). In 'File map' list extract/components*.js and extract/glob.js. In 'The design compiler' list atLevel and containerLevelText. Do not edit GOVERNANCE.md (the invariants are unchanged). The invariant test re-implements the two GOVERNANCE.md 'absent' checks over extract/*.js, so the gate runs them too."
+      },
+      "inputs": {
+        "context": [
+          "CLAUDE.md sections 'File map' (:63), 'The design compiler' (:191), 'Code map extraction' (:207), 'Invariants' (:266), 'Known limitations' (:297)",
+          "GOVERNANCE.md:8-29 (extract-no-app-specific-names and extract-no-new-dependencies patterns)"
+        ],
+        "prior_task_outputs": ["COMP-01..05"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "COMP-06-AC1",
+          "statement": "No file in extract/ matches the extract-no-app-specific-names pattern, and none has a require of anything but a relative path, node:*, fs, path or os. The patterns are copied from GOVERNANCE.md.",
+          "verified_by": "test::test/extract-invariants.test.js::extract/ has no app-specific names and requires only built-ins"
+        },
+        {
+          "id": "COMP-06-AC2",
+          "statement": "The full quality gate passes, and compiling the sample design in the app still gives 2 errors, 4 warnings and 1 suppressed finding.",
+          "verified_by": "manual::run the quality gate, then open the sample registry in the app and read the findings count"
+        },
+        {
+          "id": "COMP-06-AC3",
+          "statement": "Real repo (Pricing-MaPS, read-only, never a fixture):\n- facts.components for the Functions container includes SubmitPricingJobFunction and JobMonitorFunction.\n- SubmitPricingJobOutput.cs is in SubmitPricingJobFunction's files, and JobMonitorOutput.cs is in JobMonitorFunction's.\n- facts.componentEdges has an async edge SubmitPricingJobFunction -> JobMonitorFunction labelled 'Sends via \"maps_pricingjob\"'.\n- SubmitPricingJobFunction has a 'Uses' edge to the Application library component (IJobSubmitter has one registration, JobSubmitterStub, in that same library).\n- facts.unresolved names IPricingJobService with 2 registrations: a stub in the Application library and a Snowflake implementation in the Infrastructure library.\n- The Code map still shows the container level only.",
+          "verified_by": "manual::extract Pricing-MaPS/app in the running app and inspect src/ui/asbuilt/facts.json; real-repo acceptance only"
+        }
+      ],
+      "estimated_complexity": "low"
+    }
+  ]
+}

@@ -1,0 +1,71 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self' file:; script-src 'self' file:; style-src 'self' file: 'unsafe-inline'; font-src 'self' file: data:; img-src 'self' file: data:; worker-src 'self' file: blob:; connect-src 'self' file:">
+<title>designc</title>
+<link rel="stylesheet" href="styles.css">
+<link rel="stylesheet" href="canvas/canvas.css">
+</head>
+<body>
+<div class="shell" id="shell">
+  <nav class="activity" id="activity" role="tablist" aria-label="Views">
+    <button data-act="explorer" title="Explorer (Ctrl+Shift+E)" aria-label="Explorer"><svg viewBox="0 0 24 24"><path d="M5 3.5h8.5L18 8v12.5H5z"/><path d="M13.5 3.5V8H18"/></svg></button>
+    <button data-act="design" title="Design, System 1 (Ctrl+Shift+D)" aria-label="Design"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="5" rx="1"/><rect x="14" y="15" width="7" height="5" rx="1"/><rect x="14" y="4" width="7" height="5" rx="1"/><path d="M10 6.5h4M17.5 9v6"/></svg><span class="badge" id="badge-design"></span></button>
+    <button data-act="canvas" title="Canvas, draw the design" aria-label="Canvas"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8v8H8z"/></svg><span class="badge" id="badge-canvas"></span></button>
+    <button data-act="codemap" title="Code map, as built" aria-label="Code map"><svg viewBox="0 0 24 24"><path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg><span class="badge" id="badge-codemap"></span></button>
+    <button data-act="build" title="Build, System 2" aria-label="Build"><svg viewBox="0 0 24 24"><path d="M4 20l7-7M9.5 11.5l3 3M13 4.5a4.5 4.5 0 0 0 5.8 5.8l-3.3 3.3-5.6-5.6z"/></svg><span class="badge" id="badge-build"></span></button>
+    <button data-act="improve" title="Improve, System 4" aria-label="Improve"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4.5h-4.5"/><path d="M9 12.5l2 2 4-4.5"/></svg><span class="badge" id="badge-improve"></span></button>
+    <button data-agenttoggle class="agbtn" title="Agent panel (Ctrl+Alt+I)" aria-label="Agent panel"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H10l-4 3.5v-3.5H4z"/><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01"/></svg></button>
+  </nav>
+  <aside class="sidebar" id="sidebar">
+    <div class="sb-title" id="sbTitle">Explorer</div>
+    <div class="sb-body" id="sbBody"></div>
+  </aside>
+  <div class="sash" id="sash" role="separator" aria-orientation="vertical"></div>
+  <section class="workbench" id="workbench">
+    <div class="editors" id="editors">
+      <div class="group" id="g1">
+        <div class="tabbar" id="tabs" role="tablist"></div>
+        <div class="crumbs" id="crumbs"></div>
+        <div class="host">
+          <div id="monaco"></div>
+          <div id="special" class="special"></div>
+          <div id="welcome" class="welcome"></div>
+        </div>
+      </div>
+      <div class="group sheetgroup" id="g2">
+        <div class="tabbar"><div class="tab active"><span class="ticon sheet-i"></span>C4 sheet</div><div class="spacer"></div><select id="sheetBadges" class="inline badgesel" title="What the badges on boxes show" aria-label="Badges show"><option value="findings">Badges: findings</option><option value="failures">Badges: agent failures</option><option value="cost">Badges: agent cost</option></select><button class="iconbtn" id="sheetFit" title="Fit">Fit</button><button class="iconbtn" id="sheetClose" title="Close sheet (Ctrl+Alt+V)" aria-label="Close sheet">✕</button></div>
+        <div class="sheet" id="sheet"><div class="sheetscroll" id="sheetscroll"></div><div class="titleblock" id="titleblock"></div></div>
+      </div>
+    </div>
+    <div class="psash" id="psash"></div>
+    <div class="panel" id="panel">
+      <div class="panel-tabs"><button data-panel="problems">Problems <span class="count" id="probCount"></span></button><button data-panel="output">Output</button><div class="spacer"></div><button class="iconbtn" id="panelClear" title="Clear output">Clear</button><button class="iconbtn" id="panelClose" title="Close panel" aria-label="Close panel">✕</button></div>
+      <div class="panel-body" id="panelBody"></div>
+    </div>
+  </section>
+  <aside class="agent" id="agent" aria-label="Agent panel">
+    <div class="aghead"><select id="agAgent" class="inline" aria-label="Agent"><option value="builtin">designc (gateway)</option></select><select id="agRole" class="inline" aria-label="Agent role"><option value="architect">Architect</option><option value="grill">Grill-me</option><option value="analyst">Analyst (S4)</option></select><span class="agconn" id="agConn"></span><span class="spacer"></span><button class="iconbtn" id="agNew" title="New chat">New chat</button><button class="iconbtn" data-agenttoggle title="Close (Ctrl+Alt+I)" aria-label="Close agent panel">✕</button></div>
+    <div class="aglog" id="agLog"></div>
+    <div class="agin"><textarea id="agInput" rows="3" placeholder="Ask about the design, the code or the runs. Enter to send, Shift+Enter for a new line."></textarea>
+      <div class="agbar"><span class="muted">Selection in the editor is included.</span><span class="spacer"></span><button class="btn" id="agStop" style="display:none">Stop</button><button class="btn primary" id="agSend">Send</button></div></div>
+  </aside>
+  <footer class="statusbar" id="status"></footer>
+</div>
+<div class="toasts" id="toasts"></div>
+<script src="../node_modules/js-yaml/dist/js-yaml.min.js"></script>
+<script src="core.js"></script>
+<script src="ledger.js"></script>
+<script src="canvas/vocabulary.js"></script>
+<script src="canvas/layout.js"></script>
+<script src="canvas/templates.js"></script>
+<script src="canvas/review.js"></script>
+<script src="canvas/agentic-rules.js"></script>
+<script src="canvas/dsl-edit.js"></script>
+<script src="canvas/canvas.js"></script>
+<script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
+<script src="app.js"></script>
+<script src="agent.js"></script>
+</body>
+</html>

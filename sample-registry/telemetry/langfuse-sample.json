@@ -1,0 +1,1780 @@
+{
+ "_note": "Sample Langfuse data in Observations API v2 / Scores API v3 shapes. Remove sampleFile from designc.json once real keys are set.",
+ "observations": {
+  "data": [
+   {
+    "traceId": "tr-00001y",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-08",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00022",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-24T07:00:41.000Z",
+    "endTime": "2026-09-24T07:00:43.000Z",
+    "parentObservationId": "obs-0001z",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "verify: DC003 chain test timeout",
+    "metadata": {
+     "system": "S2",
+     "element": "Rating Engine",
+     "task": "T-08",
+     "attempt": "1"
+    }
+   },
+   {
+    "traceId": "tr-00001y",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-08",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00021",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-24T07:00:40.000Z",
+    "endTime": "2026-09-24T07:01:10.000Z",
+    "parentObservationId": "obs-0001z",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Rating Engine",
+     "task": "T-08",
+     "attempt": "1"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 22140,
+    "outputUsage": 4860,
+    "totalUsage": 27000,
+    "inputCost": 0.06642,
+    "outputCost": 0.0729,
+    "totalCost": 0.13932
+   },
+   {
+    "traceId": "tr-00001y",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-08",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00020",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-24T07:00:00.000Z",
+    "endTime": "2026-09-24T07:00:30.000Z",
+    "parentObservationId": "obs-0001z",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Rating Engine",
+     "task": "T-08",
+     "attempt": "1"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 18860,
+    "outputUsage": 4140,
+    "totalUsage": 23000,
+    "inputCost": 0.05658,
+    "outputCost": 0.0621,
+    "totalCost": 0.11868
+   },
+   {
+    "traceId": "tr-00001y",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-08",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001z",
+    "type": "AGENT",
+    "name": "task T-08",
+    "startTime": "2026-09-24T07:00:00.000Z",
+    "endTime": "2026-09-24T07:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "verify: DC003 chain test timeout",
+    "metadata": {
+     "system": "S2",
+     "element": "Rating Engine",
+     "task": "T-08",
+     "attempt": "1"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001u",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-07",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001x",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-24T04:00:40.000Z",
+    "endTime": "2026-09-24T04:01:10.000Z",
+    "parentObservationId": "obs-0001v",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "task": "T-07",
+     "attempt": "1"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 15580,
+    "outputUsage": 3420,
+    "totalUsage": 19000,
+    "inputCost": 0.046740000000000004,
+    "outputCost": 0.0513,
+    "totalCost": 0.09804
+   },
+   {
+    "traceId": "tr-00001u",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-07",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001w",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-24T04:00:00.000Z",
+    "endTime": "2026-09-24T04:00:30.000Z",
+    "parentObservationId": "obs-0001v",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "task": "T-07",
+     "attempt": "1"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 12300,
+    "outputUsage": 2700,
+    "totalUsage": 15000,
+    "inputCost": 0.0369,
+    "outputCost": 0.0405,
+    "totalCost": 0.0774
+   },
+   {
+    "traceId": "tr-00001u",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-07",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001v",
+    "type": "AGENT",
+    "name": "task T-07",
+    "startTime": "2026-09-24T04:00:00.000Z",
+    "endTime": "2026-09-24T04:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "task": "T-07",
+     "attempt": "1"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001r",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "grill-me",
+    "tags": [
+     "designc",
+     "design"
+    ],
+    "id": "obs-0001t",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-24T10:00:00.000Z",
+    "endTime": "2026-09-24T10:00:30.000Z",
+    "parentObservationId": "obs-0001s",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S1"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 9020,
+    "outputUsage": 1980,
+    "totalUsage": 11000,
+    "inputCost": 0.02706,
+    "outputCost": 0.0297,
+    "totalCost": 0.05676
+   },
+   {
+    "traceId": "tr-00001r",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "grill-me",
+    "tags": [
+     "designc",
+     "design"
+    ],
+    "id": "obs-0001s",
+    "type": "AGENT",
+    "name": "grill-me",
+    "startTime": "2026-09-24T10:00:00.000Z",
+    "endTime": "2026-09-24T10:00:42.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S1"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001o",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "grill-me",
+    "tags": [
+     "designc",
+     "design"
+    ],
+    "id": "obs-0001q",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-23T20:00:00.000Z",
+    "endTime": "2026-09-23T20:00:30.000Z",
+    "parentObservationId": "obs-0001p",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S1"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 11480,
+    "outputUsage": 2520,
+    "totalUsage": 14000,
+    "inputCost": 0.03444,
+    "outputCost": 0.0378,
+    "totalCost": 0.07224
+   },
+   {
+    "traceId": "tr-00001o",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "grill-me",
+    "tags": [
+     "designc",
+     "design"
+    ],
+    "id": "obs-0001p",
+    "type": "AGENT",
+    "name": "grill-me",
+    "startTime": "2026-09-23T20:00:00.000Z",
+    "endTime": "2026-09-23T20:00:42.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S1"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001k",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-06",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001n",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-23T14:00:40.000Z",
+    "endTime": "2026-09-23T14:01:10.000Z",
+    "parentObservationId": "obs-0001l",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-06",
+     "attempt": "1",
+     "outcome": "escalated"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 10660,
+    "outputUsage": 2340,
+    "totalUsage": 13000,
+    "inputCost": 0.03198,
+    "outputCost": 0.0351,
+    "totalCost": 0.06708
+   },
+   {
+    "traceId": "tr-00001k",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-06",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001m",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-23T14:00:00.000Z",
+    "endTime": "2026-09-23T14:00:30.000Z",
+    "parentObservationId": "obs-0001l",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-06",
+     "attempt": "1",
+     "outcome": "escalated"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 7380,
+    "outputUsage": 1620,
+    "totalUsage": 9000,
+    "inputCost": 0.02214,
+    "outputCost": 0.024300000000000002,
+    "totalCost": 0.04644
+   },
+   {
+    "traceId": "tr-00001k",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-06",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001l",
+    "type": "AGENT",
+    "name": "task T-06",
+    "startTime": "2026-09-23T14:00:00.000Z",
+    "endTime": "2026-09-23T14:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-06",
+     "attempt": "1",
+     "outcome": "escalated"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001g",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001j",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-23T09:00:40.000Z",
+    "endTime": "2026-09-23T09:01:10.000Z",
+    "parentObservationId": "obs-0001h",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "2",
+     "outcome": "passed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 18040,
+    "outputUsage": 3960,
+    "totalUsage": 22000,
+    "inputCost": 0.05412,
+    "outputCost": 0.0594,
+    "totalCost": 0.11352
+   },
+   {
+    "traceId": "tr-00001g",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001i",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-23T09:00:00.000Z",
+    "endTime": "2026-09-23T09:00:30.000Z",
+    "parentObservationId": "obs-0001h",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "2",
+     "outcome": "passed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 14760,
+    "outputUsage": 3240,
+    "totalUsage": 18000,
+    "inputCost": 0.04428,
+    "outputCost": 0.048600000000000004,
+    "totalCost": 0.09288
+   },
+   {
+    "traceId": "tr-00001g",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001h",
+    "type": "AGENT",
+    "name": "task T-05",
+    "startTime": "2026-09-23T09:00:00.000Z",
+    "endTime": "2026-09-23T09:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "2",
+     "outcome": "passed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00001b",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001f",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-23T06:00:41.000Z",
+    "endTime": "2026-09-23T06:00:43.000Z",
+    "parentObservationId": "obs-0001c",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "unit tests failed: RetryPolicyTests",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "1",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-00001b",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001e",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-23T06:00:40.000Z",
+    "endTime": "2026-09-23T06:01:10.000Z",
+    "parentObservationId": "obs-0001c",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 20500,
+    "outputUsage": 4500,
+    "totalUsage": 25000,
+    "inputCost": 0.0615,
+    "outputCost": 0.0675,
+    "totalCost": 0.129
+   },
+   {
+    "traceId": "tr-00001b",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001d",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-23T06:00:00.000Z",
+    "endTime": "2026-09-23T06:00:30.000Z",
+    "parentObservationId": "obs-0001c",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 16400,
+    "outputUsage": 3600,
+    "totalUsage": 20000,
+    "inputCost": 0.0492,
+    "outputCost": 0.054,
+    "totalCost": 0.1032
+   },
+   {
+    "traceId": "tr-00001b",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-05",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001c",
+    "type": "AGENT",
+    "name": "task T-05",
+    "startTime": "2026-09-23T06:00:00.000Z",
+    "endTime": "2026-09-23T06:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "unit tests failed: RetryPolicyTests",
+    "metadata": {
+     "system": "S2",
+     "element": "Pricing API",
+     "task": "T-05",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-000016",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0001a",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-23T02:00:41.000Z",
+    "endTime": "2026-09-23T02:00:43.000Z",
+    "parentObservationId": "obs-00017",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "verify: idempotency key missing on vendor call",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "4",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-000016",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00019",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-23T02:00:40.000Z",
+    "endTime": "2026-09-23T02:01:10.000Z",
+    "parentObservationId": "obs-00017",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "4",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 29520,
+    "outputUsage": 6480,
+    "totalUsage": 36000,
+    "inputCost": 0.08856,
+    "outputCost": 0.09720000000000001,
+    "totalCost": 0.18576
+   },
+   {
+    "traceId": "tr-000016",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00018",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-23T02:00:00.000Z",
+    "endTime": "2026-09-23T02:00:30.000Z",
+    "parentObservationId": "obs-00017",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "4",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 24600,
+    "outputUsage": 5400,
+    "totalUsage": 30000,
+    "inputCost": 0.0738,
+    "outputCost": 0.081,
+    "totalCost": 0.1548
+   },
+   {
+    "traceId": "tr-000016",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00017",
+    "type": "AGENT",
+    "name": "task T-04",
+    "startTime": "2026-09-23T02:00:00.000Z",
+    "endTime": "2026-09-23T02:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "verify: idempotency key missing on vendor call",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "4",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-000010",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00015",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-22T23:00:41.000Z",
+    "endTime": "2026-09-22T23:00:43.000Z",
+    "parentObservationId": "obs-00011",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "ACS deny: write outside task writes paths (src/Rating.Engine)",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "3",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-000010",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00014",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T23:01:20.000Z",
+    "endTime": "2026-09-22T23:01:50.000Z",
+    "parentObservationId": "obs-00011",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "3",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 33620,
+    "outputUsage": 7380,
+    "totalUsage": 41000,
+    "inputCost": 0.10086,
+    "outputCost": 0.1107,
+    "totalCost": 0.21156
+   },
+   {
+    "traceId": "tr-000010",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00013",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T23:00:40.000Z",
+    "endTime": "2026-09-22T23:01:10.000Z",
+    "parentObservationId": "obs-00011",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "3",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 29520,
+    "outputUsage": 6480,
+    "totalUsage": 36000,
+    "inputCost": 0.08856,
+    "outputCost": 0.09720000000000001,
+    "totalCost": 0.18576
+   },
+   {
+    "traceId": "tr-000010",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00012",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T23:00:00.000Z",
+    "endTime": "2026-09-22T23:00:30.000Z",
+    "parentObservationId": "obs-00011",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "3",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 24600,
+    "outputUsage": 5400,
+    "totalUsage": 30000,
+    "inputCost": 0.0738,
+    "outputCost": 0.081,
+    "totalCost": 0.1548
+   },
+   {
+    "traceId": "tr-000010",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00011",
+    "type": "AGENT",
+    "name": "task T-04",
+    "startTime": "2026-09-22T23:00:00.000Z",
+    "endTime": "2026-09-22T23:02:06.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "ACS deny: write outside task writes paths (src/Rating.Engine)",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "3",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00000v",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000z",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-22T20:00:41.000Z",
+    "endTime": "2026-09-22T20:00:43.000Z",
+    "parentObservationId": "obs-0000w",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "verify: idempotency key missing on vendor call",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "2",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-00000v",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000y",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T20:00:40.000Z",
+    "endTime": "2026-09-22T20:01:10.000Z",
+    "parentObservationId": "obs-0000w",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 29520,
+    "outputUsage": 6480,
+    "totalUsage": 36000,
+    "inputCost": 0.08856,
+    "outputCost": 0.09720000000000001,
+    "totalCost": 0.18576
+   },
+   {
+    "traceId": "tr-00000v",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000x",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T20:00:00.000Z",
+    "endTime": "2026-09-22T20:00:30.000Z",
+    "parentObservationId": "obs-0000w",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 24600,
+    "outputUsage": 5400,
+    "totalUsage": 30000,
+    "inputCost": 0.0738,
+    "outputCost": 0.081,
+    "totalCost": 0.1548
+   },
+   {
+    "traceId": "tr-00000v",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000w",
+    "type": "AGENT",
+    "name": "task T-04",
+    "startTime": "2026-09-22T20:00:00.000Z",
+    "endTime": "2026-09-22T20:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "verify: idempotency key missing on vendor call",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00000p",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000u",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-22T17:00:41.000Z",
+    "endTime": "2026-09-22T17:00:43.000Z",
+    "parentObservationId": "obs-0000q",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "ACS deny: write outside task writes paths (src/Rating.Engine)",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "1",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-00000p",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000t",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T17:01:20.000Z",
+    "endTime": "2026-09-22T17:01:50.000Z",
+    "parentObservationId": "obs-0000q",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 33620,
+    "outputUsage": 7380,
+    "totalUsage": 41000,
+    "inputCost": 0.10086,
+    "outputCost": 0.1107,
+    "totalCost": 0.21156
+   },
+   {
+    "traceId": "tr-00000p",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000s",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T17:00:40.000Z",
+    "endTime": "2026-09-22T17:01:10.000Z",
+    "parentObservationId": "obs-0000q",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 29520,
+    "outputUsage": 6480,
+    "totalUsage": 36000,
+    "inputCost": 0.08856,
+    "outputCost": 0.09720000000000001,
+    "totalCost": 0.18576
+   },
+   {
+    "traceId": "tr-00000p",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000r",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T17:00:00.000Z",
+    "endTime": "2026-09-22T17:00:30.000Z",
+    "parentObservationId": "obs-0000q",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 24600,
+    "outputUsage": 5400,
+    "totalUsage": 30000,
+    "inputCost": 0.0738,
+    "outputCost": 0.081,
+    "totalCost": 0.1548
+   },
+   {
+    "traceId": "tr-00000p",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-04",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000q",
+    "type": "AGENT",
+    "name": "task T-04",
+    "startTime": "2026-09-22T17:00:00.000Z",
+    "endTime": "2026-09-22T17:02:06.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "ACS deny: write outside task writes paths (src/Rating.Engine)",
+    "metadata": {
+     "system": "S2",
+     "element": "Cat Model Adapter",
+     "task": "T-04",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00000l",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-03",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000o",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T09:00:40.000Z",
+    "endTime": "2026-09-22T09:01:10.000Z",
+    "parentObservationId": "obs-0000m",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-03",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "model": "claude-haiku-4-5",
+    "inputUsage": 11480,
+    "outputUsage": 2520,
+    "totalUsage": 14000,
+    "inputCost": 0.03444,
+    "outputCost": 0.0378,
+    "totalCost": 0.07224
+   },
+   {
+    "traceId": "tr-00000l",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-03",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000n",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T09:00:00.000Z",
+    "endTime": "2026-09-22T09:00:30.000Z",
+    "parentObservationId": "obs-0000m",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-03",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 9840,
+    "outputUsage": 2160,
+    "totalUsage": 12000,
+    "inputCost": 0.02952,
+    "outputCost": 0.0324,
+    "totalCost": 0.06192
+   },
+   {
+    "traceId": "tr-00000l",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-03",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000m",
+    "type": "AGENT",
+    "name": "task T-03",
+    "startTime": "2026-09-22T09:00:00.000Z",
+    "endTime": "2026-09-22T09:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-03",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00000h",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000k",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T06:00:40.000Z",
+    "endTime": "2026-09-22T06:01:10.000Z",
+    "parentObservationId": "obs-0000i",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "3",
+     "outcome": "passed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 19680,
+    "outputUsage": 4320,
+    "totalUsage": 24000,
+    "inputCost": 0.05904,
+    "outputCost": 0.0648,
+    "totalCost": 0.12384
+   },
+   {
+    "traceId": "tr-00000h",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000j",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T06:00:00.000Z",
+    "endTime": "2026-09-22T06:00:30.000Z",
+    "parentObservationId": "obs-0000i",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "3",
+     "outcome": "passed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 17220,
+    "outputUsage": 3780,
+    "totalUsage": 21000,
+    "inputCost": 0.051660000000000005,
+    "outputCost": 0.0567,
+    "totalCost": 0.10836
+   },
+   {
+    "traceId": "tr-00000h",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000i",
+    "type": "AGENT",
+    "name": "task T-02",
+    "startTime": "2026-09-22T06:00:00.000Z",
+    "endTime": "2026-09-22T06:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "3",
+     "outcome": "passed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-00000c",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000g",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-22T02:00:41.000Z",
+    "endTime": "2026-09-22T02:00:43.000Z",
+    "parentObservationId": "obs-0000d",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "verify: stale write accepted",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "2",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-00000c",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000f",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-22T02:00:40.000Z",
+    "endTime": "2026-09-22T02:01:10.000Z",
+    "parentObservationId": "obs-0000d",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 24600,
+    "outputUsage": 5400,
+    "totalUsage": 30000,
+    "inputCost": 0.0738,
+    "outputCost": 0.081,
+    "totalCost": 0.1548
+   },
+   {
+    "traceId": "tr-00000c",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000e",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-22T02:00:00.000Z",
+    "endTime": "2026-09-22T02:00:30.000Z",
+    "parentObservationId": "obs-0000d",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 21320,
+    "outputUsage": 4680,
+    "totalUsage": 26000,
+    "inputCost": 0.06396,
+    "outputCost": 0.0702,
+    "totalCost": 0.13416
+   },
+   {
+    "traceId": "tr-00000c",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000d",
+    "type": "AGENT",
+    "name": "task T-02",
+    "startTime": "2026-09-22T02:00:00.000Z",
+    "endTime": "2026-09-22T02:01:24.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "verify: stale write accepted",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "2",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-000006",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000b",
+    "type": "TOOL",
+    "name": "apply_patch",
+    "startTime": "2026-09-21T22:00:41.000Z",
+    "endTime": "2026-09-21T22:00:43.000Z",
+    "parentObservationId": "obs-00007",
+    "isRootObservation": false,
+    "level": "ERROR",
+    "statusMessage": "verify: tcNoControl trace not handled",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "failed"
+    }
+   },
+   {
+    "traceId": "tr-000006",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-0000a",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-21T22:01:20.000Z",
+    "endTime": "2026-09-21T22:01:50.000Z",
+    "parentObservationId": "obs-00007",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 22960,
+    "outputUsage": 5040,
+    "totalUsage": 28000,
+    "inputCost": 0.06888,
+    "outputCost": 0.0756,
+    "totalCost": 0.14448
+   },
+   {
+    "traceId": "tr-000006",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00009",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-21T22:00:40.000Z",
+    "endTime": "2026-09-21T22:01:10.000Z",
+    "parentObservationId": "obs-00007",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 25420,
+    "outputUsage": 5580,
+    "totalUsage": 31000,
+    "inputCost": 0.07626000000000001,
+    "outputCost": 0.0837,
+    "totalCost": 0.15996
+   },
+   {
+    "traceId": "tr-000006",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00008",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-21T22:00:00.000Z",
+    "endTime": "2026-09-21T22:00:30.000Z",
+    "parentObservationId": "obs-00007",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 19680,
+    "outputUsage": 4320,
+    "totalUsage": 24000,
+    "inputCost": 0.05904,
+    "outputCost": 0.0648,
+    "totalCost": 0.12384
+   },
+   {
+    "traceId": "tr-000006",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-02",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00007",
+    "type": "AGENT",
+    "name": "task T-02",
+    "startTime": "2026-09-21T22:00:00.000Z",
+    "endTime": "2026-09-21T22:02:06.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "ERROR",
+    "statusMessage": "verify: tcNoControl trace not handled",
+    "metadata": {
+     "system": "S2",
+     "element": "Referral Worker",
+     "task": "T-02",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "failed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   },
+   {
+    "traceId": "tr-000001",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-01",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00005",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-21T18:01:20.000Z",
+    "endTime": "2026-09-21T18:01:50.000Z",
+    "parentObservationId": "obs-00002",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-01",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 17220,
+    "outputUsage": 3780,
+    "totalUsage": 21000,
+    "inputCost": 0.051660000000000005,
+    "outputCost": 0.0567,
+    "totalCost": 0.10836
+   },
+   {
+    "traceId": "tr-000001",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-01",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00004",
+    "type": "GENERATION",
+    "name": "executor",
+    "startTime": "2026-09-21T18:00:40.000Z",
+    "endTime": "2026-09-21T18:01:10.000Z",
+    "parentObservationId": "obs-00002",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-01",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "model": "claude-sonnet-4-5",
+    "inputUsage": 18040,
+    "outputUsage": 3960,
+    "totalUsage": 22000,
+    "inputCost": 0.05412,
+    "outputCost": 0.0594,
+    "totalCost": 0.11352
+   },
+   {
+    "traceId": "tr-000001",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-01",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00003",
+    "type": "GENERATION",
+    "name": "planner",
+    "startTime": "2026-09-21T18:00:00.000Z",
+    "endTime": "2026-09-21T18:00:30.000Z",
+    "parentObservationId": "obs-00002",
+    "isRootObservation": false,
+    "level": "DEFAULT",
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-01",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "model": "claude-opus-4-1",
+    "inputUsage": 14760,
+    "outputUsage": 3240,
+    "totalUsage": 18000,
+    "inputCost": 0.04428,
+    "outputCost": 0.048600000000000004,
+    "totalCost": 0.09288
+   },
+   {
+    "traceId": "tr-000001",
+    "projectId": "sample-project",
+    "environment": "dev",
+    "traceName": "task T-01",
+    "tags": [
+     "designc",
+     "pipeline"
+    ],
+    "id": "obs-00002",
+    "type": "AGENT",
+    "name": "task T-01",
+    "startTime": "2026-09-21T18:00:00.000Z",
+    "endTime": "2026-09-21T18:02:06.000Z",
+    "parentObservationId": null,
+    "isRootObservation": true,
+    "level": "DEFAULT",
+    "statusMessage": null,
+    "metadata": {
+     "system": "S2",
+     "element": "Quotes DB",
+     "task": "T-01",
+     "decision": "D-0001",
+     "attempt": "1",
+     "outcome": "passed"
+    },
+    "totalUsage": 0,
+    "totalCost": 0
+   }
+  ],
+  "meta": {
+   "cursor": null
+  }
+ },
+ "scores": {
+  "data": [
+   {
+    "id": "sc-tr-00001u",
+    "projectId": "sample-project",
+    "name": "task_passed",
+    "value": 1,
+    "dataType": "NUMERIC",
+    "source": "API",
+    "timestamp": "2026-09-24T04:15:00.000Z",
+    "subject": {
+     "kind": "trace",
+     "id": "tr-00001u"
+    }
+   },
+   {
+    "id": "sc-tr-00001y",
+    "projectId": "sample-project",
+    "name": "task_passed",
+    "value": 0,
+    "dataType": "NUMERIC",
+    "source": "API",
+    "timestamp": "2026-09-24T07:15:00.000Z",
+    "subject": {
+     "kind": "trace",
+     "id": "tr-00001y"
+    }
+   }
+  ],
+  "meta": {
+   "cursor": null
+  }
+ }
+}

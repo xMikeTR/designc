@@ -1,0 +1,256 @@
+{
+  "plan": "extract-components-s3",
+  "title": "Code map slice 3: zoom (Context, Containers and Components level switcher with drill-down), component-level drift against the design, and 'adopt these components'",
+  "planned_at": "2026-09-28T16:46:26",
+  "project_root": "designc-desktop/app",
+  "test_runner": "node",
+  "quality_gate": {
+    "frontend-dev": {
+      "type_check": "node -e \"require('./extract.js'); require('./renderer/core.js')\"",
+      "test": "node --test \"test/**/*.test.js\"",
+      "security": "npm audit --audit-level=high"
+    }
+  },
+  "contract": {
+    "baseline": "Requires extract-components-s2 merged (facts.components, facts.componentEdges, nested asbuilt DSL, Core.atLevel and Core.containerLevelText; app.js :121, :129 and :851 already use the container view). File:line refs are against feat/extract-multilang-s1 at d11f70f plus s2's three app.js line edits; re-anchor by function name.",
+    "sequencing": "This slice edits renderer/app.js regions that the grill-me redesign also edits (files/grill-me-redesign-decisions.md in session 9e762c79). Conflicts: the state object (:39-42; grill-me owns :39, this slice adds to :41); the onFolder reset (:1117, one line holding both A.cmSel and A.grill resets); the document click dispatch (:993-1060); the input listener (:1065); and the keys help table (:713, where grill-me rewires Ctrl+Shift+G). Land this slice either after the grill-me slices 5-7, or with one agreed owner rebasing the other. Either way, add new state keys and resets as separate statements, never by rewriting the shared line. s2 does not conflict with grill-me.",
+    "invariants": "Same as s2: GOVERNANCE.md extract-* checks (extract/ is not edited in this slice), core.js dependency-free and node-requirable (core.js:447), vanilla JS, esc() on all interpolated HTML, no new d.* design properties (core.js:212 DC000), and sample compiler findings unchanged (2 errors, 4 warnings, 1 suppressed). The design sheet (renderSheet :793-799 calling layout(m)) must draw exactly as today. Group-edge drawing is opt-in and used only by the code map.",
+    "drift_naming": "AGENTS.md:12 and CLAUDE.md:14 call code-map drift 'DC100 to DC102', but no DC1xx rule exists in code. Drift is Core.driftModels (core.js:415-443), plus the ledger-based Core.drift (:395-412) used at app.js:972. This slice extends driftModels' shape and does not mint DC1xx codes.",
+    "core_view": "Core.view(model, { level, scope }) is pure and returns a model built with makeModel, preserving element and rel ids. level 'context' returns atLevel(model, 'context'). level 'container' returns atLevel(model, 'container'). level 'component' with no scope returns the full model minus covered rels. level 'component' with scope = a container id folds every element outside that container's subtree to its container-level ancestor, lifts rels as atLevel does, then keeps: the subtree, every element that is an endpoint of a rel touching the subtree, and the ancestors of kept elements (so the system still groups them). Covered rels are then dropped. A scope that is not a container id in the model behaves as no scope. A rel is covered when at least one of its endpoints has children and another rel links a descendant-or-self of its src to a descendant-or-self of its dst with at least one endpoint strictly deeper. This removes the container-level rollup when the component rels that make it up are visible, and keeps a component -> container rel whose provider end could not be pinned.",
+    "layout_group_edges": "layout(m, opts) in app.js (:727-758) gains opts.groupEdges. When it is true, rels with an endpoint that has children (and that are not structural, i.e. neither endpoint is an ancestor of the other) are returned in L.groupEdges after the groups are computed (:751-756), each resolved to { a, b } of node or group rects. They do not take part in layering. drawModel (:766-792) draws L.groupEdges with o.edgeStyle and the same edge() helper (:770-776), clipped to the rect. Groups gain a wrapping <g data-{attr}g=\"{id}\"> so they can be double-clicked. Without opts.groupEdges, L.groupEdges is [] and the node, edge and group geometry is unchanged.",
+    "state": "A gains cmLevel ('container' by default), cmScope (container id | null), asbuiltFull (Core.parse of the as-built text, including components) and cdrift. loadAsbuilt (:119-124) sets asbuiltFull and keeps A.asbuilt as the container view from s2, so codemapSidebar (:855-875) and container drift are unchanged. The onFolder reset (:1117) also resets cmLevel, cmScope, asbuiltFull and cdrift, as a separate statement (see sequencing). After re-extract, the level is kept and the scope is kept if the container id still exists.",
+    "navigation": "The cm-bar (:895-899) gets a segmented control Context · Containers · Components (data-a=\"cmlevel\" data-level=...), with the current one pressed. Components is disabled, with a title 'No components were found', when asbuiltFull has no component elements. When scoped, a breadcrumb 'All ▸ <container>' follows: 'All' goes to unscoped Components. A dblclick on a container node at Containers level, or on a group at Components level, sets level 'component' and scope to that container. A dblclick on a component node selects it. A dblclick on empty canvas, or Backspace while the Code map is active and focus is not in an input, textarea, select, contenteditable or .monaco-editor, goes up: scoped or unscoped Components goes to Containers, Containers goes to Context, and Context does nothing. Every level or scope change sets cmZoom to 'fit', keeps cmSel if that id exists in the new view (otherwise clears it), and redraws. Existing click behaviour (:1025-1026) is unchanged.",
+    "drift_components": "Core.driftComponents(design, built) takes the full design and full as-built models. It first maps containers with driftModels(atLevel(design, 'container'), atLevel(built, 'container')); atLevel keeps ids, so the mapping applies to the full models. A built container is scored when its design match has component children. In a scored container, built components match design components of the matched container by key(name) or d.aka (core.js:394-397 key and get). Unmatched built components go to unknownEls, and design components with no built match go to missingEls. Components of unscored containers go into neutral. Rel status is computed for every built rel with a component endpoint. First map each endpoint: a matched component maps to its design component; a component of an unscored container maps to its container's design match; a non-component end maps via the container mapping. The status is then decided by the first rule that applies. (1) An unmapped end makes the rel 'unmapped'. (2) Both ends mapping to one design element, or an intra-container rel of an unscored container, makes it 'neutral'. (3) An intra-container rel in a scored container is 'matched' only if the design has exactly that component rel, and otherwise is 'undeclared'. (4) A cross-container rel is 'matched' if the design has the rel between the mapped ends, or between their container-level ancestors, and otherwise is 'undeclared'. unrealised lists design rels with both ends mapped to components that no built component rel matched. The return value is { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, neutral: Set<built id>, scored: Set<built container id>, adoptable: [{ built: container id, design: design container id }] }, where adoptable holds unscored built containers that have components and a design match. It is computed in recompile (:125-131) as A.cdrift when A.asbuiltFull and A.model.elements.size are set.",
+    "splice": "Core.spliceComponents(designText, design, designContainerId, built, builtContainerId) returns { text } or { error }. It is pure and makes no other edits. It errors when: the design element is not a container; it already has children; its declaration line (el.line) doesn't contain the container keyword; or its block can't be located by brace matching (ignoring braces inside strings) from that line. Otherwise it inserts, one indent level deeper than the container line: one '<ident> = component \"Name\" \"\" \"tech\"' line per built component of the built container, then one one-line relationship per built rel between two of those components, written in the dsl.js form '<a> -> <b> \"label\" \"tech\" { properties { \"d.interaction\" \"sync|async\" } }'. Cross-container rels are not written; the design keeps them at container level. A container without a block gets ' {' appended to its line and a closing '}' line. Idents reuse the built ident, suffixed _2 and up on collision with an existing design ident. The result parses with no new errors, and every original line is unchanged except the container line when ' {' is appended. Adopted intra-container sync rels are ordinary sync rels to the compiler. DC003 counts them as hops (core.js:281, structural only exempts ancestor/descendant pairs), so a long in-process chain can raise a DC003 warning. This is accepted and documented under Known limitations, because a new d.* property would be DC000 (core.js:212) and changing DC003 is out of scope."
+  },
+  "tasks": [
+    {
+      "task_id": "ZOOM-01",
+      "title": "Core.view for context, container and component levels with scoped focus and covered-rel pruning, plus opt-in group edges in layout and drawModel",
+      "type": "sequential",
+      "depends_on": [],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/core.js",
+          "renderer/app.js",
+          "test/zoom-core.test.js"
+        ],
+        "modules": ["renderer/core", "renderer/app (layout, drawModel only)"],
+        "boundaries": "Implement contract core_view in core.js, exported next to atLevel. Implement contract layout_group_edges in app.js layout (:727-758) and drawModel (:766-792) only. renderSheet (:793-799) keeps calling layout(m) with no option. Do not change any other app.js function in this task. Nothing calls Core.view yet, so the running app looks the same."
+      },
+      "inputs": {
+        "context": [
+          "renderer/core.js: atLevel and containerLevelText (from s2); parse keeps parent and ident (:63-73); makeModel (:135-142) supplies isAncestor, which is used by structural (:224)",
+          "renderer/app.js:727-758 (layout: leaves only :729-731, leaf-to-leaf edges :731, groups :751-756), :766-792 (drawModel: groups :769, edge helper :770-776, nodes :779-790)",
+          "fixtures/fullstack nested as-built from s2: Shop.Api and Shop.Functions each contain components; shop-ui -> Shop.Api has component-level http rels; sample-codebase has component -> container rels for unpinnable AddHttpClient targets"
+        ],
+        "prior_task_outputs": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "ZOOM-01-AC1",
+          "statement": "On the fullstack nested as-built model: view 'container' equals atLevel 'container'; view 'context' has only the software system and the externals, with every container and store folded into the system and rels lifted to it; unscoped view 'component' contains every component, and no container-to-container rel remains between two containers whose component rels are present.",
+          "verified_by": "test::test/zoom-core.test.js::view returns each level with rollup rels pruned when their parts are visible"
+        },
+        {
+          "id": "ZOOM-01-AC2",
+          "statement": "view 'component' scoped to Shop.Api contains Shop.Api's components, shop-ui and shop-admin as single container elements (their components folded), and Snowflake. It does not contain Shop.Functions' components, or any element with no rel to Shop.Api's subtree. Rel ids are those of the underlying component rels.",
+          "verified_by": "test::test/zoom-core.test.js::a scoped component view shows one container's components and its neighbours folded"
+        },
+        {
+          "id": "ZOOM-01-AC3",
+          "statement": "On an inline model where a component's rel targets another container that has components (unpinned provider end), the scoped and unscoped component views keep that component -> container rel and drop the container -> container rollup. A scope id that is not a container gives the unscoped view.",
+          "verified_by": "test::test/zoom-core.test.js::a component to container rel survives pruning"
+        },
+        {
+          "id": "ZOOM-01-AC4",
+          "statement": "In the running app, the design sheet for the sample registry and for a design with nested components draws exactly as before this task: same boxes, groups and arrows.",
+          "verified_by": "manual::compare design sheet screenshots before and after on the sample registry and on a design with components"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "ZOOM-02",
+      "title": "Level switcher, drill-down, breadcrumb and Backspace-up in the Code map",
+      "type": "blocked",
+      "depends_on": ["ZOOM-01"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/app.js",
+          "renderer/styles.css"
+        ],
+        "modules": ["renderer/app (code map)"],
+        "boundaries": "Implement contract state and navigation. Edit only: the state object (:41, new keys on their own line); loadAsbuilt (:119-124); the cm-bar markup in renderCodemap (:895-899); drawCodemap (:902-919), which draws Core.view(A.asbuiltFull, {level, scope}) laid out with layout(m, {groupEdges: A.cmLevel === 'component'}); the click dispatch, with one new data-a branch next to cmfit/ghost (:1056-1057); a new dblclick listener and a new keydown listener placed after the wheel listener (:1071-1075); the onFolder reset (:1117, as a separate statement, see contract sequencing); the keys help table (:713, one new row 'Backspace, in the Code map: Up one level'); and styles.css next to .cm-bar (:217-218), with a segmented-control style using existing CSS variables only. Drift styling is unchanged in this task: Containers and Components levels use A.drift for container nodes, and component nodes and rels are styled neutral (ink, not warn). The Context level hides the drift legend and styling. Everything interpolated goes through esc()."
+      },
+      "inputs": {
+        "context": [
+          "renderer/app.js:41 (cmSel, cmZoom, showGhost), :119-124, :876-919, :993-1060 (document click dispatch; data-cm toggles selection at :1026), :1071-1081 (wheel and ResizeObserver), :1117 (onFolder reset shared with A.grill)",
+          "renderer/styles.css:217-227 (.cm-bar, .cm-side)",
+          "files/grill-me-redesign-decisions.md (session 9e762c79): grill-me slices 5-7 edit app.js :39, :493-523, :648-654, :713, :1001, :1062-1065 and :1114-1117"
+        ],
+        "prior_task_outputs": ["ZOOM-01: Core.view, layout groupEdges, group data attribute"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "ZOOM-02-AC1",
+          "statement": "On fixtures/fullstack:\n- The Code map opens at Containers, looking as it did in s2.\n- Context shows the system box with externals.\n- Components shows every container with components as a dashed group holding its components, plus the component-level arrows, with no duplicated container-level arrow over them.",
+          "verified_by": "manual::extract fixtures/fullstack in the app and click through the three levels"
+        },
+        {
+          "id": "ZOOM-02-AC2",
+          "statement": "Double-clicking Shop.Api at Containers opens Components scoped to Shop.Api, with the breadcrumb 'All ▸ Shop.Api'. shop-ui and shop-admin appear as single boxes, with arrows into CustomersController and OrderEndpoints. Clicking 'All' shows unscoped Components. Double-clicking empty canvas, and Backspace, each go up one level. Backspace typed in the Monaco editor or a text field does not change the level.",
+          "verified_by": "manual::drill into Shop.Api, use the breadcrumb, then double-click empty space, press Backspace on the map, and type Backspace in the editor"
+        },
+        {
+          "id": "ZOOM-02-AC3",
+          "statement": "Selecting a box, then switching level, keeps the selection when that element is visible and clears it when it is not. Each level change fits the view. Changing folder resets to Containers with no scope. With an as-built model that has no component elements, such as an asbuilt/workspace.dsl written by slice 1 before re-extracting, the Components segment is disabled with the title 'No components were found'.",
+          "verified_by": "manual::check selection, fit and the folder-change reset, then load a registry whose asbuilt/ was written by slice 1"
+        },
+        {
+          "id": "ZOOM-02-AC4",
+          "statement": "The quality gate passes, and the sample registry still compiles to 2 errors, 4 warnings and 1 suppressed finding.",
+          "verified_by": "manual::run the quality gate and read the findings count in the app"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "ZOOM-03",
+      "title": "Component-level drift (Core.driftComponents) with neutral styling, a component drift section and a component side panel",
+      "type": "blocked",
+      "depends_on": ["ZOOM-02"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/core.js",
+          "renderer/app.js",
+          "test/zoom-drift.test.js"
+        ],
+        "modules": ["renderer/core", "renderer/app (code map)"],
+        "boundaries": "Implement contract drift_components in core.js. In app.js:\n- recompile (:125-131): add one line computing A.cdrift.\n- drawCodemap: at the Components level, style component nodes and rels from A.cdrift. Matched is ink. unknownEls, and undeclared rels in scored containers, are warn with 'not in design'. neutral and unmapped are ink3 with no note. Unrealised component rels are ghost extras when showGhost is on. Container nodes and groups keep A.drift.\n- codemapSidebar (:855-875): after the existing drift section, add a 'Components' section. It lists scored containers with their component drift rows, in the same row() format as :865-869. It lists adoptable containers as rows: '<container>: design has no components (N found)'. It is shown only when A.cdrift exists and asbuiltFull has components.\n- renderCmSide (:920-937): when the selected element is a component, join facts.components by id === element id. Show name, basis in words (function class, controller, endpoint class, library, folder, App shell, Shared, designc.json override), the file list as data-code links, the evidence rows, and Depends on / Used by from facts.componentEdges by id, with in-design and not-in-design tags from A.cdrift. The container path (:927-936) is unchanged.\nThe existing container drift section (:864-871) and the pre-existing 'Found' count (:862) are unchanged."
+      },
+      "inputs": {
+        "context": [
+          "renderer/core.js:394-397 (key, d.aka lookup), :415-443 (driftModels shape: toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls)",
+          "renderer/app.js:125-131, :855-875, :902-937",
+          "s2 facts.components { id, key, container, name, basis, tech, files, evidence } and facts.componentEdges { from, to, kind, label, tech, via, evidence }"
+        ],
+        "prior_task_outputs": ["ZOOM-02: levels, A.asbuiltFull, component styling hooks"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "ZOOM-03-AC1",
+          "statement": "Given a design whose containers declare no components, and the fullstack as-built: scored is empty; every component is in neutral; no component rel is 'undeclared'; and adoptable lists Shop.Api, Shop.Functions, shop-ui, shop-admin and billing-api, each only when the design has a matching container.",
+          "verified_by": "test::test/zoom-drift.test.js::containers whose design has no components are neutral and adoptable"
+        },
+        {
+          "id": "ZOOM-03-AC2",
+          "statement": "Given a design where Shop.Api declares components CustomersController, Orders (d.aka 'OrderEndpoints'), Shop.Infrastructure and Legacy, with one rel CustomersController -> Shop.Infrastructure: Shop.Api is scored and Shop.Functions is not; OrderEndpoints maps to Orders; the built App shell is in unknownEls; Legacy is in missingEls; the CustomersController -> Shop.Infrastructure rel is matched; the OrderEndpoints -> Shop.Infrastructure rel is undeclared; and the App shell -> Shop.Infrastructure rel is unmapped.",
+          "verified_by": "test::test/zoom-drift.test.js::components match by name or d.aka inside the matched container"
+        },
+        {
+          "id": "ZOOM-03-AC3",
+          "statement": "A cross-container built component rel, shop-ui api -> Shop.Api CustomersController, is matched when the design has only the container-level rel shop-ui -> Shop.Api, and is also matched when the design has the component-level rel. It is undeclared when the design has neither. An intra-container rel in a scored container needs the exact component rel. A same-element or unmapped rel is neutral or unmapped, never undeclared.",
+          "verified_by": "test::test/zoom-drift.test.js::cross-container component rels also match the lifted design rel"
+        },
+        {
+          "id": "ZOOM-03-AC4",
+          "statement": "In the app on fixtures/fullstack with the container-only adopted design, Components level shows no warn-coloured component or rel, and the sidebar Components section lists the adoptable containers. Selecting OrderFunctions shows 'function class', its file OrderFunctions.cs, and its Uses edge to Shop.Infrastructure with evidence lines that open the file.",
+          "verified_by": "manual::adopt the fullstack map as the design, switch to Components, select OrderFunctions"
+        }
+      ],
+      "estimated_complexity": "high"
+    },
+    {
+      "task_id": "ZOOM-04",
+      "title": "'Adopt these components': splice one container's as-built components into the design through the existing save and recompile path",
+      "type": "blocked",
+      "depends_on": ["ZOOM-03"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/core.js",
+          "renderer/app.js",
+          "test/zoom-splice.test.js"
+        ],
+        "modules": ["renderer/core", "renderer/app (code map)"],
+        "boundaries": "Implement contract splice in core.js. In app.js:\n- Each adoptable row in the sidebar Components section (ZOOM-03) gets an 'Adopt these components' button, with data-a=\"adoptcomp\" plus data-built and data-design ids. The side panel of a selected adoptable container gets the same button.\n- The click dispatch gets one branch next to 'adopt' (:1055) that calls a new adoptComponents(builtId, designId), placed after adoptAsDesign (:849-854).\n- adoptComponents refuses with a toast when the design buffer for A.cfg.model is dirty (A.buffers entry, dirty flag :32, :379-380), or when spliceComponents returns an error, whose message is shown as is. Otherwise it confirms with the container name and component count, host.write(A.cfg.model, text), then await loadModel(); recompile(); await openFile(A.cfg.model, <container line>); renderAll(), as adoptAsDesign does at :852, and toasts the count.\nNo other design edits. Whole-file adoptAsDesign stays container-only (s2 containerLevelText)."
+      },
+      "inputs": {
+        "context": [
+          "renderer/app.js:361-373 (save and dirty handling), :849-854 (adoptAsDesign write, reload and recompile path), :1055 (adopt click branch)",
+          "renderer/core.js:63-73 (el.line is the kind token's line), :74-90 (one-line relationship blocks parse)",
+          "renderer/core.js:227-238 (DC001 warns on async rels without d.delivery), :276-300 (DC003 counts non-async, non-structural rels as sync hops)"
+        ],
+        "prior_task_outputs": ["ZOOM-03: A.cdrift.adoptable, sidebar Components section"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "ZOOM-04-AC1",
+          "statement": "Splicing the fullstack Shop.Functions components into a container-only design, where the container has a block, inserts exactly the component lines and intra-container component rels, one indent deeper. Every original line is unchanged. The result parses with no errors. driftComponents then reports Shop.Functions as scored, with every component matched.",
+          "verified_by": "test::test/zoom-splice.test.js::adopting a container's components inserts them into its block"
+        },
+        {
+          "id": "ZOOM-04-AC2",
+          "statement": "A container declared without a block gets ' {', the components and a closing brace. Built idents that collide with design idents are suffixed. No cross-container rel is written.",
+          "verified_by": "test::test/zoom-splice.test.js::a container without a block gets one and idents never collide"
+        },
+        {
+          "id": "ZOOM-04-AC3",
+          "statement": "spliceComponents returns an error, and never partial text, when: the target already has components; the element is not a container; its line has no container keyword; or its braces don't balance. Braces inside string literals don't count.",
+          "verified_by": "test::test/zoom-splice.test.js::splice refuses when the container cannot be located or already has components"
+        },
+        {
+          "id": "ZOOM-04-AC4",
+          "statement": "Inline Functions shape from s2 COMP-02-AC2: after adopting that container's components, the design compiler reports one new DC001 warning ('async, but no delivery guarantee declared') on the adopted ReportJobFunction -> JobWatcherFunction rel. This is expected and correct, and the test asserts it. It reports no other new finding.",
+          "verified_by": "test::test/zoom-splice.test.js::adopting an internal queue surfaces its missing delivery guarantee"
+        },
+        {
+          "id": "ZOOM-04-AC5",
+          "statement": "In the app: 'Adopt these components' on Shop.Api writes the design, reopens it at the container, and turns the Shop.Api components ink (matched). With unsaved edits in the design tab, it refuses with a toast and writes nothing.",
+          "verified_by": "manual::adopt Shop.Api components in the app, then repeat with a dirty design buffer"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "ZOOM-05",
+      "title": "Docs, empty-state table and real-repo acceptance for zoom",
+      "type": "blocked",
+      "depends_on": ["ZOOM-04"],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/app.js",
+          "CLAUDE.md",
+          "AGENTS.md"
+        ],
+        "modules": ["docs", "renderer/app (empty state)"],
+        "boundaries": "app.js empty-state table (:882-891): add rows for components (function classes, controllers and endpoint classes, libraries, first folders, overrides via designc.json extract.components) and for the level switcher, all in esc-free static text. CLAUDE.md: in 'Known limitations', note that adopted in-process component rels count as DC003 sync hops. In 'Code map extraction', document levels, drill-down, Core.view, driftComponents and its scored/neutral rule, and adopt-these-components. In 'The design compiler', list view, driftComponents and spliceComponents. Correct the drift naming at CLAUDE.md:14 and AGENTS.md:12 to say the code map covers .NET and JS/TS down to component level and describe drift as Core.driftModels/driftComponents, not DC100-DC102 (per contract drift_naming). No code changes beyond the table."
+      },
+      "inputs": {
+        "context": [
+          "renderer/app.js:879-892 (empty state)",
+          "CLAUDE.md:14, :191, :207; AGENTS.md:12"
+        ],
+        "prior_task_outputs": ["ZOOM-01..04"]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "ZOOM-05-AC1",
+          "statement": "Real repo (Pricing-MaPS, read-only, never a fixture):\n- Extract and open the Code map, then double-click the Functions container.\n- The scoped Components view shows SubmitPricingJobFunction and JobMonitorFunction, with a dashed async arrow between them labelled 'Sends via \"maps_pricingjob\"'.\n- Selecting SubmitPricingJobFunction lists SubmitPricingJobOutput.cs among its files.\n- The sidebar Components section offers 'Adopt these components' for the Functions container while the design declares none.",
+          "verified_by": "manual::real-repo acceptance in the running Electron app; Pricing-MaPS is deliberately not a fixture"
+        },
+        {
+          "id": "ZOOM-05-AC2",
+          "statement": "The docs describe levels, drill-down, component drift and adopt-these-components. No doc still claims DC100-DC102 rules exist. The quality gate passes.",
+          "verified_by": "manual::read CLAUDE.md and AGENTS.md diffs and run the quality gate"
+        }
+      ],
+      "estimated_complexity": "low"
+    }
+  ]
+}
