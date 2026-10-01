@@ -1,0 +1,462 @@
+{
+  "plan": "ledger-schema-s1",
+  "title": "Ledger schema v1: two envelopes (designc v1 flat for operational kinds, harness envelope v1 as-is for charter kinds per grill-me D16) in one validated store, closed kind vocabulary per envelope, one append path, read-time upcast of legacy lines; sliced writer + reader + dashboard per kind family",
+  "planned_at": "2026-09-26T00:00:00",
+  "project_root": "C:/Users/fialhomi/source/repos/designc/cenas/designc-desktop/app",
+  "test_runner": "node",
+  "quality_gate": {
+    "frontend-dev": {
+      "type_check": "node -e \"require('./renderer/ledger.js');require('./ledger-store.js');require('./renderer/core.js')\"",
+      "test": "node --test \"test/**/*.test.js\"",
+      "security": "npm audit --audit-level=high"
+    }
+  },
+  "contract": {
+    "prerequisite": "Lands AFTER extract-multilang-s1 (EXT-01 introduces scripts.test = node --test \"test/**/*.test.js\" and the test/ directory; on main @368434d there is no test runner, AGENTS.md:42). Rebase onto the merged extractor before starting LS-01. Known overlap files: main.js, renderer/app.js (extractor touches ~836-960; LS-05 edits the extraction writer at the current app.js:845), package.json build.files. Line numbers below are main @368434d and will shift; re-locate by the quoted code.",
+    "design_doc": "ledger-schema-interface.md (agreed; decisions OP-1..OP-7 and R-1..R-5 in its section 9). ledger-inventory.md lists every writer W1-W17 and reader R1-R20 with file:line. ledger-vs-grill-d16.md records the reconciliation with grill-me D16/D17/D21.",
+    "downstream": "grill-me redesign slice 3 ('the envelope-v1 ledger writer for the grill kinds') DEPENDS ON LS-02 and adds only call sites of recordSessionEvent; it does not add a writer, file path or appendFile of its own (R-5). D21's subject id needs:<event_id> relies on legacy lines getting event_id 'legacy:<file>:<line>' (LS-01).",
+    "modules": {
+      "renderer/ledger.js": "Pure, no I/O, Node built-ins only. Dual-load IIFE exactly like renderer/core.js: `const Ledger = (() => { ... })(); if (typeof module !== 'undefined') module.exports = Ledger;`. Loaded by <script src=\"ledger.js\"> in renderer/index.html between core.js and app.js, and by require('./renderer/ledger.js') from ledger-store.js and tests. Exports SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, derive, totalTokens; from LS-02 also HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_FIELDS, validateHarness, resolvedEventIds.",
+      "ledger-store.js": "Main-process store at the app root. require('./renderer/ledger.js'), fs, path, crypto only. Exports appendEvent and (until LS-05) legacyStreamFile. Must be listed in package.json build.files. The only code that appends to ledger/ for BOTH envelopes (R-5).",
+      "recordEvent": "renderer/app.js globals. sendLedgerEvent(ev) is the ONLY call of host.appendLedgerEvent in the renderer: it awaits the result, on { ok:false } calls toast(`Ledger event not recorded: ${errors.join('; ')}`, 'error') (toast is app.js:60) and returns the result. async recordEvent(kind, fields) -> sendLedgerEvent({ kind, by: A.user, ...fields }) for designc kinds (LS-01). async recordSessionEvent(kind, { session_id, payload, parent_session_id, agent_id, acting_as }) -> sendLedgerEvent({ kind, project: A.cfg.project || <basename of A.root>, session_id, payload, ...lineage }) for harness kinds (LS-02). agent.js (loaded after app.js, shares globals) uses them too."
+    },
+    "envelope_dispatch": "Two envelopes, one store (R-1). A kind is in exactly one of KINDS (designc, snake_case, 15) or HARNESS_KINDS (harness, PascalCase, 15); the sets are disjoint (R-3). Write: kind in KINDS -> Ledger.validate (designc v1 rules); kind in HARNESS_KINDS -> Ledger.validateHarness; neither -> error 'unknown kind'. A designc kind carrying envelope_version, or a harness kind carrying schema_version, is rejected. Read (parse): a line with envelope_version -> harness path (never upcast); a line with schema_version -> designc v1 path; a line with both -> error 'both schema_version and envelope_version'; a line with neither -> designc legacy upcast.",
+    "harness_envelope": {
+      "source": "C:/Users/fialhomi/.claude/harness/event.py (envelope v1, adopted as-is by grill-me D16). Pattern only; ported to JS, no Python at runtime or in tests.",
+      "fields": "HARNESS_FIELDS, all present on every written line: envelope_version (1), kind, project, session_id, event_id, ts, parent_session_id, agent_id, acting_as, pack_id, pack_version, harness_version, image_digest, snapshot_hash, payload",
+      "required_from_caller": "kind in HARNESS_KINDS; project: non-empty string (event.py:246-248); session_id: string; payload: object (may be {})",
+      "optional_from_caller": "parent_session_id, agent_id, acting_as: string or null. pack_id, pack_version, harness_version, image_digest, snapshot_hash: null (stubs; event.py STUB_FIELDS).",
+      "stamped_by_store": "envelope_version 1; event_id = crypto.randomUUID() if absent; ts = ISO-8601 UTC at seconds precision with '+00:00' suffix (event.py:129-131 utc_now) if absent; every absent nullable field set to null",
+      "serialisation": "JSON.stringify with keys sorted (event.py:269-272 to_json sort_keys), one line, appended to ledger/sessions.jsonl",
+      "rejects": "unknown top-level field (event.py:275-288); kind not in HARNESS_KINDS; empty project; non-string session_id; non-object payload; envelope_version other than 1; ts present but not a string that Date.parse accepts (designc strictness: _ts depends on it); failure without evidence (below)",
+      "failure_evidence": "Port of records_a_failure/has_failure_evidence (event.py:156-200): GateFailed and ActionErrored always record a failure; VerifyResult does when payload.verdict (trimmed, lower-cased) is in fail|failed|partial|error|blocked, or payload.exit_code is an integer other than 0. Such a record needs one of payload.reason|verify_failures|failures|gate_errors|issues non-empty (non-blank string, or non-empty array/object), or a non-blank payload.reason_unavailable.",
+      "kinds": "HARNESS_KINDS = SessionStarted, SessionEnded, ContextCompiled, ProposalMade, GatePassed, GateFailed, NeedsDecision, ActionExecuted, ActionErrored, VerifyResult, BudgetExceeded, HumanDecision, Done (charter) + NoteRecorded, WorkRecorded (local) — event.py:49-96. Pinned by test: a literal list, plus a drift check against event.py when that file exists on the machine (skipped otherwise, so CI never needs it).",
+      "resolution": "resolvedEventIds(events) -> Set of payload.cites_event_id over HumanDecision events (port of event.py:291-307). Harness NeedsDecision is resolved ONLY this way; derive() does not fold harness records."
+    },
+    "ts_in_memory": "R-2. Each envelope keeps its own ts on disk (designc: epoch-ms number; harness: ISO string). parse() adds _ts (epoch ms number) to EVERY loaded event: designc -> ts if a number else 0; harness -> Date.parse(ts). derive() preserves _ts. Every sort or time filter over ledger events uses _ts: core.js:390 latestCheck and app.js:984 improveDash escape sort become (b._ts || 0) - (a._ts || 0).",
+    "gate_scope": "R-4. 'Pipeline-sourced needs-decision' (grill-me D16) = designc-envelope kind needs_decision. The gate (core.js:385) counts only kind === 'needs_decision' && status === 'open', which already excludes harness NeedsDecision; the filter is unchanged and a test pins that an open harness NeedsDecision leaves the gate ready. needs_decision is resolved by needs_decision_resolved{id} (derive); NeedsDecision by HumanDecision{payload.cites_event_id} (resolvedEventIds).",
+    "envelope": {
+      "schema_version": "integer 1; stamped by the store",
+      "event_id": "string; stamped by the store with crypto.randomUUID(); legacy lines get 'legacy:<file>:<line>' at read time",
+      "ts": "number (epoch ms); stamped as now() when absent; MUST be numeric (core.js:390 and app.js:984 sort with b.ts - a.ts)",
+      "kind": "required; member of KINDS",
+      "by": "required string",
+      "optional": "system (S1|S2|S3|S4), stage (emitting stage, MAF meaning), run_id, trace_id, session, requirement, element, decision, task, model, tokens_in (int>=0), tokens_out (int>=0), cost (number>=0), sample (boolean), payload (object, unvalidated)",
+      "on_disk": "absent optional fields are omitted, not null-stubbed; keys beginning with '_' are reserved for in-memory decoration (_file, _line, _legacy) and are rejected on write"
+    },
+    "kinds_final_v1": {
+      "check": "stream checks.jsonl; R decision, R check, R outcome pass|fail, R source local|pipeline, o ms, o exit_code int, o reason; rule: outcome 'fail' requires exit_code or reason",
+      "task": "stream pipeline.jsonl; R task, R status running|passed|failed|blocked, o title, reruns, turns, tokens (int total), tier",
+      "needs_decision": "stream pipeline.jsonl; R id, R question, R status open",
+      "needs_decision_resolved": "stream designc.jsonl; R id",
+      "asbuilt_edge": "stream pipeline.jsonl; R from, R to",
+      "escape": "stream designc.jsonl; R id, R description, o code, o caught_by (CAUGHT_BY member or null), o source, o traces string[]",
+      "escape_classified": "stream designc.jsonl; R escape, R-nullable caught_by (CAUGHT_BY member or null)",
+      "false_positive": "stream pipeline.jsonl; R code, o note",
+      "handover": "stream designc.jsonl; R handover, R revision",
+      "extraction": "stream designc.jsonl; R repo, R revision, o projects, deployables, tests, elements, edges, unresolved (ints); any other stat under payload.stats",
+      "agent_turn": "stream agents.jsonl; R agent, R role, R via builtin|acp|agui, o tokens (spent), context_used, stop_reason, ms",
+      "agent_tool": "stream agents.jsonl; R agent, R role, R tool, R verdict allow|ask|deny|agent, R outcome, R via builtin|designc|acp|agui, o tool_kind, path",
+      "agent_permission": "stream agents.jsonl; R agent, R role, R tool, R outcome, R via, o tool_kind",
+      "agent_approval": "stream agents.jsonl; R agent, R role, R tool, R outcome accept|reject|cancelled, R via, o interrupt",
+      "unapproved_change": "stream agents.jsonl; R agent, R role, R path, R via acp|agui"
+    },
+    "caught_by": "CAUGHT_BY = ['S1-lint','S1-p','S1-grill','S2-runtime','S2-config'] — the keys of STAGES in renderer/app.js:25 must equal this list",
+    "append_signature": "appendEvent(root, event, { now = Date.now, uuid = crypto.randomUUID } = {}) -> { ok: true, event } | { ok: false, errors: string[] }. Order: Ledger.validate(event) (schema_version/event_id/ts may be absent) -> stamp -> file = path.join(root, 'ledger', KINDS[kind].stream) -> mkdir -p -> ONE JSON.stringify -> ONE fs.promises.appendFile(line + '\\n'). No caller-supplied path. Never reads, rewrites or truncates.",
+    "ipc": "main.js: ipcMain handle 'ledger:event' (event) -> store.appendEvent(<registry root>, event). preload.js: appendLedgerEvent: (ev) => ipcRenderer.invoke('ledger:event', ev).",
+    "validation_errors": "Each error is a string naming the field, e.g. \"check.exit_code: required when outcome is 'fail' (or give reason)\". validate rejects: unknown kind; missing required field; enum violation; wrong type (incl. non-numeric ts); unknown top-level field (extra data must go under payload); '_'-prefixed key; schema_version other than 1 when present; kind rule breach.",
+    "parse": "Ledger.parse(text, path) -> { events, errors }. Per non-blank line: invalid JSON -> error; envelope_version present -> harness path from LS-02 (see envelope_dispatch; valid -> loaded, invalid -> error, skipped; unknown envelope_version -> error, skipped); no schema_version -> upcast, _legacy:true, loaded; schema_version 1 and valid -> loaded; schema_version 1 and invalid -> error, skipped; any other schema_version -> error 'unknown schema_version N', skipped. Every loaded event gets _file (basename), _line (1-based) and, from LS-02, _ts (ts_in_memory). errors are { path, line, msg } — the same shape A.ledgerErrors already holds (app.js:94-104), so the Problems panel (R20) is unchanged.",
+    "upcast": "In memory only, files never rewritten. Adds schema_version 1 and event_id 'legacy:<file>:<line>'; keeps ts (never invents one); applies the per-kind rename table active in that slice; moves any key not in the kind's spec into payload; does NOT apply v1 kind rules (a legacy check fail without exit_code still loads, so the gate never loses a legacy check). Final rename table: escape rule->code, stage->caught_by; escape_classified stage->caught_by; agent_turn stopReason->stop_reason, runId->run_id, via inferred ('acp' if stopReason present, and then tokens->context_used; 'agui' if model starts with 'agui:'; else 'builtin'); agent_tool and agent_permission toolKind->tool_kind; unapproved_change unchanged.",
+    "derive": "Ledger.derive(events) -> events. Same semantics as deriveLedger (app.js:106-118): fold escape_classified.caught_by onto escape.caught_by (matching escape.id === escape_classified.escape); needs_decision_resolved sets needs_decision.status='resolved'; last in file order wins; the two fold kinds are removed from the output.",
+    "total_tokens": "Ledger.totalTokens(ev) = ev.tokens if a number, else (tokens_in||0)+(tokens_out||0) if either is a number, else 0",
+    "legacy_fixture": "sample-registry/ledger/pipeline.jsonl is the v0 fixture (21 lines, all sample:true). Tests read it; no task edits it.",
+    "no_new_dependencies": "No new npm dependencies in any task (package.json dependencies/devDependencies unchanged)."
+  },
+  "later_slices": {
+    "agent_activity_reader": "OP-7 deferred: first consumer of agents.jsonl (e.g. an Agent activity block in Improve: turns, tokens spent, tool verdicts, denials, unapproved changes). README.md:157 says System 4 should see these.",
+    "maf_kinds": "finding, gate, decision, rerun, proposal — minted in the slice that adds their first writer (OP-3).",
+    "multi_writer_lock": "Add an append lock only when the MAF host (integrations/maf-agui-host/Program.cs:40-41) or another process writes the same ledger files."
+  },
+  "tasks": [
+    {
+      "task_id": "LS-01",
+      "title": "Tracer: v1 envelope, schema module, validated store and single append path, proven end to end on `check` (writer -> gate -> Build dashboard / decision check state)",
+      "type": "sequential",
+      "depends_on": [],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/ledger.js",
+          "ledger-store.js",
+          "main.js",
+          "preload.js",
+          "renderer/index.html",
+          "renderer/app.js",
+          "package.json",
+          "test/ledger.schema.test.js",
+          "test/ledger-store.test.js",
+          "AGENTS.md",
+          "CLAUDE.md"
+        ],
+        "modules": [
+          "ledger"
+        ],
+        "boundaries": "Create renderer/ledger.js and ledger-store.js per the contract. KINDS ships all 15 kinds, but ONLY `check` gets its final v1 spec in this task; the other 14 are registered with the field names today's writers and readers use (ledger-inventory.md sections 1-2: e.g. escape keeps rule/stage, agent_* keep stopReason/toolKind/runId and a non-required via), and upcast for them adds only the envelope (no renames). Later slices switch each kind to its final spec together with its writers and readers. main.js: add ipcMain handle 'ledger:event' calling store.appendEvent(root, event) (main.js already imports crypto at line 12). KEEP the legacy 'ledger:append' handler (main.js:174-179) for unmigrated callers but make it call store.legacyStreamFile(file) and reject anything but designc.jsonl | checks.jsonl | agents.jsonl (closes the '../' path hole now; LS-05 deletes it). preload.js: add appendLedgerEvent next to appendLedger (preload.js:14). renderer/index.html: add <script src=\"ledger.js\"></script> after core.js and before app.js (index.html:56-58); CSP already allows 'self'. renderer/app.js: loadLedger (94-104) uses Ledger.parse per file and pushes its errors into A.ledgerErrors unchanged in shape; deriveLedger (106-118) delegates to Ledger.derive; add sendLedgerEvent and recordEvent per contract (recordSessionEvent is LS-02); the check writer at app.js:478 becomes recordEvent('check', { decision: d.id, check: cmd, outcome, source: 'local', ms: r.ms, exit_code: r.code }). Do not change renderer/core.js (latestCheck/gate contract is preserved: ts numeric, check fields unchanged). package.json: add \"ledger-store.js\" to build.files; no dependency changes. AGENTS.md and CLAUDE.md (kept in step, they are near-duplicates): host API row for appendLedgerEvent (AGENTS.md:92 / CLAUDE.md:94), a short 'Ledger envelope v1' subsection above the ledger events table (AGENTS.md:165), the check row with exit_code/reason, and the invariant row (AGENTS.md:273) naming the store. Do not touch renderer/agent.js or any other writer."
+      },
+      "inputs": {
+        "context": [
+          "PREREQUISITE: extract-multilang-s1 merged to main (contract.prerequisite) — provides the node --test runner and test/",
+          "ledger-schema-interface.md (agreed interface) and this manifest's contract block",
+          "ledger-inventory.md sections 0-2",
+          "main.js:22-28 (inside), 165-179 (fs:list and ledger:append), 133 (renderer is sandboxed: contextIsolation, sandbox, no nodeIntegration)",
+          "renderer/core.js: module pattern at end of file; 360-391 (gate, latestCheck)",
+          "renderer/app.js:60 (toast), 94-118 (loadLedger, deriveLedger), 470-480 (runChecks and the check writer), 633 and 938 (check readers)",
+          "sample-registry/ledger/pipeline.jsonl (v0 fixture, 21 lines)",
+          "Reference pattern only (no code reuse): C:/Users/fialhomi/.claude/harness/event.py, ledger_append.py, ledger_migrate.py"
+        ],
+        "prior_task_outputs": []
+      },
+      "acceptance_criteria": [
+        {
+          "id": "LS-01-AC1",
+          "statement": "Ledger.validate returns [] for { kind:'check', by:'u', decision:'DEC-001', check:'npm test', outcome:'pass', source:'local', ms:12 } and for the same event with outcome:'fail', exit_code:1.",
+          "verified_by": "test::test/ledger.schema.test.js::a valid v1 check validates"
+        },
+        {
+          "id": "LS-01-AC2",
+          "statement": "Ledger.validate returns at least one error naming the offending field for each of: kind 'chek'; check without decision; outcome 'passed'; ts '2026-09-26T00:00:00Z' (string); a top-level field 'file'; a key '_line'; schema_version 2; outcome 'fail' with neither exit_code nor reason. Each case is asserted separately.",
+          "verified_by": "test::test/ledger.schema.test.js::invalid events are rejected with a reason per defect"
+        },
+        {
+          "id": "LS-01-AC3",
+          "statement": "Arbitrary nested data under payload (e.g. payload: { stdout_tail: 'x', n: [1,2] }) validates; the same data at top level does not.",
+          "verified_by": "test::test/ledger.schema.test.js::extra data is accepted only under payload"
+        },
+        {
+          "id": "LS-01-AC4",
+          "statement": "In a temp dir, appendEvent(root, validCheck, { now: () => 1700000000000, uuid: () => 'u-1' }) returns { ok:true } and creates ledger/checks.jsonl containing exactly one line whose JSON has schema_version 1, event_id 'u-1', ts 1700000000000, kind 'check'. A second append leaves the first line byte-identical and adds a second line.",
+          "verified_by": "test::test/ledger-store.test.js::a valid check is stamped, routed by kind and appended"
+        },
+        {
+          "id": "LS-01-AC5",
+          "statement": "appendEvent with an invalid event returns { ok:false, errors:[...] } and neither creates the ledger directory nor modifies any existing ledger file (compare bytes before and after).",
+          "verified_by": "test::test/ledger-store.test.js::an invalid event writes nothing"
+        },
+        {
+          "id": "LS-01-AC6",
+          "statement": "The caller cannot choose the file: appendEvent has no path parameter; an event carrying file:'../model/workspace.dsl' is rejected as an unknown field; and legacyStreamFile accepts only designc.jsonl, checks.jsonl and agents.jsonl, returning null for '../model/workspace.dsl', 'x.jsonl' and 'checks.jsonl/../../a'.",
+          "verified_by": "test::test/ledger-store.test.js::the caller cannot choose the file"
+        },
+        {
+          "id": "LS-01-AC7",
+          "statement": "Ledger.parse on the literal text of sample-registry/ledger/pipeline.jsonl returns 21 events and 0 errors; every event has schema_version 1, _legacy true, event_id 'legacy:pipeline.jsonl:<n>' for n = its 1-based line, and its original numeric ts unchanged.",
+          "verified_by": "test::test/ledger.schema.test.js::the v0 sample ledger upcasts without errors"
+        },
+        {
+          "id": "LS-01-AC8",
+          "statement": "Given four lines — a valid legacy check, a schema_version 1 check with outcome 'fail' and no exit_code/reason, a line with schema_version 2, and a line that is not JSON — parse returns exactly the first as an event and three errors { path, line, msg } with lines 2, 3, 4; the version-2 message contains 'unknown schema_version 2'.",
+          "verified_by": "test::test/ledger.schema.test.js::invalid v1, unknown-version and malformed lines go to Problems and are skipped"
+        },
+        {
+          "id": "LS-01-AC9",
+          "statement": "Core.latestCheck over Ledger.derive(parse(legacy pipeline check for DEC-001 at ts 1000, outcome 'fail') ++ parse(v1 local check for DEC-001 at ts 2000, outcome 'pass')) returns the v1 pass; with the timestamps swapped it returns the legacy fail (legacy fail without exit_code is not dropped).",
+          "verified_by": "test::test/ledger.schema.test.js::the gate sees v1 and legacy checks and picks the latest"
+        },
+        {
+          "id": "LS-01-AC10",
+          "statement": "Headless run against a copy of sample-registry (AGENTS.md:47, DESIGNC_SNAPSHOT + DESIGNC_STEPS) runs one decision's checks through the real UI path; the builder reports the last line of ledger/checks.jsonl (schema_version 1, event_id, exit_code present) and the [step] output showing that decision's check state updated, with the screenshot. Problems shows no new ledger errors.",
+          "verified_by": "manual::headless harness run on a sample-registry copy; builder reports the appended line, [step] log and screenshot"
+        },
+        {
+          "id": "LS-01-AC11",
+          "statement": "Can-fail proof: temporarily remove the 'fail requires exit_code or reason' rule from validate, run node --test test/ledger.schema.test.js and report the red output for LS-01-AC2, then restore it.",
+          "verified_by": "manual::DEC-021 can-fail proof; builder reports the red run output"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "LS-02",
+      "title": "Harness envelope v1 in the same store (grill-me D16): charter kinds validated as-is and routed to ledger/sessions.jsonl, _ts on every event, envelope-scoped gate — writer (store + recordSessionEvent) -> reader (parse, resolvedEventIds) -> Build gate / Improve sort / Problems",
+      "type": "blocked",
+      "depends_on": [
+        "LS-01"
+      ],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/ledger.js",
+          "ledger-store.js",
+          "renderer/core.js",
+          "renderer/app.js",
+          "test/ledger.harness.test.js",
+          "README.md",
+          "AGENTS.md",
+          "CLAUDE.md"
+        ],
+        "modules": [
+          "ledger",
+          "build"
+        ],
+        "boundaries": "renderer/ledger.js: add HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_FIELDS, validateHarness and resolvedEventIds per contract.harness_envelope; KINDS and HARNESS_KINDS disjoint; parse dispatches per contract.envelope_dispatch and sets _ts per contract.ts_in_memory on every loaded event; derive preserves _ts and does not fold harness records. Add a stream entry so harness kinds route to sessions.jsonl. ledger-store.js: appendEvent dispatches on kind (contract.envelope_dispatch), stamps harness records per contract.harness_envelope.stamped_by_store and writes them with sorted keys; designc path unchanged. renderer/core.js: ONLY latestCheck's sort (core.js:390) changes to (b._ts || 0) - (a._ts || 0); gate (385-386) is NOT edited. renderer/app.js: add recordSessionEvent per contract (via sendLedgerEvent); improveDash escape sort (app.js:984) uses _ts; no call site of recordSessionEvent is added (grill slice 3 adds them). README.md: the ledger/ folder description names sessions.jsonl and says it holds harness envelope v1 records. AGENTS.md/CLAUDE.md (kept in step): host API row for recordSessionEvent, a 'Two envelopes' note under 'Ledger envelope v1' pointing at event.py, and a sessions.jsonl row. Do not add any NeedsDecision/HumanDecision writer or reader beyond resolvedEventIds; do not edit sample-registry/."
+      },
+      "inputs": {
+        "context": [
+          "ledger-vs-grill-d16.md (agreements, C1-C9, decisions R-1..R-5)",
+          "ledger-schema-interface.md section 10 (harness envelope)",
+          "C:/Users/fialhomi/.claude/harness/event.py:43-96 (version, kinds), 129-131 (utc_now), 156-200 (failure evidence), 202-288 (Event, to_json, from_json), 291-307 (resolved_event_ids) — port, do not import",
+          "grill-me-redesign-decisions.md D16, D17, D21 (C:/Users/fialhomi/.copilot/session-state/9e762c79-f8df-4ce4-b0a0-c1d65756a3c4/files/)",
+          "renderer/app.js:94-104 (loadLedger lists every *.jsonl under ledger/, so sessions.jsonl is loaded with no change), 128 (Core.gate call), 984 (escape sort), 1002 (ndans finds by top-level id; harness records have none)",
+          "renderer/core.js:385-390 (gate needs_decision filter, latestCheck sort)"
+        ],
+        "prior_task_outputs": [
+          "LS-01: renderer/ledger.js, ledger-store.js, sendLedgerEvent, recordEvent, ledger:event IPC"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "LS-02-AC1",
+          "statement": "Ledger.HARNESS_KINDS equals exactly the 15 names of event.py:49-96 (asserted against a literal list), is disjoint from Ledger.KINDS, and — when C:/Users/fialhomi/.claude/harness/event.py (or $HOME/.claude/harness/event.py) exists — equals the set of string constants assigned in that file's KIND section; the drift sub-test is skipped, not failed, when the file is absent.",
+          "verified_by": "test::test/ledger.harness.test.js::harness kinds match event.py and are disjoint from designc kinds"
+        },
+        {
+          "id": "LS-02-AC2",
+          "statement": "In a temp dir, appendEvent(root, { kind:'NeedsDecision', project:'p', session_id:'iv-1', payload:{ interview:'iv-1', subject:'finding:DC003:a', stage:'S1-grill', question:'q?' } }, { uuid: () => 'u-2', now: () => Date.UTC(2026,8,26,10,0,0) }) returns { ok:true }, creates ledger/sessions.jsonl and no other file, and the line (a) has exactly the 15 HARNESS_FIELDS with envelope_version 1, event_id 'u-2', ts '2026-09-26T10:00:00+00:00', the five stubs and parent_session_id/agent_id/acting_as null, (b) has its keys in sorted order.",
+          "verified_by": "test::test/ledger.harness.test.js::a harness record is stamped, null-filled, key-sorted and routed to sessions.jsonl"
+        },
+        {
+          "id": "LS-02-AC3",
+          "statement": "appendEvent writes nothing and returns errors naming the field for each of: kind 'needs_decision' with envelope_version 1; kind 'NeedsDecision' with schema_version 1; empty project; missing session_id; payload 'x'; top-level 'question'; envelope_version 2; ts 'yesterday'; GateFailed with payload {}; VerifyResult with payload { verdict:'FAIL', verify_failures: [] }; VerifyResult with payload { verdict:'pass', exit_code: 2 }. GateFailed with payload { reason_unavailable: 'migrated' } and VerifyResult with payload { verdict:'pass', exit_code: 0 } are accepted.",
+          "verified_by": "test::test/ledger.harness.test.js::invalid harness records are rejected as event.py would, and nothing is written"
+        },
+        {
+          "id": "LS-02-AC4",
+          "statement": "Ledger.parse over one text containing a legacy check (ts 1000), a valid harness SessionStarted (ts '2026-09-26T10:00:00+00:00'), a line with both schema_version and envelope_version, and a harness line with envelope_version 2 returns two events with _ts 1000 and 1790416800000 respectively, and two errors with the messages 'both schema_version and envelope_version' and 'unknown envelope_version 2'.",
+          "verified_by": "test::test/ledger.harness.test.js::parse dispatches on the version key and sets _ts on both envelopes"
+        },
+        {
+          "id": "LS-02-AC5",
+          "statement": "Core.gate over derived events [open legacy needs_decision ND-0001, harness NeedsDecision E1 (open)] has exactly one needs clause (ND-0001); adding needs_decision_resolved ND-0001 makes it ready while E1 is still open; resolvedEventIds over [E1, HumanDecision{ payload:{ cites_event_id: E1.event_id, outcome:'answer' } }] contains E1.event_id and derive leaves both harness records in place.",
+          "verified_by": "test::test/ledger.harness.test.js::only pipeline needs_decision blocks the gate; grill NeedsDecision resolves by HumanDecision"
+        },
+        {
+          "id": "LS-02-AC6",
+          "statement": "Core.latestCheck picks by _ts: two DEC-001 checks whose _ts are 2000 (pass) and 1000 (fail) return the pass regardless of array order, and a check with no ts (_ts 0) never beats one with a ts.",
+          "verified_by": "test::test/ledger.harness.test.js::latestCheck orders by _ts"
+        },
+        {
+          "id": "LS-02-AC7",
+          "statement": "Headless run (AGENTS.md:47) on a sample-registry copy whose ledger/sessions.jsonl holds one valid harness NeedsDecision line and one line with envelope_version 2: the builder reports [step] output showing the Build gate clause list and the needs-decision badge count identical to a run without sessions.jsonl, the Improve escapes table in the same order as before, and Problems listing exactly one ledger error (sessions.jsonl line 2, 'unknown envelope_version 2'), with screenshots.",
+          "verified_by": "manual::headless harness run with a seeded sessions.jsonl; builder reports [step] log and screenshots"
+        },
+        {
+          "id": "LS-02-AC8",
+          "statement": "Can-fail proof: temporarily make the gate count every kind matching /needs_?decision/i, run node --test test/ledger.harness.test.js and report the red LS-02-AC5 output; then temporarily drop the VerifyResult exit_code rule and report the red LS-02-AC3 output; restore both.",
+          "verified_by": "manual::DEC-021 can-fail proof; builder reports both red run outputs"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "LS-03",
+      "title": "Escapes end to end on v1 names: escape, escape_classified, false_positive — writers, derive fold, Improve dashboard and sidebar, badges, proposal drafting, get_telemetry tool",
+      "type": "blocked",
+      "depends_on": [
+        "LS-02"
+      ],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/ledger.js",
+          "renderer/app.js",
+          "renderer/agent.js",
+          "test/ledger.escape.test.js",
+          "README.md",
+          "AGENTS.md",
+          "CLAUDE.md"
+        ],
+        "modules": [
+          "ledger",
+          "improve"
+        ],
+        "boundaries": "renderer/ledger.js: switch escape, escape_classified and false_positive to their final v1 specs (contract kinds_final_v1); export CAUGHT_BY; add upcast renames escape rule->code, stage->caught_by and escape_classified stage->caught_by; derive folds caught_by. renderer/app.js: STAGES (line 25) keys must equal Ledger.CAUGHT_BY (keep the labels in app.js, derive the key list from Ledger.CAUGHT_BY or assert equality at load); writers W4 (app.js:1007-1008, 'Record as escape') and W6 (app.js:1060, classify select) become recordEvent('escape', ...) and recordEvent('escape_classified', { escape, caught_by }); readers read code/caught_by instead of rule/stage: telSuggestions (180), draftProposals prompt (526), renderBadges unclassified count (564-566), improveSidebar (669-673), improveDash (974-990, including the rule chip at 984 and the classify select's selected state), nextId('E', ...) (1005) unchanged in logic. renderer/agent.js: only get_telemetry (agent.js:95) — its output uses code and caught_by. README.md pipeline contract (264-277): escape example uses code/caught_by and a note that v0 names are still read. AGENTS.md/CLAUDE.md ledger table rows for these three kinds. Do not edit sample-registry/ledger/pipeline.jsonl (it stays the v0 fixture). Do not touch agent.js writers (LS-05)."
+      },
+      "inputs": {
+        "context": [
+          "ledger-schema-interface.md sections 3, 6, 7",
+          "ledger-inventory.md W4, W6, R1, R7, R9, R10, R13, R15, R17, R19",
+          "sample-registry/ledger/pipeline.jsonl escape and false_positive lines (v0: escape uses rule and stage)"
+        ],
+        "prior_task_outputs": [
+          "LS-01: renderer/ledger.js, ledger-store.js, recordEvent, ledger:event IPC",
+          "LS-02: envelope dispatch, _ts (app.js:984 escape sort already uses _ts; keep it)"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "LS-03-AC1",
+          "statement": "A legacy escape { kind:'escape', id:'E-0001', description:'d', rule:'DC003', stage:'S1-lint', ts:1 } parses to an event with code 'DC003' and caught_by 'S1-lint' and no rule or stage key; a legacy escape_classified { escape:'E-0001', stage:'S2-runtime' } parses with caught_by 'S2-runtime'.",
+          "verified_by": "test::test/ledger.escape.test.js::legacy escape names are upcast to code and caught_by"
+        },
+        {
+          "id": "LS-03-AC2",
+          "statement": "A v1 escape carrying stage or rule is rejected (unknown field), a v1 escape with caught_by 'S9' is rejected, and a v1 escape_classified without the caught_by key is rejected while caught_by:null is accepted.",
+          "verified_by": "test::test/ledger.escape.test.js::v1 escapes enforce the MAF names and the caught_by vocabulary"
+        },
+        {
+          "id": "LS-03-AC3",
+          "statement": "Ledger.derive over [legacy escape E-0001, v1 escape_classified E-0001 -> 'S1-p', legacy escape_classified E-0001 stage 'S1-grill', v1 escape_classified E-0001 -> null] yields one escape with caught_by null and no escape_classified events; dropping the last event yields caught_by 'S1-grill' (last in file order wins).",
+          "verified_by": "test::test/ledger.escape.test.js::classification folds onto escapes in file order"
+        },
+        {
+          "id": "LS-03-AC4",
+          "statement": "Headless run on a sample-registry copy: open Improve, report [step] output showing the sample escapes listed with their code chips and pre-set 'Should have been caught by' values; set one escape's classification through the select; report the new designc.jsonl line (schema_version 1, kind escape_classified, caught_by set, no stage key) and that after a reload step the select still shows the chosen value and the unclassified badge count dropped by one.",
+          "verified_by": "manual::headless harness run on Improve; builder reports [step] log, appended line and screenshots"
+        },
+        {
+          "id": "LS-03-AC5",
+          "statement": "No escape, escape_classified or false_positive write remains on the legacy bridge and no reader uses the old names: `git grep -nE \"appendLedger\\('designc.jsonl', \\{ kind: 'escape\" -- renderer` and `git grep -nE \"\\.rule\\b|\\.stage\\b|\\b(rule|stage): e\\.\" -- renderer ':!renderer/ledger.js'` return nothing (ledger.js is excluded because its upcast legitimately reads the legacy names; on main these patterns hit agent.js:95 and app.js:109, 526, 566, 670, 975, 979, 981, 984).",
+          "verified_by": "manual::builder reports the two git grep commands and their empty output"
+        }
+      ],
+      "estimated_complexity": "medium"
+    },
+    {
+      "task_id": "LS-04",
+      "title": "Pipeline kinds end to end: task, needs_decision, needs_decision_resolved, asbuilt_edge — resolve writer, gate/drift, grill, Build dashboard and sidebar, token split",
+            "type": "blocked",
+      "depends_on": [
+        "LS-03"
+      ],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/ledger.js",
+          "renderer/app.js",
+          "test/ledger.pipeline.test.js",
+          "README.md",
+          "AGENTS.md",
+          "CLAUDE.md"
+        ],
+        "modules": [
+          "ledger",
+          "build"
+        ],
+        "boundaries": "renderer/ledger.js: final v1 specs for task, needs_decision, needs_decision_resolved, asbuilt_edge (no renames needed; legacy extras such as task.tier are in spec, anything else moves to payload); add totalTokens. renderer/app.js: writer W5 (app.js:1011) becomes recordEvent('needs_decision_resolved', { id }); buildSidebar (660-667) and buildDash (953-972) sum Ledger.totalTokens(t) instead of t.tokens, and buildDash shows total cost in the summary only when at least one task has a numeric cost; other reads (task, title, element, status, reruns, turns, model; needs_decision id/task/element/question/status; sample flag; drift) keep their fields. grill (497), renderBadges needs count (564), ndans (1002) unchanged in logic. renderer/core.js is NOT edited: gate (385-386) and drift (395-398) must keep working on the v1 and legacy events unchanged — prove it in tests. README.md pipeline contract (264-277) rewritten as v1 for all pipeline kinds (schema_version, event_id optional for external writers or stamped by them, by:'pipeline', tokens_in/tokens_out/cost) with the statement that v0 lines are still read. AGENTS.md/CLAUDE.md ledger rows. Do not edit sample-registry/ledger/pipeline.jsonl."
+      },
+      "inputs": {
+        "context": [
+          "ledger-schema-interface.md sections 3, 6, 7",
+          "ledger-inventory.md W5, R4, R5, R8, R10, R12, R14, R16",
+          "renderer/core.js:360-398 (gate, latestCheck, drift) — call signatures used by the tests",
+          "AGENTS.md:171 task status vocabulary: passed/failed/blocked/running"
+        ],
+        "prior_task_outputs": [
+          "LS-01 and LS-03 outputs"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "LS-04-AC1",
+          "statement": "Every task, needs_decision and asbuilt_edge line of the sample fixture parses with its original fields intact (task.tier, reruns, turns, tokens, model; needs_decision id/question/status; asbuilt_edge from/to) and nothing moved to payload.",
+          "verified_by": "test::test/ledger.pipeline.test.js::legacy pipeline events keep their fields"
+        },
+        {
+          "id": "LS-04-AC2",
+          "statement": "A v1 task { task:'T-1', status:'passed', tokens_in:100, tokens_out:50, cost:0.01, by:'pipeline' } validates and totalTokens is 150; with tokens:400 as well totalTokens is 400; status 'done' is rejected; a task with no token fields has totalTokens 0.",
+          "verified_by": "test::test/ledger.pipeline.test.js::task tokens split and total"
+        },
+        {
+          "id": "LS-04-AC3",
+          "statement": "Core.gate's needs_decision blocking (core.js:385-386) is driven by derived events: an open legacy needs_decision ND-0001 blocks; adding a v1 needs_decision_resolved ND-0001 after it removes the block. Core.drift returns the edges of legacy asbuilt_edge events unchanged.",
+          "verified_by": "test::test/ledger.pipeline.test.js::gate and drift read derived pipeline events"
+        },
+        {
+          "id": "LS-04-AC4",
+          "statement": "Headless run on a sample-registry copy: capture the Build view BEFORE the change (baseline screenshot from the LS-03 build) and AFTER; the builder reports that the task table rows, passed count, tokens-per-passing-task figure and needs-decision list are identical; then resolve one open needs-decision through the UI and report the appended designc.jsonl line (schema_version 1, kind needs_decision_resolved) and the badge count dropping by one.",
+          "verified_by": "manual::headless before/after Build screenshots plus [step] log and appended line"
+        },
+        {
+          "id": "LS-04-AC5",
+          "statement": "Can-fail proof: temporarily make totalTokens return ev.tokens only, run node --test test/ledger.pipeline.test.js and report the red LS-04-AC2 output, then restore.",
+          "verified_by": "manual::DEC-021 can-fail proof; builder reports the red run output"
+        }
+      ],
+      "estimated_complexity": "small"
+    },
+    {
+      "task_id": "LS-05",
+      "title": "Agent, handover and extraction writers on v1; delete the legacy append bridge; guard the single append path",
+            "type": "blocked",
+      "depends_on": [
+        "LS-04"
+      ],
+      "agent_type": "frontend-dev",
+      "scope": {
+        "files": [
+          "renderer/ledger.js",
+          "renderer/agent.js",
+          "renderer/app.js",
+          "main.js",
+          "preload.js",
+          "ledger-store.js",
+          "test/ledger.agent.test.js",
+          "test/ledger-guard.test.js",
+          "GOVERNANCE.md",
+          "AGENTS.md",
+          "CLAUDE.md"
+        ],
+        "modules": [
+          "ledger",
+          "agent"
+        ],
+        "boundaries": "renderer/ledger.js: final v1 specs for agent_turn, agent_tool, agent_permission, agent_approval, unapproved_change, handover, extraction; agent upcast renames per contract (camel->snake, via inference, ACP tokens->context_used). renderer/agent.js: the wrapper at agent.js:162 becomes ledger = (kind, fields) => recordEvent(kind, { ...fields, agent: AG.agent, role: AG.role, system: ROLES[AG.role].system, session: AG.session }) so call-site fields can no longer override the base; all 11 call sites (185, 215, 253, 278, 296, 313, 319, 362, 438, 457, 480) pass kind separately and use snake_case; 215 (built-in turn) adds via:'builtin' and records tokens_in/tokens_out from usage.prompt_tokens/usage.completion_tokens when present alongside tokens = usage.total_tokens (usage comes from main.js:234/246); 253 (ACP turn) records AG.turn.used as context_used, not tokens; 457 (AG-UI turn) records run_id; 362 (unapproved_change) sets via: isAgui() ? 'agui' : 'acp' (agentSawChange runs for both, agent.js:354-357). Do NOT change the ledger/ exclusion in agentSawChange (agent.js:359) — out of scope. renderer/app.js: handover writer (457) -> recordEvent('handover', ...); extraction writer (845) -> recordEvent('extraction', { repo, revision, projects, deployables, tests, elements, edges, unresolved } picked explicitly from r.stats, with any other r.stats keys under payload.stats) — re-locate it after the extractor merge. Delete the legacy 'ledger:append' handler in main.js, appendLedger in preload.js and legacyStreamFile in ledger-store.js. test/ledger-guard.test.js reads source text of main.js, preload.js and renderer/*.js and asserts: no 'appendLedger(' and no 'ledger:append'; the only 'appendFile' in main.js/renderer is none (the store owns it); the only host.appendLedgerEvent call is the one inside sendLedgerEvent; the literal 'sessions.jsonl' appears in no .js file except renderer/ledger.js (so no second writer for the grill kinds can exist, R-5). GOVERNANCE.md: append two invariants in the existing JSON format — 'ledger-single-append-path' (absent pattern appendLedger\\(|ledger:append, scope renderer, extensions .js, hard_fail) and 'ledger-no-raw-event-literals' (absent pattern appendLedgerEvent\\(\\s*\\{, scope renderer, extensions .js, hard_fail). AGENTS.md/CLAUDE.md: agent event rows, host API table without appendLedger, and a note that agents.jsonl still has no reader (later slice)."
+      },
+      "inputs": {
+        "context": [
+          "ledger-schema-interface.md sections 3, 4, 6",
+          "ledger-inventory.md W1, W3, W7-W17",
+          "renderer/agent.js:14-20 (ROLES and system), 162, the 11 call sites, 282 (usage_update), 354-362 (agentSawChange)",
+          "GOVERNANCE.md (current two invariants, JSON format evaluated by invariant-guard.js)",
+          "AGENTS.md:48 (mocks: dev/mock-agui-server.js on 8790, dev/mock-gateway.js on 8765, dev/mock-acp-agent.js with MOCK_BYPASS=1)"
+        ],
+        "prior_task_outputs": [
+          "LS-01, LS-03, LS-04 outputs"
+        ]
+      },
+      "acceptance_criteria": [
+        {
+          "id": "LS-05-AC1",
+          "statement": "Legacy agents.jsonl lines shaped exactly like today's writers upcast as specified: { kind:'agent_turn', model:'claude', stopReason:'end_turn', tokens:5000, ms:10 } -> via 'acp', stop_reason 'end_turn', context_used 5000, no tokens; { kind:'agent_turn', model:'agui:maf', runId:'r1', ms:3 } -> via 'agui', run_id 'r1'; { kind:'agent_turn', model:'gpt', tokens:42 } -> via 'builtin', tokens 42; { kind:'agent_tool', toolKind:'edit', ... } -> tool_kind 'edit'. Each asserted separately with agent/role/by present.",
+          "verified_by": "test::test/ledger.agent.test.js::legacy agent events upcast to snake_case with via inferred"
+        },
+        {
+          "id": "LS-05-AC2",
+          "statement": "v1 validation: agent_turn with stopReason is rejected; agent_turn without via is rejected; unapproved_change with via 'builtin' is rejected; extraction with a top-level 'modules' stat is rejected but accepted as payload.stats.modules.",
+          "verified_by": "test::test/ledger.agent.test.js::v1 agent and extraction events enforce the schema"
+        },
+        {
+          "id": "LS-05-AC3",
+          "statement": "Source guard: main.js, preload.js and renderer/*.js contain no 'appendLedger(' and no 'ledger:append'; main.js and renderer/*.js contain no 'appendFile'; renderer/*.js contains exactly one 'host.appendLedgerEvent(' (inside sendLedgerEvent); the literal 'sessions.jsonl' occurs in no main.js, preload.js, ledger-store.js or renderer/*.js source other than renderer/ledger.js.",
+          "verified_by": "test::test/ledger-guard.test.js::the store is the only ledger append path"
+        },
+        {
+          "id": "LS-05-AC4",
+          "statement": "Headless run with dev/mock-agui-server.js (AGENTS.md:48) in the same shell command as the app, on a sample-registry copy: complete one AG-UI turn including an approval; the builder reports the new agents.jsonl lines — all schema_version 1, via 'agui', the agent_turn has run_id, the agent_approval has outcome — and Problems shows no ledger errors.",
+          "verified_by": "manual::headless AG-UI mock run; builder reports appended agents.jsonl lines and [step] log"
+        },
+        {
+          "id": "LS-05-AC5",
+          "statement": "Headless run with dev/mock-acp-agent.js and MOCK_BYPASS=1: the direct write is flagged and the appended unapproved_change line has via 'acp' and schema_version 1; the ACP agent_turn line has context_used and stop_reason, not tokens/stopReason.",
+          "verified_by": "manual::headless ACP mock run with MOCK_BYPASS=1; builder reports appended lines"
+        },
+        {
+          "id": "LS-05-AC6",
+          "statement": "Can-fail proof for the guard: temporarily reintroduce one host.appendLedgerEvent({ kind: 'handover', ... }) literal call in app.js, run node --test test/ledger-guard.test.js and report the red output, then revert.",
+          "verified_by": "manual::DEC-021 can-fail proof; builder reports the red run output"
+        }
+      ],
+      "estimated_complexity": "medium"
+    }
+  ]
+}

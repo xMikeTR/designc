@@ -1,0 +1,21 @@
+{"kind":"task","task":"T-01","title":"Quote rowversion column + EF concurrency token","element":"Quotes DB","status":"passed","reruns":0,"turns":9,"tokens":61000,"model":"sonnet","tier":"executor","sample":true,"ts":1789687341546}
+{"kind":"task","task":"T-02","title":"Referral Worker conditional update","element":"Referral Worker","status":"passed","reruns":2,"turns":23,"tokens":184000,"model":"sonnet","tier":"executor","sample":true,"ts":1789716141546}
+{"kind":"task","task":"T-03","title":"Replay tcNoControl trace as verify block","element":"Quotes DB","status":"passed","reruns":0,"turns":6,"tokens":38000,"model":"haiku","tier":"executor","sample":true,"ts":1789744941546}
+{"kind":"task","task":"T-04","title":"Cat model idempotency key","element":"Cat Model Adapter","status":"failed","reruns":3,"turns":41,"tokens":296000,"model":"sonnet","tier":"executor","sample":true,"ts":1789773741546}
+{"kind":"task","task":"T-05","title":"Pricing API retry policy","element":"Pricing API","status":"passed","reruns":1,"turns":14,"tokens":97000,"model":"sonnet","tier":"executor","sample":true,"ts":1789802541546}
+{"kind":"task","task":"T-06","title":"Referral handler dedupe","element":"Referral Worker","status":"blocked","reruns":0,"turns":5,"tokens":22000,"model":"sonnet","tier":"planner","sample":true,"ts":1789831341546}
+{"kind":"check","decision":"D-0001","check":"p check -tc tcOptimistic","outcome":"pass","source":"pipeline","sample":true,"ts":1789860141546}
+{"kind":"needs_decision","id":"ND-0003","task":"T-06","element":"Referral Worker","question":"The design says at-least-once into Referral Worker but not how duplicates are detected. Dedupe on message id, or make the status update idempotent?","status":"open","sample":true,"ts":1789888941546}
+{"kind":"asbuilt_edge","from":"PricingPortal","to":"PricingApi","sample":true,"ts":1789917741546}
+{"kind":"asbuilt_edge","from":"PricingApi","to":"RatingEngine","sample":true,"ts":1789946541546}
+{"kind":"asbuilt_edge","from":"PricingApi","to":"QuotesDb","sample":true,"ts":1789975341546}
+{"kind":"asbuilt_edge","from":"PricingApi","to":"ReferralWorker","sample":true,"ts":1790004141546}
+{"kind":"asbuilt_edge","from":"RatingEngine","to":"CatModelAdapter","sample":true,"ts":1790032941546}
+{"kind":"asbuilt_edge","from":"ReferralWorker","to":"QuotesDb","sample":true,"ts":1790061741546}
+{"kind":"asbuilt_edge","from":"ReferralWorker","to":"RatingEngine","sample":true,"ts":1790090541546}
+{"kind":"asbuilt_edge","from":"RatingEngine","to":"LegacyRatesCache","sample":true,"ts":1790119341546}
+{"kind":"escape","id":"E-0007","element":"Quotes DB","description":"Underwriter edit overwritten by a referral status update in UAT","rule":"DC002","stage":"S1-lint","sample":true,"ts":1790148141546}
+{"kind":"escape","id":"E-0008","element":"Cat Model Adapter","description":"Duplicate vendor runs billed after a timeout retry","rule":"DC004","sample":true,"ts":1790176941546}
+{"kind":"escape","id":"E-0009","element":"Referral Worker","description":"Verify failed after a clean handover: duplicate referral emails","stage":"S1-grill","sample":true,"ts":1790205741546}
+{"kind":"escape","id":"E-0010","element":"Cat Model Adapter","description":"Three reruns on T-04 although the spec named the idempotency key","stage":"S2-runtime","sample":true,"ts":1790234541546}
+{"kind":"false_positive","code":"DC003","element":"Pricing Portal","note":"Portal call chain has a cached fallback","sample":true,"ts":1790263341546}

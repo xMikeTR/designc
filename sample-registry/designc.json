@@ -1,0 +1,29 @@
+{
+  "model": "model/workspace.dsl",
+  "codebase": "../designc-sample-codebase",
+  "chainHops": 4,
+  "llm": {
+    "baseUrl": "",
+    "model": "",
+    "apiKeyEnv": "DESIGNC_LLM_API_KEY"
+  },
+  "langfuse": {
+    "baseUrl": "",
+    "publicKeyEnv": "LANGFUSE_PUBLIC_KEY",
+    "secretKeyEnv": "LANGFUSE_SECRET_KEY",
+    "lookbackDays": 14,
+    "tags": [
+      "designc"
+    ],
+    "fields": {
+      "system": "system",
+      "element": "element",
+      "task": "task",
+      "decision": "decision",
+      "outcome": "outcome",
+      "attempt": "attempt"
+    },
+    "outcomeScore": "task_passed",
+    "sampleFile": "telemetry/langfuse-sample.json"
+  }
+}
