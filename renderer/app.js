@@ -150,6 +150,7 @@ function recompile() {
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4 }) : [];
   A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
+  A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   setMarkers();
 }
 async function reloadAll() {
@@ -911,9 +912,42 @@ function codemapSidebar() {
       || '<div class="hint">The code matches the design.</div>';
     h += section('drift', `Drift (${d.undeclared.length + d.unknownEls.length + d.unrealised.length + d.missingEls.length})`, body);
   } else if (A.asbuilt) h += section('drift', 'Drift', `<div class="hint">Drift appears once ${esc(A.cfg.model)} has elements to compare against.</div>`);
+  if (A.cdrift && cmHasComponents()) h += section('cdrift', 'Components', cmDriftBody());
   if (f && f.unresolved.length) h += section('unres', `Unresolved (${f.unresolved.length})`, `<div class="hint">Extraction saw these but could not tie them to an element, so they are not on the map.</div>` +
     f.unresolved.map(u => `<div class="item" data-code="${esc(u.file)}" data-line="${u.line}"><div class="l1"><span class="id">${esc(u.where)}</span></div><div class="l2">${esc(u.what)}</div><div class="l2" style="font-family:var(--mono);font-size:11px">${esc(u.file)}:${u.line}</div></div>`).join(''));
   return h;
+}
+function cmDriftBody() {
+  const c = A.cdrift, M = A.asbuiltFull, row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
+  const kids = id => [...M.elements.values()].filter(e => e.kind === 'component' && e.parent === id);
+  let h = '';
+  for (const id of c.scored) {
+    const cont = M.elements.get(id), dc = c.toDesign.get(id);
+    const rows = kids(id).filter(e => !c.toDesign.has(e.id)).map(e => row(esc(e.name), 'component in code only', `data-cmsel="${esc(e.id)}"`)).join('')
+      + M.rels.filter(r => c.relStatus.get(r.id) === 'undeclared' && M.elements.get(r.src).parent === id || c.relStatus.get(r.id) === 'undeclared' && M.elements.get(r.dst).parent === id)
+        .map(r => row(`${esc(M.elements.get(r.src).name)} → ${esc(M.elements.get(r.dst).name)}`, 'dependency', `data-cmsel="${esc(r.src)}"`)).join('')
+      + [...A.model.elements.values()].filter(x => x.kind === 'component' && x.parent === dc.id && !c.toBuilt.has(x.id)).map(x => row(esc(x.name), 'designed, not found in code', '')).join('');
+    h += `<div class="hint" style="padding-bottom:2px"><b>${esc(cont.name)}</b></div>${rows || '<div class="hint">The components match the design.</div>'}`;
+  }
+  for (const a of c.adoptable) h += row(`${esc(M.elements.get(a.built).name)}: design has no components (${kids(a.built).length} found)`, '', `data-cmsel="${esc(a.built)}"`);
+  return h || '<div class="hint">No container in the design has components to compare.</div>';
+}
+const BASIS_WORDS = { anchor: 'function class, controller or endpoint class', 'output-binding': 'function output-binding type', library: 'library', 'first-folder': 'folder', 'app-shell': 'App shell', shared: 'Shared', override: 'designc.json override' };
+function cmComponentSide(e) {
+  const f = A.facts || {}, M = A.asbuiltFull, c = (f.components || []).find(x => x.id === e.id), cd = A.cdrift;
+  const evRows = list => list.map(v => `<div class="evrow" data-code="${esc(v.file)}" data-line="${v.line}"><div class="evfile">${esc(v.file)}:${v.line}</div><code>${esc(v.text)}</code></div>`).join('');
+  const edges = dir => (f.componentEdges || []).filter(x => (dir === 'out' ? x.from : x.to) === e.id).map(x => {
+    const other = M.elements.get(dir === 'out' ? x.to : x.from), r = M.rels.find(y => y.src === x.from && y.dst === x.to);
+    const st = cd && r ? cd.relStatus.get(r.id) : '';
+    const tag = st === 'matched' ? '<span class="tag pass">in design</span>' : st === 'undeclared' ? '<span class="tag warning">not in design</span>' : '';
+    return `<div class="evgroup"><div><b>${dir === 'out' ? '→ ' : '← '}${esc(other ? other.name : '?')}</b> ${esc(x.label)} <span class="desc">${esc(x.tech || '')}</span> ${tag}</div>${evRows(x.evidence || [])}</div>`;
+  }).join('');
+  const match = cd && cd.toDesign.get(e.id), parent = M.elements.get(e.parent);
+  const status = !cd ? '' : match ? `<p>Design: <b>${esc(match.name)}</b></p>` : cd.scored.has(e.parent) ? `<p style="color:var(--warn)"><b>Not in the design.</b> Add it under ${esc(parent.name)}, or put <span class="code">"d.aka" "${esc(e.name)}"</span> on the designed component if it is the same thing.</p>` : '';
+  return `<h3>${esc(e.name)}</h3><div class="muted">Component of ${esc(parent ? parent.name : '')}${c ? ` · ${esc(BASIS_WORDS[c.basis] || c.basis)}` : ''}</div>${status}
+    ${c && c.files.length ? `<h4>Files</h4>${c.files.map(x => `<div class="evrow" data-code="${esc(x)}" data-line="1"><div class="evfile">${esc(x)}</div></div>`).join('')}` : ''}
+    <h4>Why it's on the map</h4>${c ? evRows(c.evidence) : '<p class="muted">No evidence recorded.</p>'}
+    ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
 }
 function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
 function cmModel() { return A.asbuiltFull ? Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope }) : A.asbuilt; }
@@ -953,25 +987,37 @@ function renderCodemap() {
   const f = A.facts || { repo: '', extractedAt: null };
   el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
       ${cmSeg()}
-      ${A.cmLevel === 'container' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
-      <span class="spacer"></span>${A.drift && A.cmLevel === 'container' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
+      ${A.cmLevel !== 'context' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
+      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
       <button class="btn" data-a="cmfit">Fit</button><button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
     <div class="cm-main"><div class="cm-canvas sheetscroll" id="cmcanvas"></div><aside class="cm-side" id="cmside"></aside></div></div>`;
   requestAnimationFrame(drawCodemap);
 }
 function drawCodemap() {
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
-  const m = cmModel(), L = layout(m, { groupEdges: A.cmLevel === 'component' }), d = A.cmLevel === 'container' ? A.drift : null;
+  const lvl = A.cmLevel, m = cmModel(), L = layout(m, { groupEdges: lvl === 'component' });
+  const d = lvl === 'context' ? null : A.drift, cd = lvl === 'component' ? A.cdrift : null;
+  const full = A.asbuiltFull;
+  const compOf = id => { const e = m.elements.get(id); return e && e.kind === 'component' ? e : null; };
+  const ghosts = lvl === 'container' && d ? d.unrealised.map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' }))
+    : cd ? cd.unrealised.filter(u => m.elements.has(u.src) && m.elements.has(u.dst)).map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' })) : [];
   host_.innerHTML = drawModel(m, L, {
     attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
-    extra: d && A.showGhost ? d.unrealised.map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' })) : [],
+    extra: A.showGhost ? ghosts : [],
     edgeStyle: r => {
-      const st = d ? d.relStatus.get(r.id) : 'matched', as = Core.interaction(r) === 'async', hot = A.cmSel && (r.src === A.cmSel || r.dst === A.cmSel);
-      if (d && st !== 'matched') return { color: 'var(--warn)', width: hot ? 2.8 : 2.1, dash: as ? '6 4' : '', marker: 'warning', labelColor: 'var(--warn)', label: `${r.description}${st === 'undeclared' ? ' (not in design)' : ''}` };
+      const as = Core.interaction(r) === 'async', hot = A.cmSel && (r.src === A.cmSel || r.dst === A.cmSel);
+      const compRel = compOf(r.src) || compOf(r.dst);
+      const st = compRel ? (cd ? cd.relStatus.get(r.id) : null) : d ? d.relStatus.get(r.id) : 'matched';
+      if (st === 'undeclared' || (!compRel && d && st !== 'matched')) return { color: 'var(--warn)', width: hot ? 2.8 : 2.1, dash: as ? '6 4' : '', marker: 'warning', labelColor: 'var(--warn)', label: `${r.description}${st === 'undeclared' ? ' (not in design)' : ''}` };
       return { color: hot ? 'var(--accent)' : 'var(--ink3)', width: hot ? 2.2 : 1.3, dash: as ? '6 4' : '', label: r.description };
     },
     nodeStyle: e => {
-      const mapped = !d || d.toDesign.has(e.id), on = A.cmSel === e.id;
+      const on = A.cmSel === e.id;
+      if (e.kind === 'component') {
+        const warn = cd && full && cd.scored.has(e.parent) && !cd.toDesign.has(e.id), ink = cd && cd.toDesign.has(e.id);
+        return { stroke: on ? 'var(--accent)' : warn ? 'var(--warn)' : ink ? 'var(--ink)' : 'var(--ink3)', sw: on ? 2.8 : warn ? 2.2 : 1.5, dash: warn ? '6 3' : '', note: warn ? 'not in design' : '' };
+      }
+      const mapped = !d || d.toDesign.has(e.id);
       return { stroke: on ? 'var(--accent)' : mapped ? 'var(--ink)' : 'var(--warn)', sw: on ? 2.8 : mapped ? 1.5 : 2.2, dash: mapped ? '' : '6 3', note: mapped ? '' : 'not in design' };
     },
   });
@@ -985,6 +1031,7 @@ function renderCmSide() {
     return;
   }
   const e = (A.asbuiltFull || A.asbuilt).elements.get(A.cmSel); if (!e) { side.innerHTML = ''; return; }
+  if (e.kind === 'component') { side.innerHTML = cmComponentSide(e); return; }
   const fe = f && f.elements.find(x => x.name === e.name) || { evidence: [] };
   const match = d && d.toDesign.get(e.id);
   const evRows = list => list.map(v => `<div class="evrow" data-code="${esc(v.file)}" data-line="${v.line}"><div class="evfile">${esc(v.file)}:${v.line}</div><code>${esc(v.text)}</code></div>`).join('');
@@ -1116,6 +1163,7 @@ document.addEventListener('click', async e => {
     return;
   }
   if (d.code) return openCode(d.code, d.line ? +d.line : undefined);
+  if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
   if (t.classList.contains('node')) { A.selected = t.dataset.el; const el = A.model.elements.get(A.selected); renderSheet(); if (el) openFile(A.cfg.model, el.line); return; }
