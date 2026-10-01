@@ -929,7 +929,7 @@ function cmSeg() {
   const has = cmHasComponents();
   const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''}>${name}</button>`;
   const sc = A.cmScope && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope);
-  const crumb = A.cmLevel === 'component' ? `<span class="cm-crumb"><a data-a="cmscope" data-scope="">All</a>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
+  const crumb = A.cmLevel === 'component' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
   return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}</span>${crumb}`;
 }
 function renderCodemap() {
@@ -1148,7 +1148,7 @@ document.addEventListener('click', async e => {
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }
-  if (a === 'cmlevel') return cmGo(d.level);
+  if (a === 'cmlevel') return cmGo(d.level, null);
   if (a === 'cmscope') return cmGo('component', null);
   if (a === 'ghost') { A.showGhost = t.checked; return drawCodemap(); }
   if (a === 'codemapopen') return setActivity('codemap');
