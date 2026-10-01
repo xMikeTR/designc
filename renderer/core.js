@@ -479,6 +479,52 @@ const Core = (() => {
     return makeModel(model.name, kept, rels, model.errors);
   }
 
+  // Projects a model for the Code map: context and container are atLevel; component keeps the
+  // component detail. Scoped to a container id, everything outside that container's subtree folds
+  // to its container-level ancestor and only the subtree, its direct neighbours and their
+  // ancestors stay, with just the rels that touch the subtree. A scope that isn't a container id
+  // behaves as no scope. Container rollups whose component rels are visible are then dropped.
+  function view(model, { level, scope } = {}) {
+    if (level === 'context' || level === 'container') return atLevel(model, level);
+    if (level !== 'component') throw new Error(`unknown level "${level}"`);
+    const els = model.elements;
+    const focus = scope && els.has(scope) && els.get(scope).kind === 'container' ? scope : null;
+    let m = model;
+    if (focus) {
+      const inSub = id => id === focus || model.isAncestor(focus, id);
+      const resolve = id => {
+        if (inSub(id)) return id;
+        let e = els.get(id);
+        while (e && KIND_RANK[e.kind] > KIND_RANK.container && e.parent) e = els.get(e.parent);
+        return e ? e.id : id;
+      };
+      const explicit = [], lifted = [];
+      for (const r of model.rels) {
+        const src = resolve(r.src), dst = resolve(r.dst);
+        if (src === dst || !(inSub(src) || inSub(dst))) continue;
+        if (src === r.src && dst === r.dst) explicit.push(r); else lifted.push({ ...r, src, dst });
+      }
+      const pair = r => `${r.src}\u0000${r.dst}`;
+      const have = new Set(explicit.map(pair)), seen = new Set(), rels = [...explicit];
+      for (const r of lifted) {
+        const k = `${pair(r)}\u0000${r.description}`;
+        if (have.has(pair(r)) || seen.has(k)) continue;
+        seen.add(k); rels.push(r);
+      }
+      const keep = new Set([...els.keys()].filter(inSub));
+      for (const r of rels) { keep.add(r.src); keep.add(r.dst); }
+      for (const id of [...keep]) for (let e = els.get(id); e && e.parent; e = els.get(e.parent)) keep.add(e.parent);
+      m = makeModel(model.name, new Map([...els].filter(([id]) => keep.has(id))), rels, model.errors);
+    }
+    // a rel is covered when an endpoint has children and another rel links a descendant-or-self of
+    // its src to a descendant-or-self of its dst with at least one end strictly deeper
+    const kids = new Set([...m.elements.values()].filter(e => e.parent).map(e => e.parent));
+    const within = (top, id) => id === top || m.isAncestor(top, id);
+    const covered = r => (kids.has(r.src) || kids.has(r.dst)) &&
+      m.rels.some(o => o !== r && within(r.src, o.src) && within(r.dst, o.dst) && (o.src !== r.src || o.dst !== r.dst));
+    return makeModel(m.name, m.elements, m.rels.filter(r => !covered(r)), m.errors);
+  }
+
   // Removes component declarations and any relationship touching a component from raw DSL text,
   // leaving every other line byte-identical.
   function containerLevelText(dslText) {
@@ -514,6 +560,6 @@ const Core = (() => {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, drift, driftModels, atLevel, containerLevelText, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, drift, driftModels, atLevel, view, containerLevelText, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
