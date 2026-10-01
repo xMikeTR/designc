@@ -72,6 +72,9 @@ Security invariants in the main process: every registry path goes through `insid
 | `extract/link.js` | ~110 | Matches `consumes` against `provides` across scanners into edges and `unresolved`: queue by exact key; http/hub by exact key or whole-segment prefix (longest wins), grouped by provider deployable with a `devTarget`-port tie-break when more than one deployable matches; `opts.bindings` resolves env-only consumes to a named element (existing or newly created) with synthetic `designc.json` evidence |
 | `extract/dsl.js` | ~15 | Renders merged elements/edges as workspace DSL text |
 | `extract/catalogue.js` | ~15 | The only place shared external/store names live (Entra ID, Key Vault, Snowflake, etc.) |
+| `extract/components.js` | ~170 | Component seam: assigns each scanner unit to one component per owner container (overrides first, then the language rules), builds `facts.components` and `facts.componentEdges`, pins container edges to components |
+| `extract/components-cs.js`, `extract/components-js.js` | ~180, ~100 | Per-language assignment (C# anchors, output-binding types, DI and type references; JS/TS support and grouping folders, import edges) |
+| `extract/glob.js` | ~25 | Pure `**`/`*`/`?` matcher for `designc.json` `extract.components` paths |
 | `telemetry.js` | ~120 | Langfuse reader (Observations API v2, Scores API v3), normalised into runs |
 | `renderer/core.js` | ~450 | Design compiler: DSL tokenizer and parser, IR, property schema, rules DC000 to DC006, suppressions, gate, ledger drift, model drift |
 | `renderer/app.js` | ~1130 | Workbench: state `A`, registry loading, Monaco setup and Structurizr language support, tabs, sidebar views, problems and output panels, status bar, C4 drawing (`layout`, `drawModel`), code map, dashboards, checks, grill-me and proposal drafting buttons, telemetry aggregation, events |
@@ -207,6 +210,8 @@ Properties are **demand-driven**: nothing is globally required. A rule emits an 
 
 `Core.driftModels(design, asbuilt)` matches elements by normalised name (lowercase alphanumerics) or `d.aka`, and returns `toDesign`, `toBuilt`, `relStatus` (matched, undeclared, unmapped), `undeclared`, `unrealised`, `unknownEls` and `missingEls`.
 
+`Core.atLevel(model, level)` folds every element deeper than `context`, `container` or `component` into its nearest ancestor at that level, lifting rels (explicit rels beat lifted ones, self-loops drop, ids preserved). `Core.containerLevelText(text)` removes component declarations and any rel touching a component from raw DSL text, leaving every other line byte-identical; it relies on the one-line forms `dsl.js` writes.
+
 `Core.view(model, {level, scope})` projects a model for the Code map: `context` and `container` are `atLevel`; `component` keeps everything, or, with `scope` set to a container id, that container's components plus its neighbours folded to container level. Rollup rels covered by visible component rels are dropped; rel ids are preserved.
 
 `Core.driftComponents(design, built)` judges components only inside a container whose design declares components (*scored*). Components elsewhere are *neutral*, so a container-only design never shows component warnings. It also returns `adoptable` (built containers with components whose design match has none). Rel status adds `neutral` to matched, undeclared and unmapped; cross-container component rels also match the lifted container-level design rel.
@@ -317,6 +322,25 @@ Events handled: `TEXT_MESSAGE_START/CONTENT/END/CHUNK`, `TOOL_CALL_START/ARGS/EN
 **Change what the Build view shows.** Telemetry aggregation is `telAgg()` and `telSuggestions()` in `app.js`; the ledger part is `buildDash()`; the telemetry block is `telemetryBlock()`.
 
 **Change the layout of the C4 drawings.** `layout(m)` (layered, left to right, barycentric ordering) and `drawModel(m, L, opts)` in `app.js` are shared by the design sheet and the code map. Style hooks are `nodeStyle(e)` and `edgeStyle(r)` in the options, plus `extra` for ghost edges.
+
+### Components (`facts.components`, `facts.componentEdges`)
+
+`extract/components.js` assigns each source unit, per owner container, to exactly one component. Precedence:
+
+1. `designc.json` `extract.components` overrides, first matching entry wins.
+2. C# anchors: a class with a `[Function]` method, a controller (name ends in `Controller` or derives from `ControllerBase`/`Controller`), or a static class calling `Map*`. Named after the class.
+3. C# output-binding types (the `T` a `[Function]` method returns) join that function class's component, even if the class was overridden.
+4. A library project or package is one component inside each owner container.
+5. Files directly in the project root are `App shell`.
+6. JS/TS support folders (`types`, `constants`, `styles`, `assets`, `test`, `tests`, `mocks`, `__mocks__`) are `Shared`.
+7. A grouping folder (`features`, `modules`, `domains`) first steps down one level.
+8. Otherwise the first folder names the component. F# uses rules 4, 5 and 8 only.
+
+Overrides look like `"extract": { "components": [ { "name": "Ordering", "paths": ["api/src/Shop.Api/Endpoints/**"] } ] }`. A file matched in several containers becomes that component in each. A bad entry, or a glob that matches no source file, goes to `unresolved` (where `designc.json`).
+
+`facts.components` is `{id, key, container, name, owner, basis, tech, files, evidence}`; `facts.componentEdges` is `{from, to, kind, label, tech, via, evidence}` with `via` one of `container-edge`, `queue-internal`, `type`, `di`, `di-candidate`, `import`. Rollup invariant: folding every component edge end to its container and dropping self-loops gives exactly the `(from, to, kind)` set of `facts.edges`, which keeps its container-level shape. The DSL nests components inside their container; container-level rels render as before, and each component rel is one line (`a -> b "label" "tech" { properties { "d.interaction" "sync" } }`) so `Core.containerLevelText` can strip them.
+
+Limits: calls through extension methods make no component edge; a type name resolves only if exactly one declaration in the deployable's closure has it (otherwise no edge); an interface with several registrations gives `Uses (DI candidate)` edges plus one `unresolved` entry. `test/extract-invariants.test.js` runs the extract-* governance checks (no app-specific names, built-in requires only) in the gate.
 
 ### Levels, drill-down and adopting components
 
