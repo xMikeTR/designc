@@ -18,13 +18,19 @@ function build(facts, opts = {}) {
 
   for (const u of units || []) {
     const mod = moduleFor(u.file);
-    if (!mod) { unresolved.push({ where: elements.get(u.owner).name, what: `no component rule for "${u.file}"`, ...u.evidence }); continue; }
-    const result = mod.assign(u);
-    if (!result) { unresolved.push({ where: elements.get(u.owner).name, what: `no component rule matched "${u.file}"`, ...u.evidence }); continue; }
-    const compKey = keyOf(result.name);
-    const mapKey = `${u.owner}|${compKey}`;
-    if (!components.has(mapKey)) components.set(mapKey, { key: compKey, name: result.name, owner: u.owner, basis: result.basis, evidence: [] });
-    components.get(mapKey).evidence.push(result.evidence);
+    const relFromRoot = u.file.startsWith(u.root + '/') ? u.file.slice(u.root.length + 1) : u.file.split('/').pop();
+    const evidence = { file: u.file, line: 1, text: u.file.split('/').pop() };
+    for (const owner of u.owners) {
+      const unit = { ...u, owner, relFromRoot, evidence };
+      const where = elements.get(owner).name;
+      // rule 4: a library project/package is one component, named after it, inside each owner
+      const result = u.projectKind === 'library' ? { name: u.project, basis: 'library', evidence } : mod && mod.assign(unit);
+      if (!result) { unresolved.push({ where, what: `no component rule matched "${u.file}"`, ...evidence }); continue; }
+      const compKey = keyOf(result.name);
+      const mapKey = `${owner}|${compKey}`;
+      if (!components.has(mapKey)) components.set(mapKey, { key: compKey, name: result.name, owner, basis: result.basis, evidence: [] });
+      components.get(mapKey).evidence.push(result.evidence);
+    }
   }
 
   const ctx = { components, elements };

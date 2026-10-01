@@ -17,9 +17,9 @@ test('every source file of every deployable lands in exactly one component', asy
     for (const c of r.facts.components) {
       assert.ok(r.facts.elements.some(e => e.name === c.owner), `component ${c.name} has a known owner`);
       for (const ev of c.evidence) {
-        assert.ok(!seen.has(ev.file), `${ev.file} assigned twice`);
+        assert.ok(!seen.has(`${c.owner}|${ev.file}`), `${ev.file} assigned twice in ${c.owner}`);
         assert.ok(fs.existsSync(path.join(dir, ev.file)), `${ev.file} exists`);
-        seen.set(ev.file, c.key);
+        seen.set(`${c.owner}|${ev.file}`, c.key);
       }
     }
     assert.ok(seen.size > 0);
@@ -27,7 +27,7 @@ test('every source file of every deployable lands in exactly one component', asy
   }
   const r = await extract(FULLSTACK);
   const names = r.facts.components.map(c => `${keyOf(c.owner)}:${c.name}`);
-  for (const want of ['ui:api', 'ui:auth', 'nodeapi:routes', 'shopapi:Controllers', 'ui:App shell']) assert.ok(names.includes(want), `missing ${want}`);
+  for (const want of ['ui:api', 'ui:auth', 'nodeapi:routes', 'shopapi:Controllers', 'ui:App shell', 'shopapi:Shop.Infrastructure', 'shopfunctions:Shop.Infrastructure']) assert.ok(names.includes(want), `missing ${want}`);
 });
 
 test('component ids follow the c_ scheme in the nested DSL', async () => {

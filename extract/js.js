@@ -7,6 +7,7 @@ const jsCalls = require('./js-calls');
 const SPA_TRIGGERS = ['vite', 'next', 'react-scripts', '@angular/core', 'vue', 'svelte'];
 const NODE_TRIGGERS = ['express', 'fastify', 'koa', '@nestjs/core', 'hono'];
 const SRC_RE = /\.(js|jsx|ts|tsx|mjs|cjs)$/i;
+const TEST_RE = /\.(test|spec)\.[cm]?[jt]sx?$|[\\/]__tests__[\\/]/i;
 const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 function spaTech(deps) {
@@ -88,7 +89,16 @@ async function scan(ctx) {
     const p = byDepth.find(p => f.startsWith(p.dir + path.sep)); if (p) p.files.push(f);
   }
   const units = [];
-  for (const p of pkgDefs.filter(p => p.kind !== 'library')) for (const f of p.files) units.push({ owner: p.key, file: rel(f), relFromRoot: path.relative(p.dir, f).split(path.sep).join('/'), evidence: { file: rel(f), line: 1, text: path.basename(f) } });
+  const byName = new Map(pkgDefs.map(p => [p.name, p]));
+  const depClosure = p => { const seen = new Set(), stack = [p]; while (stack.length) { const x = stack.pop(); if (seen.has(x)) continue; seen.add(x); for (const d of x.deps) if (byName.has(d)) stack.push(byName.get(d)); } return seen; };
+  for (const p of pkgDefs) {
+    const owners = (p.kind === 'library' ? pkgDefs.filter(d => d.kind !== 'library' && depClosure(d).has(p)) : [p]).map(d => d.key);
+    if (!owners.length) continue;
+    const srcDir = path.join(p.dir, 'src');
+    const root = fs.existsSync(srcDir) ? srcDir : p.dir;
+    const lang = f => /\.tsx?$/i.test(f) ? 'TS' : 'JS';
+    for (const f of p.files) if (f.startsWith(root + path.sep) && !TEST_RE.test(f)) units.push({ file: rel(f), owners, project: p.name, projectKind: p.kind, root: rel(root), lang: lang(f) });
+  }
 
   for (const p of pkgDefs) {
     if (p.kind === 'spa') {

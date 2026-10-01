@@ -159,8 +159,6 @@ async function scan(ctx) {
   const byFile = new Map(projects.map(p => [path.resolve(p.file), p]));
   const closure = p => { const seen = new Set(), stack = [p]; while (stack.length) { const x = stack.pop(); if (seen.has(x)) continue; seen.add(x); for (const r of x.refs) { const q = byFile.get(path.resolve(r)); if (q) stack.push(q); } } return [...seen]; };
   const deployables = projects.filter(p => ['web', 'worker', 'app'].includes(p.kind));
-  const units = [];
-  for (const d of deployables) for (const f of d.sources) units.push({ owner: keyOf(d.name), file: rel(f), relFromRoot: path.relative(d.dir, f).split(path.sep).join('/'), evidence: { file: rel(f), line: 1, text: path.basename(f) } });
 
   // ---- scan sources
   const hits = [];
@@ -184,6 +182,13 @@ async function scan(ctx) {
     e.evidence.push(evidence); return e;
   };
   const ownersOf = p => deployables.filter(d => closure(d).includes(p));
+  const units = [];
+  for (const p of projects) {
+    if (p.kind === 'test') continue;
+    const owners = (p.kind === 'library' ? ownersOf(p) : [p]).map(d => keyOf(d.name));
+    if (!owners.length) continue;
+    for (const f of p.sources) units.push({ file: rel(f), owners, project: p.name, projectKind: p.kind, root: rel(p.dir), lang: p.lang });
+  }
   const setting = (d, key) => { for (const q of closure(d)) { const v = q.settings[key.toLowerCase()]; if (v != null) return v; } return undefined; };
 
   // stores: EF DbContext classes, used by deployables that mention them

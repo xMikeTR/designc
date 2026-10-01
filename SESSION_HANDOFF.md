@@ -69,7 +69,7 @@ no new files under `fixtures/`. Existing link/queue-internal/spa-wrapper tests u
 Invariants: no app-specific names in `extract/*.js`; no new dependencies; never invent edges.
 
 ## Plan for the next session
-1. Refactor: deviations 1, 2, 4 DONE (commit "Align COMP-01 with manifest contract"). Remaining: 3 (unit shape) — do it as the first step of COMP-02.
+1. Refactor: deviations 1, 2, 4 DONE (commit "Align COMP-01 with manifest contract"). 3 (unit shape) DONE too: scanners emit {file, owners[], project, projectKind, root, lang}; components.js loops owners, derives relFromRoot, applies rule 4 (library = one component named after project) before language assign(). JS test regex TEST_RE was missing in js.js — now defined there. Naming note: projectKind uses existing kinds (web|worker|app|library; spa|node-api|library), not the contract's 'functions'/'api'.
 2. COMP-02 TDD, one failing test at a time, starting with AC1 on `fixtures/fullstack`.
 3. Update `ARCHITECTURE.md` if present (none seen in this repo root) — ask before creating.
 
