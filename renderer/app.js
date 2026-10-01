@@ -1169,16 +1169,20 @@ document.addEventListener('wheel', e => {
   const svg = c.querySelector('svg'); const cur = A.cmZoom === 'fit' && svg ? svg.width.baseVal.value / svg.viewBox.baseVal.width : A.cmZoom;
   A.cmZoom = Math.max(0.3, Math.min(2, cur * (e.deltaY < 0 ? 1.1 : 0.9))); drawCodemap();
 }, { passive: false });
-document.addEventListener('dblclick', e => {
-  // the two clicks redraw the canvas, so e.target is already detached: hit-test the live DOM
-  const t = document.elementFromPoint(e.clientX, e.clientY), c = t && t.closest('#cmcanvas'); if (!c || !A.asbuiltFull) return;
+// double-click is read from the click event's detail in the capture phase: the first click redraws the
+// canvas, which can swallow the native dblclick, and the plain click handler would toggle the selection
+document.addEventListener('click', e => {
+  if (e.detail !== 2 || !A.asbuiltFull) return;
+  const t = e.target, c = t.closest && t.closest('#cmcanvas'); if (!c) return;
   const node = t.closest('.node[data-cm]'), grp = t.closest('[data-cmg]');
   const id = node ? node.dataset.cm : grp ? grp.dataset.cmg : null;
-  if (!id) return cmUp();
-  const el = A.asbuiltFull.elements.get(id); if (!el) return;
+  const el = id && A.asbuiltFull.elements.get(id);
+  if (id && !el) return;
+  e.stopPropagation();
+  if (!el) return cmUp();
   if (el.kind === 'container') return cmGo('component', id);
   if (el.kind === 'component') { A.cmSel = id; return drawCodemap(); }
-});
+}, true);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Backspace' || A.active !== 'special:codemap' || !A.asbuiltFull) return;
   const t = e.target; if (t && t.closest && t.closest('input, textarea, select, [contenteditable], .monaco-editor')) return;
