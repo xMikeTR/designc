@@ -5,6 +5,6 @@ function assign(unit) {
   if (segs.length <= 1) return { name: 'App shell', basis: 'app-shell', evidence: unit.evidence };
   return { name: segs[0], basis: 'first-folder', evidence: unit.evidence };
 }
-function edges(ctx) { return []; }
+async function edges(ctx) { return { refs: [], unresolved: [] }; }
 
 module.exports = { assign, edges };
