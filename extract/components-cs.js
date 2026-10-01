@@ -115,6 +115,69 @@ function assign(unit, index) {
   if (segs.length <= 1) return { name: 'App shell', basis: 'app-shell', evidence: unit.evidence };
   return { name: segs[0], basis: 'first-folder', evidence: unit.evidence };
 }
-function edges(ctx) { return []; }
+// ---- layer (c): type and DI references between the files of one deployable's closure ----
+// Per deployable, a type name resolves only when exactly one declaration in the closure has it. A reference is
+// a type in a type position (parameter, field, property, generic argument, new T(, typeof(T)); extension-method
+// calls are not type references. Registrations (Add*<I, Impl>) tie an interface to its implementations.
+const ID = '(?:[\\w.]+\\.)?(\\w+)';
+const TYPE_ARGS = '(?:\\s*<[^<>;(){}]*(?:<[^<>;(){}]*>[^<>;(){}]*)*>)?';
+const REF_PATTERNS = [
+  new RegExp(`\\bnew\\s+${ID}\\s*[(<{\\[]`, 'g'),
+  new RegExp(`\\btypeof\\s*\\(\\s*${ID}`, 'g'),
+  new RegExp(`[<,]\\s*${ID}\\s*(?=[>,<?\\[])`, 'g'),
+  new RegExp(`(?<![\\w.])(?:\\w+\\.)*(\\w+)${TYPE_ARGS}\\??(?:\\[\\])*\\s+\\w+\\s*(?=[,)=;{(])`, 'g'),
+];
+const ADD = '\\bAdd(?:Singleton|Scoped|Transient|HttpClient)';
+const REG_PATTERNS = [
+  new RegExp(`${ADD}\\s*<\\s*${ID}\\s*,\\s*${ID}\\s*>`, 'g'),
+  new RegExp(`${ADD}\\s*\\(\\s*typeof\\s*\\(\\s*${ID}\\s*\\)\\s*,\\s*typeof\\s*\\(\\s*${ID}\\s*\\)`, 'g'),
+  new RegExp(`${ADD}\\s*<\\s*${ID}\\s*>\\s*\\([^;]*?\\bnew\\s+${ID}\\s*\\(`, 'g'),
+];
+
+// ctx: { units, read, elements }. Returns { refs: [{ owner, from: file, to: file, via, evidence: [..] }], unresolved }
+async function edges(ctx) {
+  const refs = [], unresolved = [];
+  const owners = new Map(); // owner key -> [unit]
+  for (const u of ctx.units) {
+    if (!/\.cs$/i.test(u.file)) continue;
+    for (const o of u.owners) { if (!owners.has(o)) owners.set(o, []); owners.get(o).push(u); }
+  }
+  for (const [owner, units] of owners) {
+    const files = [...new Set(units.map(u => u.file))].sort();
+    const texts = new Map(), codes = new Map(), decls = new Map();
+    for (const f of files) {
+      const text = await ctx.read(f);
+      texts.set(f, text); codes.set(f, blankComments(text, true));
+      for (const n of analyseFile(text).decls) { if (!decls.has(n)) decls.set(n, []); decls.get(n).push(f); }
+    }
+    const declared = name => { const at = decls.get(name); return at && at.length === 1 ? at[0] : null; };
+    const at = (f, idx) => { const line = lineAt(texts.get(f), idx); return { file: f, line, text: texts.get(f).split(/\r?\n/)[line - 1].trim().slice(0, 200) }; };
+    // registrations: interface name -> distinct implementations, in source order
+    const regs = new Map();
+    for (const f of files) for (const re of REG_PATTERNS) for (const m of codes.get(f).matchAll(re)) {
+      if (!regs.has(m[1])) regs.set(m[1], []);
+      if (!regs.get(m[1]).some(r => r.impl === m[2])) regs.get(m[1]).push({ impl: m[2], ev: at(f, m.index) });
+    }
+    for (const [i, list] of regs) if (list.length > 1) {
+      const first = list[0].ev;
+      unresolved.push({ where: ctx.elements.get(owner).name, what: `${i} has ${list.length} registrations (${list.map(r => r.impl).join(', ')}); component edges to them are marked DI candidate`, ...first });
+    }
+    for (const f of files) {
+      const code = codes.get(f);
+      for (const re of REF_PATTERNS) for (const m of code.matchAll(re)) {
+        const name = m[1], target = declared(name);
+        if (!target) continue;
+        const ev = at(f, m.index);
+        if (target !== f) refs.push({ owner, from: f, to: target, via: 'type', evidence: [ev] });
+        const list = regs.get(name) || [];
+        for (const r of list) {
+          const to = declared(r.impl);
+          if (to && to !== f) refs.push({ owner, from: f, to, via: list.length > 1 ? 'di-candidate' : 'di', evidence: [ev, r.ev] });
+        }
+      }
+    }
+  }
+  return { refs, unresolved };
+}
 
 module.exports = { prepare, assign, edges };

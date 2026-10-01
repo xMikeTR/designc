@@ -129,8 +129,21 @@ async function build(facts, opts = {}) {
     addOut(idOf(f), idOf(t), 'async', `Sends via "${l.key}"`, 'Azure Service Bus', 'queue-internal', [l.send, l.receive]);
   }
 
-  const ctx = { components, elements };
-  const componentEdges = [...out.values(), ...cs.edges(ctx), ...js.edges(ctx)];
+  // (c) C# type/DI references and (d) TS/JS imports: intra-container, resolved per language from the units
+  const addRef = (from, to, via, evidence) => {
+    const candidate = via === 'di-candidate', existing = out.get(`${from}|${to}|sync`);
+    if (existing && existing.via === 'di-candidate' && !candidate) { existing.label = 'Uses'; existing.via = via; }
+    addOut(from, to, 'sync', candidate ? 'Uses (DI candidate)' : 'Uses', 'in-process', via, evidence);
+  };
+  for (const lang of [cs, js]) {
+    const r = await lang.edges({ units: units || [], read: facts.read, elements });
+    for (const x of r.refs) {
+      const f = fileComp.get(`${x.owner}|${x.from}`), t = fileComp.get(`${x.owner}|${x.to}`);
+      if (f && t) addRef(idOf(f), idOf(t), x.via, x.evidence);
+    }
+    unresolved.push(...r.unresolved);
+  }
+  const componentEdges = [...out.values()];
 
   return { components, componentEdges, unresolved };
 }
