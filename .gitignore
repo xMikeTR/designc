@@ -2,3 +2,4 @@ node_modules/
 dist/
 .env
 *.log
+SESSION_HANDOFF.md
