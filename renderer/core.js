@@ -462,17 +462,21 @@ const Core = (() => {
       memo.set(id, out); return out;
     };
     const kept = new Map([...els].filter(([, e]) => survives(e)));
-    const byKey = new Map();
+    const lifted = [], rels = [];
     for (const r of model.rels) {
       const src = resolve(r.src), dst = resolve(r.dst);
       if (src === dst) continue;
-      const explicit = src === r.src && dst === r.dst;
-      const key = `${src}\u0000${dst}\u0000${r.description}`;
-      const prev = byKey.get(key);
-      if (prev && (prev.explicit || !explicit)) continue;
-      byKey.set(key, { explicit, rel: { ...r, src, dst } });
+      if (src === r.src && dst === r.dst) rels.push(r); else lifted.push({ ...r, src, dst });
     }
-    return makeModel(model.name, kept, [...byKey.values()].map(v => v.rel), model.errors);
+    const pair = r => `${r.src}\u0000${r.dst}`;
+    const explicit = new Set(rels.map(pair));
+    const seen = new Set();
+    for (const r of lifted) {
+      const k = `${pair(r)}\u0000${r.description}`;
+      if (explicit.has(pair(r)) || seen.has(k)) continue;
+      seen.add(k); rels.push(r);
+    }
+    return makeModel(model.name, kept, rels, model.errors);
   }
 
   // Removes component declarations and any relationship touching a component from raw DSL text,

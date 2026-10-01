@@ -48,9 +48,11 @@ test('atLevel folds children into ancestors and lifts relationships without dupl
   const c = Core.atLevel(m, 'container');
   assert.deepEqual([...c.elements.values()].map(e => e.name).sort(), ['A', 'B', 'S']);
   const byName = r => `${c.elements.get(r.src).name}->${c.elements.get(r.dst).name}:${r.description}`;
-  assert.deepEqual(c.rels.map(byName).sort(), ['A->B:calls', 'A->B:pings']);
+  assert.deepEqual(c.rels.map(byName).sort(), ['A->B:calls']);
   const explicit = m.rels.find(r => m.elements.get(r.src).name === 'A' && r.description === 'calls');
   assert.equal(c.rels.find(r => r.description === 'calls').id, explicit.id);
+  const lonely = Core.parse(`workspace "w" {\n  model {\n    sys = softwareSystem "S" {\n      a = container "A" {\n        a1 = component "A1"\n      }\n      b = container "B" {\n        b1 = component "B1"\n      }\n    }\n    a1 -> b1 "x"\n    a1 -> b1 "y"\n    a -> b "x"\n  }\n}\n`);
+  assert.deepEqual(Core.atLevel(lonely, 'container').rels.map(r => r.description), ['x']);
   const s = Core.atLevel(m, 'context');
   assert.deepEqual([...s.elements.values()].map(e => e.name), ['S']);
   assert.equal(s.rels.length, 0);
