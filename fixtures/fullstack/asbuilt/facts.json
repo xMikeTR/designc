@@ -1,0 +1,592 @@
+{
+  "repo": "fullstack",
+  "extractedAt": "2026-10-01T14:13:27.061Z",
+  "projects": [
+    {
+      "name": "Shop.Api",
+      "kind": "web",
+      "lang": "C#",
+      "file": "api/src/Shop.Api/Shop.Api.csproj",
+      "sources": 3
+    },
+    {
+      "name": "Shop.Functions",
+      "kind": "worker",
+      "lang": "C#",
+      "file": "api/src/Shop.Functions/Shop.Functions.csproj",
+      "sources": 2
+    },
+    {
+      "name": "Shop.Infrastructure",
+      "kind": "library",
+      "lang": "C#",
+      "file": "api/src/Shop.Infrastructure/Shop.Infrastructure.csproj",
+      "sources": 1
+    },
+    {
+      "name": "node-api",
+      "kind": "web",
+      "lang": "JS",
+      "file": "node-api/package.json",
+      "sources": 2
+    },
+    {
+      "name": "shared-lib",
+      "kind": "library",
+      "lang": "JS",
+      "file": "shared-lib/package.json",
+      "sources": 0
+    },
+    {
+      "name": "ui",
+      "kind": "app",
+      "lang": "TS",
+      "file": "ui/package.json",
+      "sources": 6
+    }
+  ],
+  "elements": [
+    {
+      "key": "shopapi",
+      "name": "Shop.Api",
+      "kind": "container",
+      "tech": "ASP.NET Core",
+      "project": "api/src/Shop.Api/Shop.Api.csproj",
+      "role": "web",
+      "ports": [
+        "5010",
+        "5011"
+      ],
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Shop.Api.csproj",
+          "line": 1,
+          "text": "Web SDK project, references Shop.Infrastructure"
+        }
+      ]
+    },
+    {
+      "key": "shopfunctions",
+      "name": "Shop.Functions",
+      "kind": "container",
+      "tech": "Azure Functions (.NET isolated)",
+      "project": "api/src/Shop.Functions/Shop.Functions.csproj",
+      "role": "worker",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Functions/Shop.Functions.csproj",
+          "line": 1,
+          "text": "Worker project, references Shop.Infrastructure"
+        }
+      ]
+    },
+    {
+      "key": "snowflake",
+      "name": "Snowflake",
+      "kind": "store",
+      "tech": "Snowflake",
+      "project": null,
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 16,
+          "text": "var conn = new SnowflakeDbConnection(_connectionString);"
+        }
+      ]
+    },
+    {
+      "key": "entraid",
+      "name": "Entra ID",
+      "kind": "external",
+      "tech": "Identity provider",
+      "project": null,
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Program.cs",
+          "line": 6,
+          "text": "builder.Services.AddAuthentication().AddJwtBearer();"
+        },
+        {
+          "file": "ui/src/auth/msal.ts",
+          "line": 1,
+          "text": "import { PublicClientApplication } from '@azure/msal-browser';"
+        }
+      ]
+    },
+    {
+      "key": "nodeapi",
+      "name": "node-api",
+      "kind": "container",
+      "tech": "Node.js (Express)",
+      "project": "node-api/package.json",
+      "role": "node-api",
+      "ports": [
+        "5020"
+      ],
+      "evidence": [
+        {
+          "file": "node-api/package.json",
+          "line": 1,
+          "text": "package.json: Node API (express)"
+        }
+      ]
+    },
+    {
+      "key": "ui",
+      "name": "ui",
+      "kind": "container",
+      "tech": "React SPA (Vite)",
+      "project": "ui/package.json",
+      "role": "spa",
+      "ports": [
+        "3010"
+      ],
+      "evidence": [
+        {
+          "file": "ui/package.json",
+          "line": 1,
+          "text": "package.json: SPA (react, react-dom, @azure/msal-browser, @microsoft/signalr, vite)"
+        }
+      ]
+    },
+    {
+      "key": "newrelic",
+      "name": "New Relic",
+      "kind": "external",
+      "tech": "New Relic agent",
+      "project": null,
+      "evidence": [
+        {
+          "file": "ui/src/telemetry.ts",
+          "line": 1,
+          "text": "import '@newrelic/browser-agent';"
+        }
+      ]
+    }
+  ],
+  "edges": [
+    {
+      "from": "Shop.Api",
+      "to": "Snowflake",
+      "kind": "data",
+      "label": "Reads and writes",
+      "tech": "Snowflake",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 16,
+          "text": "var conn = new SnowflakeDbConnection(_connectionString);"
+        }
+      ]
+    },
+    {
+      "from": "Shop.Functions",
+      "to": "Snowflake",
+      "kind": "data",
+      "label": "Reads and writes",
+      "tech": "Snowflake",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 16,
+          "text": "var conn = new SnowflakeDbConnection(_connectionString);"
+        }
+      ]
+    },
+    {
+      "from": "Shop.Api",
+      "to": "Entra ID",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "Identity provider",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Program.cs",
+          "line": 6,
+          "text": "builder.Services.AddAuthentication().AddJwtBearer();"
+        }
+      ]
+    },
+    {
+      "from": "ui",
+      "to": "Entra ID",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "MSAL",
+      "evidence": [
+        {
+          "file": "ui/src/auth/msal.ts",
+          "line": 1,
+          "text": "import { PublicClientApplication } from '@azure/msal-browser';"
+        }
+      ]
+    },
+    {
+      "from": "ui",
+      "to": "New Relic",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "New Relic agent",
+      "evidence": [
+        {
+          "file": "ui/src/telemetry.ts",
+          "line": 1,
+          "text": "import '@newrelic/browser-agent';"
+        }
+      ]
+    },
+    {
+      "from": "ui",
+      "to": "Shop.Api",
+      "kind": "sync",
+      "label": "Calls 3 endpoint(s)",
+      "tech": "HTTP",
+      "evidence": [
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 12,
+          "text": "return fetch('/api/v1/customers/' + id);"
+        },
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 4,
+          "text": "return client.get(`/v1/orders/${id}`);"
+        },
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 8,
+          "text": "return client.post('/v1/orders', order);"
+        }
+      ]
+    }
+  ],
+  "unresolved": [
+    {
+      "where": "ui",
+      "what": "needs \"VITE_HUB_URL\" but no binding for it was found in designc.json",
+      "file": "ui/src/realtime/hub.ts",
+      "line": 4,
+      "text": ".withUrl(import.meta.env.VITE_HUB_URL)"
+    }
+  ],
+  "components": [
+    {
+      "key": "appshell",
+      "name": "App shell",
+      "owner": "node-api",
+      "basis": "app-shell",
+      "evidence": [
+        {
+          "file": "node-api/src/server.js",
+          "line": 1,
+          "text": "server.js"
+        }
+      ]
+    },
+    {
+      "key": "routes",
+      "name": "routes",
+      "owner": "node-api",
+      "basis": "first-folder",
+      "evidence": [
+        {
+          "file": "node-api/src/routes/invoices.js",
+          "line": 1,
+          "text": "invoices.js"
+        }
+      ]
+    },
+    {
+      "key": "appshell",
+      "name": "App shell",
+      "owner": "Shop.Api",
+      "basis": "app-shell",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Program.cs",
+          "line": 1,
+          "text": "Program.cs"
+        }
+      ]
+    },
+    {
+      "key": "customerscontroller",
+      "name": "CustomersController",
+      "owner": "Shop.Api",
+      "basis": "anchor",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Controllers/CustomersController.cs",
+          "line": 7,
+          "text": "public class CustomersController : ControllerBase"
+        }
+      ]
+    },
+    {
+      "key": "orderendpoints",
+      "name": "OrderEndpoints",
+      "owner": "Shop.Api",
+      "basis": "anchor",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Endpoints/OrderEndpoints.cs",
+          "line": 3,
+          "text": "public static class OrderEndpoints"
+        }
+      ]
+    },
+    {
+      "key": "shopinfrastructure",
+      "name": "Shop.Infrastructure",
+      "owner": "Shop.Api",
+      "basis": "library",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 1,
+          "text": "Warehouse.cs"
+        }
+      ]
+    },
+    {
+      "key": "appshell",
+      "name": "App shell",
+      "owner": "Shop.Functions",
+      "basis": "app-shell",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Functions/Program.cs",
+          "line": 1,
+          "text": "Program.cs"
+        }
+      ]
+    },
+    {
+      "key": "orderfunctions",
+      "name": "OrderFunctions",
+      "owner": "Shop.Functions",
+      "basis": "anchor",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Functions/OrderFunctions.cs",
+          "line": 7,
+          "text": "public class OrderFunctions"
+        }
+      ]
+    },
+    {
+      "key": "shopinfrastructure",
+      "name": "Shop.Infrastructure",
+      "owner": "Shop.Functions",
+      "basis": "library",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 1,
+          "text": "Warehouse.cs"
+        }
+      ]
+    },
+    {
+      "key": "api",
+      "name": "api",
+      "owner": "ui",
+      "basis": "first-folder",
+      "evidence": [
+        {
+          "file": "ui/src/api/client.ts",
+          "line": 1,
+          "text": "client.ts"
+        },
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 1,
+          "text": "orders.ts"
+        }
+      ]
+    },
+    {
+      "key": "appshell",
+      "name": "App shell",
+      "owner": "ui",
+      "basis": "app-shell",
+      "evidence": [
+        {
+          "file": "ui/src/telemetry.ts",
+          "line": 1,
+          "text": "telemetry.ts"
+        }
+      ]
+    },
+    {
+      "key": "auth",
+      "name": "auth",
+      "owner": "ui",
+      "basis": "first-folder",
+      "evidence": [
+        {
+          "file": "ui/src/auth/msal.ts",
+          "line": 1,
+          "text": "msal.ts"
+        }
+      ]
+    },
+    {
+      "key": "realtime",
+      "name": "realtime",
+      "owner": "ui",
+      "basis": "first-folder",
+      "evidence": [
+        {
+          "file": "ui/src/realtime/hub.ts",
+          "line": 1,
+          "text": "hub.ts"
+        }
+      ]
+    }
+  ],
+  "internal": [
+    {
+      "owner": "Shop.Functions",
+      "kind": "queue",
+      "key": "orders",
+      "send": {
+        "file": "api/src/Shop.Functions/OrderFunctions.cs",
+        "line": 19,
+        "text": "[ServiceBusOutput(\"%OrdersTopic%\", Connection = \"ServiceBusConnection\")]"
+      },
+      "receive": {
+        "file": "api/src/Shop.Functions/OrderFunctions.cs",
+        "line": 21,
+        "text": "[ServiceBusTrigger(\"orders\", \"audit\", Connection = \"ServiceBusConnection\")] string message)"
+      }
+    }
+  ],
+  "componentEdges": [
+    {
+      "from": "c_shopapi_shopinfrastructure",
+      "to": "e_snowflake",
+      "kind": "data",
+      "label": "Reads and writes",
+      "tech": "Snowflake",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 16,
+          "text": "var conn = new SnowflakeDbConnection(_connectionString);"
+        }
+      ]
+    },
+    {
+      "from": "c_shopfunctions_shopinfrastructure",
+      "to": "e_snowflake",
+      "kind": "data",
+      "label": "Reads and writes",
+      "tech": "Snowflake",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Infrastructure/Warehouse.cs",
+          "line": 16,
+          "text": "var conn = new SnowflakeDbConnection(_connectionString);"
+        }
+      ]
+    },
+    {
+      "from": "c_shopapi_appshell",
+      "to": "e_entraid",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "Identity provider",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "api/src/Shop.Api/Program.cs",
+          "line": 6,
+          "text": "builder.Services.AddAuthentication().AddJwtBearer();"
+        }
+      ]
+    },
+    {
+      "from": "c_ui_auth",
+      "to": "e_entraid",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "MSAL",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "ui/src/auth/msal.ts",
+          "line": 1,
+          "text": "import { PublicClientApplication } from '@azure/msal-browser';"
+        }
+      ]
+    },
+    {
+      "from": "c_ui_appshell",
+      "to": "e_newrelic",
+      "kind": "sync",
+      "label": "Authenticates via",
+      "tech": "New Relic agent",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "ui/src/telemetry.ts",
+          "line": 1,
+          "text": "import '@newrelic/browser-agent';"
+        }
+      ]
+    },
+    {
+      "from": "c_ui_api",
+      "to": "c_shopapi_customerscontroller",
+      "kind": "sync",
+      "label": "Calls 1 endpoint(s)",
+      "tech": "HTTP",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 12,
+          "text": "return fetch('/api/v1/customers/' + id);"
+        },
+        {
+          "file": "api/src/Shop.Api/Controllers/CustomersController.cs",
+          "line": 9,
+          "text": "[HttpGet(\"{id}\")]"
+        }
+      ]
+    },
+    {
+      "from": "c_ui_api",
+      "to": "c_shopapi_orderendpoints",
+      "kind": "sync",
+      "label": "Calls 2 endpoint(s)",
+      "tech": "HTTP",
+      "via": "container-edge",
+      "evidence": [
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 4,
+          "text": "return client.get(`/v1/orders/${id}`);"
+        },
+        {
+          "file": "api/src/Shop.Api/Endpoints/OrderEndpoints.cs",
+          "line": 9,
+          "text": "orders.MapGet(\"/{id}\", (string id) => Results.Ok(new { id }));"
+        },
+        {
+          "file": "ui/src/api/orders.ts",
+          "line": 8,
+          "text": "return client.post('/v1/orders', order);"
+        },
+        {
+          "file": "api/src/Shop.Api/Endpoints/OrderEndpoints.cs",
+          "line": 10,
+          "text": "orders.MapPost(\"\", (OrderRequest request) => Results.Created());"
+        }
+      ]
+    }
+  ]
+}

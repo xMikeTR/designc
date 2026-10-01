@@ -93,3 +93,11 @@ test('unresolvable fetch goes to unresolved, not to an edge', async () => {
   assert.equal(typeof r.unresolved[0].line, 'number');
   assert.equal(r.consumes.length, 0, 'no consume should be produced for an unresolvable fetch argument');
 });
+
+test('JS telemetry SDK edges are labelled for what they do, not as authentication', async () => {
+  const { extract } = require('../extract.js');
+  const r = await extract(require('path').join(__dirname, '..', 'fixtures', 'fullstack'));
+  const label = to => r.facts.edges.find(e => e.from === 'ui' && e.to === to).label;
+  assert.equal(label('New Relic'), 'Sends telemetry to');
+  assert.equal(label('Entra ID'), 'Authenticates via');
+});
