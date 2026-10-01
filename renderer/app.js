@@ -54,6 +54,7 @@ const A = {
   grill: { busy: false, questions: [], error: null }, drafting: false,
   selected: null, zoom: 'fit', cursor: null,
   asbuilt: null, facts: null, drift: null, extracting: false, cmSel: null, cmZoom: 'fit', showGhost: true,
+  cmLevel: 'container', cmScope: null, asbuiltFull: null, cdrift: null,
   tel: { runs: [], meta: null, error: null, loading: false }, badges: 'findings',
   canvasApi: null, canvasLayout: null,
 };
@@ -137,9 +138,12 @@ async function loadCanvasLayout() {
 }
 async function loadAsbuilt() {
   const dsl = await readText('asbuilt/workspace.dsl'), facts = await readText('asbuilt/facts.json');
-  A.asbuilt = dsl ? Core.atLevel(Core.parse(dsl), 'container') : null;
+  A.asbuiltFull = dsl ? Core.parse(dsl) : null;
+  A.asbuilt = A.asbuiltFull ? Core.atLevel(A.asbuiltFull, 'container') : null;
   try { A.facts = facts ? JSON.parse(facts) : null; } catch { A.facts = null; }
   if (A.cmSel && (!A.asbuilt || !A.asbuilt.elements.has(A.cmSel))) A.cmSel = null;
+  if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
+  if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
 }
 function recompile() {
   A.model = Core.parse(A.modelText);
@@ -731,7 +735,7 @@ function renderWelcome() {
     w.innerHTML = `<div class="wl"><h1>${esc(A.root.name)}<small>${esc(A.root.root)}</small></h1>
       <div><h2>Start</h2>${A.model && A.model.elements.size ? `<button class="l" data-file="${esc(A.cfg.model)}">Open the model (${esc(A.cfg.model)})</button>` : `<button class="l" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`}
         <button class="l" data-a="design">Show the ready gate</button><button class="l" data-a="codemapopen">Code map of ${A.cfg.codebase ? esc(String(A.cfg.codebase).split('/').pop()) : 'a codebase'}</button><button class="l" data-a="builddash">Build dashboard (System 2)</button><button class="l" data-a="improvedash">Improve dashboard (System 4)</button></div>
-      <div><h2>Keys</h2><table><tr><td>Ctrl+S</td><td>Save</td></tr><tr><td>Ctrl+Shift+B</td><td>Run all decision checks</td></tr><tr><td>Ctrl+Shift+G</td><td>Ask grill-me</td></tr><tr><td>Ctrl+Alt+V</td><td>Toggle the C4 sheet</td></tr><tr><td>Ctrl+.</td><td>Record a decision for a problem</td></tr></table></div></div>`;
+      <div><h2>Keys</h2><table><tr><td>Ctrl+S</td><td>Save</td></tr><tr><td>Ctrl+Shift+B</td><td>Run all decision checks</td></tr><tr><td>Ctrl+Shift+G</td><td>Ask grill-me</td></tr><tr><td>Ctrl+Alt+V</td><td>Toggle the C4 sheet</td></tr><tr><td>Ctrl+.</td><td>Record a decision for a problem</td></tr><tr><td>Backspace, in the Code map</td><td>Up one level</td></tr></table></div></div>`;
     return;
   }
   w.innerHTML = `<div class="wl"><h1>designc<small>System design IDE: the design is the source, code is the build output.</small></h1>
@@ -911,6 +915,23 @@ function codemapSidebar() {
     f.unresolved.map(u => `<div class="item" data-code="${esc(u.file)}" data-line="${u.line}"><div class="l1"><span class="id">${esc(u.where)}</span></div><div class="l2">${esc(u.what)}</div><div class="l2" style="font-family:var(--mono);font-size:11px">${esc(u.file)}:${u.line}</div></div>`).join(''));
   return h;
 }
+function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
+function cmModel() { return A.asbuiltFull ? Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope }) : A.asbuilt; }
+function cmGo(level, scope) {
+  if (level === 'component' && !cmHasComponents()) return;
+  A.cmLevel = level; if (scope !== undefined) A.cmScope = scope;
+  A.cmZoom = 'fit';
+  const m = cmModel(); if (A.cmSel && !(m && m.elements.has(A.cmSel))) A.cmSel = null;
+  renderCodemap();
+}
+function cmUp() { if (A.cmLevel === 'component') cmGo('container'); else if (A.cmLevel === 'container') cmGo('context'); }
+function cmSeg() {
+  const has = cmHasComponents();
+  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''}>${name}</button>`;
+  const sc = A.cmScope && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope);
+  const crumb = A.cmLevel === 'component' ? `<span class="cm-crumb"><a data-a="cmscope" data-scope="">All</a>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
+  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}</span>${crumb}`;
+}
 function renderCodemap() {
   const el = $('#special');
   if (A.active !== 'special:codemap') return;
@@ -931,15 +952,16 @@ function renderCodemap() {
   }
   const f = A.facts || { repo: '', extractedAt: null };
   el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
-      <span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>
-      <span class="spacer"></span>${A.drift ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
+      ${cmSeg()}
+      ${A.cmLevel === 'container' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
+      <span class="spacer"></span>${A.drift && A.cmLevel === 'container' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
       <button class="btn" data-a="cmfit">Fit</button><button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
     <div class="cm-main"><div class="cm-canvas sheetscroll" id="cmcanvas"></div><aside class="cm-side" id="cmside"></aside></div></div>`;
   requestAnimationFrame(drawCodemap);
 }
 function drawCodemap() {
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
-  const m = A.asbuilt, L = layout(m), d = A.drift;
+  const m = cmModel(), L = layout(m, { groupEdges: A.cmLevel === 'component' }), d = A.cmLevel === 'container' ? A.drift : null;
   host_.innerHTML = drawModel(m, L, {
     attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
     extra: d && A.showGhost ? d.unrealised.map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' })) : [],
@@ -957,12 +979,12 @@ function drawCodemap() {
 }
 function renderCmSide() {
   const side = $('#cmside'); if (!side) return;
-  const f = A.facts; const d = A.drift;
+  const f = A.facts; const d = A.cmLevel === 'container' ? A.drift : null;
   if (!A.cmSel) {
     side.innerHTML = `<h3>Projects</h3>${f ? f.projects.map(p => `<div class="evrow" data-code="${esc(p.file)}" data-line="1"><b>${esc(p.name)}</b> <span class="tag">${esc(p.kind)}</span> <span class="tag">${esc(p.lang)}</span><div class="evfile">${esc(p.file)}</div></div>`).join('') : ''}<p class="muted">Select a box to see the evidence behind it.</p>`;
     return;
   }
-  const e = A.asbuilt.elements.get(A.cmSel); if (!e) { side.innerHTML = ''; return; }
+  const e = (A.asbuiltFull || A.asbuilt).elements.get(A.cmSel); if (!e) { side.innerHTML = ''; return; }
   const fe = f && f.elements.find(x => x.name === e.name) || { evidence: [] };
   const match = d && d.toDesign.get(e.id);
   const evRows = list => list.map(v => `<div class="evrow" data-code="${esc(v.file)}" data-line="${v.line}"><div class="evfile">${esc(v.file)}:${v.line}</div><code>${esc(v.text)}</code></div>`).join('');
@@ -1126,6 +1148,8 @@ document.addEventListener('click', async e => {
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }
+  if (a === 'cmlevel') return cmGo(d.level);
+  if (a === 'cmscope') return cmGo('component', null);
   if (a === 'ghost') { A.showGhost = t.checked; return drawCodemap(); }
   if (a === 'codemapopen') return setActivity('codemap');
   if (a === 'newmodel') return createAndOpen(A.cfg.model, `workspace "${A.root.name}" {\n  model {\n    \n  }\n}\n`, 3);
@@ -1145,6 +1169,20 @@ document.addEventListener('wheel', e => {
   const svg = c.querySelector('svg'); const cur = A.cmZoom === 'fit' && svg ? svg.width.baseVal.value / svg.viewBox.baseVal.width : A.cmZoom;
   A.cmZoom = Math.max(0.3, Math.min(2, cur * (e.deltaY < 0 ? 1.1 : 0.9))); drawCodemap();
 }, { passive: false });
+document.addEventListener('dblclick', e => {
+  const c = e.target.closest && e.target.closest('#cmcanvas'); if (!c || !A.asbuiltFull) return;
+  const node = e.target.closest('.node[data-cm]'), grp = e.target.closest('[data-cmg]');
+  const id = node ? node.dataset.cm : grp ? grp.dataset.cmg : null;
+  if (!id) return cmUp();
+  const el = A.asbuiltFull.elements.get(id); if (!el) return;
+  if (el.kind === 'container') return cmGo('component', id);
+  if (el.kind === 'component') { A.cmSel = id; return drawCodemap(); }
+});
+document.addEventListener('keydown', e => {
+  if (e.key !== 'Backspace' || A.active !== 'special:codemap' || !A.asbuiltFull) return;
+  const t = e.target; if (t && t.closest && t.closest('input, textarea, select, [contenteditable], .monaco-editor')) return;
+  e.preventDefault(); cmUp();
+});
 $('#sheetscroll').addEventListener('wheel', e => {
   if (!e.ctrlKey && !e.metaKey) return; e.preventDefault();
   const svg = $('#sheetscroll svg'); const cur = A.zoom === 'fit' && svg ? svg.width.baseVal.value / svg.viewBox.baseVal.width : A.zoom;
@@ -1188,6 +1226,7 @@ async function onFolder(info) {
   for (const [, b] of A.buffers) b.model.dispose();
   A.buffers.clear(); A.tabs = []; A.active = null; A.selected = null; A.zoom = 'fit'; A.cmSel = null; A.cmZoom = 'fit'; A.grill = { busy: false, questions: [], error: null };
   A.canvasApi = null; A.canvasLayout = null;
+  A.cmLevel = 'container'; A.cmScope = null; A.asbuiltFull = null;
   A.root = info; A.tree = await host.tree();
   await reloadAll();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
