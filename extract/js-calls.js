@@ -112,13 +112,14 @@ function importedPackages(text) {
   return [...names].filter(n => !n.startsWith('.'));
 }
 
+// label overrides the default ('Uses' for data, 'Authenticates via' otherwise) where that would mislead
 const CATALOGUE_TRIGGERS = {
   '@azure/msal-browser': { cat: 'ENTRA_ID', kind: 'sync', tech: 'MSAL' },
   '@azure/msal-node': { cat: 'ENTRA_ID', kind: 'sync', tech: 'MSAL' },
-  '@newrelic/browser-agent': { cat: 'NEW_RELIC', kind: 'sync', tech: 'New Relic agent' },
-  newrelic: { cat: 'NEW_RELIC', kind: 'sync', tech: 'New Relic agent' },
-  applicationinsights: { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK' },
-  '@microsoft/applicationinsights-web': { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK' },
+  '@newrelic/browser-agent': { cat: 'NEW_RELIC', kind: 'sync', tech: 'New Relic agent', label: 'Sends telemetry to' },
+  newrelic: { cat: 'NEW_RELIC', kind: 'sync', tech: 'New Relic agent', label: 'Sends telemetry to' },
+  applicationinsights: { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK', label: 'Sends telemetry to' },
+  '@microsoft/applicationinsights-web': { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK', label: 'Sends telemetry to' },
   pg: { cat: 'POSTGRESQL', kind: 'data', tech: 'pg' },
   mysql2: { cat: 'MYSQL', kind: 'data', tech: 'mysql2' },
   mongodb: { cat: 'MONGO_DB', kind: 'data', tech: 'MongoDB driver' },
@@ -276,7 +277,7 @@ async function scan(ctx, packages) {
       const lineIdx = t.split('\n').findIndex(l => l.includes(pkg));
       const evidence = { file: rel(f), line: lineIdx >= 0 ? lineIdx + 1 : 1, text: (t.split('\n')[lineIdx] || '').trim().slice(0, 200) };
       el.evidence.push(evidence);
-      addEdge(owner, keyOf(entry.name), trig.kind, trig.kind === 'data' ? 'Uses' : 'Authenticates via', trig.tech, evidence);
+      addEdge(owner, keyOf(entry.name), trig.kind, trig.label || (trig.kind === 'data' ? 'Uses' : 'Authenticates via'), trig.tech, evidence);
     }
   }
 

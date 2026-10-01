@@ -18,16 +18,43 @@
     "monaco-editor": "0.52.0"
   },
   "devDependencies": {
-    "electron": "^33.0.0",
-    "electron-builder": "^25.1.8"
+    "electron": "^44.5.1",
+    "electron-builder": "^26.15.3"
   },
   "build": {
     "appId": "com.hiscox.designc",
     "productName": "designc",
-    "files": ["main.js", "preload.js", "extract.js", "extract/**", "telemetry.js", "acp.js", "designc-mcp.js", "ledger-store.js", "sample-codebase/**", "renderer/**", "sample-registry/**", "node_modules/monaco-editor/min/**", "node_modules/js-yaml/dist/**", "package.json"],
-    "asarUnpack": ["sample-registry/**", "sample-codebase/**", "designc-mcp.js"],
-    "win": { "target": "nsis" },
-    "mac": { "target": "dmg", "category": "public.app-category.developer-tools" },
-    "linux": { "target": "AppImage", "category": "Development" }
+    "files": [
+      "main.js",
+      "preload.js",
+      "extract.js",
+      "extract/**",
+      "telemetry.js",
+      "acp.js",
+      "designc-mcp.js",
+      "ledger-store.js",
+      "sample-codebase/**",
+      "renderer/**",
+      "sample-registry/**",
+      "node_modules/monaco-editor/min/**",
+      "node_modules/js-yaml/dist/**",
+      "package.json"
+    ],
+    "asarUnpack": [
+      "sample-registry/**",
+      "sample-codebase/**",
+      "designc-mcp.js"
+    ],
+    "win": {
+      "target": "nsis"
+    },
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.developer-tools"
+    },
+    "linux": {
+      "target": "AppImage",
+      "category": "Development"
+    }
   }
 }
