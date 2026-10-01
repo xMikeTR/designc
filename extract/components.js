@@ -11,8 +11,9 @@ const CS_RE = /\.(cs|fs)$/i;
 const JS_RE = /\.(js|jsx|ts|tsx|mjs|cjs)$/i;
 const moduleFor = file => CS_RE.test(file) ? cs : JS_RE.test(file) ? js : null;
 
-function build(facts, opts = {}) {
-  const { elements, units } = facts;
+async function build(facts, opts = {}) {
+  const { elements, units, read } = facts;
+  const csIndex = await cs.prepare(units || [], read);
   const components = new Map(); // "ownerKey|compKey" -> { key, name, owner, basis, evidence: [] }
   const unresolved = [];
 
@@ -24,7 +25,7 @@ function build(facts, opts = {}) {
       const unit = { ...u, owner, relFromRoot, evidence };
       const where = elements.get(owner).name;
       // rule 4: a library project/package is one component, named after it, inside each owner
-      const result = u.projectKind === 'library' ? { name: u.project, basis: 'library', evidence } : mod && mod.assign(unit);
+      const result = u.projectKind === 'library' ? { name: u.project, basis: 'library', evidence } : mod && mod.assign(unit, mod === cs ? csIndex : undefined);
       if (!result) { unresolved.push({ where, what: `no component rule matched "${u.file}"`, ...evidence }); continue; }
       const compKey = keyOf(result.name);
       const mapKey = `${owner}|${compKey}`;

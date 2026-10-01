@@ -114,6 +114,39 @@ function configKey(text) {
   return m[1] || m[2];
 }
 
+// Replaces comments with spaces (newlines kept, so offsets and line numbers still match the
+// source) while leaving string and char literals alone, so "//" inside a URL is not a comment.
+// Pass blankStrings to blank literal contents too, for brace matching.
+function blankComments(text, blankStrings = false) {
+  let out = '', i = 0;
+  const n = text.length;
+  const blank = ch => (ch === '\n' || ch === '\r' ? ch : ' ');
+  while (i < n) {
+    const c = text[i], d = text[i + 1];
+    if (c === '/' && d === '/') { while (i < n && text[i] !== '\n') { out += blank(text[i]); i++; } continue; }
+    if (c === '/' && d === '*') {
+      out += '  '; i += 2;
+      while (i < n && !(text[i] === '*' && text[i + 1] === '/')) { out += blank(text[i]); i++; }
+      if (i < n) { out += '  '; i += 2; }
+      continue;
+    }
+    if (c === '"' || c === "'") {
+      const verbatim = c === '"' && text[i - 1] === '@';
+      out += c; i++;
+      while (i < n) {
+        const ch = text[i];
+        if (!verbatim && ch === '\\') { out += blankStrings ? '  ' : text.slice(i, i + 2); i += 2; continue; }
+        if (ch === c) { if (verbatim && text[i + 1] === '"') { out += blankStrings ? '  ' : '""'; i += 2; continue; } break; }
+        out += blankStrings ? blank(ch) : ch; i++;
+      }
+      if (i < n) { out += c; i++; }
+      continue;
+    }
+    out += c; i++;
+  }
+  return out;
+}
+
 async function scan(ctx) {
   const { files, rel, read } = ctx;
   const unresolved = [];
@@ -379,4 +412,4 @@ async function scan(ctx) {
   };
 }
 
-module.exports = { id: 'csharp', scan };
+module.exports = { id: 'csharp', scan, blankComments };
