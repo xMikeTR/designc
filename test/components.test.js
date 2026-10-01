@@ -27,12 +27,12 @@ test('every source file of every deployable lands in exactly one component', asy
   }
   const r = await extract(FULLSTACK);
   const names = r.facts.components.map(c => `${keyOf(c.owner)}:${c.name}`);
-  for (const want of ['ui:api', 'ui:auth', 'nodeapi:routes', 'shopapi:Controllers', 'ui:App shell', 'shopapi:Shop.Infrastructure', 'shopfunctions:Shop.Infrastructure']) assert.ok(names.includes(want), `missing ${want}`);
+  for (const want of ['ui:api', 'ui:auth', 'nodeapi:routes', 'shopapi:CustomersController', 'ui:App shell', 'shopapi:Shop.Infrastructure', 'shopfunctions:Shop.Infrastructure']) assert.ok(names.includes(want), `missing ${want}`);
 });
 
 test('component ids follow the c_ scheme in the nested DSL', async () => {
   const r = await extract(FULLSTACK);
-  assert.match(r.dsl, /^ +c_shopapi_controllers = component "Controllers"/m);
+  assert.match(r.dsl, /^ +c_shopapi_customerscontroller = component "CustomersController"/m);
   assert.ok(!/ e_\w+_\w+ = component/.test(r.dsl));
 });
 
