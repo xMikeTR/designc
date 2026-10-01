@@ -1,6 +1,6 @@
 {
   "repo": "fullstack",
-  "extractedAt": "2026-10-01T14:31:43.695Z",
+  "extractedAt": "2026-10-01T14:46:18.841Z",
   "projects": [
     {
       "name": "Shop.Api",
@@ -271,10 +271,16 @@
   ],
   "components": [
     {
+      "id": "c_nodeapi_appshell",
       "key": "appshell",
+      "container": "node-api",
       "name": "App shell",
       "owner": "node-api",
       "basis": "app-shell",
+      "tech": "",
+      "files": [
+        "node-api/src/server.js"
+      ],
       "evidence": [
         {
           "file": "node-api/src/server.js",
@@ -284,10 +290,16 @@
       ]
     },
     {
+      "id": "c_nodeapi_routes",
       "key": "routes",
+      "container": "node-api",
       "name": "routes",
       "owner": "node-api",
       "basis": "first-folder",
+      "tech": "",
+      "files": [
+        "node-api/src/routes/invoices.js"
+      ],
       "evidence": [
         {
           "file": "node-api/src/routes/invoices.js",
@@ -297,10 +309,16 @@
       ]
     },
     {
+      "id": "c_shopapi_appshell",
       "key": "appshell",
+      "container": "Shop.Api",
       "name": "App shell",
       "owner": "Shop.Api",
       "basis": "app-shell",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Api/Program.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Api/Program.cs",
@@ -310,10 +328,16 @@
       ]
     },
     {
+      "id": "c_shopapi_customerscontroller",
       "key": "customerscontroller",
+      "container": "Shop.Api",
       "name": "CustomersController",
       "owner": "Shop.Api",
       "basis": "anchor",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Api/Controllers/CustomersController.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Api/Controllers/CustomersController.cs",
@@ -323,10 +347,16 @@
       ]
     },
     {
+      "id": "c_shopapi_orderendpoints",
       "key": "orderendpoints",
+      "container": "Shop.Api",
       "name": "OrderEndpoints",
       "owner": "Shop.Api",
       "basis": "anchor",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Api/Endpoints/OrderEndpoints.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Api/Endpoints/OrderEndpoints.cs",
@@ -336,10 +366,16 @@
       ]
     },
     {
+      "id": "c_shopapi_shopinfrastructure",
       "key": "shopinfrastructure",
+      "container": "Shop.Api",
       "name": "Shop.Infrastructure",
       "owner": "Shop.Api",
       "basis": "library",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Infrastructure/Warehouse.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Infrastructure/Warehouse.cs",
@@ -349,10 +385,16 @@
       ]
     },
     {
+      "id": "c_shopfunctions_appshell",
       "key": "appshell",
+      "container": "Shop.Functions",
       "name": "App shell",
       "owner": "Shop.Functions",
       "basis": "app-shell",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Functions/Program.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Functions/Program.cs",
@@ -362,10 +404,16 @@
       ]
     },
     {
+      "id": "c_shopfunctions_orderfunctions",
       "key": "orderfunctions",
+      "container": "Shop.Functions",
       "name": "OrderFunctions",
       "owner": "Shop.Functions",
       "basis": "anchor",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Functions/OrderFunctions.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Functions/OrderFunctions.cs",
@@ -375,10 +423,16 @@
       ]
     },
     {
+      "id": "c_shopfunctions_shopinfrastructure",
       "key": "shopinfrastructure",
+      "container": "Shop.Functions",
       "name": "Shop.Infrastructure",
       "owner": "Shop.Functions",
       "basis": "library",
+      "tech": "",
+      "files": [
+        "api/src/Shop.Infrastructure/Warehouse.cs"
+      ],
       "evidence": [
         {
           "file": "api/src/Shop.Infrastructure/Warehouse.cs",
@@ -388,10 +442,17 @@
       ]
     },
     {
+      "id": "c_ui_api",
       "key": "api",
+      "container": "ui",
       "name": "api",
       "owner": "ui",
       "basis": "first-folder",
+      "tech": "",
+      "files": [
+        "ui/src/api/client.ts",
+        "ui/src/api/orders.ts"
+      ],
       "evidence": [
         {
           "file": "ui/src/api/client.ts",
@@ -406,10 +467,16 @@
       ]
     },
     {
+      "id": "c_ui_appshell",
       "key": "appshell",
+      "container": "ui",
       "name": "App shell",
       "owner": "ui",
       "basis": "app-shell",
+      "tech": "",
+      "files": [
+        "ui/src/telemetry.ts"
+      ],
       "evidence": [
         {
           "file": "ui/src/telemetry.ts",
@@ -419,10 +486,16 @@
       ]
     },
     {
+      "id": "c_ui_auth",
       "key": "auth",
+      "container": "ui",
       "name": "auth",
       "owner": "ui",
       "basis": "first-folder",
+      "tech": "",
+      "files": [
+        "ui/src/auth/msal.ts"
+      ],
       "evidence": [
         {
           "file": "ui/src/auth/msal.ts",
@@ -432,10 +505,16 @@
       ]
     },
     {
+      "id": "c_ui_realtime",
       "key": "realtime",
+      "container": "ui",
       "name": "realtime",
       "owner": "ui",
       "basis": "first-folder",
+      "tech": "",
+      "files": [
+        "ui/src/realtime/hub.ts"
+      ],
       "evidence": [
         {
           "file": "ui/src/realtime/hub.ts",
