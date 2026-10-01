@@ -14,13 +14,17 @@ function link(facts, opts = {}) {
   const nameOf = k => elements.get(k).name;
   const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
   const edges = [];
-  const addEdge = (from, to, kind, label, tech, evidence) => {
+  // pair = { from: evidence, to: evidence|null, call?: string } pins the edge end to end for the
+  // component layer; it is collected on e.pairs and never reaches facts.edges.
+  const addEdge = (from, to, kind, label, tech, evidence, pair) => {
     let e = edges.find(x => x.from === from && x.to === to && x.kind === kind);
     if (!e) { e = { from, to, kind, label, tech, evidence: [] }; edges.push(e); }
     e.evidence.push(evidence);
+    if (pair) (e.pairs = e.pairs || []).push(pair);
     return e;
   };
   const unresolved = [];
+  const internal = []; // queue links whose send and receive sit in the same deployable
   const bindings = opts.bindings || {};
 
   const segsOf = k => String(k).split('/').filter(Boolean);
@@ -67,7 +71,8 @@ function link(facts, opts = {}) {
       const aggKey = `${c.owner}|${targetOwner}`;
       if (!agg.has(aggKey)) agg.set(aggKey, new Set());
       agg.get(aggKey).add(c.key);
-      const e = addEdge(c.owner, targetOwner, edgeKind, 'Calls', tech, c.evidence);
+      const provider = matches.find(p => p.owner === targetOwner);
+      const e = addEdge(c.owner, targetOwner, edgeKind, 'Calls', tech, c.evidence, { from: c.evidence, to: provider.evidence, call: c.key });
       e.label = `Calls ${agg.get(aggKey).size} endpoint(s)`;
     }
   }
@@ -79,10 +84,13 @@ function link(facts, opts = {}) {
   const receives = provides.filter(p => p.kind === 'queue');
   for (const snd of sends) {
     if (snd.key == null) continue; // env-only: deferred to the bindings pass below
+    const same = receives.filter(r => r.key === snd.key && r.owner === snd.owner);
+    for (const r of same) internal.push({ owner: nameOf(snd.owner), kind: 'queue', key: snd.key, send: snd.evidence, receive: r.evidence });
     const rcv = receives.filter(r => r.key === snd.key && r.owner !== snd.owner);
-    if (!rcv.length) unresolved.push({ where: nameOf(snd.owner), what: `publishes to "${snd.key}" but no consumer of it was found in this repo`, ...snd.evidence });
+    if (!rcv.length && !same.length) unresolved.push({ where: nameOf(snd.owner), what: `publishes to "${snd.key}" but no consumer of it was found in this repo`, ...snd.evidence });
     for (const r of rcv) addEdge(snd.owner, r.owner, 'async', `Sends via "${snd.key}"`, 'Azure Service Bus',
-      { ...snd.evidence, text: `send to "${snd.key}" (${snd.evidence.file}:${snd.evidence.line}), received at ${r.evidence.file}:${r.evidence.line}` });
+      { ...snd.evidence, text: `send to "${snd.key}" (${snd.evidence.file}:${snd.evidence.line}), received at ${r.evidence.file}:${r.evidence.line}` },
+      { from: snd.evidence, to: r.evidence });
   }
   for (const r of receives) {
     if (r.key == null) { if (r.env) unresolved.push({ where: nameOf(r.owner), what: `provides a queue whose name depends on unbound setting "${r.env}"`, ...r.evidence }); continue; }
@@ -102,10 +110,10 @@ function link(facts, opts = {}) {
     const edgeKind = c.kind === 'hub' ? 'realtime' : c.kind === 'queue' ? 'async' : 'sync';
     const tech = c.kind === 'hub' ? 'SignalR' : c.kind === 'queue' ? 'Azure Service Bus' : 'HTTP';
     const evidence = { file: 'designc.json', line: 1, text: `binding ${c.env} -> ${targetName} (declared in designc.json, not extracted)` };
-    addEdge(c.owner, targetKey, edgeKind, 'Calls', tech, evidence);
+    addEdge(c.owner, targetKey, edgeKind, 'Calls', tech, evidence, { from: c.evidence, to: null, call: c.key || c.env });
   }
 
-  return { edges, unresolved };
+  return { edges, unresolved, internal };
 }
 
 module.exports = { link };
