@@ -442,6 +442,54 @@ const Core = (() => {
     return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls };
   }
 
+  // ---------- drift: designed vs extracted, one level down ----------
+  // Components are only judged inside a container whose design declares components ("scored"). Everywhere
+  // else they are neutral, so a container-only design never shows component warnings.
+  function driftComponents(design, built) {
+    const cmap = driftModels(atLevel(design, 'container'), atLevel(built, 'container'));
+    const kids = (m, id) => [...m.elements.values()].filter(e => e.kind === 'component' && e.parent === id);
+    const scored = new Set(), adoptable = [], neutral = new Set(), unknownEls = [], missingEls = [];
+    const toDesign = new Map(cmap.toDesign);
+    for (const c of built.elements.values()) {
+      if (c.kind !== 'container') continue;
+      const d = cmap.toDesign.get(c.id), bk = kids(built, c.id);
+      if (!d) continue;
+      const dk = kids(design, d.id);
+      if (!dk.length) { if (bk.length) adoptable.push({ built: c.id, design: d.id }); for (const b of bk) neutral.add(b.id); continue; }
+      scored.add(c.id);
+      const idx = new Map();
+      for (const x of dk) [x.name, ...(get(x, 'd.aka') || [])].forEach(n => { if (!idx.has(key(n))) idx.set(key(n), x); });
+      for (const b of bk) { const x = idx.get(key(b.name)); if (x) toDesign.set(b.id, x); else unknownEls.push(b.name); }
+      for (const x of dk) if (![...toDesign.values()].includes(x)) missingEls.push(x.name);
+    }
+    for (const c of built.elements.values()) if (c.kind === 'component' && !toDesign.has(c.parent)) neutral.add(c.id);
+    const toBuilt = new Map([...toDesign].map(([b, d]) => [d.id, b]));
+    const mapEnd = id => {
+      const e = built.elements.get(id);
+      if (e.kind !== 'component') return toDesign.get(id) || null;
+      return scored.has(e.parent) ? toDesign.get(id) || null : toDesign.get(e.parent) || null;
+    };
+    const anc = (m, e) => { while (e && e.kind === 'component') e = m.elements.get(e.parent); return e; };
+    const designed = new Set(design.rels.map(r => r.src + '>' + r.dst));
+    const relStatus = new Map(), undeclared = [], seen = new Set();
+    for (const r of built.rels) {
+      const se = built.elements.get(r.src), de = built.elements.get(r.dst);
+      if (se.kind !== 'component' && de.kind !== 'component') continue;
+      const s = mapEnd(r.src), d = mapEnd(r.dst);
+      if (!s || !d) { relStatus.set(r.id, 'unmapped'); continue; }
+      const intra = se.kind === 'component' && de.kind === 'component' && se.parent === de.parent;
+      if (s === d || (intra && !scored.has(se.parent))) { relStatus.set(r.id, 'neutral'); continue; }
+      const direct = designed.has(s.id + '>' + d.id);
+      const ok = intra ? direct : direct || designed.has(anc(design, s).id + '>' + anc(design, d).id);
+      if (ok) { relStatus.set(r.id, 'matched'); seen.add(s.id + '>' + d.id); }
+      else { relStatus.set(r.id, 'undeclared'); undeclared.push({ from: s.name, to: d.name, builtRel: r.id }); }
+    }
+    const unrealised = design.rels.filter(r => design.elements.get(r.src).kind === 'component' && design.elements.get(r.dst).kind === 'component'
+        && toBuilt.has(r.src) && toBuilt.has(r.dst) && !seen.has(r.src + '>' + r.dst))
+      .map(r => ({ from: design.elements.get(r.src).name, to: design.elements.get(r.dst).name, src: toBuilt.get(r.src), dst: toBuilt.get(r.dst), rel: r }));
+    return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, neutral, scored, adoptable };
+  }
+
   // ---------- levels ----------
   const KIND_RANK = { person: 0, softwareSystem: 1, container: 2, component: 3 };
   const LEVEL_RANK = { context: 1, container: 2, component: 3 };
@@ -560,6 +608,6 @@ const Core = (() => {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, drift, driftModels, atLevel, view, containerLevelText, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, drift, driftModels, driftComponents, atLevel, view, containerLevelText, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

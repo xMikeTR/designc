@@ -86,7 +86,10 @@ async function extract(repo, opts = {}) {
       ...(e.role ? { role: e.role } : {}), ...(e.ports && e.ports.length ? { ports: e.ports } : {}), evidence: e.evidence })),
     edges: edges.map(e => ({ from: elements.get(e.from).name, to: elements.get(e.to).name, kind: e.kind, label: e.label, tech: e.tech, evidence: e.evidence })),
     unresolved: [...unresolved, ...comp.unresolved],
-    components: [...comp.components.values()].map(c => ({ key: c.key, name: c.name, owner: elements.get(c.owner).name, basis: c.basis, evidence: c.evidence })),
+    components: [...comp.components.values()].map(c => ({
+      id: `c_${c.owner}_${c.key}`, key: c.key, container: elements.get(c.owner).name, name: c.name, owner: elements.get(c.owner).name,
+      basis: c.basis, tech: '', files: [...new Set(c.evidence.map(v => v.file))].sort(), evidence: c.evidence,
+    })),
     internal,
     componentEdges: comp.componentEdges,
   };
