@@ -916,6 +916,17 @@ async function adoptAsDesign() {
   await host.write(A.cfg.model, dsl); await loadModel(); recompile(); await openFile(A.cfg.model); renderAll();
   toast('The design now starts from the code as it is. Add d.* properties where they matter.');
 }
+async function adoptComponents(builtId, designId) {
+  const b = A.buffers.get(A.cfg.model);
+  if (b && b.dirty) return toast(`Save ${A.cfg.model} first. Adopting writes to the file and would overwrite your unsaved edits.`, 'error');
+  const built = A.asbuiltFull.elements.get(builtId), want = A.model.elements.get(designId);
+  const r = Core.spliceComponents(A.modelText, A.model, designId, A.asbuiltFull, builtId);
+  if (r.error) return toast(r.error, 'error');
+  const n = [...A.asbuiltFull.elements.values()].filter(e => e.kind === 'component' && e.parent === builtId).length;
+  if (!confirm(`Add ${plural(n, 'component')} from ${built.name} to ${want.name} in ${A.cfg.model}?`)) return;
+  await host.write(A.cfg.model, r.text); await loadModel(); recompile(); await openFile(A.cfg.model, want.line); renderAll();
+  toast(`Adopted ${plural(n, 'component')} into ${want.name}.`);
+}
 function codemapSidebar() {
   const cb = A.cfg.codebase, f = A.facts, d = A.drift;
   let h = section('cb', 'Codebase', cb
@@ -950,7 +961,7 @@ function cmDriftBody() {
       + [...A.model.elements.values()].filter(x => x.kind === 'component' && x.parent === dc.id && !c.toBuilt.has(x.id)).map(x => row(esc(x.name), 'designed, not found in code', '')).join('');
     h += `<div class="hint" style="padding-bottom:2px"><b>${esc(cont.name)}</b></div>${rows || '<div class="hint">The components match the design.</div>'}`;
   }
-  for (const a of c.adoptable) h += row(`${esc(M.elements.get(a.built).name)}: design has no components (${kids(a.built).length} found)`, '', `data-cmsel="${esc(a.built)}"`);
+  for (const a of c.adoptable) h += row(`${esc(M.elements.get(a.built).name)}: design has no components (${kids(a.built).length} found)`, '', `data-cmsel="${esc(a.built)}"`) + cmAdoptBtn(a.built);
   return h || '<div class="hint">No container in the design has components to compare.</div>';
 }
 const BASIS_WORDS = { anchor: 'function class, controller or endpoint class', 'output-binding': 'function output-binding type', library: 'library', 'first-folder': 'folder', 'app-shell': 'App shell', shared: 'Shared', override: 'designc.json override' };
@@ -969,6 +980,10 @@ function cmComponentSide(e) {
     ${c && c.files.length ? `<h4>Files</h4>${c.files.map(x => `<div class="evrow" data-code="${esc(x)}" data-line="1"><div class="evfile">${esc(x)}</div></div>`).join('')}` : ''}
     <h4>Why it's on the map</h4>${c ? evRows(c.evidence) : '<p class="muted">No evidence recorded.</p>'}
     ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
+}
+function cmAdoptBtn(builtId) {
+  const a = A.cdrift && A.cdrift.adoptable.find(x => x.built === builtId);
+  return a ? `<div style="padding:0 20px 8px"><button class="btn block" data-a="adoptcomp" data-built="${esc(a.built)}" data-design="${esc(a.design)}">Adopt these components</button></div>` : '';
 }
 function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
 function cmModel() { return A.asbuiltFull ? Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope }) : A.asbuilt; }
@@ -1060,6 +1075,7 @@ function renderCmSide() {
   const edgesOf = (dir) => (f ? f.edges.filter(x => (dir === 'out' ? x.from : x.to) === e.name) : []).map(x => `<div class="evgroup"><div><b>${dir === 'out' ? '→ ' + esc(x.to) : '← ' + esc(x.from)}</b> ${esc(x.label)} <span class="desc">${esc(x.tech)}</span> ${relStatus(x.from, x.to)}</div>${evRows(x.evidence)}</div>`).join('');
   side.innerHTML = `<h3>${esc(e.name)}</h3><div class="muted">${esc(e.technology || '')}${fe.project ? ` · <span class="lnk" data-code="${esc(fe.project)}" data-line="1">${esc(fe.project)}</span>` : ''}</div>
     ${d ? (match ? `<p>Design: <b>${esc(match.name)}</b></p>` : `<p style="color:var(--warn)"><b>Not in the design.</b> Add it to ${esc(A.cfg.model)}, or put <span class="code">"d.aka" "${esc(e.name)}"</span> on the designed element if it's the same thing under another name.</p>`) : ''}
+    ${cmAdoptBtn(e.id)}
     <h4>Why it's on the map</h4>${evRows(fe.evidence) || '<p class="muted">No evidence recorded.</p>'}
     ${edgesOf('out') ? `<h4>Depends on</h4>${edgesOf('out')}` : ''}${edgesOf('in') ? `<h4>Used by</h4>${edgesOf('in')}` : ''}`;
 }
@@ -1216,6 +1232,7 @@ document.addEventListener('click', async e => {
   if (a === 'extract') return extractCodebase();
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
+  if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }
   if (a === 'cmlevel') return cmGo(d.level, null);
   if (a === 'cmscope') return cmGo('component', null);

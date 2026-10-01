@@ -599,6 +599,84 @@ const Core = (() => {
     return lines.filter((_, i) => !drop.has(i + 1)).join('\n');
   }
 
+  // Splices one built container's components, and the relationships between them, into a design
+  // container's block. Returns { text } or { error }, never partial text. Only the container line may
+  // change (a ' {' is added when it has no block); every other original line is kept.
+  function spliceComponents(designText, design, designId, built, builtId) {
+    const el = design.elements.get(designId), bc = built.elements.get(builtId);
+    if (!el || el.kind !== 'container') return { error: 'The design element is not a container.' };
+    if (!bc || bc.kind !== 'container') return { error: 'The as-built element is not a container.' };
+    if ([...design.elements.values()].some(e => e.parent === el.id)) return { error: `"${el.name}" already has components in the design.` };
+    const comps = [...built.elements.values()].filter(e => e.kind === 'component' && e.parent === bc.id);
+    if (!comps.length) return { error: `"${bc.name}" has no as-built components.` };
+    const src = designText, n = src.length;
+    const starts = [0]; for (let i = 0; i < n; i++) if (src[i] === '\n') starts.push(i + 1);
+    const lineAt = i => { let k = 0; while (k + 1 < starts.length && starts[k + 1] <= i) k++; return k; };
+    const str = i => { let j = i + 1; while (j < n && src[j] !== '"') j += src[j] === '\\' ? 2 : 1; return j + 1; };
+    const trivia = i => {
+      for (;;) {
+        while (i < n && /\s/.test(src[i])) i++;
+        if (src[i] === '#' || (src[i] === '/' && src[i + 1] === '/')) { while (i < n && src[i] !== '\n') i++; }
+        else if (src[i] === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; }
+        else return i;
+      }
+    };
+    const ls = starts[el.line - 1];
+    if (ls == null) return { error: `Cannot find line ${el.line} of "${el.name}".` };
+    const le = src.indexOf('\n', ls) < 0 ? n : src.indexOf('\n', ls);
+    let kw = -1;
+    for (let i = ls; i < le;) {
+      if (src[i] === '"') { i = str(i); continue; }
+      const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, le));
+      if (m) { if (m[0] === 'container') { kw = i; break; } i += m[0].length; } else i++;
+    }
+    if (kw < 0) return { error: `The declaration line of "${el.name}" has no container keyword.` };
+    let p = trivia(kw + 'container'.length), lastEnd = kw + 'container'.length;
+    while (src[p] === '"') { p = str(p); lastEnd = p; p = trivia(p); }
+    let close = -1;
+    if (src[p] === '{') {
+      let depth = 0;
+      for (let i = p; i < n;) {
+        const c = src[i];
+        if (c === '"') { i = str(i); continue; }
+        if (c === '#' || (c === '/' && src[i + 1] === '/')) { while (i < n && src[i] !== '\n') i++; continue; }
+        if (c === '/' && src[i + 1] === '*') { const e = src.indexOf('*/', i + 2); i = e < 0 ? n : e + 2; continue; }
+        if (c === '{') depth++;
+        else if (c === '}' && --depth === 0) { close = i; break; }
+        i++;
+      }
+      if (close < 0) return { error: `The block of "${el.name}" is not closed.` };
+    }
+    const eol = src.includes('\r\n') ? '\r\n' : '\n';
+    const base = /^[ \t]*/.exec(src.slice(ls, le))[0];
+    const ind = base + (base.includes('\t') ? '\t' : '  ');
+    const q = x => '"' + String(x == null ? '' : x).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+    const used = new Set([...design.elements.values()].map(e => e.ident).filter(Boolean));
+    const ident = new Map();
+    for (const c of comps) {
+      const b = c.ident || 'c_' + c.name.replace(/\W+/g, '_'); let id = b;
+      for (let k = 2; used.has(id); k++) id = b + '_' + k;
+      used.add(id); ident.set(c.id, id);
+    }
+    const body = comps.map(c => `${ind}${ident.get(c.id)} = component ${q(c.name)} "" ${q(c.technology)}`);
+    for (const r of built.rels) {
+      if (!ident.has(r.src) || !ident.has(r.dst)) continue;
+      const k = r.props['d.interaction'];
+      body.push(`${ind}${ident.get(r.src)} -> ${ident.get(r.dst)} ${q(r.description)} ${q(r.technology)}` + (k ? ` { properties { "d.interaction" ${q(k)} } }` : ''));
+    }
+    let text;
+    if (close >= 0) {
+      const cl = lineAt(close);
+      if (!src.slice(starts[cl], close).trim()) text = src.slice(0, starts[cl]) + body.join(eol) + eol + src.slice(starts[cl]);
+      else text = src.slice(0, close).replace(/[ \t]+$/, '') + eol + body.join(eol) + eol + base + src.slice(close);
+    } else {
+      let e = src.indexOf('\n', lastEnd); if (e < 0) e = n; else if (src[e - 1] === '\r') e--;
+      text = src.slice(0, lastEnd) + ' {' + src.slice(lastEnd, e) + eol + body.join(eol) + eol + base + '}' + src.slice(e);
+    }
+    if (parse(text).errors.length > design.errors.length) return { error: `The spliced design for "${el.name}" would not parse.` };
+    return { text };
+  }
+
   // Extension hooks (designc-canvas): add property specs and rules without forking the compiler.
   function registerProperties(specs) {
     for (const target of ['element', 'relationship']) Object.assign(SPECS[target], (specs && specs[target]) || {});
@@ -608,6 +686,6 @@ const Core = (() => {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, drift, driftModels, driftComponents, atLevel, view, containerLevelText, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
