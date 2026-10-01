@@ -25,6 +25,11 @@ test('a queue sent and received inside one Functions app becomes an edge between
     assert.deepEqual(namesOf(r.facts, 'Jobs.Functions'), ['JobWatcherFunction', 'ReportJobFunction']);
     assert.deepEqual(filesOf(r.facts, 'Jobs.Functions', 'ReportJobFunction'), ['ReportJobFunction.cs', 'ReportJobOutput.cs']);
     assert.deepEqual(filesOf(r.facts, 'Jobs.Functions', 'JobWatcherFunction'), ['JobWatcherFunction.cs', 'JobWatcherOutput.cs']);
+    assert.equal(r.facts.componentEdges.length, 1, 'the JobWatcher self-send is dropped');
+    const [e] = r.facts.componentEdges;
+    assert.deepEqual([e.from, e.to, e.kind, e.label, e.via], ['c_jobsfunctions_reportjobfunction', 'c_jobsfunctions_jobwatcherfunction', 'async', 'Sends via "jobs"', 'queue-internal']);
+    assert.ok(e.evidence.some(x => /ReportJobOutput\.cs$/.test(x.file)) && e.evidence.some(x => /JobWatcherFunction\.cs$/.test(x.file)), 'send and receive evidence');
+    assert.equal(r.facts.edges.some(x => x.kind === 'async'), false);
   });
 });
 
