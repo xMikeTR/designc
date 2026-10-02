@@ -64,6 +64,15 @@ async function turn() {
     if (r.isError) throw new Error(r.content[0].text); return r.content[0].text;
   });
   if (process.env.MOCK_BYPASS) { require('fs').writeFileSync(path.join(cwd, 'decisions', 'D-9999.yaml'), 'id: D-9999\nstatus: bound\n'); await sleep(900); }
+  // Also under MOCK_BYPASS: an ACP write that climbs out of the registry through `..`, a decision written
+  // as bound with the status quoted, and a passing check forged straight into the ledger. designc must
+  // refuse the first two and flag the third.
+  if (process.env.MOCK_BYPASS) {
+    await tool('t6', 'Edit model/../../escaped.txt', 'edit', async () => { await req('fs/write_text_file', { sessionId, path: `${cwd}/model/../../escaped.txt`, content: 'outside\n' }); return 'edited'; });
+    await tool('t7', 'Edit decisions/D-9998.yaml', 'edit', async () => { await req('fs/write_text_file', { sessionId, path: path.join(cwd, 'decisions', 'D-9998.yaml'), content: 'id: D-9998\nstatus: "bound"\n' }); return 'edited'; });
+    require('fs').appendFileSync(path.join(cwd, 'ledger', 'checks.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'forged-1', ts: Date.now(), kind: 'check', by: 'agent', decision: 'D-0001', check: 'p check -tc tcOptimistic', outcome: 'pass', source: 'pipeline' }) + '\n');
+    await sleep(900);
+  }
   plan(['completed', 'completed', 'completed', 'completed']);
   await say('Done. I changed the model and minted a decision; designc refused my edit to the C# code, which is right: code changes belong to the pipeline. Bind the decision when you are happy with it.');
   return 'end_turn';

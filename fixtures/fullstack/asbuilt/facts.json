@@ -1,6 +1,6 @@
 {
   "repo": "fullstack",
-  "extractedAt": "2026-10-01T14:46:18.841Z",
+  "extractedAt": "2026-10-01T15:45:50.291Z",
   "projects": [
     {
       "name": "Shop.Api",
@@ -664,6 +664,21 @@
           "file": "api/src/Shop.Api/Endpoints/OrderEndpoints.cs",
           "line": 10,
           "text": "orders.MapPost(\"\", (OrderRequest request) => Results.Created());"
+        }
+      ]
+    },
+    {
+      "from": "c_nodeapi_appshell",
+      "to": "c_nodeapi_routes",
+      "kind": "sync",
+      "label": "Uses",
+      "tech": "in-process",
+      "via": "import",
+      "evidence": [
+        {
+          "file": "node-api/src/server.js",
+          "line": 2,
+          "text": "const invoicesRouter = require('./routes/invoices');"
         }
       ]
     }

@@ -11,6 +11,7 @@ const { AcpHub } = require('./acp');
 const http = require('http');
 const crypto = require('crypto');
 const ledgerStore = require('./ledger-store');
+const git = require('./git');
 
 let win = null, root = null, watcher = null, watchTimer = null, changed = new Set();
 const running = new Map();
@@ -23,11 +24,10 @@ function saveState() { try { fs.mkdirSync(path.dirname(STATE_FILE()), { recursiv
 // Every renderer path is relative to the open folder and may not escape it.
 function inside(rel) {
   if (!root) throw new Error('No folder is open');
-  const abs = path.resolve(root, rel || '.');
-  if (abs !== root && !abs.startsWith(root + path.sep)) throw new Error('Path is outside the open folder');
-  return abs;
+  return confine(root, rel);
 }
 const toRel = abs => path.relative(root, abs).split(path.sep).join('/');
+const { confine, childEnv, isTrusted, trustChoices } = require('./paths');
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'bin', 'obj', '.idea', '.vs']);
 
 async function tree(abs, depth = 0) {
@@ -307,10 +307,10 @@ function mcpScript() { return path.join(__dirname, 'designc-mcp.js').replace(`ap
 
 // ---------- ACP agents ----------
 const ACP_PRESETS = {
-  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'] },
-  codex: { label: 'Codex', command: 'npx', args: ['-y', '@zed-industries/codex-acp'] },
-  gemini: { label: 'Gemini CLI', command: 'npx', args: ['-y', '@google/gemini-cli', '--acp'] },
-  copilot: { label: 'GitHub Copilot', command: 'copilot', args: ['--acp', '--stdio'] },
+  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'], inherit: ['ANTHROPIC_API_KEY'] },
+  codex: { label: 'Codex', command: 'npx', args: ['-y', '@zed-industries/codex-acp'], inherit: ['OPENAI_API_KEY'] },
+  gemini: { label: 'Gemini CLI', command: 'npx', args: ['-y', '@google/gemini-cli', '--acp'], inherit: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'] },
+  copilot: { label: 'GitHub Copilot', command: 'copilot', args: ['--acp', '--stdio'], inherit: ['GH_TOKEN', 'GITHUB_TOKEN'] },
 };
 function readSettings() { try { return JSON.parse(fs.readFileSync(inside('designc.json'), 'utf8')); } catch { return {}; } }
 function acpSpecs() {
@@ -367,21 +367,26 @@ handle('agui:run', async (id, key, body) => {
 });
 handle('agui:cancel', id => { const r = aguiRuns.get(id); if (r) r.abort(); return true; });
 
+// One trust decision per folder covers decision checks and git. Asked at most once, saved in state.json.
+async function ensureTrusted({ button, title, message, detail }) {
+  if (isTrusted(state.trusted, root)) return true;
+  // Like VS Code: trust this folder, the repository around it, or its parent. A trusted ancestor covers its subfolders.
+  const choices = trustChoices(root, git.findRepo(root), os.homedir());
+  const label = c => c.kind === 'folder' ? button : c.kind === 'repo' ? `Trust the whole repository (${path.basename(c.path)})` : `Trust the parent folder (${path.basename(c.path)})`;
+  const r = await dialog.showMessageBox(win, { type: 'warning', buttons: [...choices.map(label), 'Cancel'], defaultId: choices.length, cancelId: choices.length, title, message,
+    detail: `${detail || ''}\n\nTrusting a folder also trusts everything inside it.`.trim() });
+  if (r.response >= choices.length) return false;
+  state.trusted.push(choices[r.response].path); saveState();
+  return true;
+}
 // Decision checks are shell commands from the repository, so the folder must be trusted first.
 handle('check:run', async (runId, cmd) => {
-  if (!state.trusted.includes(root)) {
-    const r = await dialog.showMessageBox(win, {
-      type: 'warning', buttons: ['Trust folder and run', 'Cancel'], defaultId: 1, cancelId: 1,
-      title: 'Run commands from this folder?',
-      message: `Decision checks are shell commands written in this repository.`,
-      detail: `Only trust ${root} if you trust whoever can edit its decisions.\n\nFirst command:\n${cmd}`,
-    });
-    if (r.response !== 0) return { code: null, cancelled: true };
-    state.trusted.push(root); saveState();
-  }
+  if (!await ensureTrusted({ button: 'Trust folder and run', title: 'Run commands from this folder?',
+    message: `Decision checks are shell commands written in this repository.`,
+    detail: `Only trust ${root} if you trust whoever can edit its decisions.\n\nFirst command:\n${cmd}` })) return { code: null, cancelled: true };
   const t0 = Date.now();
   return new Promise(resolve => {
-    const child = spawn(cmd, { cwd: root, shell: true, env: process.env });
+    const child = spawn(cmd, { cwd: root, shell: true, env: childEnv(process.env, readSettings().inheritEnv || []) });
     running.set(runId, child);
     const out = chunk => win && win.webContents.send('check:output', runId, chunk.toString());
     child.stdout.on('data', out); child.stderr.on('data', out);
@@ -389,6 +394,32 @@ handle('check:run', async (runId, cmd) => {
     child.on('close', code => { running.delete(runId); resolve({ code, ms: Date.now() - t0 }); });
   });
 });
+
+// Git. Finding a repo runs nothing; every call that runs git waits for the folder to be trusted.
+const gitTrusted = () => !!root && isTrusted(state.trusted, root);
+const NOT_TRUSTED = { error: 'Trust this folder before using git here.' };
+handle('git:status', async () => {
+  if (!root) return { repo: false };
+  const top = git.findRepo(root);
+  if (!top) return { repo: false };
+  if (!gitTrusted()) return { repo: true, trusted: false };
+  const s = await git.status(root);
+  return s.error ? { repo: true, trusted: true, error: s.error } : { repo: true, trusted: true, ...s };
+});
+handle('git:trust', () => ensureTrusted({ button: 'Trust folder and use git', title: 'Use git in this folder?',
+  message: 'designc runs git here to show status and history.',
+  detail: `Only trust ${root} if you trust whoever can edit it. The same decision lets decision checks run their commands. Reads never run the repository's hooks.` }));
+handle('git:refs', async () => (gitTrusted() ? git.refs(root) : NOT_TRUSTED));
+handle('git:log', async (rel, max) => (gitTrusted() ? git.log(root, rel, max) : NOT_TRUSTED));
+handle('git:show', async (hash, rel) => (gitTrusted() ? git.show(root, hash, rel) : NOT_TRUSTED));
+// Writes. Same trust gate. No handler takes a flag, a ref or a remote name from the renderer except a branch name,
+// which git.js validates; none of them force anything.
+for (const [ch, fn] of [['stage', git.stage], ['unstage', git.unstage], ['commit', git.commit], ['branch', git.branch], ['switch', git.switchTo]])
+  handle(`git:${ch}`, async arg => (gitTrusted() ? fn(root, arg) : NOT_TRUSTED));
+for (const [ch, fn] of [['fetch', git.fetch], ['pull', git.pull], ['push', git.push], ['publish', git.publish]])
+  handle(`git:${ch}`, async () => (gitTrusted() ? fn(root) : NOT_TRUSTED));
+handle('git:attrs', async () => (gitTrusted() ? { union: git.hasLedgerUnion(root) } : NOT_TRUSTED));
+handle('git:addUnion', async () => (gitTrusted() ? git.addLedgerUnion(root) : NOT_TRUSTED));
 handle('check:cancel', runId => { const c = running.get(runId); if (c) c.kill(); return true; });
 
 // Model calls go through an OpenAI-compatible endpoint (the LiteLLM gateway), configured in designc.json.

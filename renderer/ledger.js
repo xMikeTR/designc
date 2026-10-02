@@ -30,6 +30,7 @@ const Ledger = (() => {
 
   const STREAM = {
     check: 'checks.jsonl',
+    fitness: 'checks.jsonl',
     task: 'pipeline.jsonl',
     needs_decision: 'pipeline.jsonl',
     needs_decision_resolved: 'designc.jsonl',
@@ -38,6 +39,7 @@ const Ledger = (() => {
     escape_classified: 'designc.jsonl',
     false_positive: 'pipeline.jsonl',
     handover: 'designc.jsonl',
+    decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
     agent_tool: 'agents.jsonl',
@@ -57,6 +59,11 @@ const Ledger = (() => {
   const FINAL_KIND_FIELDS = {
     check: {
       required: ['decision', 'check', 'outcome', 'source'],
+      optional: ['ms', 'exit_code', 'reason'],
+      enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
+    },
+    fitness: {
+      required: ['scenario', 'check', 'outcome', 'source'],
       optional: ['ms', 'exit_code', 'reason'],
       enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
     },
@@ -93,6 +100,11 @@ const Ledger = (() => {
     asbuilt_edge: {
       required: ['from', 'to'],
       optional: [],
+      enums: {},
+    },
+    decision_promoted: {
+      required: ['decision'],
+      optional: ['fingerprints'],
       enums: {},
     },
     handover: {
@@ -153,8 +165,8 @@ const Ledger = (() => {
       for (const k of Object.keys(ev)) if (!known.has(k) && !k.startsWith('_')) errors.push(`${k}: unknown field for kind '${ev.kind}' (put extra data under payload)`);
       for (const r of spec.required) if (ev[r] === undefined) errors.push(`${ev.kind}.${r}: required`);
       if (spec.enums) for (const [f, vals] of Object.entries(spec.enums)) if (ev[f] !== undefined && !vals.includes(ev[f])) errors.push(`${ev.kind}.${f}: must be one of ${vals.join('|')}`);
-      if (ev.kind === 'check' && ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason)
-        errors.push(`check.exit_code: required when outcome is 'fail' (or give reason)`);
+      if ((ev.kind === 'check' || ev.kind === 'fitness') && ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason)
+        errors.push(`${ev.kind}.exit_code: required when outcome is 'fail' (or give reason)`);
       if ((ev.kind === 'escape' || ev.kind === 'escape_classified') && 'caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by))
         errors.push(`${ev.kind}.caught_by: must be null or one of ${CAUGHT_BY.join('|')}`);
     }
@@ -279,6 +291,16 @@ const Ledger = (() => {
     return { events, errors };
   }
 
+  // Escape ids must not collide across branches, so they come from a uuid, not from a count.
+  const escapeId = uuid => 'E-' + String(uuid).replace(/-/g, '').slice(0, 8);
+
+  // One stream out of several files: drop an event_id already seen (a union merge, or the same line
+  // read twice) and order by time. Array.prototype.sort is stable, so equal timestamps keep file order.
+  function order(events) {
+    const seen = new Set();
+    return events.filter(e => !seen.has(e.event_id) && seen.add(e.event_id)).sort((a, b) => a._ts - b._ts);
+  }
+
   // The ledger is append-only: classification and resolution are later events, folded in here.
   function derive(events) {
     const classify = new Map(), resolved = new Set();
@@ -300,7 +322,7 @@ const Ledger = (() => {
   }
 
   return {
-    SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, derive, totalTokens,
+    SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

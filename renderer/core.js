@@ -25,6 +25,8 @@ const Core = (() => {
       }
       if (c === '{' || c === '}' || c === '=') { toks.push({ t: c, line }); i++; continue; }
       if (c === '-' && src[i + 1] === '>') { toks.push({ t: '->', line }); i += 2; continue; }
+      const num = /^\d+(?![\w.])/.exec(src.slice(i, i + 20));
+      if (num) { toks.push({ t: 'id', v: num[0], line }); i += num[0].length; continue; }
       const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, i + 200));
       if (m) { toks.push({ t: 'id', v: m[0], line }); i += m[0].length; continue; }
       toks.push({ t: '?', v: c, line }); i++;
@@ -38,7 +40,7 @@ const Core = (() => {
   // ---------- parser ----------
   function parse(src) {
     const toks = tokenize(src); let p = 0; const errors = [];
-    const els = new Map(), idents = new Map(), pending = []; let name = 'Untitled workspace', auto = 0;
+    const els = new Map(), idents = new Map(), pending = [], envs = [], instRefs = []; let name = 'Untitled workspace', auto = 0;
     const peek = (k = 0) => toks[p + k];
     const next = () => toks[p++];
     const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg });
@@ -88,6 +90,51 @@ const Core = (() => {
       }
       pending.push(r);
     }
+    // deploymentEnvironment: parsed into its own tree, never into `els`, so lint, drift and fingerprints ignore it.
+    const DEPLOY = { deploymentNode: 1, infrastructureNode: 1, containerInstance: 1, softwareSystemInstance: 1 };
+    function deployBody(list, owner) {
+      while (p < toks.length) {
+        const t = peek();
+        if (t.t === '}') { next(); return true; }
+        if (t.t === '{') { skipBlock(); continue; }
+        if (t.t === '->') { next(); if (peek() && peek().t === 'id') next(); strings(); if (peek() && peek().t === '{') skipBlock(); continue; }
+        if (t.t !== 'id') { err(t, `unexpected "${t.v || t.t}"`); next(); continue; }
+        let v = t.v, ident = null;
+        if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id') { ident = v; next(); next(); v = peek().v; }
+        const kw = peek();
+        if (owner && v === 'properties' && !ident) { props(owner.props); continue; }
+        if (owner && v === 'tags' && !ident) { next(); strings().forEach(x => addTags(owner.tags, x)); continue; }
+        if (peek(1) && peek(1).t === '->' && !ident) { next(); next(); if (peek() && peek().t === 'id') next(); strings(); if (peek() && peek().t === '{') skipBlock(); continue; }
+        if (!DEPLOY[v]) { next(); strings(); if (peek() && peek().t === '{') skipBlock(); else err(kw, `unknown keyword "${v}"`); continue; }
+        next();
+        const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line };
+        if (v === 'containerInstance' || v === 'softwareSystemInstance') {
+          const ref = peek();
+          if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; instRefs.push(node); }
+          strings();
+        } else {
+          const s = strings();
+          node.name = s[0] || ''; node.description = s[1] || null; node.technology = s[2] || null;
+          if (!s[0]) err(kw, `${v} needs a name`);
+          if (s[3]) addTags(node.tags, s[3]);
+          if (v === 'deploymentNode') {
+            if (peek() && peek().t === 'id' && /^\d+$/.test(peek().v)) node.instances = next().v;
+            else if (s[4]) node.instances = s[4];
+          }
+        }
+        if (peek() && peek().t === '{') { const open = next(); if (!deployBody(node.children, node)) err(open, `block for "${node.name || node.refName}" is missing }`); }
+        list.push(node);
+      }
+      return false;
+    }
+    function environment(ident) {
+      const kw = next(); const s = strings();
+      const env = { ident, name: s[0] || '(unnamed)', nodes: [], line: kw.line };
+      if (!s[0]) err(kw, 'deploymentEnvironment needs a name');
+      if (peek() && peek().t === '{') { const open = next(); if (!deployBody(env.nodes, null)) err(open, `block for "${env.name}" is missing }`); }
+      else err(kw, `deploymentEnvironment "${env.name}" needs a block`);
+      envs.push(env);
+    }
     // returns true when it stopped on a closing brace
     function body(owner) {
       while (p < toks.length) {
@@ -98,6 +145,8 @@ const Core = (() => {
           if (owner && v === 'properties') { props(owner.props); continue; }
           if (owner && v === 'tags') { next(); strings().forEach(x => addTags(owner.tags, x)); continue; }
           if (owner && (v === 'description' || v === 'technology')) { next(); const s = strings(); if (s[0] != null) owner[v] = s[0]; continue; }
+          if (v === 'deploymentEnvironment') { environment(null); continue; }
+          if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && peek(2).v === 'deploymentEnvironment') { next(); next(); environment(v); continue; }
           if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && KINDS[peek(2).v]) {
             next(); next(); const k = next(); element(k, v, owner ? owner.id : null); continue;
           }
@@ -129,7 +178,25 @@ const Core = (() => {
       if (!dst) { errors.push({ line: r.line, msg: `unknown element "${r.dstRef}"` }); return; }
       rels.push({ id: 'r' + (i + 1), src, dst, description: r.description, technology: r.technology, props: r.props, line: r.line });
     });
-    return makeModel(name, els, rels, errors);
+    instRefs.forEach(n => {
+      const id = resolve(n.refName), el = id && els.get(id);
+      if (!el) { errors.push({ line: n.line, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
+      n.ref = el.id; n.name = el.name;
+    });
+    const m = makeModel(name, els, rels, errors);
+    m.deployment = { environments: envs };
+    return m;
+  }
+
+  // The environment the Deployment view shows: the one `designc.json` names, else the only one.
+  function deploymentView(model, wanted) {
+    const envs = (model.deployment && model.deployment.environments) || [];
+    const choices = envs.map(e => e.name);
+    if (wanted) {
+      const env = envs.find(e => e.name === wanted);
+      return env ? { env, choices } : { error: `designc.json deployment names "${wanted}", which this model does not declare. Choose one of: ${choices.join(', ') || 'none declared'}.`, choices };
+    }
+    return envs.length === 1 ? { env: envs[0], choices } : { choices };
   }
 
   function makeModel(name, els, rels, errors) {
@@ -357,9 +424,27 @@ const Core = (() => {
 
   // ---------- gate (definition of ready) ----------
   // decision: {id, statement, requirement, binds[], resolves[], effect:'fix'|'accept', checks[], status}
-  function gate({ model, diags, decisions, requirements, ledger }) {
+  // A readable id from what a decision or proposal says, so two branches minting at once do not both
+  // take "the next number". `taken` is every id already in the registry (array or Set).
+  function slugId(statement, taken) {
+    const words = String(statement || '').toLowerCase().replace(/[^a-z0-9]+/g, ' ').trim().split(' ').filter(Boolean);
+    let base = '';
+    for (const w of words) { const next = base ? `${base}-${w}` : w; if (next.length > 48) break; base = next; }
+    base = base || (words[0] || 'untitled').slice(0, 48).replace(/-+$/, '') || 'untitled';
+    const used = new Set([...taken].map(t => String(t).toLowerCase()));
+    let id = base;
+    for (let n = 2; used.has(id); n++) id = `${base}-${n}`;
+    return id;
+  }
+
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [] }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
+    for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
+      const seen = new Set(), said = new Set();
+      for (const x of list) { if (seen.has(x.id) && !said.has(x.id)) { said.add(x.id); clauses.push({ kind: 'duplicate', text: `duplicate id ${x.id}`, [kind]: x.id }); } seen.add(x.id); }
+    }
+    for (const e of registryErrors) clauses.push({ kind: 'registry', text: `${e.path} does not parse`, path: e.path });
     const bound = decisions.filter(d => d.status === 'bound');
     const covers = (dec, f) => dec.effect === 'accept' && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b));
     for (const f of diags) {
@@ -367,12 +452,33 @@ const Core = (() => {
       if (bound.some(dec => covers(dec, f))) continue;
       clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, finding: f });
     }
+    const boundBusiness = new Set(decisions.filter(d => d.status === 'bound' && d.kind === 'business').map(d => d.id));
     for (const dec of decisions) {
+      const kind = dec.kind == null ? 'technical' : dec.kind;
+      if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
-      if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
-      const last = latestCheck(ledger, dec.id);
-      if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });
-      else if (last.outcome !== 'pass') clauses.push({ kind: 'check', text: `${dec.id}: last check failed`, decision: dec.id });
+      const business = kind === 'business';
+      if (business) businessEvidence(dec, evidenceHosts, clauses);
+      else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
+        clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
+      if (!business) {
+        if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
+        const last = latestCheck(ledger, dec.id);
+        if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });
+        else if (last.outcome !== 'pass') clauses.push({ kind: 'check', text: `${dec.id}: last check failed`, decision: dec.id });
+      }
+      if (!Array.isArray(dec.promoted_against)) clauses.push({ kind: 'promotion', text: `${dec.id} is bound without a fingerprint`, decision: dec.id });
+      else for (const pa of dec.promoted_against) {
+        if (pa.requirement != null) {
+          const req = requirements.find(r => r.id === pa.requirement);
+          if (!req) clauses.push({ kind: 'promotion', text: `${dec.id}: binding ${pa.requirement} does not resolve`, decision: dec.id });
+          else if (String(req.version) !== String(pa.version)) clauses.push({ kind: 'promotion', text: `${dec.id}: ${req.id} changed since promotion`, decision: dec.id, requirement: req.id });
+          continue;
+        }
+        const el = resolveBinding(model, pa);
+        if (!el) clauses.push({ kind: 'promotion', text: `${dec.id}: binding ${pa.name} does not resolve`, decision: dec.id });
+        else if (fingerprint(model, el.id).hash !== pa.hash) clauses.push({ kind: 'promotion', text: `${dec.id}: ${el.name} changed since promotion`, decision: dec.id, element: el.name });
+      }
       if (dec.effect === 'fix') {
         const still = diags.filter(f => !f.suppressed && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b)));
         if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${dec.resolves.join(', ')} is fixed, but the model still raises it`, decision: dec.id, line: still[0].loc.line });
@@ -384,10 +490,295 @@ const Core = (() => {
     }
     for (const nd of ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open'))
       clauses.push({ kind: 'needs', text: `open needs-decision ${nd.id || ''}: ${nd.question}`.trim(), needs: nd });
+    for (const s of scenarios) {
+      if (!s || typeof s !== 'object' || !s.id || !s.artifact || !s.attribute || !s.measure) { clauses.push({ kind: 'scenario', text: `${(s && s.id) || 'a scenario'} needs artifact, attribute and measure` }); continue; }
+    }
+    for (const r of scenarioReport({ model, scenarios: scenarios.filter(s => s && s.id && s.artifact && s.attribute && s.measure), ledger })) {
+      if (r.status === 'unresolved') clauses.push({ kind: 'scenario', text: `${r.id}: artifact "${r.artifact}" is not in the model` });
+      else if (r.analytic.status === 'not-met') clauses.push({ kind: 'scenario', text: `${r.id} is not met: availability ≈ ${r.analytic.value.toFixed(2)}% against ${r.measure.op === '<=' ? '≤' : '≥'} ${r.measure.value}%` });
+      if (r.fitness.status === 'failing') clauses.push({ kind: 'scenario', text: `${r.id}: fitness function failing` });
+    }
     return { ready: clauses.length === 0, clauses };
+  }
+  // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
+  function businessEvidence(dec, hosts, clauses) {
+    const say = text => clauses.push({ kind: 'evidence', text, decision: dec.id });
+    if (!dec.evidence) return say(`${dec.id} is a business decision without evidence`);
+    let u = null;
+    try { u = new URL(String(dec.evidence)); } catch { /* reported below */ }
+    if (!u || u.protocol !== 'https:') return say(`${dec.id}: evidence must be an https URL`);
+    if (!hosts.includes(u.hostname)) say(`${dec.id}: evidence host ${u.hostname} is not allowed (see evidenceHosts in designc.json)`);
   }
   function latestCheck(ledger, decId) {
     return ledger.filter(e => e.kind === 'check' && e.decision === decId).sort((a, b) => (b._ts || 0) - (a._ts || 0))[0] || null;
+  }
+
+  // ---------- quality attribute scenarios and fitness functions ----------
+  // A scenario (scenarios/*.yaml) is a quality attribute scenario: stimulus, artifact (an element name),
+  // response and a measure. Availability scenarios are checked analytically against the model: the
+  // artifact's availability times that of everything it depends on through declared sync relationships
+  // (async and undeclared ones are left out, as in blastRadius). Every other attribute is judged only by
+  // its fitness function: shell commands run like decision checks, recorded as `fitness` ledger events.
+  function latestFitness(ledger, id) {
+    return ledger.filter(e => e.kind === 'fitness' && e.scenario === id).sort((a, b) => (b._ts || 0) - (a._ts || 0))[0] || null;
+  }
+  function scenarioReport({ model, scenarios = [], ledger = [] }) {
+    const byName = n => [...model.elements.values()].find(e => e.name === n) || null;
+    return scenarios.map(s => {
+      const row = { id: s.id, title: s.title || '', attribute: s.attribute, artifact: s.artifact, measure: s.measure || null };
+      const el = byName(s.artifact);
+      const cmds = (s.fitness || []).filter(c => c && !/^TODO/.test(c));
+      const last = latestFitness(ledger, s.id);
+      row.fitness = { status: !cmds.length ? 'none' : !last ? 'unchecked' : last.outcome === 'pass' ? 'passing' : 'failing', commands: cmds };
+      if (!el) { row.status = 'unresolved'; row.analytic = { status: 'n/a' }; return row; }
+      row.status = 'resolved';
+      const m = s.measure || {};
+      if (s.attribute !== 'availability' || m.metric !== 'availability' || typeof m.value !== 'number') { row.analytic = { status: 'n/a' }; return row; }
+      const seen = new Set([el.id]), queue = [el.id];
+      for (let i = 0; i < queue.length; i++) for (const r of model.rels) {
+        if (r.src !== queue[i] || seen.has(r.dst) || structural(model, r) || interaction(r) !== 'sync') continue;
+        seen.add(r.dst); queue.push(r.dst);
+      }
+      const els = [...seen].map(id => model.elements.get(id));
+      const missing = els.filter(e => get(e, 'd.availability') == null).map(e => e.name);
+      if (missing.length) { row.analytic = { status: 'unknown', missing }; return row; }
+      const value = els.reduce((a, e) => a * Number(get(e, 'd.availability')), 1) * 100;
+      const ok = m.op === '<=' ? value <= m.value : value >= m.value;
+      row.analytic = { status: ok ? 'met' : 'not-met', value, elements: els.map(e => e.name) };
+      return row;
+    });
+  }
+
+  // ---------- blast radius ----------
+  // Who is hurt when one element misbehaves (fails, stalls or answers wrongly). Callers are found by
+  // walking relationships backwards. A sync caller goes `down` and the damage continues through it; an
+  // async caller is `degraded` (decoupled, so its backlog grows but it stays up) and stops there; a caller
+  // whose interaction is undeclared is `unknown` and stops there, because nothing is guessed. An element
+  // reached several ways keeps the worst class. `paths` holds one shortest route per affected element.
+  const BLAST_RANK = { unknown: 1, degraded: 2, down: 3 };
+  // Mode 'unavailable': `ref` is a deployment node path ("Azure/Zone A") in `environment`. An element is
+  // lost when every one of its instances in that environment sits under the node; each lost element then
+  // spreads as in 'misbehaves', the worst class winning. Lost elements are listed as lost, not as down.
+  function unavailableRadius(model, nodePath, environment) {
+    const envs = (model.deployment && model.deployment.environments) || [];
+    if (!envs.length) return { error: 'This model has no deploymentEnvironment, so unavailability cannot be assessed.' };
+    const env = envs.find(e => e.name === environment) || (environment == null && envs.length === 1 ? envs[0] : null);
+    if (!env) return { error: `Environment "${environment}" is not declared. Choose one of: ${envs.map(e => e.name).join(', ')}.` };
+    const segs = String(nodePath).split('/');
+    let list = env.nodes, hit = null;
+    for (const s of segs) { hit = list.find(n => n.kind !== 'containerInstance' && n.name === s); if (!hit) break; list = hit.children; }
+    if (!hit) return { error: `No deployment node "${nodePath}" in ${env.name}.` };
+    const instances = (nodes, out = []) => { for (const n of nodes) { if (n.ref) out.push(n.ref); instances(n.children, out); } return out; };
+    const inside = new Set(instances([hit]));
+    // an instance counts as outside when it is not under `hit`
+    const rest = new Set(); (function walk(nodes) { for (const n of nodes) { if (n === hit) continue; if (n.ref) rest.add(n.ref); walk(n.children); } })(env.nodes);
+    const lost = [...inside].filter(id => !rest.has(id));
+    const survivors = [...inside].filter(id => rest.has(id));
+    const rank = { down: 3, degraded: 2, unknown: 1 };
+    const best = new Map(), paths = [];
+    for (const id of lost) {
+      const r = blastRadius(model, id, { mode: 'misbehaves' });
+      for (const p of r.paths) { const eid = [...model.elements.values()].find(e => e.name === p.to).id; if (lost.includes(eid)) continue; const cur = best.get(eid); if (!cur || rank[cur.kind] < rank[p.kind]) best.set(eid, p); }
+    }
+    const nm = id => model.elements.get(id).name;
+    const pick = kind => [...best].filter(([, p]) => p.kind === kind).map(([id]) => ({ id, name: nm(id) }));
+    return { node: nodePath, environment: env.name, lost: lost.map(id => ({ id, name: nm(id) })), survivors: survivors.map(id => ({ id, name: nm(id) })),
+      down: pick('down'), degraded: pick('degraded'), unknown: pick('unknown'), paths: [...best.values()] };
+  }
+
+  function blastRadius(model, elementId, { mode, environment } = {}) {
+    if (mode === 'unavailable') return unavailableRadius(model, elementId, environment);
+    if (mode !== 'misbehaves') return { error: `Unknown blast radius mode: ${mode}. Supported: misbehaves, unavailable.` };
+    if (!model.elements.has(elementId)) return { error: 'No such element' };
+    const best = new Map(); // id -> { kind, via: [ids] }
+    const queue = [{ id: elementId, via: [elementId] }];
+    for (let i = 0; i < queue.length; i++) {
+      const { id, via } = queue[i];
+      for (const r of model.rels) {
+        if (r.dst !== id || r.src === elementId || structural(model, r)) continue;
+        const i2 = interaction(r), kind = i2 === 'sync' ? 'down' : i2 === 'async' ? 'degraded' : 'unknown';
+        const cur = best.get(r.src);
+        if (cur && BLAST_RANK[cur.kind] >= BLAST_RANK[kind]) continue;
+        const path = [...via, r.src];
+        best.set(r.src, { kind, via: path });
+        if (kind === 'down') queue.push({ id: r.src, via: path });
+      }
+    }
+    const pick = kind => [...best].filter(([, v]) => v.kind === kind).map(([id]) => ({ id, name: model.elements.get(id).name }));
+    const nm = id => model.elements.get(id).name;
+    return {
+      down: pick('down'), degraded: pick('degraded'), unknown: pick('unknown'),
+      paths: [...best].map(([id, v]) => ({ to: nm(id), kind: v.kind, via: v.via.map(nm) })),
+    };
+  }
+
+  // ---------- change impact ----------
+  // What a model change touches beyond the model: bound decisions whose element (or a rel touching it)
+  // changed or went away, requirements tied to those decisions or listing a changed element, and the
+  // findings introduced or resolved. Built on diffModels and fingerprint, so it shares their notion of
+  // "changed". `decisions` and `requirements` are the registry's parsed files.
+  function changeImpact(before, after, { decisions = [], requirements = [], chainHops = 4 } = {}) {
+    const diff = diffModels(before, after);
+    const touched = new Set();
+    for (const e of diff.elements) { touched.add(e.name); if (e.renamedFrom) touched.add(e.renamedFrom); }
+    const byName = (m, n) => [...m.elements.values()].find(e => e.name === n) || null;
+    const hits = [];
+    for (const d of decisions) {
+      if (d.status !== 'bound' && d.status !== 'checked') continue;
+      for (const name of d.binds || []) {
+        const b = byName(before, name), a = byName(after, name);
+        let reason = null;
+        if (b && !a) reason = 'removed';
+        else if (!b && a) reason = 'added';
+        else if (b && a && fingerprint(before, b.id).hash !== fingerprint(after, a.id).hash) reason = 'changed';
+        if (reason) { hits.push({ id: d.id, element: name, reason: `${name} ${reason}`, requirement: d.requirement || null }); break; }
+      }
+    }
+    const reqIds = new Set(hits.map(h => h.requirement).filter(Boolean));
+    for (const r of requirements) if ((r.elements || []).some(n => touched.has(n))) reqIds.add(r.id);
+    const keyed = m => new Map(check(m, { chainHops }).filter(f => !f.suppressed && f.sev !== 'note').map(f => [`${f.code}|${f.loc.label}`, { code: f.code, label: f.loc.label, sev: f.sev, msg: f.msg }]));
+    const kb = keyed(before), ka = keyed(after);
+    return {
+      changed: diff.summary.added + diff.summary.removed + diff.summary.changed + diff.summary.relsAdded + diff.summary.relsRemoved + diff.summary.relsChanged,
+      decisions: hits.map(({ id, element, reason }) => ({ id, element, reason })),
+      requirements: [...reqIds],
+      introduced: [...ka].filter(([k]) => !kb.has(k)).map(([, v]) => v),
+      resolved: [...kb].filter(([k]) => !ka.has(k)).map(([, v]) => v),
+    };
+  }
+
+  // ---------- fingerprint ----------
+  // What a bound decision is promoted against: the element's own definition plus every relationship
+  // touching it. Covers kind, parent, name, technology, all d.* (d.suppress too) and each incident rel
+  // (direction, other end, technology, its d.*). Leaves out description, tags, comments, whitespace,
+  // order, lines, descendants and rel descriptions. The hash is two FNV-1a 32-bit passes (different
+  // offsets) written as 16 hex digits, small enough to mirror in the Python package.
+  function fnv(str, seed) {
+    let h = seed >>> 0;
+    for (let i = 0; i < str.length; i++) { h ^= str.charCodeAt(i); h = Math.imul(h, 16777619) >>> 0; }
+    return h.toString(16).padStart(8, '0');
+  }
+  const hash16 = str => fnv(str, 2166136261) + fnv(str, 2654435769);
+  function fingerprint(model, elementId) {
+    const el = model.elements.get(elementId);
+    if (!el) return null;
+    const who = e => (e ? `${e.ident || ''}|${e.name}` : '');
+    const dprops = p => Object.keys(p || {}).filter(k => k.startsWith('d.')).sort().map(k => `${k}=${p[k]}`).join(';');
+    const rels = model.rels.filter(r => r.src === elementId || r.dst === elementId).map(r => {
+      const out = r.src === elementId;
+      return `rel ${out ? 'out' : 'in'} ${who(model.elements.get(out ? r.dst : r.src))} [${r.technology || ''}] {${dprops(r.props)}}`;
+    }).sort();
+    const content = [`kind ${el.kind}`, `parent ${who(model.elements.get(el.parent))}`, `name ${el.name}`, `technology ${el.technology || ''}`, `props {${dprops(el.props)}}`, ...rels].join('\n');
+    return { hash: hash16(content), content };
+  }
+  // Where a promoted_against entry points now: by the recorded identifier first, then by name.
+  function resolveBinding(model, entry) {
+    const els = [...model.elements.values()];
+    return els.find(e => e.ident && e.ident === entry.element) || els.find(e => e.name === entry.name) || null;
+  }
+
+  // ---------- handover ----------
+  // A frozen handover is a folder: handovers/<yyyymmdd>-<hash8>/ holding handover.yaml and verbatim copies
+  // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
+  // hash part comes from the copied content only, so identical content gives an identical id on any day.
+  // Pure: the caller reads the files and writes the result.
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [] }) {
+    const content = [model, ...requirements, ...decisions, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
+    const dir = `handovers/${id}/`;
+    const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
+    const q = JSON.stringify;
+    const head = `id: ${id}
+revision: r-${hash16(model.text).slice(0, 8)}
+created: ${q(now)}
+by: ${q(by)}
+model: ${q(model.path)}
+requirements: ${q(requirements.map(idOf))}
+decisions: ${q(decisions.map(idOf))}
+files:
+${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
+`;
+    return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...content.map(f => ({ path: dir + f.path, text: f.text }))] };
+  }
+
+  // Decisions the gate blocks on promotion (no fingerprint, or what they bind changed): a human can re-bind them.
+  function rebindable(g) {
+    const ids = [];
+    for (const c of (g && g.clauses) || []) if (c.kind === 'promotion' && c.decision && !ids.includes(c.decision)) ids.push(c.decision);
+    return ids;
+  }
+
+  // The model copy inside the newest handover that names one. `handovers` is ordered oldest first.
+  function latestHandoverModel(handovers) {
+    const h = [...handovers].reverse().find(x => x && x.id && x.model);
+    return h ? { id: h.id, path: `handovers/${h.id}/${h.model}` } : null;
+  }
+
+  // ---------- semantic diff ----------
+  // What changed between two parses of a model, by meaning rather than by line. Identity: the same DSL
+  // identifier is the same element; otherwise the same normalised name under the same (matched) parent;
+  // otherwise removed and added. No fuzzy matching. Rels are keyed on their matched ends plus their
+  // ordinal among parallel rels. Description, tags, order, whitespace and lines never count.
+  function diffModels(before, after) {
+    const norm = x => String(x).toLowerCase().replace(/[^a-z0-9]/g, '');
+    const match = new Map(), taken = new Set(); // before id -> after id
+    const bEls = [...before.elements.values()], aEls = [...after.elements.values()];
+    const byIdent = new Map(aEls.filter(e => e.ident).map(e => [e.ident, e]));
+    for (const b of bEls) { const a = b.ident && byIdent.get(b.ident); if (a && !taken.has(a.id)) { match.set(b.id, a.id); taken.add(a.id); } }
+    for (const b of bEls) {
+      if (match.has(b.id)) continue;
+      const parent = b.parent == null ? null : match.get(b.parent);
+      if (b.parent != null && parent == null) continue;
+      const a = aEls.find(x => !taken.has(x.id) && norm(x.name) === norm(b.name) && x.parent === parent);
+      if (a) { match.set(b.id, a.id); taken.add(a.id); }
+    }
+    const nameOf = (m, id) => (id == null ? null : (m.elements.get(id) || {}).name || null);
+    const propFields = (bp, ap, prefix = '') => {
+      const out = [];
+      for (const k of [...new Set([...Object.keys(bp), ...Object.keys(ap)])].sort())
+        if (bp[k] !== ap[k]) out.push({ field: prefix + k, from: bp[k] == null ? null : bp[k], to: ap[k] == null ? null : ap[k] });
+      return out;
+    };
+    const elements = [];
+    for (const b of bEls) {
+      const aid = match.get(b.id);
+      if (aid == null) { elements.push({ change: 'removed', name: b.name, kind: b.kind, beforeId: b.id, afterId: null, fields: [] }); continue; }
+      const a = after.elements.get(aid), fields = [];
+      if (b.name !== a.name) fields.push({ field: 'name', from: b.name, to: a.name });
+      if (b.kind !== a.kind) fields.push({ field: 'kind', from: b.kind, to: a.kind });
+      if ((b.technology || null) !== (a.technology || null)) fields.push({ field: 'technology', from: b.technology || null, to: a.technology || null });
+      const pb = nameOf(before, b.parent), pa = nameOf(after, a.parent);
+      if (match.get(b.parent) !== a.parent && !(b.parent == null && a.parent == null)) fields.push({ field: 'parent', from: pb, to: pa });
+      fields.push(...propFields(b.props, a.props));
+      if (fields.length) elements.push({ change: 'changed', name: a.name, kind: a.kind, beforeId: b.id, afterId: a.id, fields, ...(b.name !== a.name ? { renamedFrom: b.name } : {}) });
+    }
+    for (const a of aEls) if (!taken.has(a.id)) elements.push({ change: 'added', name: a.name, kind: a.kind, beforeId: null, afterId: a.id, fields: [] });
+
+    const keyed = (rels, map) => {
+      const n = new Map(), out = new Map();
+      for (const r of rels) {
+        const s = map(r.src), d = map(r.dst);
+        const base = `${s}>${d}`, i = n.get(base) || 0; n.set(base, i + 1);
+        out.set(`${base}#${i}`, r);
+      }
+      return out;
+    };
+    const bk = keyed(before.rels, id => (match.has(id) ? match.get(id) : `gone:${id}`));
+    const ak = keyed(after.rels, id => id);
+    const rels = [];
+    const label = (m, r) => `${nameOf(m, r.src)} → ${nameOf(m, r.dst)}`;
+    for (const [k, b] of bk) {
+      const a = ak.get(k);
+      if (!a) { rels.push({ change: 'removed', label: label(before, b), fields: [] }); continue; }
+      const fields = [];
+      if ((b.technology || null) !== (a.technology || null)) fields.push({ field: 'technology', from: b.technology || null, to: a.technology || null });
+      fields.push(...propFields(b.props, a.props));
+      if (fields.length) rels.push({ change: 'changed', label: label(after, a), fields });
+    }
+    for (const [k, a] of ak) if (!bk.has(k)) rels.push({ change: 'added', label: label(after, a), fields: [] });
+
+    const count = (list, c) => list.filter(x => x.change === c).length;
+    return { elements, rels, summary: { added: count(elements, 'added'), removed: count(elements, 'removed'), changed: count(elements, 'changed'), relsAdded: count(rels, 'added'), relsRemoved: count(rels, 'removed'), relsChanged: count(rels, 'changed') } };
   }
 
   // ---------- drift: designed vs as-built ----------
@@ -686,6 +1077,6 @@ const Core = (() => {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

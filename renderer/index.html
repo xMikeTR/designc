@@ -13,8 +13,10 @@
     <button data-act="explorer" title="Explorer (Ctrl+Shift+E)" aria-label="Explorer"><svg viewBox="0 0 24 24"><path d="M5 3.5h8.5L18 8v12.5H5z"/><path d="M13.5 3.5V8H18"/></svg></button>
     <button data-act="design" title="Design, System 1 (Ctrl+Shift+D)" aria-label="Design"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="7" height="5" rx="1"/><rect x="14" y="15" width="7" height="5" rx="1"/><rect x="14" y="4" width="7" height="5" rx="1"/><path d="M10 6.5h4M17.5 9v6"/></svg><span class="badge" id="badge-design"></span></button>
     <button data-act="canvas" title="Canvas, draw the design" aria-label="Canvas"><svg viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><path d="M8 8h8v8H8z"/></svg><span class="badge" id="badge-canvas"></span></button>
+    <button data-act="deployment" title="Deployment, where it runs" aria-label="Deployment"><svg viewBox="0 0 24 24"><rect x="3" y="4" width="18" height="16" rx="1"/><rect x="7" y="9" width="10" height="7" rx="1"/></svg></button>
     <button data-act="codemap" title="Code map, as built" aria-label="Code map"><svg viewBox="0 0 24 24"><path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg><span class="badge" id="badge-codemap"></span></button>
     <button data-act="build" title="Build, System 2" aria-label="Build"><svg viewBox="0 0 24 24"><path d="M4 20l7-7M9.5 11.5l3 3M13 4.5a4.5 4.5 0 0 0 5.8 5.8l-3.3 3.3-5.6-5.6z"/></svg><span class="badge" id="badge-build"></span></button>
+    <button data-act="scm" title="Source control" aria-label="Source control"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-12 6"/></svg><span class="badge" id="badge-scm"></span></button>
     <button data-act="improve" title="Improve, System 4" aria-label="Improve"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4.5h-4.5"/><path d="M9 12.5l2 2 4-4.5"/></svg><span class="badge" id="badge-improve"></span></button>
     <button data-agenttoggle class="agbtn" title="Agent panel (Ctrl+Alt+I)" aria-label="Agent panel"><svg viewBox="0 0 24 24"><path d="M4 5.5h16v10H10l-4 3.5v-3.5H4z"/><path d="M9 10.5h.01M12 10.5h.01M15 10.5h.01"/></svg></button>
   </nav>
@@ -35,7 +37,7 @@
         </div>
       </div>
       <div class="group sheetgroup" id="g2">
-        <div class="tabbar"><div class="tab active"><span class="ticon sheet-i"></span>C4 sheet</div><div class="spacer"></div><select id="sheetBadges" class="inline badgesel" title="What the badges on boxes show" aria-label="Badges show"><option value="findings">Badges: findings</option><option value="failures">Badges: agent failures</option><option value="cost">Badges: agent cost</option></select><button class="iconbtn" id="sheetFit" title="Fit">Fit</button><button class="iconbtn" id="sheetClose" title="Close sheet (Ctrl+Alt+V)" aria-label="Close sheet">✕</button></div>
+        <div class="tabbar"><div class="tab active"><span class="ticon sheet-i"></span>C4 sheet</div><div class="spacer"></div><select id="sheetBadges" class="inline badgesel" title="What the badges on boxes show" aria-label="Badges show"><option value="findings">Badges: findings</option><option value="failures">Badges: agent failures</option><option value="cost">Badges: agent cost</option><option value="blast">Badges: blast radius</option></select><button class="iconbtn" id="sheetFit" title="Fit">Fit</button><button class="iconbtn" id="sheetClose" title="Close sheet (Ctrl+Alt+V)" aria-label="Close sheet">✕</button></div>
         <div class="sheet" id="sheet"><div class="sheetscroll" id="sheetscroll"></div><div class="titleblock" id="titleblock"></div></div>
       </div>
     </div>
@@ -57,6 +59,7 @@
 <script src="../node_modules/js-yaml/dist/js-yaml.min.js"></script>
 <script src="core.js"></script>
 <script src="ledger.js"></script>
+<script src="policy.js"></script>
 <script src="canvas/vocabulary.js"></script>
 <script src="canvas/layout.js"></script>
 <script src="canvas/templates.js"></script>
@@ -66,6 +69,7 @@
 <script src="canvas/canvas.js"></script>
 <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
 <script src="app.js"></script>
+<script src="gitview.js"></script>
 <script src="agent.js"></script>
 </body>
 </html>

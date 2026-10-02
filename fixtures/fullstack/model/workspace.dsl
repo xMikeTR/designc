@@ -8,8 +8,15 @@ workspace "fullstack " {
     }
     sys = softwareSystem "fullstack" {
       e_shopapi = container "Shop.Api" "" "ASP.NET Core" {
+        c_shopapi_appshell = component "App shell" "" ""
+        c_shopapi_customerscontroller = component "CustomersController" "" ""
+        c_shopapi_orderendpoints = component "OrderEndpoints" "" ""
+        c_shopapi_shopinfrastructure = component "Shop.Infrastructure" "" ""
       }
       e_shopfunctions = container "Shop.Functions" "" "Azure Functions (.NET isolated)" {
+        c_shopfunctions_appshell = component "App shell" "" ""
+        c_shopfunctions_orderfunctions = component "OrderFunctions" "" ""
+        c_shopfunctions_shopinfrastructure = component "Shop.Infrastructure" "" ""
       }
       e_snowflake = container "Snowflake" "" "Snowflake" "Database"
       e_nodeapi = container "node-api" "" "Node.js (Express)" {

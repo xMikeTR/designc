@@ -70,5 +70,6 @@ workspace "fullstack (as built)" {
     c_ui_appshell -> e_newrelic "Sends telemetry to" "New Relic agent" { properties { "d.interaction" "sync" } }
     c_ui_api -> c_shopapi_customerscontroller "Calls 1 endpoint(s)" "HTTP" { properties { "d.interaction" "sync" } }
     c_ui_api -> c_shopapi_orderendpoints "Calls 2 endpoint(s)" "HTTP" { properties { "d.interaction" "sync" } }
+    c_nodeapi_appshell -> c_nodeapi_routes "Uses" "in-process" { properties { "d.interaction" "sync" } }
   }
 }

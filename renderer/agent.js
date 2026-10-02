@@ -25,14 +25,8 @@ function roleCfg(role) {
   const base = ROLES[role]; const o = (A.cfg.agents && A.cfg.agents[role]) || {};
   return { ...base, allow: o.allow || base.allow, ask: o.ask || base.ask, deny: o.deny || [], instructions: base.instructions + (o.instructions ? '\n' + o.instructions : '') };
 }
-// Fail closed: a tool is usable only if the role lists it, and deny always wins.
-function verdict(role, tool) {
-  const r = roleCfg(role);
-  if (r.deny.includes(tool)) return 'deny';
-  if (r.ask.includes(tool)) return 'ask';
-  if (r.allow.includes(tool)) return 'allow';
-  return 'deny';
-}
+// Fail closed: the rules live in policy.js.
+const verdict = (role, tool) => Policy.verdict(roleCfg(role), tool);
 
 // ---------------------------------------------------------------- tool definitions
 const obj = (props, req = []) => ({ type: 'object', properties: props, required: req, additionalProperties: false });
@@ -47,7 +41,7 @@ const TOOLS = {
   read_code: { d: 'Read a file from the codebase (read-only), optionally a line range.', p: obj({ path: { type: 'string' }, from: { type: 'integer' }, to: { type: 'integer' } }, ['path']) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
-  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
+  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
   mint_proposal: { d: 'Propose a change to System 1 or 2 (status minted), citing evidence.', p: obj({ kind: { type: 'string', enum: ['lint rule', 'P property', 'grill-me question', 'gate clause', 'eval case', 'routing'] }, statement: { type: 'string' }, evidence: { type: 'string' }, check: { type: 'string' } }, ['kind', 'statement', 'evidence', 'check']) },
 };
 const toolSpecs = role => Object.entries(TOOLS).filter(([n]) => verdict(role, n) !== 'deny').map(([name, t]) => ({ type: 'function', function: { name, description: t.d, parameters: t.p } }));
@@ -121,11 +115,14 @@ const WRITERS = {
     };
   },
   mint_decision: a => {
-    const id = nextId('D', A.decisions);
+    const business = a.kind === 'business';
+    if (business) a = { ...a, statement: `PROPOSED: ${String(a.statement).replace(/^PROPOSED:\s*/i, '')}` };
+    const id = Core.slugId(a.statement, A.decisions.map(d => d.id));
     const text = `id: ${id}
 status: minted          # minted | checked | bound | superseded
-effect: ${a.effect === 'accept' ? 'accept' : 'fix'}
-requirement: ${a.requirement || 'null'}
+kind: ${business ? 'business' : 'technical'}
+${(a.relies_on || []).length ? `relies_on: ${yamlList(a.relies_on)}\n` : ''}effect: ${a.effect === 'accept' ? 'accept' : 'fix'}
+requirement: ${a.requirement ? yamlStr(a.requirement) : 'null'}
 binds: ${yamlList(a.binds || [])}
 resolves: ${yamlList((a.resolves || []).map(x => String(x).toUpperCase()))}
 statement: ${yamlStr(a.statement)}
@@ -138,8 +135,8 @@ drafted_by: ide-agent
       apply: async () => { AG.approved.set(`decisions/${id}.yaml`, Date.now()); await host.write(`decisions/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created decisions/${id}.yaml as minted. Binding it is up to the user.`; } };
   },
   mint_proposal: a => {
-    const id = nextId('P', A.proposals);
-    const text = `id: ${id}\nstatus: minted\nkind: ${a.kind}\nevidence: ${yamlStr(a.evidence)}\nstatement: ${yamlStr(a.statement)}\ncheck: ${yamlStr(a.check)}\ndrafted_by: ide-agent\n`;
+    const id = Core.slugId(a.statement, A.proposals.map(x => x.id));
+    const text = `id: ${id}\nstatus: minted\nkind: ${yamlStr(a.kind)}\nevidence: ${yamlStr(a.evidence)}\nstatement: ${yamlStr(a.statement)}\ncheck: ${yamlStr(a.check)}\ndrafted_by: ide-agent\n`;
     return { title: `Mint proposal ${id}`, detail: a.statement, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`proposals/${id}.yaml`, Date.now()); await host.write(`proposals/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created proposals/${id}.yaml as minted.`; } };
   },
@@ -300,16 +297,10 @@ async function onAcpPermission(key, p) {
   return { optionId: optionId || null };
 }
 // fs/write_text_file → the same write policy as the built-in agent, then a diff to approve.
-const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//], analyst: [/^proposals\//] };
 async function onAcpWrite(key, w) {
   const c = (AG.turn && AG.turn.c) || chat();
-  const norm = s => s.replace(/\\/g, '/'), root = norm(A.root.root).replace(/\/$/, ''), abs = norm(w.path);
-  const rel = abs.toLowerCase().startsWith(root.toLowerCase() + '/') ? abs.slice(root.length + 1) : null;
-  const role = (AG.conns[key] && AG.conns[key].role) || AG.role;
-  let error = null;
-  if (!rel) error = `designc only lets agents write inside the registry (${A.root.root}). The codebase is read-only here; code changes go through the coding pipeline.`;
-  else if (!(WRITE_PATHS[role] || []).some(re => re.test(rel))) error = `The ${ROLES[role].label} role may not write ${rel}.`;
-  else if (/^decisions\//.test(rel) && /^status:\s*(bound|superseded)/m.test(w.content)) error = 'Binding a decision is a human action; write it as minted.';
+  const rel = w.rel || null, role = (AG.conns[key] && AG.conns[key].role) || AG.role;
+  const error = Policy.writeVerdict(role, rel, w.content, jsyaml.load).error || null;
   const chip = { kind: 'tool', acp: true, name: `write ${rel || w.path}`, args: {}, status: error ? 'denied' : 'waiting' };
   c.items.push(chip);
   if (error) { chip.result = error; ledger('agent_tool', { tool: 'fs/write_text_file', path: rel || w.path, verdict: 'deny', outcome: 'denied', via: 'acp' }); renderAgent(); return { ok: false, error }; }
@@ -357,9 +348,7 @@ function agentSawChange(paths) {
   const t = AG.turn; if (!t || AG.agent === 'builtin') return;
   const now = Date.now(); let flagged = false;
   if (isAgui() && now < AG.graceUntil) return;
-  for (const p of paths) {
-    if (!/\.[a-z0-9]+$/i.test(p) || /^(ledger|asbuilt|telemetry)\//.test(p) || p === 'designc.json') continue;
-    const ok = AG.approved.get(p); if (ok && now - ok < 8000) continue;
+  for (const p of Policy.unapprovedChanges(paths, { approved: AG.approved, ownAppends: OWN_APPENDS, now })) {
     t.c.items.push({ kind: 'error', text: `${agentLabel()} changed ${p} without going through designc's approval. Review it before relying on it.` });
     ledger('unapproved_change', { path: p, via: isAgui() ? 'agui' : 'acp' }); flagged = true;
   }
