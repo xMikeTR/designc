@@ -38,7 +38,7 @@ if (typeof Ledger !== 'undefined') {
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
   if (stageKeys !== caughtBy) throw new Error(`STAGES keys must equal Ledger.CAUGHT_BY: [${stageKeys}] vs [${caughtBy}]`);
 }
-const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers'];
+const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios'];
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -48,7 +48,7 @@ const A = {
   tabs: [], active: null,    // tab ids: file paths or 'special:build' / 'special:improve'
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
   modelText: '', model: null, diags: [], gate: null,
-  decisions: [], requirements: [], proposals: [], handovers: [], yamlErrors: [],
+  decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], yamlErrors: [],
   ledgerRaw: [], ledger: [], ledgerErrors: [],
   output: '', running: false, collapsed: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
@@ -105,7 +105,11 @@ async function loadYamlDir(dir) {
 }
 async function loadRegistry() {
   A.yamlErrors = [];
-  [A.decisions, A.requirements, A.proposals, A.handovers] = await Promise.all(REG_DIRS.map(loadYamlDir));
+  [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios] = await Promise.all(REG_DIRS.map(loadYamlDir));
+  // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
+  const hv = ((Array.isArray(A.tree) ? A.tree : []).find(n => n.dir && n.name === 'handovers')) || { children: [] };
+  for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
+  A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
 }
 async function loadLedger() {
@@ -114,14 +118,21 @@ async function loadLedger() {
     const { events, errors } = Ledger.parse(f.text, f.path);
     A.ledgerRaw.push(...events); A.ledgerErrors.push(...errors);
   }
+  A.ledgerRaw = Ledger.order(A.ledgerRaw);
   deriveLedger();
 }
 // The ledger is append-only: classification and resolution are later events, folded in here.
 function deriveLedger() { A.ledger = Ledger.derive(A.ledgerRaw); }
 // The only call of host.appendLedgerEvent (test/ledger-guard.test.js, LS-05): every writer goes
 // through recordEvent, never a raw literal.
+// OWN_APPENDS remembers when the app last appended to each ledger file, so a change to the ledger
+// that the app did not make during an agent turn can be told apart (Policy.unapprovedChanges).
+const OWN_APPENDS = new Map();
+const ledgerFileFor = kind => `ledger/${Ledger.KINDS[kind] ? Ledger.KINDS[kind].stream : Ledger.HARNESS_STREAM}`;
 async function sendLedgerEvent(ev) {
+  OWN_APPENDS.set(ledgerFileFor(ev.kind), Date.now());
   const r = await host.appendLedgerEvent(ev);
+  OWN_APPENDS.set(ledgerFileFor(ev.kind), Date.now());
   if (!r.ok) toast(`Ledger event not recorded: ${r.errors.join('; ')}`, 'error');
   return r;
 }
@@ -148,7 +159,7 @@ async function loadAsbuilt() {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   setMarkers();
@@ -427,14 +438,17 @@ async function onDiskChanged(paths) {
 async function createAndOpen(path, text, selectLine) { await host.write(path, text); A.tree = await host.tree(); await openFile(path, selectLine); await loadRegistry(); recompile(); renderAll({ keepEditor: true }); }
 const yamlList = a => `[${(a || []).map(x => /[:,\[\]{}#&*!|>'"%@`]/.test(x) ? JSON.stringify(x) : x).join(', ')}]`;
 const yamlStr = s => JSON.stringify(String(s || ''));
-async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '' } = {}) {
+async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [] } = {}) {
   if (!A.root) return;
-  const id = nextId('D', A.decisions);
+  const id = Core.slugId(statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
   if (finding) { binds = binds || finding.loc.names.slice(0, finding.loc.kind === 'element' ? 1 : 2); resolves = resolves || [finding.code]; }
+  const business = kind === 'business';
+  if (business && statement) statement = `PROPOSED: ${statement}`;
   const text = `id: ${id}
 status: minted          # minted | checked | bound | superseded
+kind: ${business ? 'business' : 'technical'}          # business | technical
 effect: ${effect}             # fix (the model changes) | accept (keep the risk)
-requirement: null
+${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts\n' : ''}requirement: null
 binds: ${yamlList(binds || [])}
 resolves: ${yamlList(resolves || [])}
 statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
@@ -448,8 +462,30 @@ async function newRequirement() {
   const id = prompt('Jira key for the requirement', 'HRE-') || ''; if (!id.trim()) return;
   await createAndOpen(`requirements/${id.trim()}.yaml`, `id: ${id.trim()}\ntitle: TODO\nsource: ""\nversion: 1\nelements: []\n`, 2);
 }
+async function newScenario() {
+  const id = prompt('Scenario id', 'QAS-') || ''; if (!id.trim()) return;
+  const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
+  await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
+}
+async function runFitness() {
+  if (A.running) { toast('Checks are already running.'); return; }
+  const targets = A.scenarios.filter(s => (s.fitness || []).some(c => c && !/^TODO/.test(c)));
+  if (!targets.length) { toast('No scenario has a fitness function yet.', 'warning'); return; }
+  A.running = true; showPanel('output'); renderStatus();
+  appendOutput(`\n── ${new Date().toLocaleTimeString()}  running fitness functions for ${plural(targets.length, 'scenario')}\n`);
+  try {
+    for (const s of targets) for (const cmd of s.fitness.filter(c => c && !/^TODO/.test(c))) {
+      appendOutput(`\n▶ ${s.id}  $ ${cmd}\n`);
+      const r = await host.runCheck(`${s.id}-${Date.now()}`, cmd);
+      if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return; }
+      const ok = r.code === 0;
+      appendOutput(`${ok ? '✓ passed' : `✗ failed (exit ${r.code})`} in ${(r.ms / 1000).toFixed(1)}s\n`);
+      await recordEvent('fitness', { scenario: s.id, check: cmd, outcome: ok ? 'pass' : 'fail', source: 'local', ms: r.ms, exit_code: r.code });
+    }
+  } finally { A.running = false; renderStatus(); }
+}
 async function newProposal(p = {}) {
-  const id = nextId('P', A.proposals);
+  const id = Core.slugId(p.statement || p.kind || 'proposal', A.proposals.map(x => x.id));
   await createAndOpen(`proposals/${id}.yaml`, `id: ${id}
 status: minted          # minted | checked | bound | rejected
 kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing
@@ -470,17 +506,50 @@ function setField(text, key, value) {
   const re = new RegExp(`^${key}:.*$`, 'm');
   return re.test(text) ? text.replace(re, `${key}: ${value}`) : text.replace(/\s*$/, `\n${key}: ${value}\n`);
 }
-async function bindDecision(d) {
-  if (!confirm(`Bind ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
-  await editYaml(d._path, t => setField(setField(setField(t, 'status', 'bound          # minted | checked | bound | superseded'), 'promoted_by', A.user), 'promoted_at', new Date().toISOString().slice(0, 10)));
-  toast(`${d.id} is bound.`);
+async function bindDecision(d, { confirmed = false } = {}) {
+  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
+  let against;
+  if (d.kind === 'business') {
+    const req = A.requirements.find(r => r.id === d.requirement);
+    if (!req) { toast(`${d.id} is a business decision; set requirement to an existing requirement id before binding.`, 'warning'); return; }
+    against = [{ requirement: req.id, version: req.version }];
+  } else against = (d.binds || []).map(n => [...A.model.elements.values()].find(e => e.name === n)).filter(Boolean)
+    .map(e => ({ element: e.ident || '', name: e.name, hash: Core.fingerprint(A.model, e.id).hash }));
+  await editYaml(d._path, t => setField(setField(setField(setField(t, 'status', 'bound          # minted | checked | bound | superseded'), 'promoted_by', A.user), 'promoted_at', new Date().toISOString().slice(0, 10)), 'promoted_against', JSON.stringify(against)));
+  await recordEvent('decision_promoted', { decision: d.id, fingerprints: against });
+  if (!confirmed) toast(`${d.id} is bound.`);
+}
+// Human-only, like bindDecision: one confirmation for every decision the gate blocks on promotion.
+async function rebindAll() {
+  const ids = Core.rebindable(A.gate), list = ids.map(id => A.decisions.find(d => d.id === id)).filter(Boolean);
+  if (!list.length) return;
+  if (!confirm(`Re-bind ${list.map(d => d.id).join(', ')}?\n\nThis records the current state of what each one binds as accepted, as you, ${A.user}. Check the Compare tab first if the design changed on purpose or by accident.`)) return;
+  for (const d of list) { await bindDecision(d, { confirmed: true }); await loadRegistry(); recompile(); }
+  toast(`Re-bound ${plural(list.length, 'decision')}.`);
 }
 async function freezeHandover() {
   if (!A.gate || !A.gate.ready) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
-  const id = nextId('H', A.handovers), rev = hash(A.modelText);
-  await host.write(`handovers/${id}.yaml`, `id: ${id}\nrevision: r-${rev}\ncreated: ${new Date().toISOString()}\nby: ${A.user}\nmodel: ${A.cfg.model}\nrequirements: ${yamlList(A.requirements.map(r => r.id))}\ndecisions: ${yamlList(A.decisions.filter(d => d.status === 'bound').map(d => d.id))}\n`);
-  await recordEvent('handover', { handover: id, revision: rev });
-  toast(`Handover ${id} frozen at r-${rev}.`);
+  if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
+  const boundIds = new Set(A.decisions.filter(d => d.status === 'bound').map(d => d.id));
+  const read = async (dir, exts) => (await host.list(dir, exts)).map(f => ({ path: f.path, text: f.text }));
+  const decisions = [];
+  for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
+  const plan = Core.handoverPlan({
+    date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user,
+    model: { path: A.cfg.model, text: (await host.read(A.cfg.model)) || '' },
+    requirements: await read('requirements', ['.yaml', '.yml']),
+    decisions,
+    behaviour: await read('behaviour', ['.p']),
+    vocabulary: await read('vocabulary', ['.yaml', '.yml']),
+  });
+  for (const f of plan.files) await host.write(f.path, f.text);
+  const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
+  await recordEvent('handover', { handover: plan.id, revision: rev });
+  A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+  toast(`Handover ${plan.id} frozen at r-${rev}.`);
+  if (G.state.repo && G.state.trusted) { // pre-fill the commit: staged, message written, review in Source control
+    await host.gitStage([`handovers/${plan.id}`]); G.msg = `Freeze handover ${plan.id}`; await gitRefresh(); setActivity('scm');
+  }
 }
 
 // ---------------------------------------------------------------- checks
@@ -576,6 +645,7 @@ function setActivity(a) {
   if (a === 'improve' && A.sidebarOpen && A.root) openSpecial('special:improve');
   if (a === 'codemap' && A.sidebarOpen && A.root) openSpecial('special:codemap');
   if (a === 'canvas' && A.sidebarOpen && A.root) openSpecial('special:canvas');
+  if (a === 'deployment' && A.sidebarOpen && A.root) openSpecial('special:deployment');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -592,19 +662,21 @@ function renderBadges() {
   const un = A.ledger.filter(e => e.kind === 'escape' && !e.caught_by).length;
   const un2 = un + (A.tel.runs.length ? telSuggestions().length : 0);
   const b3 = $('#badge-improve'); b3.textContent = un2; b3.className = 'badge' + (un2 ? ' on' : '');
+  const nf = G.state && G.state.trusted && G.state.files ? G.state.files.length : 0;
+  const b5 = $('#badge-scm'); b5.textContent = nf; b5.className = 'badge' + (nf ? ' on' : '');
   const dc = A.drift ? A.drift.undeclared.length + A.drift.unknownEls.length : 0;
   const b4 = $('#badge-codemap'); b4.textContent = dc; b4.className = 'badge' + (dc ? ' on' : '');
 }
-function tabTitle(id) { return id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:build' ? 'S2' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : 'S4'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'S2' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : 'S4'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (System 2)', 'special:improve': 'Improve (System 4)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (System 2)', 'special:improve': 'Improve (System 4)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:compare': 'Compare with revision' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -621,6 +693,7 @@ function renderStatus() {
   st.innerHTML = `<button data-s="folder" title="${esc(A.root.root)}">${esc(A.root.name)}</button>
     <button data-s="problems" title="Problems"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/></svg>${e}<svg viewBox="0 0 16 16"><path d="M8 2l6.5 12h-13z"/><path d="M8 6.5v3.5M8 12v.5"/></svg>${w}</button>
     ${A.running ? '<button data-s="output">Running checks…</button>' : ''}
+    ${gitStatusButton()}
     <div class="spacer"></div>
     ${pos ? `<button>${pos}</button>` : ''}${lang ? `<button>${lang}</button>` : ''}
     <button data-s="tel" title="Langfuse telemetry (click to refresh)">${A.tel.loading ? 'Langfuse: loading…' : A.tel.error ? (A.tel.error.error === 'not_configured' ? 'Langfuse: off' : 'Langfuse: error') : A.tel.meta ? `Langfuse${A.tel.meta.source === 'sample' ? ' (sample)' : ''}: ${plural(A.tel.runs.length, 'run')}` : 'Langfuse: off'}</button>
@@ -634,7 +707,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design · System 1', codemap: 'Code map · as built', build: 'Build · System 2', improve: 'Improve · System 4' };
+  const titles = { explorer: 'Explorer', design: 'Design · System 1', codemap: 'Code map · as built', build: 'Build · System 2', improve: 'Improve · System 4', scm: 'Source control', deployment: 'Deployment' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open Folder</button><button class="btn block" data-a="sample">Open Sample Registry</button>`; return; }
@@ -642,7 +715,11 @@ function renderSidebar() {
   else if (A.activity === 'design') body.innerHTML = designSidebar();
   else if (A.activity === 'build') body.innerHTML = buildSidebar();
   else if (A.activity === 'codemap') body.innerHTML = codemapSidebar();
+  else if (A.activity === 'scm') body.innerHTML = gitSidebar();
+  else if (A.activity === 'deployment') body.innerHTML = deploymentSidebar();
   else body.innerHTML = improveSidebar();
+  if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
+  if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
 }
 function treeHTML(nodes, depth) {
   return nodes.map(n => {
@@ -662,25 +739,33 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline' }[c.kind]}</span><span>${esc(c.text)}</span></div>`).join('') +
+    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion' }[c.kind]}</span><span>${esc(c.text)}</span></div>`).join('') +
+    (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}</div>
-      <div class="acts">${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}</div></div>`).join('')
+      <div class="acts">${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span></div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
+  const scn = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger }).map((r, i) => {
+    const s = A.scenarios[i], an = r.analytic;
+    const state = r.status === 'unresolved' ? 'fail' : an.status === 'not-met' || r.fitness.status === 'failing' ? 'fail' : an.status === 'met' || r.fitness.status === 'passing' ? 'pass' : '';
+    const note = r.status === 'unresolved' ? `artifact "${esc(r.artifact)}" is not in the model` : an.status === 'met' || an.status === 'not-met' ? `availability ≈ ${an.value.toFixed(2)}%` : an.status === 'unknown' ? `declare d.availability on ${esc(an.missing.join(', '))}` : '';
+    return `<div class="item" data-open="${esc(s._path)}"><div class="l1"><span class="dot ${state}"></span><span class="id">${esc(r.id)}</span><span class="tag">${esc(r.attribute || '')}</span></div><div class="l2">${esc(r.title)}${note ? ` · ${note}` : ''}${r.fitness.status !== 'none' ? ` · fitness ${r.fitness.status}` : ''}</div></div>`;
+  }).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
   const G = A.grill;
   const grillBody = `<div class="hint">Reads the model, open findings, decisions and anything the pipeline is waiting on, then asks what most needs an answer.</div>
     <button class="btn block ${G.questions.length ? '' : 'primary'}" data-a="grill" ${G.busy || !hasModel ? 'disabled' : ''}>${G.busy ? 'Reading the design…' : G.questions.length ? 'Ask again' : 'Start grill-me'}</button>
     ${G.error ? `<div class="hint" style="color:var(--warn)">${esc(G.error)}</div>` : ''}
     ${G.questions.map((q, i) => `<div class="q"><div class="qq">${esc(q.question)}</div><div class="why">${q.code ? `<span class="code">${esc(q.code)}</span> ` : ''}${q.element ? `<b>${esc(q.element)}</b>. ` : ''}${esc(q.why || '')}</div>
       ${q.business ? '<div class="biz">For the business: post it on the Jira issue.</div>' : ''}
-      <textarea data-ans="${i}" placeholder="Your answer">${esc(q.answer || '')}</textarea><div style="margin-top:6px"><button class="lnk" data-qdraft="${i}">Draft decision from answer</button></div></div>`).join('')}`;
+      <textarea data-ans="${i}" placeholder="Your answer">${esc(q.answer || '')}</textarea><div style="margin-top:6px"><button class="lnk" data-qdraft="${i}">Draft decision from answer</button> <button class="lnk" data-qbiz="${i}">Draft business decision</button></div></div>`).join('')}`;
   return section('gate', 'Ready gate', gate)
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button><button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="New requirement" data-a="newreq">+</button>`)
+    + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('grill', 'Grill-me', grillBody);
 }
 function buildSidebar() {
@@ -720,6 +805,8 @@ function renderPanel() {
   if (mrows.length) groups.push([A.cfg.model, mrows]);
   const byPath = new Map();
   for (const e of [...A.yamlErrors, ...A.ledgerErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
+  const seenP = new Set();
+  for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
   groups.push(...byPath);
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
@@ -865,12 +952,20 @@ function renderSheet() {
   }
   const col = s => (s === 'error' ? 'var(--err)' : s === 'warning' ? 'var(--warn)' : 'var(--ink3)');
   const telByEl = A.badges === 'findings' ? new Map() : telAgg().byEl;
+  // Blast radius badges: select a box, pick "Badges: blast radius" to see who is hurt if it misbehaves.
+  const blast = new Map();
+  if (A.badges === 'blast' && A.selected && m.elements.has(A.selected)) {
+    const br = Core.blastRadius(m, A.selected, { mode: 'misbehaves' });
+    for (const [kind, list] of [['down', br.down], ['degraded', br.degraded], ['unknown', br.unknown]]) for (const x of list) blast.set(x.id, kind);
+  }
+  const BLAST_BADGE = { down: ['down', 'var(--err)'], degraded: ['deg', 'var(--warn)'], unknown: ['?', 'var(--ink3)'] };
   host_.innerHTML = drawModel(m, L, {
     attr: 'el', zoom: fitZoom(host_, L, A.zoom),
     edgeStyle: r => { const sev = relSev.get(r.id), hot = A.selected && (r.src === A.selected || r.dst === A.selected), as = Core.interaction(r) === 'async';
       return { color: col(sev), width: hot ? 2.4 : sev ? 1.8 : 1.3, dash: as ? '6 4' : '', marker: sev || 'n', labelColor: sev ? col(sev) : null, label: r.description ? r.description + (as ? ' (async)' : '') : '' }; },
     nodeStyle: e => {
       const base = { stroke: A.selected === e.id ? 'var(--accent)' : 'var(--ink)', sw: A.selected === e.id ? 2.6 : 1.5 };
+      if (A.badges === 'blast') { const b = BLAST_BADGE[blast.get(e.id)]; return b ? { ...base, badge: b[0], badgeColor: b[1] } : base; }
       if (A.badges === 'findings') return { ...base, badge: elN.get(e.id), badgeColor: col(elSev.get(e.id)) };
       const t = telByEl.get(e.name); if (!t) return base;
       return A.badges === 'cost' ? { ...base, badge: money(t.cost), badgeColor: 'var(--accent)' } : { ...base, badge: t.failed || null, badgeColor: 'var(--err)' };
@@ -1083,7 +1178,7 @@ function renderCmSide() {
 }
 
 // ---------------------------------------------------------------- dashboards (System 2 / System 4)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -1110,6 +1205,36 @@ function canvasHostFor() {
       catch (e) { toast(`Couldn't save the review: ${e.message}`, 'error'); }
     },
   };
+}
+// ---------------------------------------------------------------- deployment (read-only)
+function deploymentChoice() { return Core.deploymentView(A.model, A.cfg.deployment || null); }
+function deploymentSidebar() {
+  const v = deploymentChoice();
+  const rows = v.choices.map(n => `<div class="row ${v.env && v.env.name === n ? 'active' : ''}"><span class="tw"></span><span class="lbl">${esc(n)}</span></div>`).join('');
+  return section('deploy', 'Environments', rows || '<div class="hint">This model declares no deploymentEnvironment.</div>') +
+    '<div class="hint">Read-only. Choose the environment with "deployment" in designc.json. Edit the model in the Design view.</div>';
+}
+function deployNodeHtml(n, path = '') {
+  if (n.kind === 'containerInstance' || n.kind === 'softwareSystemInstance') {
+    const missing = !n.ref;
+    return `<div class="dp-inst ${missing ? 'dp-bad' : ''}"><b>${esc(n.name)}</b><span>${missing ? 'unknown element' : esc(n.kind === 'containerInstance' ? 'container instance' : 'system instance')}</span></div>`;
+  }
+  const meta = [n.technology, n.instances && n.instances !== '1' ? `${n.instances} instances` : ''].filter(Boolean).join(' · ');
+  const here = path ? `${path}/${n.name}` : n.name;
+  return `<div class="dp-node ${n.kind === 'infrastructureNode' ? 'dp-infra' : ''}"><div class="dp-h" data-dpnode="${esc(here)}" title="Show what fails if this node is unavailable"><b>${esc(n.name)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</div>${n.children.map(c => deployNodeHtml(c, here)).join('')}</div>`;
+}
+function unavailableHtml(path, env) {
+  const r = Core.blastRadius(A.model, path, { mode: 'unavailable', environment: env });
+  if (r.error) return `<div class="note">${esc(r.error)}</div>`;
+  const row = (label, l) => l.length ? `<div><b>${label}</b> ${l.map(x => esc(x.name)).join(', ')}</div>` : '';
+  return `<div class="dp-impact"><h3>If ${esc(path)} is unavailable</h3>${row('Lost', r.lost) || '<div>No element loses all its instances.</div>'}${row('Still running, reduced', r.survivors)}${row('Down (sync callers)', r.down)}${row('Degraded (async)', r.degraded)}${row('Unknown (undeclared interaction)', r.unknown)}</div>`;
+}
+function renderDeployment() {
+  const v = deploymentChoice(); const el = $('#special');
+  if (v.error) { el.innerHTML = `<div class="note">${esc(v.error)}</div>`; return; }
+  if (!v.env) { el.innerHTML = `<div class="note">${v.choices.length ? `This model declares several environments (${esc(v.choices.join(', '))}). Set "deployment" in designc.json to choose one.` : 'This model declares no deploymentEnvironment. Add one in the Design view to see where containers run.'}</div>`; return; }
+  el.innerHTML = `<div class="dp"><h2>${esc(v.env.name)}</h2>${v.env.nodes.map(n => deployNodeHtml(n)).join('') || '<div class="note">This environment has no deployment nodes.</div>'}<div id="dpImpact"></div></div>`;
+  el.querySelectorAll('[data-dpnode]').forEach(h => h.addEventListener('click', ev => { ev.stopPropagation(); $('#dpImpact').innerHTML = unavailableHtml(h.dataset.dpnode, v.env.name); }));
 }
 function renderCanvasView() {
   const el = $('#special');
@@ -1182,10 +1307,11 @@ document.addEventListener('click', async e => {
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
+  if (d.qbiz) { const q = A.grill.questions[+d.qbiz]; return recordDecision({ kind: 'business', statement: q.suggested_decision || q.question || '', effect: 'accept', binds: [], resolves: [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
   if (d.ndans) { const n = A.ledger.find(x => x.id === d.ndans); return recordDecision({ binds: n && n.element ? [n.element] : [], resolves: [], rationale: n ? `Pipeline asked (${n.id}): ${n.question}` : '' }); }
   if (d.telesc) {
     const t = telAgg().tasks.get(d.telesc); if (!t) return;
-    const id = nextId('E', A.ledger.filter(x => x.kind === 'escape'));
+    const id = Ledger.escapeId(crypto.randomUUID());
     const err = (t.runs.filter(r => r.firstError).pop() || {}).firstError;
     await recordEvent('escape', { id, element: designNameFor(t.element) || t.element || null, task: t.task,
       description: `${t.task}: ${t.runs.length} attempt${t.runs.length === 1 ? '' : 's'}, last ${t.final}${err ? ` (${err})` : ''}`, source: 'langfuse', traces: t.runs.map(r => r.traceId) });
@@ -1222,10 +1348,13 @@ document.addEventListener('click', async e => {
   if (a === 'open') return host.openFolder();
   if (a === 'sample') { const i = await host.openSample(); return onFolder(i); }
   if (a === 'freeze') return freezeHandover();
+  if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return recordDecision();
   if (a === 'newreq') return newRequirement();
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();
+  if (a === 'newscn') return newScenario();
+  if (a === 'runfit') return runFitness();
   if (a === 'grill') return grill();
   if (a === 'draftprops') return draftProposals();
   if (a === 'builddash') return openSpecial('special:build');
@@ -1310,7 +1439,7 @@ host.onCmd(cmd => {
   if (cmd === 'open-settings') return A.root && openFile('designc.json');
   if (cmd === 'help:props') { showPanel('output'); A.output += '\nDesign properties\n' + PROPS.map(([k, t, v, d]) => `  ${k.padEnd(18)} ${t.padEnd(13)} ${v ? v.join(' | ') : ''}\n  ${' '.repeat(18)} ${d}`).join('\n') + '\n'; renderPanel(); }
 });
-host.onChanged(paths => { if (A.root) { if (typeof agentSawChange === 'function') agentSawChange(paths); onDiskChanged(paths); } });
+host.onChanged(paths => { if (A.root) { gitRefreshSoon(); if (typeof agentSawChange === 'function') agentSawChange(paths); onDiskChanged(paths); } });
 host.onFolder(info => onFolder(info));
 host.onCheckOutput((_id, chunk) => appendOutput(chunk));
 
@@ -1326,6 +1455,7 @@ async function onFolder(info) {
   if (A.activity !== 'explorer' || !A.sidebarOpen) { A.activity = 'explorer'; A.sidebarOpen = true; $('#shell').classList.remove('nosidebar'); }
   document.querySelectorAll('#activity button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.act === 'explorer')));
   renderAll();
+  gitRefresh();
 }
 
 // ---------------------------------------------------------------- boot

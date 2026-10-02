@@ -4,15 +4,16 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const { confine, childEnv } = require('./paths');
 const fsp = fs.promises;
 
 const PROTOCOL_VERSION = 1;
 
 class AcpConnection {
-  constructor({ key, command, args = [], env = {}, cwd, onUpdate, onRequest, onExit, onLog }) {
+  constructor({ key, command, args = [], env = {}, inherit = [], cwd, onUpdate, onRequest, onExit, onLog }) {
     Object.assign(this, { key, onUpdate, onRequest, onExit, onLog });
     this.nextId = 1; this.pending = new Map(); this.buf = '';
-    this.proc = spawn(command, args, { cwd, env: { ...process.env, ...env }, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
+    this.proc = spawn(command, args, { cwd, env: { ...childEnv(process.env, inherit), ...env }, shell: process.platform === 'win32', stdio: ['pipe', 'pipe', 'pipe'] });
     this.proc.stdout.setEncoding('utf8');
     this.proc.stdout.on('data', d => this.onData(d));
     this.proc.stderr.on('data', d => onLog && onLog(String(d)));
@@ -62,12 +63,22 @@ class AcpHub {
     const p = path.resolve(abs);
     return roots.some(r => p === r || p.startsWith(r + path.sep));
   }
+  // The path of a write relative to the registry, with forward slashes, or null when it is not a
+  // file inside the registry. Resolved here so no later check sees `..` segments.
+  registryRel(abs) {
+    const root = this.getRoot();
+    if (!root || typeof abs !== 'string' || !path.isAbsolute(abs)) return null;
+    let real; try { real = confine(root, path.relative(path.resolve(root), path.resolve(abs))); } catch { return null; }
+    const rel = path.relative(path.resolve(root), real);
+    if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
+    return rel.split(path.sep).join('/');
+  }
   async connect(key, spec, sessionMeta) {
     const existing = this.conns.get(key);
     if (existing && !existing.conn.dead) return existing.info;
     const root = this.getRoot();
     const conn = new AcpConnection({
-      key, command: spec.command, args: spec.args || [], env: spec.env || {}, cwd: root,
+      key, command: spec.command, args: spec.args || [], env: spec.env || {}, inherit: spec.inherit || [], cwd: root,
       onUpdate: p => this.ui('acp:update', key, p),
       onLog: t => this.ui('acp:log', key, t),
       onExit: e => { this.conns.delete(key); this.ui('acp:exit', key, e.message); },
@@ -101,12 +112,15 @@ class AcpHub {
       return { content: text };
     }
     if (method === 'fs/write_text_file') {
-      // Policy and the diff approval live in the UI; it answers {ok} or {error}.
-      let old = null; try { old = await fsp.readFile(p.path, 'utf8'); } catch { /* new file */ }
-      const r = await this.ui('acp:write', key, { path: p.path, content: p.content, old });
+      // Role policy and the diff approval live in the UI; it answers {ok} or {error}. Staying inside
+      // the registry is decided here, whatever the UI answers.
+      const rel = this.registryRel(p.path), file = rel ? path.join(path.resolve(this.getRoot()), rel) : null;
+      let old = null; if (file) try { old = await fsp.readFile(file, 'utf8'); } catch { /* new file */ }
+      const r = await this.ui('acp:write', key, { path: p.path, rel, content: p.content, old });
+      if (!file) throw Object.assign(new Error(`designc only lets agents write inside the registry, not ${p.path}`), { code: -32001 });
       if (!r || !r.ok) throw Object.assign(new Error(r && r.error ? r.error : 'The user declined this write.'), { code: -32002 });
-      await fsp.mkdir(path.dirname(p.path), { recursive: true });
-      await fsp.writeFile(p.path, p.content, 'utf8');
+      await fsp.mkdir(path.dirname(file), { recursive: true });
+      await fsp.writeFile(file, p.content, 'utf8');
       return null;
     }
     if (method === 'session/request_permission') {

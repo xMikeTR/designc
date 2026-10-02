@@ -3,3 +3,4 @@ dist/
 .env
 *.log
 SESSION_HANDOFF.md
+.claude/current-plan-scope.json

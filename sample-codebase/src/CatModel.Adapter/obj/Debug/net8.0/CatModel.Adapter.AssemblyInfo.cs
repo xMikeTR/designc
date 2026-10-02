@@ -13,7 +13,7 @@ using System.Reflection;
 [assembly: System.Reflection.AssemblyCompanyAttribute("CatModel.Adapter")]
 [assembly: System.Reflection.AssemblyConfigurationAttribute("Debug")]
 [assembly: System.Reflection.AssemblyFileVersionAttribute("1.0.0.0")]
-[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+145bdfd0c7bcf69abfbeaaacaa84644247f37f60")]
+[assembly: System.Reflection.AssemblyInformationalVersionAttribute("1.0.0+3f23feb298c0619fa40653598685eb0069d15092")]
 [assembly: System.Reflection.AssemblyProductAttribute("CatModel.Adapter")]
 [assembly: System.Reflection.AssemblyTitleAttribute("CatModel.Adapter")]
 [assembly: System.Reflection.AssemblyVersionAttribute("1.0.0.0")]
