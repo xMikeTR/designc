@@ -352,6 +352,22 @@
       },
       "rules": []
     },
+    "handover_closed": {
+      "stream": "designc.jsonl",
+      "required": [
+        "handover",
+        "outcome"
+      ],
+      "optional": [],
+      "enums": {
+        "outcome": [
+          "delivered",
+          "abandoned"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
     "needs_decision": {
       "stream": "pipeline.jsonl",
       "required": [
@@ -398,7 +414,8 @@
         "tokens_out",
         "cost",
         "model",
-        "tier"
+        "tier",
+        "handover"
       ],
       "enums": {
         "status": [
