@@ -283,6 +283,8 @@ An agent in the design declares `d.agent.autonomy` (`suggest`, `approve-writes` 
 
 An agent also declares its workflow shape in `d.agent.pattern` (`single-call`, `prompt-chain`, `routing`, `parallel`, `orchestrator-workers`, `evaluator-optimizer` or `autonomous-loop`) after Anthropic's "Building effective agents". The three complex shapes (`orchestrator-workers`, `evaluator-optimizer`, `autonomous-loop`) need a reason in `d.agent.patternWhy`, or rule AG011 warns. An agent that declares autonomy but no pattern gets an `unknown` AG011 warning. The property completions and hovers in the model editor list both properties.
 
+Quality attribute scenarios (`scenarios/*.yaml`) may carry `importance` and `difficulty` (`high`, `medium` or `low`). Once any scenario is rated, the Scenarios section in the Design sidebar becomes a utility tree: grouped by quality attribute, most important and hardest first, unrated last. Ratings only order the list; a value other than high, medium or low blocks the ready gate.
+
 ```yaml
 # evals/EV-triage.yaml
 id: EV-triage
