@@ -9,7 +9,7 @@ import uuid
 with open(os.path.join(os.path.dirname(__file__), 'ledger_schema.json'), encoding='utf-8') as _f:
     SCHEMA = json.load(_f)
 
-_TYPE_NAMES = {'boolean': 'a boolean', 'string': 'a string', 'array': 'an array', 'string|null': 'a string or null'}
+_TYPE_NAMES = {'boolean': 'a boolean', 'string': 'a string', 'array': 'an array', 'object': 'an object', 'number': 'a number', 'string|null': 'a string or null'}
 
 
 def _is_type(v, t):
@@ -17,6 +17,8 @@ def _is_type(v, t):
     if t == 'array': return isinstance(v, list)
     if t == 'boolean': return isinstance(v, bool)
     if t == 'string': return isinstance(v, str)
+    if t == 'object': return isinstance(v, dict)
+    if t == 'number': return _is_num(v)
     return False
 
 
