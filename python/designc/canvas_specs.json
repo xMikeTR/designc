@@ -54,6 +54,21 @@
     "d.agent.model": {
       "k": "str"
     },
+    "d.agent.pattern": {
+      "k": "enum",
+      "v": [
+        "single-call",
+        "prompt-chain",
+        "routing",
+        "parallel",
+        "orchestrator-workers",
+        "evaluator-optimizer",
+        "autonomous-loop"
+      ]
+    },
+    "d.agent.patternWhy": {
+      "k": "str"
+    },
     "d.agent.privateData": {
       "k": "enum",
       "v": [

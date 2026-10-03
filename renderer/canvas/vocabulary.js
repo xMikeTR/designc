@@ -79,6 +79,8 @@
     ['d.agent.identity', 'element', 'enum', ['delegated', 'service', 'shared'], 'Agentic', 'Whose identity the agent acts under: the user\'s (delegated), its own service identity, or a shared account.', 'ASI03 Identity and Privilege Abuse'],
     ['d.agent.tracing', 'element', 'enum', YN, 'Agentic', 'Every run is traced (e.g. to Langfuse) with element, task and decision.', 'Observability; ASI10 Rogue Agents'],
     ['d.agent.eval', 'element', 'str', null, 'Agentic', 'Eval suite that gates changes to this agent\'s prompt, tools or model.', 'Agent quality practice'],
+    ['d.agent.pattern', 'element', 'enum', ['single-call', 'prompt-chain', 'routing', 'parallel', 'orchestrator-workers', 'evaluator-optimizer', 'autonomous-loop'], 'Agentic', 'The agent pattern used: one call, a fixed chain, routing, parallel calls, or the more complex orchestrator-workers, evaluator-optimizer and autonomous loop.', 'Anthropic, Building effective agents (use the simplest pattern that works)'],
+    ['d.agent.patternWhy', 'element', 'str', null, 'Agentic', 'Why a simpler pattern is not enough. Required (AG011) for orchestrator-workers, evaluator-optimizer and autonomous-loop.', 'Anthropic, Building effective agents'],
     ['d.tenant.isolation', 'element', 'enum', ['none', 'logical', 'physical'], 'Agentic', 'Isolation between tenants or users in shared memory and vector stores.', 'ASI06 Memory and Context Poisoning'],
     // relationships
     ['d.tool.effect', 'relationship', 'enum', ['read', 'write', 'irreversible'], 'Agentic', 'Side effect of this call: read-only, a reversible write, or irreversible (payments, deletes, sends).', 'ASI02 Tool Misuse; LLM06 Excessive Agency'],
