@@ -214,6 +214,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `behaviour/*.p` | P models, one per protocol |
 | `requirements/*.yaml` | Jira keys the design answers |
 | `decisions/*.yaml` | Decisions: `minted`, then `bound` by a human, each with `checks` |
+| `evals/*.yaml` | Agent evals: the command, results file and thresholds that judge an agent. Human-written; no agent role may write here |
 | `proposals/*.yaml` | System 4 proposals, same lifecycle |
 | `handovers/*.yaml` | Frozen handovers, written by Run > Freeze Handover |
 | `asbuilt/` | The last code-map extraction: `workspace.dsl` and `facts.json` with evidence |
@@ -251,6 +252,24 @@ The app itself only appends: check results to `ledger/checks.jsonl`, and handove
 ```
 
 Grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
+
+## Agent evals
+
+An agent in the design declares `d.agent.autonomy` (`suggest`, `approve-writes` or `autonomous`) and `d.agent.eval` (an eval id). An `approve-writes` or `autonomous` agent blocks the ready gate until its eval has a passing result that is current. A `suggest` agent never blocks; it is listed in the Evals section and `designc eval` warns about it.
+
+```yaml
+# evals/EV-triage.yaml
+id: EV-triage
+agent: Triage agent            # an element name in the model
+command: node run-evals.js     # run from the registry folder; writes the results file
+results: evals/results/EV-triage.json
+thresholds:
+  - task_success >= 0.85
+  - p95_latency_ms <= 1200
+maxAge: 7d                     # optional: 30m, 12h or 7d
+```
+
+The results file is `{"metrics": {"task_success": 0.9}, "cases": 40}` (schema in `docs/eval-results.schema.json`). A result goes stale when the eval file changes, the agent's design properties or relationships change (`Core.fingerprint`), or it is older than `maxAge`. In the app, the Evals section in Design has Run eval and Run all; the gate clause has a Run eval button; Improve shows the trend of each metric. In CI, `python3 -m designc eval /path/to/registry [--id EV-triage] [--source pipeline]` runs the evals and records the results (exit 0 all passing, 1 any failing, 2 the registry cannot be read). Freezing a handover copies `evals/*.yaml`, and `verify-ledger` rule V8 flags a pipeline result recorded after the handover under a different eval file. `fixtures/agent-registry/` and `dev/mock-eval.js` give a worked example. To wire your own eval suite, give `docs/eval-wiring.md` to your coding agent.
 
 ## Command line (CI)
 

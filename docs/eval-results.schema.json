@@ -1,0 +1,22 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://designc/eval-results.schema.json",
+  "title": "designc eval results file",
+  "description": "What an eval command writes to the path named by `results` in evals/<id>.yaml. Core.scoreEval and python/designc/evals.py judge it against the eval's thresholds.",
+  "type": "object",
+  "required": ["metrics", "cases"],
+  "properties": {
+    "metrics": {
+      "description": "Named numbers. Every metric a threshold names must be present, or the eval fails with '<metric> is missing from the results'.",
+      "type": "object",
+      "additionalProperties": { "type": "number" }
+    },
+    "cases": {
+      "description": "How many cases the run scored. A whole number, 0 or more.",
+      "type": "integer",
+      "minimum": 0
+    }
+  },
+  "additionalProperties": true,
+  "examples": [{ "metrics": { "task_success": 0.9, "p95_latency_ms": 800 }, "cases": 40 }]
+}
