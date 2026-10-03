@@ -40,7 +40,8 @@ const Core = (() => {
   // ---------- parser ----------
   function parse(src) {
     const toks = tokenize(src); let p = 0; const errors = [];
-    const els = new Map(), idents = new Map(), pending = [], envs = [], instRefs = []; let name = 'Untitled workspace', auto = 0;
+    let curEnv = null; const envScopes = [];
+    const els = new Map(), idents = new Map(), pending = [], envs = [], instRefs = [], depViews = []; let name = 'Untitled workspace', auto = 0;
     const peek = (k = 0) => toks[p + k];
     const next = () => toks[p++];
     const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg });
@@ -97,6 +98,7 @@ const Core = (() => {
         const t = peek();
         if (t.t === '}') { next(); return true; }
         if (t.t === '{') { skipBlock(); continue; }
+        if (t.t === '->' && owner) { next(); deployRel(owner, peek(-1)); continue; }
         if (t.t === '->') { next(); if (peek() && peek().t === 'id') next(); strings(); if (peek() && peek().t === '{') skipBlock(); continue; }
         if (t.t !== 'id') { err(t, `unexpected "${t.v || t.t}"`); next(); continue; }
         let v = t.v, ident = null;
@@ -104,7 +106,7 @@ const Core = (() => {
         const kw = peek();
         if (owner && v === 'properties' && !ident) { props(owner.props); continue; }
         if (owner && v === 'tags' && !ident) { next(); strings().forEach(x => addTags(owner.tags, x)); continue; }
-        if (peek(1) && peek(1).t === '->' && !ident) { next(); next(); if (peek() && peek().t === 'id') next(); strings(); if (peek() && peek().t === '{') skipBlock(); continue; }
+        if (peek(1) && peek(1).t === '->' && !ident) { next(); const arrow = next(); deployRel(v, arrow); continue; }
         if (!DEPLOY[v]) { next(); strings(); if (peek() && peek().t === '{') skipBlock(); else err(kw, `unknown keyword "${v}"`); continue; }
         next();
         const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line };
@@ -124,16 +126,38 @@ const Core = (() => {
         }
         if (peek() && peek().t === '{') { const open = next(); if (!deployBody(node.children, node)) err(open, `block for "${node.name || node.refName}" is missing }`); }
         list.push(node);
+        if (ident) curEnv.idents.set(ident, node);
       }
       return false;
     }
+    // `a -> b "desc" "tech"` between deployment elements; `src` is an identifier or the enclosing node.
+    function deployRel(src, arrow) {
+      const dst = peek() && peek().t === 'id' ? next().v : null, s = strings();
+      if (peek() && peek().t === '{') skipBlock();
+      curEnv.pending.push({ src, dst, description: s[0] || null, technology: s[1] || null, line: arrow.line });
+    }
     function environment(ident) {
       const kw = next(); const s = strings();
-      const env = { ident, name: s[0] || '(unnamed)', nodes: [], line: kw.line };
+      const env = { ident, name: s[0] || '(unnamed)', nodes: [], rels: [], line: kw.line };
+      curEnv = { env, idents: new Map(), pending: [] };
       if (!s[0]) err(kw, 'deploymentEnvironment needs a name');
       if (peek() && peek().t === '{') { const open = next(); if (!deployBody(env.nodes, null)) err(open, `block for "${env.name}" is missing }`); }
       else err(kw, `deploymentEnvironment "${env.name}" needs a block`);
-      envs.push(env);
+      envs.push(env); envScopes.push(curEnv); curEnv = null;
+    }
+    // views { deployment <scope> <environment> "key" { ... } }: record them, skip every other view.
+    function viewsBlock() {
+      next();
+      while (p < toks.length) {
+        const t = peek();
+        if (t.t === '}') { next(); return; }
+        if (t.t === '{') { skipBlock(); continue; }
+        next();
+        if (t.t !== 'id' || t.v !== 'deployment') continue;
+        const head = []; while (peek() && peek().t !== '{' && peek().t !== '}' && head.length < 6) head.push(next());
+        if (head.length < 2) { err(t, 'deployment view needs a scope and an environment'); continue; }
+        depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line });
+      }
     }
     // returns true when it stopped on a closing brace
     function body(owner) {
@@ -157,6 +181,7 @@ const Core = (() => {
             if (peek() && peek().t === '{') { const open = next(); if (!body(null)) err(open, `${v} block is missing }`); }
             continue;
           }
+          if (v === 'views' && peek(1) && peek(1).t === '{') { next(); viewsBlock(); continue; }
           next(); strings();
           if (peek() && peek().t === '{') skipBlock();
           else if (!SKIP.has(v) && v !== 'this') err(t, `unknown keyword "${v}"`);
@@ -183,8 +208,24 @@ const Core = (() => {
       if (!el) { errors.push({ line: n.line, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
       n.ref = el.id; n.name = el.name;
     });
+    envScopes.forEach(({ env, idents: ids, pending: rs }) => {
+      const paths = new Map(); const walk = (nodes, prefix) => nodes.forEach(n => { const path = prefix ? `${prefix}/${n.name}` : n.name; paths.set(n, path); walk(n.children, path); }); walk(env.nodes, '');
+      const pathOf = ref => { const n = typeof ref === 'string' ? ids.get(ref) : ref; return n ? paths.get(n) : null; };
+      rs.forEach(r => {
+        const src = pathOf(r.src), dst = r.dst == null ? null : pathOf(r.dst);
+        if (!src) { errors.push({ line: r.line, msg: `unknown deployment element "${r.src}"` }); return; }
+        if (!dst) { errors.push({ line: r.line, msg: `unknown deployment element "${r.dst}"` }); return; }
+        env.rels.push({ src, dst, description: r.description, technology: r.technology, line: r.line });
+      });
+    });
+    const views = [];
+    depViews.forEach(v => {
+      const env = envs.find(e => e.name === v.environment || (e.ident && e.ident === v.environment));
+      if (!env) { errors.push({ line: v.line, msg: `deployment view names unknown environment "${v.environment}"` }); return; }
+      views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line });
+    });
     const m = makeModel(name, els, rels, errors);
-    m.deployment = { environments: envs };
+    m.deployment = { environments: envs, views };
     return m;
   }
 

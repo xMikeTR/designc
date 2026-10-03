@@ -252,9 +252,23 @@ The app itself only appends: check results to `ledger/checks.jsonl`, and handove
 
 Grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
+## Command line (CI)
+
+The same compiler and gate run without the app, for CI. It needs Python 3.9 or later and PyYAML:
+
+```
+cd python
+python3 -m designc check /path/to/registry          # findings and gate clauses
+python3 -m designc check /path/to/registry --json   # the same as JSON
+```
+
+Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the folder could not be read. It does not do drift, diff, blast radius or code extraction; those stay in the app.
+
 ## Decision checks run on your machine
 
 Run > Run All Decision Checks (Ctrl+Shift+B) runs each decision's `checks` as shell commands in the registry folder, writes pass or fail to the ledger, and streams output to the Output panel. Because those commands come from the repository, the app asks you to trust a folder the first time, like VS Code's workspace trust. Only trust folders whose decisions you'd be willing to run.
+
+To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's user data folder. It is deliberately not a `designc.json` setting, because that file comes with the repository.
 
 ## Keys
 
@@ -280,7 +294,7 @@ Run > Run All Decision Checks (Ctrl+Shift+B) runs each decision's `checks` as sh
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC006, gate, drift. Same rules and results as the Python `designc` |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC006, gate, drift. Same rules and results as the Python CLI in `python/designc` |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
 | `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |

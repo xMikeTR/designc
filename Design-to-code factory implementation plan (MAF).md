@@ -71,7 +71,7 @@ Agents never call a model provider directly. They use MAF's OpenAI-compatible ch
 | --- | --- | --- |
 | Workflow wiring, agents, middleware | C# | MAF and AGT samples, org skills, least friction |
 | Correctness-critical logic: task state machine, dispatcher planning, gate evaluation | F# library called from executors | DUs mirror the P model; illegal states unrepresentable |
-| `designc`, mlang compiler, evals | Python, invoked as CLI | Already exist; process-per-module boundary |
+| `designc` | Python, invoked as CLI (`python/designc` in the designc desktop repo, `designc check <registry>`) | Exists since 0.1.0; process-per-module boundary. The mlang compiler and evals are not in that repo |
 | P models and checker, PObserve | P (.NET) and JVM | Their own toolchains, run as steps |
 
 This replaces the F#-host spike in the architecture note: the host is MAF in C#, and F# earns its place inside it where the types carry the design.

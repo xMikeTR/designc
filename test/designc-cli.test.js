@@ -1,0 +1,202 @@
+// Parity: the Python `designc check` (python/designc) must give the same findings and the same gate
+// clauses as renderer/core.js on the same registry. Both sides are run on real folders.
+const { test } = require('node:test');
+const assert = require('node:assert/strict');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
+const { spawnSync } = require('child_process');
+const yaml = require('js-yaml');
+const Core = require('../renderer/core.js');
+const Ledger = require('../renderer/ledger.js');
+
+const ROOT = path.join(__dirname, '..');
+const PY = path.join(ROOT, 'python');
+const havePython = spawnSync('python3', ['-c', 'import yaml']).status === 0;
+const skip = havePython ? false : 'python3 with PyYAML is not installed';
+
+function listDir(root, dir, exts) {
+  let names = []; try { names = fs.readdirSync(path.join(root, dir)); } catch { return []; }
+  return names.filter(n => exts.some(x => n.endsWith(x))).sort().map(n => ({ path: `${dir}/${n}`, text: fs.readFileSync(path.join(root, dir, n), 'utf8') }));
+}
+
+// The renderer's loadRegistry and loadLedger, for a folder on disk.
+function nodeReport(root) {
+  const cfg = { model: 'model/workspace.dsl', chainHops: 4, ...(fs.existsSync(path.join(root, 'designc.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'designc.json'), 'utf8')) : {}) };
+  const yamlErrors = [];
+  const load = dir => {
+    const out = [];
+    for (const f of listDir(root, dir, ['.yaml', '.yml'])) {
+      try {
+        const o = yaml.load(f.text) || {};
+        if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping');
+        for (const k of ['binds', 'resolves', 'checks', 'elements']) if (o[k] != null && !Array.isArray(o[k])) o[k] = [o[k]];
+        out.push({ ...o, id: o.id || f.path.split('/').pop().replace(/\.ya?ml$/, '') });
+      } catch (e) { yamlErrors.push({ path: f.path }); }
+    }
+    return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  };
+  const decisions = load('decisions'), requirements = load('requirements'), scenarios = load('scenarios');
+  load('proposals'); load('handovers');
+  const hv = path.join(root, 'handovers');
+  if (fs.existsSync(hv)) for (const n of fs.readdirSync(hv).sort()) if (fs.statSync(path.join(hv, n)).isDirectory()) load(`handovers/${n}`);
+  decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
+  let raw = [];
+  for (const f of listDir(root, 'ledger', ['.jsonl'])) raw.push(...Ledger.parse(f.text, f.path).events);
+  const ledger = Ledger.derive(Ledger.order(raw));
+  const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
+  const diags = Core.check(model, { chainHops: cfg.chainHops || 4 });
+  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], scenarios });
+  return {
+    errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),
+    findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+    gate: { ready: gate.ready, clauses: gate.clauses.map(c => ({ kind: c.kind, text: c.text })) },
+  };
+}
+
+function pyReport(root) {
+  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  assert.ok(r.stdout, `designc printed nothing. stderr: ${r.stderr}`);
+  return JSON.parse(r.stdout);
+}
+
+function tmpRegistry(files) {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-cli-'));
+  for (const [rel, text] of Object.entries(files)) {
+    fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true });
+    fs.writeFileSync(path.join(root, rel), text);
+  }
+  return root;
+}
+
+const same = (root, label) => assert.deepEqual(pyReport(root), nodeReport(root), label);
+
+test('the sample registry gives the documented result in both implementations', { skip }, () => {
+  const root = path.join(ROOT, 'sample-registry');
+  const py = pyReport(root);
+  const errs = py.findings.filter(f => !f.suppressed && f.sev === 'error').map(f => f.code).sort();
+  const warns = py.findings.filter(f => !f.suppressed && f.sev === 'warning').map(f => f.code).sort();
+  assert.deepEqual(errs, ['DC002', 'DC004']);
+  assert.deepEqual(warns, ['DC001', 'DC003', 'DC005', 'DC006']);
+  assert.equal(py.findings.filter(f => f.suppressed).length, 1);
+  same(root, 'sample-registry');
+});
+
+test('fixtures/fullstack agrees', { skip }, () => same(path.join(ROOT, 'fixtures', 'fullstack'), 'fullstack'));
+
+const MODEL = `workspace "Shop" {
+  model {
+    u = person "User"
+    web = softwareSystem "Web" {
+      api = container "Api" "" "ASP.NET" {
+        properties { "d.instances" "1" "d.critical" "yes" "d.availability" "0.999" "d.zone" "dmz" }
+      }
+      db = container "Orders DB" "" "SQL" "Database" {
+        properties { "d.availability" "0.9999" "d.zone" "data" "d.suppress" "DC006: audited" }
+      }
+      wk = container "Worker" { properties { "d.instances" "3" "d.zone" "data" "d.availability" 0.99 } }
+      q = container "Queue"
+    }
+    u -> api "uses"
+    api -> db "writes" "TCP" { properties { "d.interaction" "sync" "d.writes" "order" "d.concurrency" "none" "d.encrypted" "no" } }
+    wk -> db "writes" { properties { "d.writes" "order" "d.interaction" "sync" "d.retry" "fixed" "d.idempotent" "no" } }
+    api -> q "emits" { properties { "d.interaction" "async" "d.delivery" "at-least-once" "d.idempotent" "no" } }
+    wk -> q "reads" { properties { "d.intraction" "async" "d.retry.max" "x" } }
+    api -> wk "calls"
+    wk -> api "calls back"
+  }
+  views { systemContext web { include * } }
+}
+/* c */ // d
+# e
+`;
+
+test('a synthetic model with every rule agrees', { skip }, () => {
+  same(tmpRegistry({ 'model/workspace.dsl': MODEL }), 'every rule');
+});
+
+test('parse errors, unknown keywords and unbalanced braces agree', { skip }, () => {
+  same(tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A"\n a -> zz "x"\n bogus "x"\n b = container }\n' }), 'errors');
+  same(tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } } }\n properties { "k" }' }), 'errors 2');
+});
+
+test('deployment environments parse the same', { skip }, () => {
+  const dsl = `workspace { model {
+    s = softwareSystem "S" { a = container "A" }
+    deploymentEnvironment "Live" {
+      deploymentNode "Azure" { deploymentNode "Zone A" "" "" "" 2 { containerInstance a } }
+      deploymentNode "Bad" { containerInstance nope }
+      web = deploymentNode "Web" { containerInstance a }
+      web -> nowhere "x"
+      -> web "self" { properties { "k" "v" } }
+    }
+    views { deployment s "Live" "ok" { include * }
+      deployment * Ghost { include * }
+      systemContext s "ctx" { include * } }
+  } }`;
+  same(tmpRegistry({ 'model/workspace.dsl': dsl }), 'deployment');
+});
+
+test('decisions, fingerprints, business evidence, requirements, ledger and scenarios agree', { skip }, () => {
+  const root = tmpRegistry({
+    'model/workspace.dsl': MODEL,
+    'designc.json': JSON.stringify({ model: 'model/workspace.dsl', evidenceHosts: ['jira.example.com'] }),
+    'decisions/D-1.yaml': 'id: D-1\nstatus: bound\neffect: fix\nbinds: Orders DB\nresolves: [DC002]\nchecks: [p check]\n',
+    'decisions/D-2.yaml': 'id: D-2\nstatus: bound\nkind: business\nrequirement: R-1\nevidence: https://other.example.com/x\npromoted_against: [{requirement: R-1, version: 1}]\n',
+    'decisions/D-3.yaml': 'id: D-3\nstatus: bound\neffect: accept\nbinds: [Api]\nresolves: [DC005]\nchecks: [x]\npromoted_against: [{element: api, name: Api, hash: deadbeefdeadbeef}]\n',
+    'decisions/D-4.yaml': 'id: D-4\nkind: weird\nstatus: minted\n',
+    'decisions/D-4b.yaml': 'id: D-4\nstatus: minted\n',
+    'decisions/broken.yaml': 'id: [unclosed\n',
+    'requirements/R-1.yaml': 'id: R-1\nversion: 2\nelements: [Nope]\n',
+    'requirements/R-2.yaml': 'id: R-2\nelements: [Api]\n',
+    'scenarios/S-1.yaml': 'id: S-1\nattribute: availability\nartifact: Api\nmeasure: {metric: availability, op: ">=", value: 99.9}\nfitness: [run it]\n',
+    'scenarios/S-2.yaml': 'id: S-2\nattribute: latency\nartifact: Ghost\nmeasure: {metric: p95, op: "<=", value: 200}\n',
+    'scenarios/S-3.yaml': 'id: S-3\ntitle: incomplete\n',
+    'ledger/a.jsonl': [
+      { kind: 'check', decision: 'D-1', outcome: 'pass', ts: 5 },
+      { schema_version: 1, event_id: 'e1', ts: 10, kind: 'check', by: 'x', decision: 'D-3', check: 'x', outcome: 'fail', source: 'local', exit_code: 1 },
+      { schema_version: 1, event_id: 'e2', ts: 11, kind: 'needs_decision', by: 'x', id: 'N-1', question: 'which?', status: 'open' },
+      { schema_version: 1, event_id: 'e3', ts: 12, kind: 'needs_decision', by: 'x', id: 'N-2', question: 'done?', status: 'open' },
+      { schema_version: 1, event_id: 'e4', ts: 13, kind: 'needs_decision_resolved', by: 'x', id: 'N-2' },
+      { schema_version: 1, event_id: 'e1', ts: 10, kind: 'check', by: 'x', decision: 'D-3', check: 'x', outcome: 'fail', source: 'local', exit_code: 1 },
+      { schema_version: 1, event_id: 'f1', ts: 14, kind: 'fitness', by: 'x', scenario: 'S-1', check: 'run it', outcome: 'fail', source: 'local', exit_code: 2 },
+    ].map(e => JSON.stringify(e)).join('\n') + '\nnot json\n',
+  });
+  same(root, 'registry');
+});
+
+test('a bound decision with a current fingerprint matches Core.fingerprint', { skip }, () => {
+  const model = Core.parse(MODEL);
+  const el = [...model.elements.values()].find(e => e.name === 'Orders DB');
+  const hash = Core.fingerprint(model, el.id).hash;
+  const root = tmpRegistry({
+    'model/workspace.dsl': MODEL,
+    'decisions/D-1.yaml': `id: D-1\nstatus: bound\neffect: accept\nbinds: [Orders DB]\nresolves: [DC002]\nchecks: [x]\nrelies_on: [D-0]\npromoted_against: [{element: db, name: Orders DB, hash: "${hash}"}]\n`,
+    'ledger/c.jsonl': JSON.stringify({ kind: 'check', decision: 'D-1', outcome: 'pass', ts: 1 }) + '\n',
+  });
+  const py = pyReport(root);
+  assert.ok(!py.gate.clauses.some(c => /D-1: Orders DB changed since promotion/.test(c.text)), 'python computed the same fingerprint');
+  same(root, 'fingerprint');
+});
+
+test('unicode in names hashes the same (UTF-16 code units)', { skip }, () => {
+  const dsl = 'workspace { model { a = container "Café 🚀" { properties { "d.zone" "zé" } } } }';
+  const model = Core.parse(dsl);
+  const id = [...model.elements.keys()][0];
+  const hash = Core.fingerprint(model, id).hash;
+  const root = tmpRegistry({
+    'model/workspace.dsl': dsl,
+    'decisions/D-1.yaml': `id: D-1\nstatus: bound\nbinds: [Café 🚀]\nchecks: [x]\npromoted_against: [{element: a, name: "Café 🚀", hash: "${hash}"}]\n`,
+  });
+  assert.ok(!pyReport(root).gate.clauses.some(c => /changed since promotion/.test(c.text)));
+});
+
+test('exit codes: 0 ready, 1 not ready, 2 unusable folder', { skip }, () => {
+  const run = root => spawnSync('python3', ['-m', 'designc', 'check', root], { cwd: PY, encoding: 'utf8' });
+  const clean = tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } }' });
+  assert.equal(run(clean).status, 0);
+  assert.equal(run(path.join(ROOT, 'sample-registry')).status, 1);
+  const none = run(path.join(os.tmpdir(), 'designc-does-not-exist'));
+  assert.equal(none.status, 2);
+  assert.match(none.stderr, /model\/workspace\.dsl/);
+});
