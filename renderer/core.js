@@ -1032,7 +1032,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
   // Pure: the caller reads the files and writes the result.
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [] }) {
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], forecast = null }) {
     const content = [model, ...requirements, ...decisions, ...evals, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
@@ -1046,7 +1046,7 @@ model: ${q(model.path)}
 requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
-files:
+${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
 ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...content.map(f => ({ path: dir + f.path, text: f.text }))] };
@@ -1120,16 +1120,96 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
     const label = (m, r) => `${nameOf(m, r.src)} → ${nameOf(m, r.dst)}`;
     for (const [k, b] of bk) {
       const a = ak.get(k);
-      if (!a) { rels.push({ change: 'removed', label: label(before, b), fields: [] }); continue; }
+      if (!a) { rels.push({ change: 'removed', label: label(before, b), ends: [nameOf(before, b.src), nameOf(before, b.dst)], fields: [] }); continue; }
       const fields = [];
       if ((b.technology || null) !== (a.technology || null)) fields.push({ field: 'technology', from: b.technology || null, to: a.technology || null });
       fields.push(...propFields(b.props, a.props));
-      if (fields.length) rels.push({ change: 'changed', label: label(after, a), fields });
+      if (fields.length) rels.push({ change: 'changed', label: label(after, a), ends: [nameOf(after, a.src), nameOf(after, a.dst)], fields });
     }
-    for (const [k, a] of ak) if (!bk.has(k)) rels.push({ change: 'added', label: label(after, a), fields: [] });
+    for (const [k, a] of ak) if (!bk.has(k)) rels.push({ change: 'added', label: label(after, a), ends: [nameOf(after, a.src), nameOf(after, a.dst)], fields: [] });
 
     const count = (list, c) => list.filter(x => x.change === c).length;
     return { elements, rels, summary: { added: count(elements, 'added'), removed: count(elements, 'removed'), changed: count(elements, 'changed'), relsAdded: count(rels, 'added'), relsRemoved: count(rels, 'removed'), relsChanged: count(rels, 'changed') } };
+  }
+
+  // ---------- forecast ----------
+  // What a handover is likely to cost, priced by the elements it changes against the previous handover's model
+  // (`before` null means the first handover: everything counts as added). `history` is
+  // Map(element name -> [{handover, tokens, cost}]) from Ledger.elementHistory, passed in as plain data so
+  // Core does not depend on Ledger. An element with at least `minSamples` handovers of history is measured:
+  // the median is the expected figure and the nearest-rank p90 the high end. Otherwise it is "no basis" and
+  // adds nothing, and `coverage` says how many changed elements were priced. Containers and components only.
+  function forecast({ before, after, history, minSamples = 3 }) {
+    const diff = diffModels(before || parse('workspace { model { } }'), after);
+    const priced = new Map(); // name -> why
+    const mark = (name, why) => { if (name != null && !priced.has(name)) priced.set(name, why); };
+    for (const e of diff.elements.filter(x => x.change === 'added')) mark(e.name, 'added');
+    for (const e of diff.elements.filter(x => x.change === 'changed')) mark(e.name, 'changed');
+    for (const r of diff.rels) for (const n of r.ends || []) mark(n, 'relationship');
+    const hasHistory = history instanceof Map ? history : new Map(Object.entries(history || {}));
+    const rows = [];
+    for (const [name, why] of priced) {
+      const el = [...after.elements.values()].find(x => x.name === name && (x.kind === 'container' || x.kind === 'component'));
+      if (!el) continue;
+      const h = hasHistory.get(name) || [];
+      const row = { name, kind: el.kind, why, samples: h.length, status: 'no basis', expected: null, high: null };
+      if (h.length >= minSamples) {
+        const pick = key => {
+          const v = h.map(x => x[key]).sort((a, b) => a - b), mid = v.length >> 1;
+          return { expected: v.length % 2 ? v[mid] : (v[mid - 1] + v[mid]) / 2, high: v[Math.ceil(0.9 * v.length) - 1] };
+        };
+        const t = pick('tokens'), c = pick('cost');
+        Object.assign(row, { status: 'measured', expected: { tokens: t.expected, cost: c.expected }, high: { tokens: t.high, cost: c.high } });
+      }
+      rows.push(row);
+    }
+    const sum = (key, f) => rows.reduce((s, r) => s + (r[key] ? r[key][f] : 0), 0);
+    const round = x => Math.round(x * 1e6) / 1e6;
+    const total = { expected: { tokens: sum('expected', 'tokens'), cost: round(sum('expected', 'cost')) }, high: { tokens: sum('high', 'tokens'), cost: round(sum('high', 'cost')) } };
+    return { rows, removed: diff.elements.filter(x => x.change === 'removed').map(x => x.name), total, coverage: { priced: rows.filter(r => r.status === 'measured').length, changed: rows.length } };
+  }
+
+  // The part of a forecast that is frozen into handover.yaml: the figures, how many elements they cover and
+  // one row per priced element. `baseline` is the id of the handover it was compared against (null for the first).
+  function freezeForecast(f, { currency = 'GBP', baseline = null } = {}) {
+    return {
+      currency, baseline,
+      tokens: { expected: f.total.expected.tokens, high: f.total.high.tokens },
+      cost: { expected: f.total.expected.cost, high: f.total.high.cost },
+      coverage: f.coverage,
+      elements: f.rows.map(r => ({ name: r.name, why: r.why, status: r.status, samples: r.samples,
+        tokens: r.expected ? { expected: r.expected.tokens, high: r.high.tokens } : null,
+        cost: r.expected ? { expected: r.expected.cost, high: r.high.cost } : null })),
+      removed: f.removed,
+    };
+  }
+
+  // Plain text for a leadership update: the frozen forecast against what was actually spent. Nothing is sent
+  // anywhere; the Build view copies it to the clipboard. `forecast` is the frozen block (or null), `actual`
+  // is Ledger.handoverActuals (or null).
+  function forecastSummary({ id, created, requirements = [], forecast, actual }) {
+    const num = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const cur = forecast && forecast.currency || 'GBP';
+    const money = n => `${cur} ${n.toFixed(2)}`;
+    const signed = (n, f) => (n < 0 ? '-' : '+') + f(Math.abs(n));
+    const lines = [`Handover ${id} (${String(created).slice(0, 10)})`];
+    if (requirements.length) lines.push(`Requirements: ${requirements.join(', ')}`);
+    if (!forecast) lines.push('Forecast: not recorded (frozen before forecasts existed)');
+    else {
+      lines.push(`Forecast: ${num(forecast.tokens.expected)} tokens, ${money(forecast.cost.expected)} (up to ${num(forecast.tokens.high)} tokens, ${money(forecast.cost.high)})`);
+      const { priced, changed } = forecast.coverage;
+      lines.push(priced === changed ? `Covers all ${changed} changed elements` : `Covers ${priced} of ${changed} changed elements; ${changed - priced} has no history yet`.replace(/; (\d+) has/, (m, n) => `; ${n} ${n === '1' ? 'has' : 'have'}`));
+    }
+    if (!actual || (!actual.tasks && !actual.closed)) lines.push('Actual: none recorded yet');
+    else {
+      lines.push(`Actual ${actual.closed ? `(${actual.closed})` : 'so far (in progress)'}: ${num(actual.tokens)} tokens, ${money(actual.cost)} across ${actual.tasks} ${actual.tasks === 1 ? 'task' : 'tasks'}`);
+      if (forecast) {
+        const dt = actual.tokens - forecast.tokens.expected, dc = actual.cost - forecast.cost.expected;
+        lines.push(`Difference: ${signed(dt, num)} tokens${forecast.tokens.expected ? ` (${signed(dt, x => Math.round(100 * x / forecast.tokens.expected) + '%')})` : ''}, ${signed(dc, money)}`);
+      }
+      if (actual.afterClose) lines.push(`${actual.afterClose} ${actual.afterClose === 1 ? 'task' : 'tasks'} recorded after close, not counted`);
+    }
+    return lines.join('\n');
   }
 
   // ---------- drift: designed vs as-built ----------
@@ -1428,6 +1508,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
