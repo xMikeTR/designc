@@ -815,6 +815,22 @@ const Core = (() => {
     return out.sort((a, b) => cmp(a.scenarios[0], b.scenarios[0]) || a.attribute.localeCompare(b.attribute));
   }
 
+  // ---------- agent topology ----------
+  // The agents in a model, what they call and who calls them, for the topology view. Only elements one declared
+  // relationship away from an agent appear. An agent has the Agent tag or declares d.agent.autonomy (as the evals do). An irreversible call with no human approval is `unguarded`.
+  function agentTopology(model) {
+    const agents = new Set([...model.elements.values()].filter(e => e.tags.has('Agent') || get(e, 'd.agent.autonomy') != null).map(e => e.id));
+    const edges = model.rels.filter(r => (agents.has(r.src) || agents.has(r.dst)) && r.src !== r.dst && !structural(model, r)).map(r => {
+      const effect = get(r, 'd.tool.effect'), approval = get(r, 'd.approval');
+      return { id: r.id, src: r.src, dst: r.dst, description: r.description || '', effect: effect == null ? null : effect, approval: approval == null ? null : approval,
+        protocol: get(r, 'd.protocol') == null ? null : get(r, 'd.protocol'), unguarded: effect === 'irreversible' && approval !== 'human' };
+    });
+    const ids = new Set([...agents, ...edges.flatMap(e => [e.src, e.dst])]);
+    const nodes = [...ids].map(id => model.elements.get(id)).filter(Boolean).map(e => ({ id: e.id, name: e.name, kind: e.kind, agent: agents.has(e.id),
+      pattern: agents.has(e.id) && get(e, 'd.agent.pattern') != null ? get(e, 'd.agent.pattern') : null, autonomy: agents.has(e.id) && get(e, 'd.agent.autonomy') != null ? get(e, 'd.agent.autonomy') : null }));
+    return { nodes: agents.size ? nodes : [], edges: agents.size ? edges : [], agents: agents.size, unguarded: edges.filter(e => e.unguarded).length };
+  }
+
   // ---------- agent evals ----------
   // evals/<id>.yaml names an agent, a command that writes a results file, and thresholds on its metrics.
   // The runner only reports numbers; designc applies the thresholds, so the same results always give the same verdict.
@@ -1556,6 +1572,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

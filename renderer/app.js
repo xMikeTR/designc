@@ -745,6 +745,7 @@ function setActivity(a) {
   if (a === 'codemap' && A.sidebarOpen && A.root) openSpecial('special:codemap');
   if (a === 'canvas' && A.sidebarOpen && A.root) openSpecial('special:canvas');
   if (a === 'deployment' && A.sidebarOpen && A.root) openSpecial('special:deployment');
+  if (a === 'topology' && A.sidebarOpen && A.root) openSpecial('special:topology');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -766,16 +767,16 @@ function renderBadges() {
   const dc = A.drift ? A.drift.undeclared.length + A.drift.unknownEls.length : 0;
   const b4 = $('#badge-codemap'); b4.textContent = dc; b4.className = 'badge' + (dc ? ' on' : '');
 }
-function tabTitle(id) { return id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'S2' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : 'S4'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'S2' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'S4'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (System 2)', 'special:improve': 'Improve (System 4)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:compare': 'Compare with revision' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (System 2)', 'special:improve': 'Improve (System 4)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -806,7 +807,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design · System 1', codemap: 'Code map · as built', build: 'Build · System 2', improve: 'Improve · System 4', scm: 'Source control', deployment: 'Deployment' };
+  const titles = { explorer: 'Explorer', design: 'Design · System 1', codemap: 'Code map · as built', build: 'Build · System 2', improve: 'Improve · System 4', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open Folder</button><button class="btn block" data-a="sample">Open Sample Registry</button>`; return; }
@@ -816,6 +817,7 @@ function renderSidebar() {
   else if (A.activity === 'codemap') body.innerHTML = codemapSidebar();
   else if (A.activity === 'scm') body.innerHTML = gitSidebar();
   else if (A.activity === 'deployment') body.innerHTML = deploymentSidebar();
+  else if (A.activity === 'topology') body.innerHTML = topologySidebar();
   else body.innerHTML = improveSidebar();
   if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
   if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
@@ -1300,7 +1302,7 @@ function renderCmSide() {
 }
 
 // ---------------------------------------------------------------- dashboards (System 2 / System 4)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -1376,6 +1378,30 @@ function unavailableHtml(path, env, view) {
 function deployLinksHtml(rels) {
   if (!rels.length) return '';
   return `<div class="block"><h3>Links</h3><div class="tw2"><table class="t"><tr><th>From</th><th>To</th><th>What</th><th>Technology</th></tr>${rels.map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.dst)}</td><td>${esc(r.description || '')}</td><td>${esc(r.technology || '')}</td></tr>`).join('')}</table></div></div>`;
+}
+// Agent topology: read-only. The agents, what they call and who calls them, with tool effect and approval on each edge.
+const TOPO_EFFECT = { irreversible: 'var(--err)', write: 'var(--warn)', read: 'var(--ink3)' };
+function topologySidebar() {
+  const t = Core.agentTopology(A.model);
+  const rows = t.nodes.filter(n => n.agent).map(n => `<div class="item" data-topo="${esc(n.id)}"><div class="l1"><span class="id">${esc(n.name)}</span>${n.autonomy ? `<span class="tag">${esc(n.autonomy)}</span>` : ''}</div><div class="l2">${n.pattern ? esc(n.pattern) : 'pattern not declared'}</div></div>`).join('');
+  return section('agents', `Agents (${t.agents})`, rows || '<div class="hint">No element is tagged Agent or declares d.agent.autonomy.</div>') +
+    '<div class="hint">Read-only. Red edges are irreversible calls with no human approval. Edit the model in the Design view.</div>';
+}
+function renderTopology() {
+  const el = $('#special'), t = Core.agentTopology(A.model);
+  if (!t.agents) { el.innerHTML = '<div class="note">No element in this model is an agent. Give one the Agent tag or d.agent.autonomy in the Design view to see who it calls and who approves.</div>'; return; }
+  const sub = { elements: new Map(t.nodes.map(n => [n.id, { ...A.model.elements.get(n.id), parent: null }])), rels: t.edges.map(e => A.model.rels.find(r => r.id === e.id)) };
+  const by = new Map(t.edges.map(e => [e.id, e])), nodeBy = new Map(t.nodes.map(n => [n.id, n]));
+  const L = layout(sub), zoom = 1;
+  const edgeLabel = e => [e.description, e.effect].filter(Boolean).join(' · ');
+  const svg = drawModel(sub, L, {
+    attr: 'tp', zoom,
+    edgeStyle: r => { const e = by.get(r.id); return { color: e.unguarded ? 'var(--err)' : TOPO_EFFECT[e.effect] || 'var(--ink3)', width: e.unguarded ? 2.4 : 1.4, dash: e.approval === 'human' ? '' : e.approval === 'policy' ? '6 4' : '', marker: e.unguarded ? 'error' : 'n', labelColor: e.unguarded ? 'var(--err)' : null, label: edgeLabel(e) }; },
+    nodeStyle: n => { const x = nodeBy.get(n.id); return { stroke: 'var(--ink)', sw: x.agent ? 2.2 : 1.2, badge: x.agent ? (x.pattern || 'no pattern') : null, badgeColor: x.agent && !x.pattern ? 'var(--warn)' : 'var(--accent)' }; },
+  });
+  const table = `<table class="tp-table"><tr><th>From</th><th>To</th><th>Call</th><th>Effect</th><th>Approval</th></tr>${t.edges.map(e => `<tr class="${e.unguarded ? 'bad' : ''}"><td>${esc(nodeBy.get(e.src).name)}</td><td>${esc(nodeBy.get(e.dst).name)}</td><td>${esc(e.description)}</td><td>${esc(e.effect || '–')}</td><td>${esc(e.approval || '–')}${e.unguarded ? ' · unguarded' : ''}</td></tr>`).join('')}</table>`;
+  el.innerHTML = `<div class="dp"><h2>Agent topology</h2><div class="note">${plural(t.agents, 'agent')}, ${plural(t.edges.length, 'call')}${t.unguarded ? `, ${t.unguarded} irreversible without human approval` : ''}. Solid line: human approval. Dashed: policy approval. Red: irreversible with no human approval.</div><div style="overflow:auto">${svg}</div>${table}</div>`;
+  el.querySelectorAll('.node').forEach(g => g.addEventListener('click', () => { const e = A.model.elements.get(g.dataset.tp); if (e) openFile(A.cfg.model, e.line); }));
 }
 function renderDeployment() {
   const d = deploymentChoice(); const el = $('#special');
@@ -1494,6 +1520,7 @@ document.addEventListener('click', async e => {
   if (d.file) return openFile(d.file);
   if (d.fixfi) { e.stopPropagation(); return recordDecision({ finding: A.diags[+d.fixfi] }); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
+  if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
