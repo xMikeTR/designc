@@ -1,4 +1,5 @@
 """The definition-of-ready gate and scenario report. A port of Core.gate and Core.scenarioReport."""
+import datetime as _dt
 import re
 import time
 from urllib.parse import urlparse
@@ -76,6 +77,28 @@ def _resolve_binding(model, entry):
     return next((e for e in els if e.ident and e.ident == entry.get('element')), None) or next((e for e in els if e.name == entry.get('name')), None)
 
 
+def _iso_day(v):
+    if isinstance(v, _dt.datetime): v = v.date()
+    if isinstance(v, _dt.date): return v.isoformat()
+    if not isinstance(v, str) or not re.fullmatch(r'\d{4}-\d{2}-\d{2}', v): return None
+    try: return _dt.date.fromisoformat(v).isoformat()
+    except ValueError: return None
+
+
+def _assumption_clauses(dec, today, clauses):
+    if dec.get('assumptions') is None: return
+    bad = {'kind': 'assumption', 'text': f"{dec['id']}: each assumption needs text and a review_by date (YYYY-MM-DD)"}
+    if not isinstance(dec['assumptions'], list):
+        clauses.append(bad); return
+    flagged = False
+    for a in dec['assumptions']:
+        day = _iso_day(a.get('review_by')) if isinstance(a, dict) and isinstance(a.get('text'), str) and a['text'].strip() else None
+        if not day:
+            if not flagged: clauses.append(bad)
+            flagged = True; continue
+        if day < today: clauses.append({'kind': 'assumption', 'text': f"{dec['id']}: assumption \"{a['text'].strip()[:60]}\" was due for review on {day}"})
+
+
 def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None):
     clauses = []
     if model.errors:
@@ -88,6 +111,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
                 said.add(i); clauses.append({'kind': 'duplicate', 'text': f'duplicate id {i}'})
             seen.add(i)
     for e in registry_errors: clauses.append({'kind': 'registry', 'text': f"{e['path']} does not parse"})
+    today = _dt.datetime.fromtimestamp((time.time() * 1000 if now is None else now) / 1000, _dt.timezone.utc).date().isoformat()
     bound = [d for d in decisions if d.get('status') == 'bound']
 
     def covers(dec, f):
@@ -105,6 +129,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
         if dec.get('status') != 'bound':
             clauses.append({'kind': 'decision', 'text': f"{dec['id']} is {dec.get('status') or 'minted'}, not bound"}); continue
         business = kind == 'business'
+        _assumption_clauses(dec, today, clauses)
         if business: _business_evidence(dec, list(evidence_hosts), clauses)
         elif dec.get('effect') == 'accept' and not any(i in bound_business for i in (dec.get('relies_on') or [])):
             clauses.append({'kind': 'decision', 'text': f"{dec['id']} accepts a risk without a bound business decision"})

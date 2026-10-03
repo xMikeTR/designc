@@ -459,6 +459,7 @@ statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
 checks:
 ${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}
 rationale: ${rationale ? yamlStr(rationale) : '""'}
+assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
 `;
   await createAndOpen(`decisions/${id}.yaml`, text, statement ? null : 8);
 }
@@ -547,6 +548,25 @@ async function editYaml(path, fn) {
 function setField(text, key, value) {
   const re = new RegExp(`^${key}:.*$`, 'm');
   return re.test(text) ? text.replace(re, `${key}: ${value}`) : text.replace(/\s*$/, `\n${key}: ${value}\n`);
+}
+// Assumptions whose review date is before today, as {i, text, review_by}. A YAML date reads as a Date, so both spellings count.
+function overdueAssumptions(d, today = new Date().toISOString().slice(0, 10)) {
+  if (!Array.isArray(d.assumptions)) return [];
+  return d.assumptions.map((a, i) => ({ i, text: a && a.text, review_by: a && (a.review_by instanceof Date ? a.review_by.toISOString().slice(0, 10) : a.review_by) }))
+    .filter(a => typeof a.review_by === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(a.review_by) && a.review_by < today);
+}
+// Human-only, like bindDecision: records that you looked at the overdue assumptions and sets the next review date.
+async function reviewAssumptions(d) {
+  const due = overdueAssumptions(d); if (!due.length) return;
+  const today = new Date().toISOString().slice(0, 10);
+  const next = prompt(`${d.id}: ${plural(due.length, 'assumption')} overdue:\n${due.map(a => `- ${a.text} (due ${a.review_by})`).join('\n')}\n\nStill true? Enter the next review date (YYYY-MM-DD). This records that you, ${A.user}, reviewed them.`, new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10));
+  if (next == null) return;
+  const ok = /^\d{4}-\d{2}-\d{2}$/.test(next.trim()) && !isNaN(new Date(next.trim() + 'T00:00:00Z')) && next.trim() > today;
+  if (!ok) { toast('Enter a date after today as YYYY-MM-DD. Nothing was changed.', 'warning'); return; }
+  const dueAt = new Set(due.map(a => a.i));
+  const list = d.assumptions.map((a, i) => dueAt.has(i) ? { ...a, review_by: next.trim(), reviewed_by: A.user, reviewed_at: today } : { ...a, review_by: a.review_by instanceof Date ? a.review_by.toISOString().slice(0, 10) : a.review_by });
+  await editYaml(d._path, t => t.replace(/^assumptions:.*(?:\n(?:[ \t]+.*|-.*))*/m, '').replace(/\s*$/, `\nassumptions: ${JSON.stringify(list)}\n`));
+  toast(`Reviewed ${plural(due.length, 'assumption')} on ${d.id}.`);
 }
 async function bindDecision(d, { confirmed = false } = {}) {
   if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
@@ -818,13 +838,13 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion', eval: 'eval', duplicate: 'duplicate' }[c.kind]}</span><span>${esc(c.text)}</span>${c.kind === 'eval' && c.agent && c.evalId ? `<button class="lnk" data-runeval="${esc(String(c.evalId))}">Run eval</button>` : ''}</div>`).join('') +
+    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion', eval: 'eval', duplicate: 'duplicate', assumption: 'assumption' }[c.kind]}</span><span>${esc(c.text)}</span>${c.kind === 'eval' && c.agent && c.evalId ? `<button class="lnk" data-runeval="${esc(String(c.evalId))}">Run eval</button>` : ''}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
-      <div class="l2">${esc(d.statement || 'No statement yet')}</div>
-      <div class="acts">${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}</div></div>`).join('')
+      <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}</div>
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span></div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
@@ -1474,6 +1494,7 @@ document.addEventListener('click', async e => {
   if (d.file) return openFile(d.file);
   if (d.fixfi) { e.stopPropagation(); return recordDecision({ finding: A.diags[+d.fixfi] }); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
+  if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
   if (d.qbiz) { const q = A.grill.questions[+d.qbiz]; return recordDecision({ kind: 'business', statement: q.suggested_decision || q.question || '', effect: 'accept', binds: [], resolves: [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
