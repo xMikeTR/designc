@@ -41,10 +41,10 @@ test('gate: a registry file that does not parse blocks', () => {
   assert.equal(gate().ready, true);
 });
 
-test('sample registry still compiles to 2 errors, 4 warnings, 1 suppressed', () => {
+test('sample registry still compiles to 2 errors, 5 warnings, 1 suppressed', () => {
   const m = Core.parse(require('fs').readFileSync(__dirname + '/../sample-registry/model/workspace.dsl', 'utf8'));
   const d = Core.check(m, { chainHops: 4 });
   assert.equal(d.filter(x => !x.suppressed && x.sev === 'error').length, 2);
-  assert.equal(d.filter(x => !x.suppressed && x.sev === 'warning').length, 4);
+  assert.equal(d.filter(x => !x.suppressed && x.sev === 'warning').length, 5);
   assert.equal(d.filter(x => x.suppressed).length, 1);
 });

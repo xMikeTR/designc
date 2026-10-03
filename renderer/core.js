@@ -341,11 +341,12 @@ const Core = (() => {
       'd.idempotent': { k: 'enum', v: YN }, 'd.retry': { k: 'enum', v: ['none', 'fixed', 'backoff'] },
       'd.retry.max': { k: 'int' }, 'd.encrypted': { k: 'enum', v: YN }, 'd.authenticated': { k: 'enum', v: YN },
       'd.writes': { k: 'list' }, 'd.concurrency': { k: 'enum', v: ['none', 'optimistic', 'pessimistic'] },
-      'd.suppress': { k: 'suppress' },
+      'd.timeout': { k: 'int' }, 'd.suppress': { k: 'suppress' },
     },
     element: {
       'd.instances': { k: 'int' }, 'd.critical': { k: 'enum', v: YN }, 'd.zone': { k: 'str' },
       'd.availability': { k: 'float' }, 'd.owns': { k: 'list' }, 'd.store': { k: 'enum', v: YN },
+      'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
     },
   };
@@ -413,6 +414,62 @@ const Core = (() => {
   const isStore = e => (e.props['d.store'] != null ? get(e, 'd.store') === 'yes' : e.tags.has('Database'));
   function zone(m, id) { let c = m.elements.get(id); while (c) { const z = get(c, 'd.zone'); if (z) return z; c = c.parent ? m.elements.get(c.parent) : null; } return null; }
   const structural = (m, r) => m.isAncestor(r.src, r.dst) || m.isAncestor(r.dst, r.src);
+
+  // ---------- timing and retry amplification (slice 16) ----------
+  // Sync calls only (async, structural pairs and calls from a person are out). A timeout bounds the wait, so a
+  // callee's worst case is its own d.latency.max plus what its outgoing calls can take: d.timeout x (1 + retries),
+  // summed, or the slowest when the callee declares d.fanout: parallel. Nothing recurses, so cycles cannot matter here.
+  const syncCall = (m, r) => interaction(r) !== 'async' && !structural(m, r) && m.elements.get(r.src).kind !== 'person';
+  const attemptsOf = r => {
+    const k = get(r, 'd.retry');
+    if (k !== 'fixed' && k !== 'backoff') return { n: 1 };
+    const mx = get(r, 'd.retry.max');
+    return mx == null ? { n: 1, unknown: true } : { n: 1 + mx };
+  };
+  const outgoing = (m, id) => m.rels.filter(r => r.src === id && syncCall(m, r));
+  function worstCase(m, e) {
+    const own = get(e, 'd.latency.max'), missing = [], parts = [];
+    if (own == null) missing.push(`d.latency.max on ${e.name}`);
+    let total = own || 0;
+    const costs = [];
+    for (const r of outgoing(m, e.id)) {
+      const t = get(r, 'd.timeout'), a = attemptsOf(r), to = m.elements.get(r.dst).name;
+      if (t == null) { missing.push(`d.timeout on ${e.name} → ${to}`); continue; }
+      if (a.unknown) { missing.push(`d.retry.max on ${e.name} → ${to}`); continue; }
+      costs.push(t * a.n);
+      parts.push(a.n > 1 ? `${to} ${a.n} × ${t}` : `${to} ${t}`);
+    }
+    const parallel = get(e, 'd.fanout') === 'parallel';
+    total += parallel ? costs.reduce((x, y) => Math.max(x, y), 0) : costs.reduce((x, y) => x + y, 0);
+    const calls = parallel && parts.length > 1 ? `slowest of ${parts.join(', ')}` : parts.join(' + ');
+    return { ms: missing.length ? null : total, missing, text: `${own == null ? '?' : own} own${calls ? ' + ' + calls : ''}` };
+  }
+  // Per sync rel: its timeout, the callee's worst case, the attempts it allows, and a status for the badges.
+  function timing(m, o = {}) {
+    const rels = new Map();
+    for (const r of m.rels) {
+      if (!syncCall(m, r)) continue;
+      const t = get(r, 'd.timeout'), a = attemptsOf(r), w = worstCase(m, m.elements.get(r.dst));
+      const status = t == null ? 'unknown' : w.missing.length ? 'unknown' : t < w.ms ? 'violation' : 'ok';
+      rels.set(r.id, { id: r.id, label: m.locRel(r).label, timeout: t, worst: w.ms, factor: a.unknown ? null : a.n, status, missing: w.missing, text: w.text });
+    }
+    return { rels };
+  }
+  // The highest retry multiplier from one element to each element it reaches over sync calls. Each element is
+  // entered at most once per path, so a cycle is followed once.
+  function amplificationFrom(m, startId) {
+    const out = new Map();
+    const dfs = (id, seen, mult) => {
+      for (const r of outgoing(m, id)) {
+        if (seen.has(r.dst)) continue;
+        const next = mult * attemptsOf(r).n;
+        if (next > (out.get(r.dst) || 0)) out.set(r.dst, next);
+        dfs(r.dst, new Set([...seen, r.dst]), next);
+      }
+    };
+    dfs(startId, new Set([startId]), 1);
+    return out;
+  }
 
   const RULES = [
     { code: 'DC001', title: 'Duplicate processing', source: 'concept note (not yet incident-backed)',
@@ -528,6 +585,45 @@ const Core = (() => {
           const bad = Object.keys(vals).filter(k => vals[k] === 'no'), und = Object.keys(vals).filter(k => vals[k] == null);
           if (bad.length) out.push(D('DC006', 'error', `crosses ${zs} → ${zd} and is not ${bad.join(' or ')}`, m.locRel(r)));
           else if (und.length) out.push(D('DC006', 'warning', `crosses ${zs} → ${zd}; ${und.map(x => 'd.' + x).join(', ')} undeclared`, m.locRel(r), { hint: 'unknown on a boundary is a finding', unknown: true }));
+        }
+        return out;
+      } },
+    { code: 'DC007', title: 'Timeout shorter than the callee\'s worst case', source: 'concept note (not yet incident-backed)',
+      doc: 'A caller that gives up before its callee can finish abandons work that is still running. Judged only on sync calls that declare d.timeout.',
+      fn(m) {
+        const out = [];
+        for (const r of m.rels) {
+          if (!syncCall(m, r) || get(r, 'd.timeout') == null) continue;
+          const t = get(r, 'd.timeout'), callee = m.elements.get(r.dst), w = worstCase(m, callee);
+          if (w.missing.length) out.push(D('DC007', 'warning', `cannot compare the timeout with ${callee.name}'s worst case; declare ${w.missing.join(', ')}`, m.locRel(r), { hint: 'set the missing d.timeout / d.latency.max / d.retry.max values', unknown: true }));
+          else if (t < w.ms) out.push(D('DC007', 'error', `timeout ${t} ms is less than ${callee.name}'s worst case ${w.ms} ms (${w.text})`, m.locRel(r), { hint: 'raise this timeout, lower the callee\'s timeouts or retries, or call in parallel (d.fanout)' }));
+        }
+        return out;
+      } },
+    { code: 'DC008', title: 'Retry amplification', source: 'concept note (not yet incident-backed)',
+      doc: 'Retries at each layer multiply: one request can become the product of every layer\'s attempts at the last receiver. The limit is retryAmplification in designc.json (default 4); d.retry.budget on a receiver overrides it.',
+      fn(m, o) {
+        const out = [], limit = o.retryAmplification || 4;
+        for (const r of m.rels) {
+          if (syncCall(m, r) && attemptsOf(r).unknown) out.push(D('DC008', 'warning', 'retries declared, d.retry.max undeclared', m.locRel(r), { hint: 'set d.retry.max', unknown: true }));
+        }
+        const adj = new Map(), hasIn = new Set();
+        for (const r of m.rels) { if (!syncCall(m, r)) continue; if (!adj.has(r.src)) adj.set(r.src, []); adj.get(r.src).push(r); hasIn.add(r.dst); }
+        let starts = [...adj.keys()].filter(n => !hasIn.has(n)); if (!starts.length) starts = [...adj.keys()];
+        const hit = new Map(); // rel id -> { path, mult, budget }, the worst path into that rel
+        const dfs = (node, seen, path, mult) => {
+          if (hit.size >= 200) return;
+          for (const r of adj.get(node) || []) {
+            if (seen.has(r.dst)) continue;
+            const next = mult * attemptsOf(r).n, budget = get(m.elements.get(r.dst), 'd.retry.budget') || limit, p = [...path, r];
+            if (next > budget) { const old = hit.get(r.id); if (!old || next > old.mult) hit.set(r.id, { path: p, mult: next, budget }); continue; }
+            dfs(r.dst, new Set([...seen, r.dst]), p, next);
+          }
+        };
+        starts.forEach(s => dfs(s, new Set([s]), [], 1));
+        for (const { path, mult, budget } of hit.values()) {
+          const last = path[path.length - 1], names = [path[0].src, ...path.map(r => r.dst)].map(n => m.elements.get(n).name);
+          out.push(D('DC008', 'warning', `retries multiply load ×${mult} along ${names.join(' → ')}; ${m.elements.get(last.dst).name} tolerates ×${budget}`, m.locRel(last), { hint: 'retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver', related: path.slice(0, -1).map(m.locRel) }));
         }
         return out;
       } },
@@ -1332,6 +1428,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

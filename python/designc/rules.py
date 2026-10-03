@@ -1,4 +1,4 @@
-"""Design properties, validation (DC000) and rules DC001 to DC006. A port of renderer/core.js."""
+"""Design properties, validation (DC000) and rules DC001 to DC008. A port of renderer/core.js."""
 import json
 import math
 import os
@@ -12,11 +12,12 @@ SPECS = {
         'd.idempotent': ('enum', YN), 'd.retry': ('enum', ['none', 'fixed', 'backoff']),
         'd.retry.max': ('int', None), 'd.encrypted': ('enum', YN), 'd.authenticated': ('enum', YN),
         'd.writes': ('list', None), 'd.concurrency': ('enum', ['none', 'optimistic', 'pessimistic']),
-        'd.suppress': ('suppress', None),
+        'd.timeout': ('int', None), 'd.suppress': ('suppress', None),
     },
     'element': {
         'd.instances': ('int', None), 'd.critical': ('enum', YN), 'd.zone': ('str', None),
         'd.availability': ('float', None), 'd.owns': ('list', None), 'd.store': ('enum', YN),
+        'd.latency.max': ('int', None), 'd.fanout': ('enum', ['sequential', 'parallel']), 'd.retry.budget': ('int', None),
         'd.aka': ('list', None), 'd.suppress': ('suppress', None),
     },
 }
@@ -262,7 +263,80 @@ def dc006(m, o):
     return out
 
 
-RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006)]
+# ---------- timing and retry amplification (slice 16) ----------
+def sync_call(m, r):
+    return interaction(r) != 'async' and not structural(m, r) and m.elements[r.src].kind != 'person'
+
+
+def attempts_of(r):
+    k = get(r, 'd.retry')
+    if k not in ('fixed', 'backoff'): return 1, False
+    mx = get(r, 'd.retry.max')
+    return (1, True) if mx is None else (1 + mx, False)
+
+
+def outgoing(m, eid): return [r for r in m.rels if r.src == eid and sync_call(m, r)]
+
+
+def worst_case(m, e):
+    own = get(e, 'd.latency.max'); missing = []; parts = []; costs = []
+    if own is None: missing.append(f'd.latency.max on {e.name}')
+    for r in outgoing(m, e.id):
+        t = get(r, 'd.timeout'); n, unk = attempts_of(r); to = m.elements[r.dst].name
+        if t is None: missing.append(f'd.timeout on {e.name} → {to}'); continue
+        if unk: missing.append(f'd.retry.max on {e.name} → {to}'); continue
+        costs.append(t * n)
+        parts.append(f'{to} {n} × {t}' if n > 1 else f'{to} {t}')
+    parallel = get(e, 'd.fanout') == 'parallel'
+    total = (own or 0) + (max(costs, default=0) if parallel else sum(costs))
+    calls = ('slowest of ' + ', '.join(parts)) if parallel and len(parts) > 1 else ' + '.join(parts)
+    text = f'{"?" if own is None else own} own' + (f' + {calls}' if calls else '')
+    return (None if missing else total), missing, text
+
+
+def dc007(m, o):
+    out = []
+    for r in m.rels:
+        if not sync_call(m, r) or get(r, 'd.timeout') is None: continue
+        t = get(r, 'd.timeout'); callee = m.elements[r.dst]; ms, missing, text = worst_case(m, callee)
+        if missing:
+            out.append(D('DC007', 'warning', f"cannot compare the timeout with {callee.name}'s worst case; declare {', '.join(missing)}", m.loc_rel(r), hint='set the missing d.timeout / d.latency.max / d.retry.max values', unknown=True))
+        elif t < ms:
+            out.append(D('DC007', 'error', f"timeout {t} ms is less than {callee.name}'s worst case {ms} ms ({text})", m.loc_rel(r), hint="raise this timeout, lower the callee's timeouts or retries, or call in parallel (d.fanout)"))
+    return out
+
+
+def dc008(m, o):
+    out = []; limit = o.get('retryAmplification') or 4
+    for r in m.rels:
+        if sync_call(m, r) and attempts_of(r)[1]:
+            out.append(D('DC008', 'warning', 'retries declared, d.retry.max undeclared', m.loc_rel(r), hint='set d.retry.max', unknown=True))
+    adj = {}; has_in = set()
+    for r in m.rels:
+        if not sync_call(m, r): continue
+        adj.setdefault(r.src, []).append(r); has_in.add(r.dst)
+    starts = [n for n in adj if n not in has_in] or list(adj)
+    hit = {}
+
+    def dfs(node, seen, path, mult):
+        if len(hit) >= 200: return
+        for r in adj.get(node, []):
+            if r.dst in seen: continue
+            nxt = mult * attempts_of(r)[0]; budget = get(m.elements[r.dst], 'd.retry.budget') or limit; p = path + [r]
+            if nxt > budget:
+                old = hit.get(r.id)
+                if old is None or nxt > old[1]: hit[r.id] = (p, nxt, budget)
+                continue
+            dfs(r.dst, seen | {r.dst}, p, nxt)
+
+    for s in starts: dfs(s, {s}, [], 1)
+    for path, mult, budget in hit.values():
+        last = path[-1]; names = [m.elements[n].name for n in [path[0].src] + [r.dst for r in path]]
+        out.append(D('DC008', 'warning', f'retries multiply load ×{mult} along {" → ".join(names)}; {m.elements[last.dst].name} tolerates ×{budget}', m.loc_rel(last), hint='retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver', related=[m.loc_rel(r) for r in path[:-1]]))
+    return out
+
+
+RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006), ('DC007', dc007), ('DC008', dc008)]
 
 
 def _collate(s):
@@ -270,9 +344,9 @@ def _collate(s):
     return (s.casefold(), s.swapcase())
 
 
-def check(m, chain_hops=4):
+def check(m, chain_hops=4, retry_amplification=4):
     diags = validate(m)
-    for _, fn in RULES: diags += fn(m, {'chainHops': chain_hops})
+    for _, fn in RULES: diags += fn(m, {'chainHops': chain_hops, 'retryAmplification': retry_amplification})
     for d in diags:
         if d['code'] == 'DC000': continue
         obj = m.elements.get(d['loc']['id']) if d['loc']['kind'] == 'element' else m.rel_by_id.get(d['loc']['id'])

@@ -43,7 +43,7 @@ const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenar
 // ---------------------------------------------------------------- state
 const A = {
   root: null, user: 'you', recent: [], tree: [], expanded: new Set(['model', 'decisions', 'requirements']),
-  cfg: { model: 'model/workspace.dsl', chainHops: 4, llm: {} },
+  cfg: { model: 'model/workspace.dsl', chainHops: 4, retryAmplification: 4, llm: {} },
   buffers: new Map(),        // path -> {model, dirty, disk}
   tabs: [], active: null,    // tab ids: file paths or 'special:build' / 'special:improve'
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
@@ -86,7 +86,7 @@ function textOf(path) { const b = A.buffers.get(path); return b ? b.model.getVal
 async function readText(path) { const t = textOf(path); if (t != null) return t; try { return await host.read(path); } catch { return null; } }
 
 async function loadSettings() {
-  A.cfg = { model: 'model/workspace.dsl', chainHops: 4, llm: {} };
+  A.cfg = { model: 'model/workspace.dsl', chainHops: 4, retryAmplification: 4, llm: {} };
   const t = await readText('designc.json');
   if (t) { try { Object.assign(A.cfg, JSON.parse(t)); } catch (e) { toast('designc.json is not valid JSON: ' + e.message, 'error'); } }
 }
@@ -158,7 +158,7 @@ async function loadAsbuilt() {
 }
 function recompile() {
   A.model = Core.parse(A.modelText);
-  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4 }) : [];
+  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
   A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios, evals: A.evals });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
