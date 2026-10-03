@@ -281,6 +281,8 @@ The forecast is written into `handover.yaml`. Build has a "Handovers: forecast a
 
 An agent in the design declares `d.agent.autonomy` (`suggest`, `approve-writes` or `autonomous`) and `d.agent.eval` (an eval id). An `approve-writes` or `autonomous` agent blocks the ready gate until its eval has a passing result that is current. A `suggest` agent never blocks; it is listed in the Evals section and `designc eval` warns about it.
 
+An agent also declares its workflow shape in `d.agent.pattern` (`single-call`, `prompt-chain`, `routing`, `parallel`, `orchestrator-workers`, `evaluator-optimizer` or `autonomous-loop`) after Anthropic's "Building effective agents". The three complex shapes (`orchestrator-workers`, `evaluator-optimizer`, `autonomous-loop`) need a reason in `d.agent.patternWhy`, or rule AG011 warns. An agent that declares autonomy but no pattern gets an `unknown` AG011 warning. The property completions and hovers in the model editor list both properties.
+
 ```yaml
 # evals/EV-triage.yaml
 id: EV-triage

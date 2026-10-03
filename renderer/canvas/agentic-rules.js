@@ -1,4 +1,4 @@
-/* designc-canvas: agentic design rules (AG001 to AG010).
+/* designc-canvas: agentic design rules (AG001 to AG011).
    Same shape as designc's core RULES, registered with Core.registerRules(). Demand-driven like the
    core rules: an undeclared property only produces an "unknown" finding where a rule needs it.
    Each rule names the risk it comes from (OWASP Top 10 for Agentic Applications 2026, the lethal
@@ -136,6 +136,21 @@
             const writes = out(m, a).some(r => ['write', 'irreversible'].includes(get(r, 'd.tool.effect')));
             if (id === 'shared') res.push(D('AG010', 'warning', 'acts under a shared identity', m.locEl(a), { hint: 'use a per-agent service identity or the user\'s delegated identity' }));
             else if (id == null && writes) res.push(D('AG010', 'warning', 'writes, with identity undeclared', m.locEl(a), { hint: 'set d.agent.identity: delegated | service | shared', unknown: true }));
+          }
+          return res;
+        } },
+      { code: 'AG011', title: 'Complex agent pattern without a reason', source: 'Anthropic, Building effective agents (add complexity only when it demonstrably helps)',
+        doc: 'Orchestrator-workers, evaluator-optimizer and autonomous loops cost more and fail in more ways than a single call or a fixed chain. Say why the simpler pattern is not enough.',
+        fn(m) {
+          const res = [], COMPLEX = ['orchestrator-workers', 'evaluator-optimizer', 'autonomous-loop'];
+          for (const a of m.elements.values()) {
+            const pattern = get(a, 'd.agent.pattern');
+            if (pattern == null) {
+              if (isAgent(a) && get(a, 'd.agent.autonomy') != null) res.push(D('AG011', 'warning', 'd.agent.pattern undeclared', m.locEl(a), { hint: 'set d.agent.pattern', unknown: true }));
+              continue;
+            }
+            const why = get(a, 'd.agent.patternWhy');
+            if (COMPLEX.includes(pattern) && !(typeof why === 'string' && why.trim())) res.push(D('AG011', 'warning', `uses ${pattern} with no d.agent.patternWhy`, m.locEl(a), { hint: 'set d.agent.patternWhy: what a single call or a fixed chain could not do' }));
           }
           return res;
         } },

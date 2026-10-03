@@ -19,7 +19,7 @@
 {p}_llm = softwareSystem "Model provider {p}" "" "LLM,External"
 {p}_sys = softwareSystem "Agent platform {p}" {
   {p}_app = container "Operator app" "" "Web" "Web App"
-  {p}_agent = container "Task agent" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.maxSteps': '20', 'd.agent.budget': '200k tokens', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'task-agent-evals' })}
+  {p}_agent = container "Task agent" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.pattern': 'autonomous-loop', 'd.agent.patternWhy': 'Each tool call depends on the result of the last, so the steps cannot be fixed in advance.', 'd.agent.maxSteps': '20', 'd.agent.budget': '200k tokens', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'task-agent-evals' })}
   {p}_gw = container "AI gateway" "" "LiteLLM" "Gateway,AI Gateway"
   {p}_policy = container "Policy engine" "" "ACS" "Policy Engine"
   {p}_tools = container "Tool server" "" "MCP" "Tool,MCP Server"
@@ -42,7 +42,7 @@
 {p}_llm = softwareSystem "Model provider {p}" "" "LLM,External"
 {p}_sys = softwareSystem "Knowledge assistant {p}" {
   {p}_ui = container "Chat UI" "" "Web" "Web App"
-  {p}_agent = container "Answer agent" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.maxSteps': '8', 'd.agent.tracing': 'yes', 'd.agent.identity': 'delegated', 'd.agent.memory': 'session', 'd.agent.untrustedInput': 'yes', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'rag-answer-evals' })}
+  {p}_agent = container "Answer agent" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.pattern': 'single-call', 'd.agent.maxSteps': '8', 'd.agent.tracing': 'yes', 'd.agent.identity': 'delegated', 'd.agent.memory': 'session', 'd.agent.untrustedInput': 'yes', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'rag-answer-evals' })}
   {p}_gw = container "AI gateway" "" "LiteLLM" "Gateway,AI Gateway"
   {p}_index = container "Vector index" "" "Azure AI Search" "Vector Store"${block({ 'd.store': 'yes', 'd.tenant.isolation': 'logical', 'd.data.classification': 'confidential' })}
   {p}_ingest = container "Ingestion worker" "" ".NET" "Worker"
@@ -60,9 +60,9 @@
       id: 'orchestrator-workers', title: 'Orchestrator and workers', pattern: 'Orchestrator-workers',
       about: 'A planner delegates to specialist workers and an evaluator checks the result. Every agent is capped, and agent-to-agent calls are authenticated.',
       elements: `{p}_sys = softwareSystem "Multi-agent service {p}" {
-  {p}_orch = container "Orchestrator" "" "MAF" "Agent,Orchestrator"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.maxSteps': '15', 'd.agent.budget': '$3', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'orchestration-evals' })}
-  {p}_w1 = container "Research worker" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.maxSteps': '10', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'yes', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'research-evals' })}
-  {p}_w2 = container "Drafting worker" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.maxSteps': '10', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'drafting-evals' })}
+  {p}_orch = container "Orchestrator" "" "MAF" "Agent,Orchestrator"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.pattern': 'orchestrator-workers', 'd.agent.patternWhy': 'The subtasks depend on the request and cannot be listed up front.', 'd.agent.maxSteps': '15', 'd.agent.budget': '$3', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'orchestration-evals' })}
+  {p}_w1 = container "Research worker" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.pattern': 'single-call', 'd.agent.maxSteps': '10', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'yes', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'research-evals' })}
+  {p}_w2 = container "Drafting worker" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.pattern': 'single-call', 'd.agent.maxSteps': '10', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'drafting-evals' })}
   {p}_eval = container "Evaluator" "" "MAF" "Evaluator"
   {p}_gw = container "AI gateway" "" "LiteLLM" "Gateway,AI Gateway"
 }`,
@@ -77,8 +77,8 @@
       id: 'evaluator-optimizer', title: 'Evaluator-optimizer loop', pattern: 'Evaluator-optimizer',
       about: 'A generator and an evaluator iterate against clear criteria until the bar is met or the cap is hit.',
       elements: `{p}_sys = softwareSystem "Refinement loop {p}" {
-  {p}_gen = container "Generator" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.maxSteps': '6', 'd.agent.tracing': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'generator-evals' })}
-  {p}_crit = container "Critic" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.maxSteps': '6', 'd.agent.tracing': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'critic-evals' })}
+  {p}_gen = container "Generator" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.pattern': 'evaluator-optimizer', 'd.agent.patternWhy': 'Output quality improves with a critic checking it against written criteria.', 'd.agent.maxSteps': '6', 'd.agent.tracing': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'generator-evals' })}
+  {p}_crit = container "Critic" "" "MAF" "Agent"${block({ 'd.agent.autonomy': 'suggest', 'd.agent.pattern': 'single-call', 'd.agent.maxSteps': '6', 'd.agent.tracing': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'no', 'd.agent.externalComms': 'no', 'd.agent.eval': 'critic-evals' })}
   {p}_gw = container "AI gateway" "" "LiteLLM" "Gateway,AI Gateway"
 }`,
       relationships: `{p}_gen -> {p}_crit "Submits a draft"${block({ 'd.authenticated': 'yes' })}
@@ -109,7 +109,7 @@
 {p}_sys = softwareSystem "Design-to-code factory {p}" {
   {p}_ide = container "designc" "" "Electron" "Web App"
   {p}_registry = container "Registry" "" "git" "Database"${block({ 'd.owner': 'Platform', 'd.store': 'yes' })}
-  {p}_harness = container "MAF harness" "" ".NET" "Agent,Orchestrator"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.maxSteps': '40', 'd.agent.budget': '$5', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.codeExec': 'yes', 'd.agent.sandbox': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'k-rerun-suite' })}
+  {p}_harness = container "MAF harness" "" ".NET" "Agent,Orchestrator"${block({ 'd.agent.autonomy': 'approve-writes', 'd.agent.pattern': 'orchestrator-workers', 'd.agent.patternWhy': 'Which tasks to run and in what order depends on the handover and cannot be fixed in advance.', 'd.agent.maxSteps': '40', 'd.agent.budget': '$5', 'd.agent.tracing': 'yes', 'd.agent.identity': 'service', 'd.agent.codeExec': 'yes', 'd.agent.sandbox': 'yes', 'd.agent.untrustedInput': 'no', 'd.agent.privateData': 'yes', 'd.agent.externalComms': 'no', 'd.agent.eval': 'k-rerun-suite' })}
   {p}_policy = container "ACS" "" "AGT" "Policy Engine"
   {p}_gw = container "AI gateway" "" "LiteLLM" "Gateway,AI Gateway"
   {p}_langfuse = container "Langfuse" "" "Langfuse" "Trace Store"${block({ 'd.store': 'yes' })}
