@@ -287,6 +287,8 @@ Quality attribute scenarios (`scenarios/*.yaml`) may carry `importance` and `dif
 
 A decision can list the assumptions it rests on: `assumptions: [{"text": "Volume stays under 1k a day", "review_by": "2027-01-01"}]`. Once a bound decision has an assumption past its review date, the ready gate blocks until you press Mark reviewed on the decision in the sidebar and set the next date. Agents can draft assumptions but cannot mark them reviewed; the Analyst checks decisions against a short rubric that includes overdue assumptions.
 
+The Agent topology view (the node-graph icon in the activity bar) draws only the agents in the design, what they call and who calls them. Each agent shows its `d.agent.pattern`; each call shows its `d.tool.effect` and `d.approval`, and an irreversible call with no human approval is drawn in red. It is read-only: edit the model in the Design view.
+
 ```yaml
 # evals/EV-triage.yaml
 id: EV-triage
