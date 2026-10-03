@@ -426,6 +426,8 @@ const Core = (() => {
     const mx = get(r, 'd.retry.max');
     return mx == null ? { n: 1, unknown: true } : { n: 1 + mx };
   };
+  // Both walks below try every simple path; past this many steps they stop rather than freeze the editor.
+  const MAX_PATH_STEPS = 100000;
   const outgoing = (m, id) => m.rels.filter(r => r.src === id && syncCall(m, r));
   function worstCase(m, e) {
     const own = get(e, 'd.latency.max'), missing = [], parts = [];
@@ -459,9 +461,11 @@ const Core = (() => {
   // entered at most once per path, so a cycle is followed once.
   function amplificationFrom(m, startId) {
     const out = new Map();
+    let steps = 0;
     const dfs = (id, seen, mult) => {
       for (const r of outgoing(m, id)) {
         if (seen.has(r.dst)) continue;
+        if (++steps > MAX_PATH_STEPS) return;
         const next = mult * attemptsOf(r).n;
         if (next > (out.get(r.dst) || 0)) out.set(r.dst, next);
         dfs(r.dst, new Set([...seen, r.dst]), next);
@@ -611,16 +615,19 @@ const Core = (() => {
         for (const r of m.rels) { if (!syncCall(m, r)) continue; if (!adj.has(r.src)) adj.set(r.src, []); adj.get(r.src).push(r); hasIn.add(r.dst); }
         let starts = [...adj.keys()].filter(n => !hasIn.has(n)); if (!starts.length) starts = [...adj.keys()];
         const hit = new Map(); // rel id -> { path, mult, budget }, the worst path into that rel
+        let steps = 0;
         const dfs = (node, seen, path, mult) => {
           if (hit.size >= 200) return;
           for (const r of adj.get(node) || []) {
             if (seen.has(r.dst)) continue;
+            if (++steps > MAX_PATH_STEPS) return;
             const next = mult * attemptsOf(r).n, budget = get(m.elements.get(r.dst), 'd.retry.budget') || limit, p = [...path, r];
             if (next > budget) { const old = hit.get(r.id); if (!old || next > old.mult) hit.set(r.id, { path: p, mult: next, budget }); continue; }
             dfs(r.dst, new Set([...seen, r.dst]), p, next);
           }
         };
         starts.forEach(s => dfs(s, new Set([s]), [], 1));
+        if (steps > MAX_PATH_STEPS) out.push(D('DC008', 'warning', `the sync calls are too connected to check every retry path (stopped after ${MAX_PATH_STEPS} steps); results below may be incomplete`, m.locRel(adj.get(starts[0])[0]), { hint: 'split the model into smaller systems or reduce cross-calls', unknown: true }));
         for (const { path, mult, budget } of hit.values()) {
           const last = path[path.length - 1], names = [path[0].src, ...path.map(r => r.dst)].map(n => m.elements.get(n).name);
           out.push(D('DC008', 'warning', `retries multiply load ×${mult} along ${names.join(' → ')}; ${m.elements.get(last.dst).name} tolerates ×${budget}`, m.locRel(last), { hint: 'retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver', related: path.slice(0, -1).map(m.locRel) }));
@@ -837,7 +844,7 @@ const Core = (() => {
       row.evalHash = evalHash(d);
       if (evalProblems(d).length) { row.defInvalid = true; done('invalid', `eval ${evalId} is invalid`); continue; }
       if (d.agent !== el.name) { done('invalid', `eval ${evalId} is for "${d.agent}", not ${el.name}`); continue; }
-      const mine = ledger.filter(e => e.kind === 'eval' && e.eval === d.id).sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      const mine = ledger.filter(e => e.kind === 'eval' && e.eval === String(d.id)).sort((a, b) => (b._ts || 0) - (a._ts || 0));
       const current = mine.filter(e => e.eval_hash === row.evalHash);
       const latest = row.latest = current[0] || null;
       row.thresholds = (d.thresholds || []).map(parseThreshold).map(t => {
@@ -1149,10 +1156,13 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
     const hasHistory = history instanceof Map ? history : new Map(Object.entries(history || {}));
     const rows = [];
     for (const [name, why] of priced) {
-      const el = [...after.elements.values()].find(x => x.name === name && (x.kind === 'container' || x.kind === 'component'));
-      if (!el) continue;
-      const h = hasHistory.get(name) || [];
-      const row = { name, kind: el.kind, why, samples: h.length, status: 'no basis', expected: null, high: null };
+      const same = [...after.elements.values()].filter(x => x.name === name && (x.kind === 'container' || x.kind === 'component'));
+      if (!same.length) continue;
+      // Spend is recorded under the element's name, so a name two elements share cannot be told apart: no basis.
+      const ambiguous = same.length > 1;
+      const h = ambiguous ? [] : hasHistory.get(name) || [];
+      const row = { name, kind: same[0].kind, why, samples: h.length, status: 'no basis', expected: null, high: null };
+      if (ambiguous) row.ambiguous = true;
       if (h.length >= minSamples) {
         const pick = key => {
           const v = h.map(x => x[key]).sort((a, b) => a - b), mid = v.length >> 1;

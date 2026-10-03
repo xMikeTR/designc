@@ -105,3 +105,14 @@ test('forecastSummary copes with a closed handover, no actuals and no forecast',
   assert.match(Core.forecastSummary({ id: 'H', created: '2026-10-03', forecast: f, actual: null }), /Actual: none recorded yet/);
   assert.match(Core.forecastSummary({ id: 'H', created: '2026-10-03', forecast: null, actual: null }), /Forecast: not recorded/);
 });
+
+test('a name shared by several elements is not priced from a merged history', () => {
+  const m = parse(dsl({ extra: `x = container "Web" "" "" { sh = component "Shared" }
+    y = container "Worker" "" "" { sh2 = component "Shared" }` }));
+  const f = Core.forecast({ before: null, after: m, history: new Map([['Shared', hist(100, 200, 300)]]) });
+  const r = row(f, 'Shared');
+  assert.equal(r.status, 'no basis');
+  assert.equal(r.ambiguous, true);
+  assert.equal(f.rows.filter(x => x.name === 'Shared').length, 1);
+  assert.equal(f.total.expected.tokens, 0);
+});

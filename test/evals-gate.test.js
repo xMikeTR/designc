@@ -140,3 +140,9 @@ test('an approve-writes agent blocks even when the caller passes no evals at all
   const g = Core.gate({ model: parse(), diags: [], decisions: [], requirements: [], ledger: [] });
   assert.deepEqual(g.clauses.filter(c => c.kind === 'eval').length, 1, 'an approve-writes agent with no evals still needs one');
 });
+
+test('a numeric eval id in YAML still matches the result recorded for it as a string', () => {
+  const m = parse({ evalId: '12' }), d = def({ id: 12, _text: 'id: 12\nagent: Task agent\n' });
+  const ev = result(m, d, { eval: '12' });
+  assert.equal(rowOf(m, [d], [ev]).status, 'passing');
+});
