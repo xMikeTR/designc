@@ -83,6 +83,17 @@ def load_registry(root):
     return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'errors': errors}
 
 
+def load_handover_ids(root):
+    """Ids of the handovers on disk: handovers/<id>/handover.yaml folders beside the older flat files."""
+    errors = []
+    found = load_yaml_dir(root, 'handovers', errors)
+    hv = os.path.join(root, 'handovers')
+    if os.path.isdir(hv):
+        for n in sorted(os.listdir(hv)):
+            if os.path.isdir(os.path.join(hv, n)): found += load_yaml_dir(root, f'handovers/{n}', errors)
+    return [h['id'] for h in found]
+
+
 def _is_num(v): return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 

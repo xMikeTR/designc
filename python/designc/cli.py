@@ -10,8 +10,9 @@ import sys
 from . import ledger, record
 from .dsl import parse
 from .gate import gate
-from .registry import load_ledger, load_registry, load_settings
+from .registry import load_handover_ids, load_ledger, load_registry, load_settings
 from .rules import check
+from .verify import read_ledger_files, verify
 
 
 def state(root):
@@ -65,7 +66,11 @@ def main(argv):
     c.add_argument('--no-record', action='store_true', help='never record a gate event')
     c.add_argument('--by', help='who ran this (default: DESIGNC_BY, then the OS user)')
     c.add_argument('--source', help='local or pipeline (default: pipeline when CI is detected, else local)')
+    v = sub.add_parser('verify-ledger', help='check the ledger trail: gates before handovers, checks before promotions, valid lines')
+    v.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
+    v.add_argument('--json', action='store_true', help='print the result as JSON')
     args = ap.parse_args(argv)
+    if args.cmd == 'verify-ledger': return verify_ledger(os.path.abspath(args.registry), args.json)
     if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
     if args.source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
     root = os.path.abspath(args.registry)
@@ -81,6 +86,20 @@ def main(argv):
     elif ci and not args.record: print('CI detected: not recording a gate event. Pass --record to record one.', file=note)
     else: record_gate(root, s, source, args.by, note)
     return 0 if r['gate']['ready'] else 1
+
+
+def verify_ledger(root, as_json):
+    if not os.path.isdir(root):
+        print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    reg = load_registry(root)
+    r = verify(read_ledger_files(root), load_handover_ids(root), [{'id': d['id'], 'kind': d.get('kind')} for d in reg['decisions']])
+    if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
+    else:
+        for x in r['errors']: print(f"{x['rule']}  error    {x['msg']}")
+        for x in r['warnings']: print(f"{x['rule']}  warning  {x['msg']}")
+        n, w = len(r['errors']), len(r['warnings'])
+        print(('Ledger is consistent.' if not n else f'{n} error{"" if n == 1 else "s"} in the ledger.') + (f' {w} warning{"" if w == 1 else "s"}.' if w else '') + (f' {r["skipped"]} sample event{"" if r["skipped"] == 1 else "s"} skipped.' if r['skipped'] else ''))
+    return 1 if r['errors'] else 0
 
 
 CI_VARS = ('CI', 'TF_BUILD', 'GITLAB_CI', 'GITHUB_ACTIONS')
