@@ -91,7 +91,7 @@ Core.gate({ …, registryErrors })   // new optional input: [{ path, message }]
 - Proposals are not gate input, so a duplicate proposal id shows in Problems, not as a clause. Say if you want proposals in the gate instead.
 - The file is named at mint and not renamed; the `id` field is what counts. "Frozen once bound" cannot be enforced until slice 5 records the id at promotion; slice 3 only stops the app's own edit path.
 - `nextId` stays for handovers until slice 7.
-- The Python `designc` package needs the two clauses mirrored. It is not in this repo.
+- The Python CLI (`python/designc`, added after this plan) mirrors the two clauses; `test/designc-cli.test.js` covers them.
 
 ## Test strategy
 

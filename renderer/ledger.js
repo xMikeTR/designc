@@ -321,8 +321,33 @@ const Ledger = (() => {
     return 0;
   }
 
+  // What each agent did, for the Improve view. One row per agent and role, newest activity last-seen.
+  // Reads the agent_* kinds and unapproved_change; every other kind is ignored.
+  function agentActivity(events) {
+    const rows = new Map();
+    const row = e => {
+      const k = `${e.agent}\u0000${e.role}`;
+      if (!rows.has(k)) rows.set(k, { agent: e.agent, role: e.role, via: e.via, turns: 0, tokens: 0, tools: 0, allowed: 0, asked: 0, denied: 0, declined: 0, permissions: 0, approvals: 0, unapproved: 0, last: 0 });
+      const r = rows.get(k); r.last = Math.max(r.last, e._ts || 0); return r;
+    };
+    for (const e of events) {
+      if (e.kind === 'agent_turn') { const r = row(e); r.turns++; r.tokens += totalTokens(e); }
+      else if (e.kind === 'agent_tool') {
+        const r = row(e); r.tools++;
+        if (e.verdict === 'allow') r.allowed++; else if (e.verdict === 'ask') r.asked++; else if (e.verdict === 'deny') r.denied++;
+        if (e.outcome === 'declined') r.declined++;
+      }
+      else if (e.kind === 'agent_permission') row(e).permissions++;
+      else if (e.kind === 'agent_approval') row(e).approvals++;
+      else if (e.kind === 'unapproved_change') row(e).unapproved++;
+    }
+    return [...rows.values()];
+  }
+
+  const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
+
   return {
-    SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, order, escapeId, derive, totalTokens,
+    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

@@ -4,3 +4,5 @@ dist/
 *.log
 SESSION_HANDOFF.md
 .claude/current-plan-scope.json
+__pycache__/
+*.egg-info/

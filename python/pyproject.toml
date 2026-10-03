@@ -1,0 +1,16 @@
+[project]
+name = "designc"
+version = "0.1.0"
+description = "CI form of the designc desktop compiler: lint a registry's model and run the definition-of-ready gate."
+requires-python = ">=3.9"
+dependencies = ["PyYAML>=6"]
+
+[project.scripts]
+designc = "designc.cli:main_entry"
+
+[build-system]
+requires = ["setuptools>=61"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["designc"]

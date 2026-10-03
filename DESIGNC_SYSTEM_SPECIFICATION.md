@@ -137,7 +137,7 @@ my-registry/
 
 ### 4.1. Core Design Compiler (`renderer/core.js`)
 
-`core.js` is the heart of System 1. It implements a complete Structurizr DSL parser and C4 model compiler directly in the browser environment, mirroring the behavior of the reference Python `designc` implementation.
+`core.js` is the heart of System 1. It implements a complete Structurizr DSL parser and C4 model compiler directly in the browser environment, with the same rules and results as the Python CLI in `python/designc`, which is the CI form of the compiler.
 
 #### C4 Model Hierarchy
 * **Person**: Human actors interacting with systems.

@@ -307,7 +307,7 @@ function mcpScript() { return path.join(__dirname, 'designc-mcp.js').replace(`ap
 
 // ---------- ACP agents ----------
 const ACP_PRESETS = {
-  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'], inherit: ['ANTHROPIC_API_KEY'] },
+  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'], inherit: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'] },
   codex: { label: 'Codex', command: 'npx', args: ['-y', '@zed-industries/codex-acp'], inherit: ['OPENAI_API_KEY'] },
   gemini: { label: 'Gemini CLI', command: 'npx', args: ['-y', '@google/gemini-cli', '--acp'], inherit: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'] },
   copilot: { label: 'GitHub Copilot', command: 'copilot', args: ['--acp', '--stdio'], inherit: ['GH_TOKEN', 'GITHUB_TOKEN'] },
@@ -369,7 +369,7 @@ handle('agui:cancel', id => { const r = aguiRuns.get(id); if (r) r.abort(); retu
 
 // One trust decision per folder covers decision checks and git. Asked at most once, saved in state.json.
 async function ensureTrusted({ button, title, message, detail }) {
-  if (isTrusted(state.trusted, root)) return true;
+  if (isTrusted(state.trusted, root, state.trustAllFolders)) return true;
   // Like VS Code: trust this folder, the repository around it, or its parent. A trusted ancestor covers its subfolders.
   const choices = trustChoices(root, git.findRepo(root), os.homedir());
   const label = c => c.kind === 'folder' ? button : c.kind === 'repo' ? `Trust the whole repository (${path.basename(c.path)})` : `Trust the parent folder (${path.basename(c.path)})`;
@@ -396,7 +396,7 @@ handle('check:run', async (runId, cmd) => {
 });
 
 // Git. Finding a repo runs nothing; every call that runs git waits for the folder to be trusted.
-const gitTrusted = () => !!root && isTrusted(state.trusted, root);
+const gitTrusted = () => !!root && isTrusted(state.trusted, root, state.trustAllFolders);
 const NOT_TRUSTED = { error: 'Trust this folder before using git here.' };
 handle('git:status', async () => {
   if (!root) return { repo: false };

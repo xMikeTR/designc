@@ -32,7 +32,10 @@ function childEnv(env, inherit = []) {
 }
 
 // VS Code workspace trust: a folder is trusted if it, or any ancestor, was trusted.
-function isTrusted(trusted, root) {
+// `all` is the user-level trust-everything switch (state.json `trustAllFolders`). It is never read from
+// designc.json: a repository must not be able to switch off the question about itself.
+function isTrusted(trusted, root, all = false) {
+  if (all === true) return true;
   const base = path.resolve(root), real = realish(base);
   return trusted.some(t => { const a = path.resolve(t); return [base, real].some(p => p === a || p.startsWith(a + path.sep)); });
 }

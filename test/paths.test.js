@@ -49,3 +49,10 @@ test('trustChoices: folder first, then the repository, then the parent; no dupli
   assert.deepEqual(trustChoices('/w', null, '/w').map(x => x.path), ['/w']);
   assert.deepEqual(trustChoices(path.join(home, 'x'), null, home).map(x => x.path), [path.join(home, 'x')]);
 });
+
+test('isTrusted: the user-level trust-everything switch trusts any folder, nothing else does', () => {
+  assert.equal(isTrusted([], '/w/repo'), false);
+  assert.equal(isTrusted([], '/w/repo', true), true);
+  assert.equal(isTrusted([], '/w/repo', 'yes'), false, 'only the boolean true counts');
+  assert.equal(isTrusted([], '/w/repo', undefined), false);
+});
