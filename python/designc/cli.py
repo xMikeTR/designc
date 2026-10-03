@@ -26,7 +26,7 @@ def state(root):
     model = parse(src)
     diags = check(model, cfg.get('chainHops') or 4)
     reg = load_registry(root)
-    g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'])
+    g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'])
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 

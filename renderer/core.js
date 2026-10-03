@@ -561,7 +561,7 @@ const Core = (() => {
     return id;
   }
 
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [] }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [], evals = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -622,6 +622,7 @@ const Core = (() => {
       else if (r.analytic.status === 'not-met') clauses.push({ kind: 'scenario', text: `${r.id} is not met: availability ≈ ${r.analytic.value.toFixed(2)}% against ${r.measure.op === '<=' ? '≤' : '≥'} ${r.measure.value}%` });
       if (r.fitness.status === 'failing') clauses.push({ kind: 'scenario', text: `${r.id}: fitness function failing` });
     }
+    clauses.push(...evalClauses({ model, evals, ledger, now }));
     return { ready: clauses.length === 0, clauses };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
@@ -702,6 +703,76 @@ const Core = (() => {
     const out = { outcome: reasons.length ? 'fail' : 'pass', metrics, cases: results.cases, thresholds };
     if (reasons.length) out.reason = reasons.join('; ');
     return out;
+  }
+
+  // The hash of an eval file's text, line endings normalised so a Windows checkout hashes like the commit.
+  const evalHash = e => hash16(String((e && e._text) || '').replace(/\r\n/g, '\n'));
+  const elementsOf = model => (model && model.elements ? [...model.elements.values()] : []);
+  const AGE = /^(\d+)\s*([mhd])$/i;
+  const AGE_MS = { m: 60000, h: 3600000, d: 86400000 };
+  const insideRegistry = p => !/^([A-Za-z]:|[\\/])/.test(p) && !p.split(/[\\/]/).includes('..');
+  function evalProblems(e) {
+    const out = [];
+    const missing = ['agent', 'command', 'results'].filter(k => typeof e[k] !== 'string' || !e[k].trim());
+    if (missing.length) out.push(`needs ${missing.join(', ')}`);
+    const list = Array.isArray(e.thresholds) ? e.thresholds : [];
+    if (!list.length) out.push('needs thresholds');
+    else { const bad = list.map(parseThreshold).find(t => t.error); if (bad) out.push(bad.error); }
+    if (e.maxAge != null && !AGE.test(String(e.maxAge))) out.push(`maxAge "${e.maxAge}" is not like 30m, 12h or 7d`);
+    if (typeof e.results === 'string' && e.results.trim() && !insideRegistry(e.results)) out.push('results must be a path inside the registry');
+    return out;
+  }
+  // One row per element that declares d.agent.autonomy. approve-writes and autonomous agents block the gate
+  // unless the latest result for their eval passes and is current: run under this eval file, against this agent
+  // (Core.fingerprint), and within maxAge when the eval sets one. A suggest agent gets a row but never blocks.
+  function evalReport({ model, evals = [], ledger = [], now = Date.now() }) {
+    const byId = new Map();
+    for (const e of evals) if (e && e.id != null && !byId.has(String(e.id))) byId.set(String(e.id), e);
+    const rows = [];
+    for (const el of elementsOf(model)) {
+      const autonomy = get(el, 'd.agent.autonomy');
+      if (!autonomy) continue;
+      const evalId = get(el, 'd.agent.eval');
+      const row = { agent: el.name, agentId: el.id, autonomy, evalId, status: 'missing', reason: '', latest: null, thresholds: [], defInvalid: false };
+      const done = (status, reason) => { row.status = status; row.reason = reason; row.blocking = autonomy !== 'suggest' && status !== 'passing'; rows.push(row); };
+      if (!evalId) { done('missing', 'd.agent.eval names no eval'); continue; }
+      const d = byId.get(String(evalId));
+      if (!d) { done('missing', `eval ${evalId} is not in evals/`); continue; }
+      row.evalHash = evalHash(d);
+      if (evalProblems(d).length) { row.defInvalid = true; done('invalid', `eval ${evalId} is invalid`); continue; }
+      if (d.agent !== el.name) { done('invalid', `eval ${evalId} is for "${d.agent}", not ${el.name}`); continue; }
+      const mine = ledger.filter(e => e.kind === 'eval' && e.eval === d.id).sort((a, b) => (b._ts || 0) - (a._ts || 0));
+      const current = mine.filter(e => e.eval_hash === row.evalHash);
+      const latest = row.latest = current[0] || null;
+      row.thresholds = (d.thresholds || []).map(parseThreshold).map(t => {
+        const actual = latest && Object.prototype.hasOwnProperty.call(latest.metrics || {}, t.metric) ? latest.metrics[t.metric] : null;
+        return { ...t, actual, ok: actual !== null && THRESHOLD_OPS[t.op](actual, t.value) };
+      });
+      if (!mine.length) done('unchecked', `eval ${evalId} has no result recorded yet`);
+      else if (!latest) done('stale', `eval ${evalId}: the last result was run under a different version of the eval file`);
+      else if (latest.fingerprint !== fingerprint(model, el.id).hash) done('stale', `eval ${evalId}: the agent changed since the last result`);
+      else if (d.maxAge != null && now - (latest._ts || 0) > Number(AGE.exec(String(d.maxAge))[1]) * AGE_MS[AGE.exec(String(d.maxAge))[2].toLowerCase()])
+        done('stale', `eval ${evalId}: the last result is older than ${d.maxAge}`);
+      else if (latest.outcome !== 'pass') done('failing', `eval ${evalId} failed: ${latest.reason || 'a threshold was not met'}`);
+      else done('passing', '');
+    }
+    return rows;
+  }
+  function evalClauses({ model, evals, ledger, now }) {
+    const clauses = [], said = new Set(), seen = new Set(), names = new Set(elementsOf(model).map(e => e.name));
+    for (const e of evals) {
+      if (!e || typeof e !== 'object') continue;
+      if (seen.has(e.id) && !said.has(e.id)) { said.add(e.id); clauses.push({ kind: 'duplicate', text: `duplicate id ${e.id}`, eval: e.id }); }
+      seen.add(e.id);
+      const problems = evalProblems(e);
+      if (problems.length) clauses.push({ kind: 'eval', text: `eval ${e.id} is invalid: ${problems.join('; ')}`, evalId: e.id });
+      if (typeof e.agent === 'string' && e.agent.trim() && !names.has(e.agent)) clauses.push({ kind: 'eval', text: `eval ${e.id}: agent "${e.agent}" is not in the model`, evalId: e.id });
+    }
+    for (const r of evalReport({ model, evals, ledger, now })) {
+      if (!r.blocking || r.defInvalid) continue;
+      clauses.push({ kind: 'eval', text: `${r.agent} (${r.autonomy}) needs a passing eval: ${r.reason}`, agent: r.agent, evalId: r.evalId || null });
+    }
+    return clauses;
   }
 
   // ---------- blast radius ----------
@@ -1259,6 +1330,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

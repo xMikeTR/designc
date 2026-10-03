@@ -7,13 +7,14 @@ import yaml
 
 from .gate import _s
 
-REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios']
+REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals']
 ENVELOPE_OPTIONAL = {'system', 'session', 'task', 'element', 'payload'}
 
 # Required fields and enums for the ledger kinds the gate reads (renderer/ledger.js FINAL_KIND_FIELDS).
 GATE_KINDS = {
     'check': (['decision', 'check', 'outcome', 'source'], ['ms', 'exit_code', 'reason'], {'outcome': ['pass', 'fail'], 'source': ['local', 'pipeline']}),
     'fitness': (['scenario', 'check', 'outcome', 'source'], ['ms', 'exit_code', 'reason'], {'outcome': ['pass', 'fail'], 'source': ['local', 'pipeline']}),
+    'eval': (['eval', 'agent', 'outcome', 'metrics', 'cases', 'source', 'fingerprint', 'eval_hash'], ['ms', 'exit_code', 'reason'], {'outcome': ['pass', 'fail'], 'source': ['local', 'pipeline']}),
     'needs_decision': (['id', 'question', 'status'], ['task', 'element'], {'status': ['open', 'resolved']}),
     'needs_decision_resolved': (['id'], [], {}),
 }
@@ -49,7 +50,7 @@ def _list(root, d, exts):
     return out
 
 
-def load_yaml_dir(root, d, errors):
+def load_yaml_dir(root, d, errors, keep_text=False):
     out = []
     for path, text in _list(root, d, ['.yaml', '.yml']):
         try:
@@ -60,6 +61,7 @@ def load_yaml_dir(root, d, errors):
             o['id'] = o.get('id') or re.sub(r'\.ya?ml$', '', path.split('/')[-1])
             o['id'] = _s(o['id'])
             o['_path'] = path
+            if keep_text: o['_text'] = text
             out.append(o)
         except (yaml.YAMLError, ValueError) as e:
             errors.append({'path': path, 'msg': str(e).split('\n')[0]})
@@ -72,7 +74,7 @@ def _collate(s):
 
 def load_registry(root):
     errors = []
-    decisions, requirements, _, _, scenarios = (load_yaml_dir(root, d, errors) for d in REG_DIRS)
+    decisions, requirements, _, _, scenarios, evals = (load_yaml_dir(root, d, errors, d == 'evals') for d in REG_DIRS)
     hv = os.path.join(root, 'handovers')
     if os.path.isdir(hv):
         for n in sorted(os.listdir(hv)):
@@ -80,7 +82,7 @@ def load_registry(root):
     for d in decisions:
         d['status'] = d.get('status') or 'minted'
         d['effect'] = d.get('effect') or 'fix'
-    return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'errors': errors}
+    return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'evals': evals, 'errors': errors}
 
 
 def load_handover_ids(root):
@@ -97,6 +99,11 @@ def load_handover_ids(root):
 def _is_num(v): return isinstance(v, (int, float)) and not isinstance(v, bool)
 
 
+def _eval_types_ok(ev):
+    return (all(isinstance(ev[k], str) for k in ('eval', 'agent', 'fingerprint', 'eval_hash'))
+            and isinstance(ev['metrics'], dict) and _is_num(ev['cases']))
+
+
 def _valid(ev):
     """Ledger.validate for the kinds the gate reads; other kinds do not affect the gate and pass through."""
     if not isinstance(ev.get('by'), str) or not ev['by']: return False
@@ -110,7 +117,8 @@ def _valid(ev):
     if any(k not in known for k in ev): return False
     if any(r not in ev for r in required): return False
     if any(f in ev and ev[f] not in vals for f, vals in enums.items()): return False
-    if ev['kind'] in ('check', 'fitness') and ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'): return False
+    if ev['kind'] == 'eval' and not _eval_types_ok(ev): return False
+    if ev['kind'] in ('check', 'fitness', 'eval') and ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'): return False
     return True
 
 
