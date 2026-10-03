@@ -100,6 +100,7 @@ test('decisions, fingerprints, business evidence, requirements, ledger and scena
     'scenarios/S-1.yaml': 'id: S-1\nattribute: availability\nartifact: Api\nmeasure: {metric: availability, op: ">=", value: 99.9}\nfitness: [run it]\n',
     'scenarios/S-2.yaml': 'id: S-2\nattribute: latency\nartifact: Ghost\nmeasure: {metric: p95, op: "<=", value: 200}\n',
     'scenarios/S-3.yaml': 'id: S-3\ntitle: incomplete\n',
+    'scenarios/S-4.yaml': 'id: S-4\nattribute: latency\nartifact: Api\nmeasure: {metric: p95, op: "<=", value: 200}\nimportance: urgent\ndifficulty: high\n',
     'ledger/a.jsonl': [
       { kind: 'check', decision: 'D-1', outcome: 'pass', ts: 5 },
       { schema_version: 1, event_id: 'e1', ts: 10, kind: 'check', by: 'x', decision: 'D-3', check: 'x', outcome: 'fail', source: 'local', exit_code: 1 },

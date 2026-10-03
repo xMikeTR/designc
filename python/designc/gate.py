@@ -23,10 +23,17 @@ def _find_el(model, name):
     return next((e for e in model.elements.values() if e.name == name), None)
 
 
+RATINGS = ('high', 'medium', 'low')
+
+
+def _rating(v):
+    return v if isinstance(v, str) and v in RATINGS else None
+
+
 def scenario_report(model, scenarios, ledger):
     rows = []
     for s in scenarios:
-        row = {'id': s['id'], 'title': s.get('title') or '', 'attribute': s['attribute'], 'artifact': s['artifact'], 'measure': s.get('measure')}
+        row = {'id': s['id'], 'title': s.get('title') or '', 'attribute': s['attribute'], 'artifact': s['artifact'], 'measure': s.get('measure'), 'importance': _rating(s.get('importance')), 'difficulty': _rating(s.get('difficulty'))}
         el = _find_el(model, s['artifact'])
         cmds = [c for c in (s.get('fitness') or []) if c and not str(c).startswith('TODO')]
         last = latest(ledger, 'fitness', 'scenario', s['id'])
@@ -136,6 +143,10 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             sid = s.get('id') if isinstance(s, dict) else None
             clauses.append({'kind': 'scenario', 'text': f"{sid or 'a scenario'} needs artifact, attribute and measure"})
         else: complete.append(s)
+    for s in scenarios:
+        if not isinstance(s, dict) or not s.get('id'): continue
+        for f in ('importance', 'difficulty'):
+            if s.get(f) is not None and _rating(s.get(f)) is None: clauses.append({'kind': 'scenario', 'text': f"{s['id']}: {f} must be high, medium or low"})
     for r in scenario_report(model, complete, ledger):
         if r['status'] == 'unresolved': clauses.append({'kind': 'scenario', 'text': f"{r['id']}: artifact \"{r['artifact']}\" is not in the model"})
         elif r['analytic']['status'] == 'not-met':

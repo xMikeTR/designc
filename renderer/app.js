@@ -468,7 +468,7 @@ async function newRequirement() {
 }
 async function newScenario() {
   const id = prompt('Scenario id', 'QAS-') || ''; if (!id.trim()) return;
-  const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
+  const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
   await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
 }
 async function runFitness() {
@@ -828,12 +828,16 @@ function designSidebar() {
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span></div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
-  const scn = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger }).map((r, i) => {
-    const s = A.scenarios[i], an = r.analytic;
+  const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
+  rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
+  const scnItem = r => {
+    const an = r.analytic;
     const state = r.status === 'unresolved' ? 'fail' : an.status === 'not-met' || r.fitness.status === 'failing' ? 'fail' : an.status === 'met' || r.fitness.status === 'passing' ? 'pass' : '';
     const note = r.status === 'unresolved' ? `artifact "${esc(r.artifact)}" is not in the model` : an.status === 'met' || an.status === 'not-met' ? `availability ≈ ${an.value.toFixed(2)}%` : an.status === 'unknown' ? `declare d.availability on ${esc(an.missing.join(', '))}` : '';
-    return `<div class="item" data-open="${esc(s._path)}"><div class="l1"><span class="dot ${state}"></span><span class="id">${esc(r.id)}</span><span class="tag">${esc(r.attribute || '')}</span></div><div class="l2">${esc(r.title)}${note ? ` · ${note}` : ''}${r.fitness.status !== 'none' ? ` · fitness ${r.fitness.status}` : ''}</div></div>`;
-  }).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
+    return `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="dot ${state}"></span><span class="id">${esc(r.id)}</span><span class="tag">${esc(r.attribute || '')}</span>${r.importance ? `<span class="tag" title="Importance">imp ${esc(r.importance)}</span>` : ''}${r.difficulty ? `<span class="tag" title="Difficulty">diff ${esc(r.difficulty)}</span>` : ''}</div><div class="l2">${esc(r.title)}${note ? ` · ${note}` : ''}${r.fitness.status !== 'none' ? ` · fitness ${r.fitness.status}` : ''}</div></div>`;
+  };
+  const rated = rows.some(r => r.importance || r.difficulty);
+  const scn = (rated ? Core.utilityTree(rows).map(g => `<div class="hint"><b>${esc(g.attribute || 'no attribute')}</b></div>${g.scenarios.map(scnItem).join('')}`) : rows.map(scnItem)).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
   const evr = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
   const evs = evr.map(r => {
     const dot = r.status === 'passing' ? 'pass' : r.status === 'failing' || r.status === 'invalid' ? 'fail' : '';

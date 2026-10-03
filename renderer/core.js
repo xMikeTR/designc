@@ -720,6 +720,10 @@ const Core = (() => {
     for (const s of scenarios) {
       if (!s || typeof s !== 'object' || !s.id || !s.artifact || !s.attribute || !s.measure) { clauses.push({ kind: 'scenario', text: `${(s && s.id) || 'a scenario'} needs artifact, attribute and measure` }); continue; }
     }
+    for (const s of scenarios) {
+      if (!s || typeof s !== 'object' || !s.id) continue;
+      for (const f of ['importance', 'difficulty']) if (s[f] != null && !RATINGS.includes(s[f])) clauses.push({ kind: 'scenario', text: `${s.id}: ${f} must be high, medium or low` });
+    }
     for (const r of scenarioReport({ model, scenarios: scenarios.filter(s => s && s.id && s.artifact && s.attribute && s.measure), ledger })) {
       if (r.status === 'unresolved') clauses.push({ kind: 'scenario', text: `${r.id}: artifact "${r.artifact}" is not in the model` });
       else if (r.analytic.status === 'not-met') clauses.push({ kind: 'scenario', text: `${r.id} is not met: availability ≈ ${r.analytic.value.toFixed(2)}% against ${r.measure.op === '<=' ? '≤' : '≥'} ${r.measure.value}%` });
@@ -750,10 +754,12 @@ const Core = (() => {
   function latestFitness(ledger, id) {
     return ledger.filter(e => e.kind === 'fitness' && e.scenario === id).sort((a, b) => (b._ts || 0) - (a._ts || 0))[0] || null;
   }
+  const RATINGS = ['high', 'medium', 'low'];
+  const rating = v => (RATINGS.includes(v) ? v : null);
   function scenarioReport({ model, scenarios = [], ledger = [] }) {
     const byName = n => [...model.elements.values()].find(e => e.name === n) || null;
     return scenarios.map(s => {
-      const row = { id: s.id, title: s.title || '', attribute: s.attribute, artifact: s.artifact, measure: s.measure || null };
+      const row = { id: s.id, title: s.title || '', attribute: s.attribute, artifact: s.artifact, measure: s.measure || null, importance: rating(s.importance), difficulty: rating(s.difficulty) };
       const el = byName(s.artifact);
       const cmds = (s.fitness || []).filter(c => c && !/^TODO/.test(c));
       const last = latestFitness(ledger, s.id);
@@ -775,6 +781,17 @@ const Core = (() => {
       row.analytic = { status: ok ? 'met' : 'not-met', value, elements: els.map(e => e.name) };
       return row;
     });
+  }
+
+  // The utility tree: scenarios grouped by quality attribute, most important and hardest first, unrated last.
+  // It only orders; nothing here reaches the gate.
+  function utilityTree(rows) {
+    const weight = v => 3 - RATINGS.indexOf(v), key = r => [r.importance ? weight(r.importance) : 0, r.difficulty ? weight(r.difficulty) : 0];
+    const cmp = (a, b) => { const x = key(a), y = key(b); return y[0] - x[0] || y[1] - x[1] || String(a.id).localeCompare(String(b.id)); };
+    const groups = new Map();
+    for (const r of rows) { const k = r.attribute || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }
+    const out = [...groups].map(([attribute, scenarios]) => ({ attribute, scenarios: scenarios.sort(cmp) }));
+    return out.sort((a, b) => cmp(a.scenarios[0], b.scenarios[0]) || a.attribute.localeCompare(b.attribute));
   }
 
   // ---------- agent evals ----------
@@ -1518,6 +1535,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
