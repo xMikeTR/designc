@@ -1,0 +1,8 @@
+id: EV-triage
+agent: Triage agent
+command: node ../../dev/mock-eval.js evals/results/EV-triage.json
+results: evals/results/EV-triage.json
+thresholds:
+  - task_success >= 0.85
+  - p95_latency_ms <= 1200
+maxAge: 7d

@@ -38,7 +38,7 @@ if (typeof Ledger !== 'undefined') {
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
   if (stageKeys !== caughtBy) throw new Error(`STAGES keys must equal Ledger.CAUGHT_BY: [${stageKeys}] vs [${caughtBy}]`);
 }
-const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios'];
+const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals'];
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -48,7 +48,7 @@ const A = {
   tabs: [], active: null,    // tab ids: file paths or 'special:build' / 'special:improve'
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
   modelText: '', model: null, diags: [], gate: null,
-  decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], yamlErrors: [],
+  decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], evals: [], yamlErrors: [],
   ledgerRaw: [], ledger: [], ledgerErrors: [], ledgerFiles: [],
   output: '', running: false, collapsed: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
@@ -90,7 +90,7 @@ async function loadSettings() {
   const t = await readText('designc.json');
   if (t) { try { Object.assign(A.cfg, JSON.parse(t)); } catch (e) { toast('designc.json is not valid JSON: ' + e.message, 'error'); } }
 }
-async function loadYamlDir(dir) {
+async function loadYamlDir(dir, keepText = false) {
   const files = await host.list(dir, ['.yaml', '.yml']); const out = [];
   for (const f of files) {
     const text = textOf(f.path) ?? f.text;
@@ -98,14 +98,14 @@ async function loadYamlDir(dir) {
       const o = jsyaml.load(text) || {};
       if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
       for (const k of ['binds', 'resolves', 'checks', 'elements']) if (o[k] != null && !Array.isArray(o[k])) o[k] = [o[k]];
-      out.push({ ...o, id: o.id || f.path.split('/').pop().replace(/\.ya?ml$/, ''), _path: f.path });
+      out.push({ ...o, id: o.id || f.path.split('/').pop().replace(/\.ya?ml$/, ''), _path: f.path, ...(keepText ? { _text: text } : {}) });
     } catch (e) { A.yamlErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
   }
   return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
 async function loadRegistry() {
   A.yamlErrors = [];
-  [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios] = await Promise.all(REG_DIRS.map(loadYamlDir));
+  [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals')));
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
   const hv = ((Array.isArray(A.tree) ? A.tree : []).find(n => n.dir && n.name === 'handovers')) || { children: [] };
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
@@ -159,7 +159,7 @@ async function loadAsbuilt() {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios, evals: A.evals });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   setMarkers();
@@ -484,6 +484,44 @@ async function runFitness() {
     }
   } finally { A.running = false; renderStatus(); }
 }
+async function newEval() {
+  const id = prompt('Eval id', 'EV-') || ''; if (!id.trim()) return;
+  const agent = prompt('Name of the agent element this eval judges', '') || '';
+  const text = `id: ${id.trim()}\nagent: ${yamlStr(agent.trim() || 'TODO')}   # an element name in the model\ncommand: TODO               # shell command that writes the results file\nresults: evals/results/${id.trim()}.json   # {"metrics": {...}, "cases": N}\nthresholds:\n  - task_success >= 0.85\n# maxAge: 7d\n`;
+  await createAndOpen(`evals/${id.trim()}.yaml`, text, 3);
+}
+// Runs one eval's command, reads its results file, scores it with the thresholds and records the verdict.
+async function runEval(def) {
+  const el = [...A.model.elements.values()].find(e => e.name === def.agent);
+  if (!el) { toast(`Eval ${def.id}: "${def.agent}" is not in the model. Fix the agent name in ${def._path}.`, 'warning'); return; }
+  appendOutput(`\n▶ ${def.id}  $ ${def.command}\n`);
+  const r = await host.runCheck(`${def.id}-${Date.now()}`, def.command);
+  if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return false; }
+  let results = null, why = '';
+  try { results = JSON.parse(await host.read(def.results)); } catch (e) { why = `${def.results} could not be read as JSON: ${e.message}`; }
+  const scored = results ? Core.scoreEval(def, results) : { error: why };
+  const base = { eval: String(def.id), agent: def.agent, source: 'local', ms: r.ms, fingerprint: Core.fingerprint(A.model, el.id).hash, eval_hash: Core.evalHash(def) };
+  let ev;
+  if (scored.error) ev = { ...base, outcome: 'fail', metrics: {}, cases: 0, reason: scored.error, exit_code: r.code };
+  else {
+    ev = { ...base, outcome: scored.outcome === 'pass' && r.code === 0 ? 'pass' : 'fail', metrics: scored.metrics, cases: scored.cases, exit_code: r.code };
+    if (ev.outcome === 'fail') ev.reason = scored.reason || `the command exited with ${r.code}`;
+  }
+  appendOutput(`${ev.outcome === 'pass' ? '✓ passed' : `✗ failed: ${ev.reason}`} in ${(r.ms / 1000).toFixed(1)}s\n`);
+  await recordEvent('eval', ev);
+  return true;
+}
+async function runEvals(only) {
+  if (A.running) { toast('Checks are already running.'); return; }
+  if (dirtyBuffers()) { toast('Save your open files first: an eval result is recorded against what is on disk.', 'warning'); return; }
+  const rows = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
+  const ids = new Set(rows.filter(r => !r.defInvalid && r.evalId && (!only || String(r.evalId) === String(only))).map(r => String(r.evalId)));
+  const targets = A.evals.filter(e => ids.has(String(e.id)));
+  if (!targets.length) { toast('No agent names a valid eval yet.', 'warning'); return; }
+  A.running = true; showPanel('output'); renderStatus();
+  appendOutput(`\n── ${new Date().toLocaleTimeString()}  running ${plural(targets.length, 'eval')}\n`);
+  try { for (const d of targets) if (await runEval(d) === false) return; } finally { A.running = false; renderStatus(); }
+}
 async function newProposal(p = {}) {
   const id = Core.slugId(p.statement || p.kind || 'proposal', A.proposals.map(x => x.id));
   await createAndOpen(`proposals/${id}.yaml`, `id: ${id}
@@ -762,7 +800,7 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion' }[c.kind]}</span><span>${esc(c.text)}</span></div>`).join('') +
+    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion', eval: 'eval', duplicate: 'duplicate' }[c.kind]}</span><span>${esc(c.text)}</span>${c.kind === 'eval' && c.agent && c.evalId ? `<button class="lnk" data-runeval="${esc(String(c.evalId))}">Run eval</button>` : ''}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
@@ -778,6 +816,15 @@ function designSidebar() {
     const note = r.status === 'unresolved' ? `artifact "${esc(r.artifact)}" is not in the model` : an.status === 'met' || an.status === 'not-met' ? `availability ≈ ${an.value.toFixed(2)}%` : an.status === 'unknown' ? `declare d.availability on ${esc(an.missing.join(', '))}` : '';
     return `<div class="item" data-open="${esc(s._path)}"><div class="l1"><span class="dot ${state}"></span><span class="id">${esc(r.id)}</span><span class="tag">${esc(r.attribute || '')}</span></div><div class="l2">${esc(r.title)}${note ? ` · ${note}` : ''}${r.fitness.status !== 'none' ? ` · fitness ${r.fitness.status}` : ''}</div></div>`;
   }).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
+  const evr = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
+  const evs = evr.map(r => {
+    const dot = r.status === 'passing' ? 'pass' : r.status === 'failing' || r.status === 'invalid' ? 'fail' : '';
+    const def = A.evals.find(e => String(e.id) === String(r.evalId));
+    const metrics = r.thresholds.map(t => `${esc(t.metric)} ${t.actual === null ? '–' : esc(String(t.actual))} (${esc(t.op)} ${esc(String(t.value))})`).join(', ');
+    return `<div class="item" ${def ? `data-open="${esc(def._path)}"` : ''}><div class="l1"><span class="dot ${dot}"></span><span class="id">${esc(r.agent)}</span><span class="tag">${esc(r.autonomy)}</span><span class="tag ${r.status === 'passing' ? '' : 'open'}">${esc(r.status)}</span></div>
+      <div class="l2">${r.reason ? esc(r.reason) : metrics}${r.autonomy === 'suggest' && r.status !== 'passing' ? ' · suggest agents are not blocked' : ''}</div>
+      ${def && !r.defInvalid ? `<div class="acts"><button class="lnk" data-runeval="${esc(String(def.id))}">Run eval</button></div>` : ''}</div>`;
+  }).join('') || '<div class="hint">No agent declares d.agent.autonomy yet. An agent that approves writes or acts alone needs an eval with thresholds.</div>';
   const G = A.grill;
   const grillBody = `<div class="hint">Reads the model, open findings, decisions and anything the pipeline is waiting on, then asks what most needs an answer.</div>
     <button class="btn block ${G.questions.length ? '' : 'primary'}" data-a="grill" ${G.busy || !hasModel ? 'disabled' : ''}>${G.busy ? 'Reading the design…' : G.questions.length ? 'Ask again' : 'Start grill-me'}</button>
@@ -789,6 +836,7 @@ function designSidebar() {
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button><button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
+    + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + section('grill', 'Grill-me', grillBody);
 }
 function buildSidebar() {
@@ -1382,6 +1430,7 @@ document.addEventListener('click', async e => {
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
+  if (d.runeval) return runEvals(d.runeval);
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
     const c = A.gate.clauses[+d.clause];
@@ -1389,6 +1438,7 @@ document.addEventListener('click', async e => {
     if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x) return openFile(x._path); }
     if (c.requirement) { const x = A.requirements.find(y => y.id === c.requirement); if (x) return openFile(x._path); }
     if (c.kind === 'needs') return setActivity('build');
+    if (c.kind === 'eval' && c.evalId != null) { const x = A.evals.find(y => String(y.id) === String(c.evalId)); if (x) return openFile(x._path); }
     return;
   }
   if (d.code) return openCode(d.code, d.line ? +d.line : undefined);
@@ -1419,6 +1469,8 @@ document.addEventListener('click', async e => {
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();
   if (a === 'runfit') return runFitness();
+  if (a === 'neweval') return newEval();
+  if (a === 'runevals') return runEvals();
   if (a === 'grill') return grill();
   if (a === 'draftprops') return draftProposals();
   if (a === 'builddash') return openSpecial('special:build');
