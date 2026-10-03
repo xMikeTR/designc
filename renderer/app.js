@@ -583,6 +583,15 @@ async function recordGate(source, git) {
   if (!Ledger.gateUnchanged(A.ledgerRaw, ev)) await recordEvent('gate', ev);
   return git;
 }
+// What freezing the model on disk would cost, against the newest handover's model and the recorded spend history.
+// Settings: designc.json `currency` (default GBP) and `forecast: { minSamples, window }`.
+async function computeForecast(modelText) {
+  const base = Core.latestHandoverModel(A.handovers), fc = A.cfg.forecast || {};
+  const prev = base ? Core.parse((await host.read(base.path)) || '') : null;
+  const forecast = Core.forecast({ before: prev, after: Core.parse(modelText),
+    history: Ledger.elementHistory(A.ledgerRaw, { window: fc.window || 10 }), minSamples: fc.minSamples || 3 });
+  return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
+}
 async function freezeHandover() {
   if (!A.gate || !A.gate.ready) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
@@ -598,9 +607,13 @@ async function freezeHandover() {
   const read = async (dir, exts) => (await host.list(dir, exts)).map(f => ({ path: f.path, text: f.text }));
   const decisions = [];
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
+  const modelText = (await host.read(A.cfg.model)) || '';
+  const { frozen } = await computeForecast(modelText);
+  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
+  if (!confirm(`Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`)) return;
   const plan = Core.handoverPlan({
-    date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user,
-    model: { path: A.cfg.model, text: (await host.read(A.cfg.model)) || '' },
+    date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
+    model: { path: A.cfg.model, text: modelText },
     requirements: await read('requirements', ['.yaml', '.yml']),
     decisions,
     behaviour: await read('behaviour', ['.p']),
@@ -1371,6 +1384,29 @@ function telemetryBlock() {
   if (g.gaps.noElement || g.gaps.noTask || g.gaps.unknownElement) h += `<div class="note" style="border-top:1px solid var(--edge)"><b>Tagging gaps.</b> ${[g.gaps.noElement && `${plural(g.gaps.noElement, 'pipeline run')} with no <span class="code">element</span>`, g.gaps.noTask && `${plural(g.gaps.noTask, 'run')} with no <span class="code">task</span>`, g.gaps.unknownElement && `${plural(g.gaps.unknownElement, 'run')} naming an element the design doesn't have`].filter(Boolean).join('; ')}. These can't be tied to the design; see the tagging convention in the README.</div>`;
   return h + '</div>';
 }
+// Forecast against actual per frozen handover, newest first. The forecast is the one frozen into handover.yaml;
+// the actual is every `task` event naming the handover, final once a `handover_closed` event exists.
+function summaryFor(h) {
+  return Core.forecastSummary({ id: h.id, created: h.created, requirements: h.requirements || [], forecast: h.forecast || null, actual: Ledger.handoverActuals(A.ledgerRaw, h.id) });
+}
+function handoversBlock() {
+  const list = A.handovers.slice().reverse();
+  if (!list.length) return '';
+  const rows = list.map(h => {
+    const f = h.forecast, a = Ledger.handoverActuals(A.ledgerRaw, h.id), cur = (f && f.currency) || A.cfg.currency || 'GBP';
+    const m = n => `${esc(cur)} ${n.toFixed(2)}`;
+    const diff = f && a.tasks ? `${a.tokens - f.tokens.expected >= 0 ? '+' : '-'}${fmtN(Math.abs(a.tokens - f.tokens.expected))}` : '';
+    const state = a.closed ? `<span class="tag ${a.closed === 'delivered' ? 'pass' : 'fail'}">${esc(a.closed)}</span>` : `<span class="tag open">in progress</span>`;
+    const act = a.closed ? '' : `<button class="btn" data-hvclose="${esc(h.id)}" data-outcome="delivered">Close as delivered</button> <button class="btn" data-hvclose="${esc(h.id)}" data-outcome="abandoned">Abandon</button>`;
+    return `<tr><td><span class="id">${esc(h.id)}</span></td><td class="num">${f ? `${fmtN(f.tokens.expected)} <span style="color:var(--fg3)">up to ${fmtN(f.tokens.high)}</span>` : '<span style="color:var(--fg3)">not recorded</span>'}</td><td class="num">${f ? `${m(f.cost.expected)}` : ''}</td><td>${f ? esc(`${f.coverage.priced} of ${f.coverage.changed}`) : ''}</td><td class="num">${a.tasks ? fmtN(a.tokens) : 'n/a'}</td><td class="num">${a.tasks ? m(a.cost) : ''}</td><td class="num">${diff}</td><td>${state}${a.afterClose ? ` <span class="tag open">${esc(plural(a.afterClose, 'task'))} after close</span>` : ''}</td><td>${act} <button class="btn" data-hvcopy="${esc(h.id)}">Copy summary</button></td></tr>`;
+  }).join('');
+  return `<div class="block"><h3>Handovers: forecast against actual</h3><div class="note">The forecast is frozen with the handover and priced from past spend on the elements it changes; an element needs ${esc(String((A.cfg.forecast || {}).minSamples || 3))} past handovers to count. The actual is every task recorded against the handover, reruns and failures included, and is final once the handover is closed.</div><div class="tw2"><table class="t"><tr><th>Handover</th><th class="num">Forecast tokens</th><th class="num">Forecast cost</th><th>Elements priced</th><th class="num">Actual tokens</th><th class="num">Actual cost</th><th class="num">Difference</th><th>State</th><th></th></tr>${rows}</table></div></div>`;
+}
+async function closeHandover(id, outcome) {
+  if (!confirm(`Close ${id} as ${outcome}? The actual spend becomes final and later tasks are flagged as after close.`)) return;
+  await recordEvent('handover_closed', { handover: id, outcome });
+  toast(`${id} closed as ${outcome}.`);
+}
 function buildDash() {
   const L = A.ledger, tasks = L.filter(e => e.kind === 'task'), passed = tasks.filter(t => t.status === 'passed');
   const tokens = tasks.reduce((a, t) => a + Ledger.totalTokens(t), 0), reruns = tasks.reduce((a, t) => a + (t.reruns || 0), 0);
@@ -1382,6 +1418,7 @@ function buildDash() {
   if (L.some(e => e.sample)) h += `<span class="samplenote">Includes sample events from ledger/pipeline.jsonl</span>`;
   if (!L.length) return h + `<div class="block"><h3>No pipeline events yet</h3><div class="note">The pipeline appends one JSON object per line to <span class="code">ledger/*.jsonl</span>, each with a <span class="code">kind</span>: task, check, needs_decision, asbuilt_edge, escape or false_positive. This view updates as the files change.</div></div></div>`;
   h += `<div class="stats"><div class="stat"><div class="v">${passed.length ? fmtN(tokens / passed.length) : 'n/a'}</div><div class="l">Tokens per passing task</div></div><div class="stat"><div class="v">${passed.length} of ${tasks.length}</div><div class="l">Tasks passed</div></div><div class="stat"><div class="v">${tasks.length ? (reruns / tasks.length).toFixed(1) : '0'}</div><div class="l">Reruns per task</div></div><div class="stat"><div class="v">${needs.filter(n => n.status === 'open').length}</div><div class="l">Waiting on a decision</div></div>${totalCost != null ? `<div class="stat"><div class="v">${money(totalCost)}</div><div class="l">Total task cost</div></div>` : ''}</div>`;
+  h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
   h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
   h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(n.element || '')}</div></td><td>${esc(n.question)}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span></td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
@@ -1447,6 +1484,8 @@ document.addEventListener('click', async e => {
   }
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
+  if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
     const c = A.gate.clauses[+d.clause];
