@@ -85,6 +85,16 @@ def load_registry(root):
     return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'evals': evals, 'errors': errors}
 
 
+def load_handover_evals(root):
+    """{handover id: {eval id: eval_hash}} from each handover.yaml that records the evals it froze."""
+    errors, found = [], []
+    hv = os.path.join(root, 'handovers')
+    if os.path.isdir(hv):
+        for n in sorted(os.listdir(hv)):
+            if os.path.isdir(os.path.join(hv, n)): found += load_yaml_dir(root, f'handovers/{n}', errors)
+    return {h['id']: {str(k): v for k, v in h['evals'].items()} for h in found if isinstance(h.get('evals'), dict)}
+
+
 def load_handover_ids(root):
     """Ids of the handovers on disk: handovers/<id>/handover.yaml folders beside the older flat files."""
     errors = []

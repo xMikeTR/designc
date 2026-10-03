@@ -39,7 +39,7 @@ def gate_record(model_text, diags, gate, source, git):
 
 # What the gate reads from the registry; `ledger/` is deliberately not here, so recording never makes a run dirty.
 def gate_inputs(cfg):
-    return [cfg.get('model') or 'model/workspace.dsl', 'decisions', 'requirements', 'scenarios', 'behaviour', 'vocabulary', 'designc.json']
+    return [cfg.get('model') or 'model/workspace.dsl', 'decisions', 'requirements', 'scenarios', 'evals/*.yaml', 'evals/*.yml', 'behaviour', 'vocabulary', 'designc.json']
 
 
 _GIT = ['-c', 'core.hooksPath=/dev/null', '-c', 'core.fsmonitor=false', '-c', 'core.pager=cat', '-c', 'core.untrackedCache=false']

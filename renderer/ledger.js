@@ -184,11 +184,11 @@ const Ledger = (() => {
   // Rules: V1 handover preceded by a green gate at its revision (a warning when it predates the first gate event),
   // V2 handover not dirty, V3 technical promotion preceded by a passing check, V4 every line validates,
   // V5 no repeated event_id with different content, V6 open unapproved changes (warning),
-  // V7 handovers/ and handover events agree. Sample events are skipped. Mirrored in python/designc/verify.py.
+  // V7 handovers/ and handover events agree, V8 a pipeline eval after the latest handover ran under the eval file that handover froze. Sample events are skipped. Mirrored in python/designc/verify.py.
   const stable = v => Array.isArray(v) ? '[' + v.map(stable).join(',') + ']'
     : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}' : JSON.stringify(v);
   const bareRevision = r => String(r == null ? '' : r).replace(/^r-/, '');
-  function verify(files, { handovers = [], decisions = [] } = {}) {
+  function verify(files, { handovers = [], decisions = [], handoverEvals = {} } = {}) {
     const errors = [], warnings = [];
     const err = (rule, msg) => errors.push({ rule, msg }), warn = (rule, msg) => warnings.push({ rule, msg });
     const firstSeen = new Map(), events = [];
@@ -238,6 +238,14 @@ const Ledger = (() => {
     const eventIds = new Set(live.filter(e => e.kind === 'handover').map(e => e.handover)), folderIds = new Set(handovers);
     for (const id of handovers) if (!eventIds.has(id)) err('V7', `handover ${id} has no handover event in the ledger`);
     for (const id of eventIds) if (!folderIds.has(id)) err('V7', `handover event ${id} has no handover in handovers/`);
+    // V8: handoverEvals is { <handover id>: { <eval id>: <eval_hash> } }, read from each handover.yaml.
+    const lastHandover = live.filter(e => e.kind === 'handover').pop() || { _ts: Infinity };
+    const frozen = (lastHandover && handoverEvals[lastHandover.handover]) || {};
+    const said = new Set();
+    for (const e of live.filter(x => x.kind === 'eval' && x.source === 'pipeline' && x._ts > lastHandover._ts)) {
+      const key = `${e.eval}:${e.eval_hash}`;
+      if (Object.prototype.hasOwnProperty.call(frozen, e.eval) && frozen[e.eval] !== e.eval_hash && !said.has(key)) { said.add(key); err('V8', `pipeline eval ${e.eval} ran under a different eval file than handover ${lastHandover.handover} froze`); }
+    }
     return { errors, warnings, skipped };
   }
 

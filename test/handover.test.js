@@ -47,3 +47,20 @@ test('policy: an agent may not write under handovers/', () => {
   for (const role of ['architect', 'grill', 'analyst'])
     assert.equal(Policy.writeVerdict(role, 'handovers/20261002-abcd1234/handover.yaml', 'id: x', yaml.load).ok, false, role);
 });
+
+test('handoverPlan: evals are copied and their hashes recorded by eval id', () => {
+  const text = 'id: EV-1\nagent: A\n';
+  const p = Core.handoverPlan(inputs({ evals: [{ path: 'evals/EV-1.yaml', text }] }));
+  assert.ok(p.files.some(f => f.path === `handovers/${p.id}/evals/EV-1.yaml`));
+  const doc = yaml.load(p.files.find(f => f.path.endsWith('/handover.yaml')).text);
+  assert.deepEqual(doc.evals, { 'EV-1': Core.evalHash({ _text: text }) });
+  assert.notEqual(Core.handoverPlan(inputs({ evals: [{ path: 'evals/EV-1.yaml', text: text + 'x: 1\n' }] })).id.slice(9), p.id.slice(9));
+  assert.deepEqual(yaml.load(Core.handoverPlan(inputs()).files[0].text).evals, {});
+});
+
+test('no agent role may write evals/', () => {
+  for (const role of Object.keys(Policy.WRITE_PATHS)) {
+    const v = Policy.writeVerdict(role, 'evals/EV-1.yaml', 'id: EV-1\n', t => require('js-yaml').load(t));
+    assert.equal(v.ok, false, role);
+  }
+});

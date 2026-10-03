@@ -1,4 +1,4 @@
-// Ledger.verify: the trail checks V1 to V7, one fixture per rule.
+// Ledger.verify: the trail checks V1 to V8, one fixture per rule.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Ledger = require('../renderer/ledger.js');
@@ -104,4 +104,19 @@ test('files are read in path order so the report does not depend on listing orde
   const a = file('ledger/a.jsonl', ['bad']), b = file('ledger/b.jsonl', ['worse']);
   const one = Ledger.verify([a, b], { handovers: [], decisions: [] }), two = Ledger.verify([b, a], { handovers: [], decisions: [] });
   assert.deepEqual(one, two);
+});
+
+const evalEv = (fields = {}) => ev('eval', { eval: 'EV-1', agent: 'A', outcome: 'pass', metrics: { m: 1 }, cases: 1, source: 'pipeline', fingerprint: 'f', eval_hash: 'new', ...fields });
+
+test('V8: a pipeline eval after the latest handover must run the eval file the handover froze', () => {
+  const opts = { handovers: ['H-1'], decisions: [], handoverEvals: { 'H-1': { 'EV-1': 'old' } } };
+  const r = run([gate(), handover(), evalEv()], opts);
+  assert.deepEqual(rules(r).e, ['V8']);
+  assert.match(r.errors[0].msg, /EV-1.*H-1/);
+  assert.deepEqual(rules(run([gate(), handover(), evalEv({ eval_hash: 'old' })], opts)).e, [], 'same file');
+  assert.deepEqual(rules(run([gate(), handover(), evalEv({ source: 'local' })], opts)).e, [], 'local runs are not judged');
+  assert.deepEqual(rules(run([evalEv({ ts: 1 }), gate(), handover()], opts)).e, [], 'before the handover');
+  assert.deepEqual(rules(run([gate(), handover(), evalEv({ eval: 'EV-9' })], opts)).e, [], 'an eval the handover did not freeze');
+  assert.deepEqual(rules(run([gate(), handover(), evalEv()], { handovers: ['H-1'], decisions: [] })).e, [], 'no recorded hashes');
+  assert.equal(run([gate(), handover(), evalEv(), evalEv()], opts).errors.length, 1, 'said once per eval file');
 });

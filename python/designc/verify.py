@@ -1,4 +1,4 @@
-"""Ledger integrity, rules V1 to V7. Mirrors Ledger.verify in renderer/ledger.js, message by message."""
+"""Ledger integrity, rules V1 to V8. Mirrors Ledger.verify in renderer/ledger.js, message by message."""
 import json
 import os
 
@@ -12,7 +12,7 @@ def _is_num(v): return isinstance(v, (int, float)) and not isinstance(v, bool)
 def _bare(r): return '' if r is None else (str(r)[2:] if str(r).startswith('r-') else str(r))
 
 
-def verify(files, handovers=(), decisions=()):
+def verify(files, handovers=(), decisions=(), handover_evals=None):
     """files: [{'path', 'text'}]. Returns {'errors': [{rule, msg}], 'warnings': [...], 'skipped': n}."""
     errors, warnings = [], []
     def err(rule, msg): errors.append({'rule': rule, 'msg': msg})
@@ -70,6 +70,13 @@ def verify(files, handovers=(), decisions=()):
         if i not in event_ids: err('V7', f'handover {i} has no handover event in the ledger')
     for i in event_ids:
         if i not in handovers: err('V7', f'handover event {i} has no handover in handovers/')
+    last = next((e for e in reversed(live) if e.get('kind') == 'handover'), None)
+    frozen = (handover_evals or {}).get(last.get('handover'), {}) if last else {}
+    said = set()
+    for e in (x for x in live if last and x.get('kind') == 'eval' and x.get('source') == 'pipeline' and x['_ts'] > last['_ts']):
+        key = f"{e.get('eval')}:{e.get('eval_hash')}"
+        if e.get('eval') in frozen and frozen[e['eval']] != e.get('eval_hash') and key not in said:
+            said.add(key); err('V8', f"pipeline eval {e['eval']} ran under a different eval file than handover {last.get('handover')} froze")
     return {'errors': errors, 'warnings': warnings, 'skipped': skipped}
 
 

@@ -15,7 +15,7 @@ const gate = (f = {}) => ev('gate', { source: 'local', revision: 'r-aaaa1111', r
 const handover = (f = {}) => ev('handover', { handover: 'H-1', revision: 'aaaa1111', ...f });
 const jl = list => list.map(e => typeof e === 'string' ? e : JSON.stringify(e)).join('\n') + '\n';
 const pyVerify = (files, opts) => {
-  const r = spawnSync('python3', ['-c', 'import json,sys\nfrom designc.verify import verify\nd=json.load(sys.stdin)\nprint(json.dumps(verify(d["files"],d["handovers"],d["decisions"])))'],
+  const r = spawnSync('python3', ['-c', 'import json,sys\nfrom designc.verify import verify\nd=json.load(sys.stdin)\nprint(json.dumps(verify(d["files"],d["handovers"],d["decisions"],d.get("handoverEvals"))))'],
     { cwd: PY, encoding: 'utf8', input: JSON.stringify({ files, ...opts }) });
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
@@ -35,6 +35,8 @@ const CASES = {
   v5same: { files: [['a', [dup]], ['b', [{ ...dup }]]] },
   v6: { files: [['checks', [ev('unapproved_change', { agent: 'claude', role: 'architect', path: 'model/workspace.dsl', via: 'acp' })]]] },
   v7: { files: [['checks', [gate(), handover(), ev('handover', { handover: 'H-2', revision: 'aaaa1111' })]]], handovers: ['H-1', 'H-9'] },
+  v8: { files: [['checks', [gate(), handover(), ev('eval', { eval: 'EV-1', agent: 'A', outcome: 'pass', metrics: { m: 1 }, cases: 1, source: 'pipeline', fingerprint: 'f', eval_hash: 'new' })]]], handovers: ['H-1'], handoverEvals: { 'H-1': { 'EV-1': 'old' } } },
+  v8ok: { files: [['checks', [gate(), handover(), ev('eval', { eval: 'EV-1', agent: 'A', outcome: 'pass', metrics: { m: 1 }, cases: 1, source: 'pipeline', fingerprint: 'f', eval_hash: 'old' })]]], handovers: ['H-1'], handoverEvals: { 'H-1': { 'EV-1': 'old' } } },
   sample: { files: [['checks', [gate({ sample: true }), handover({ sample: true, dirty: true })]]], decisions: [] },
   order: { files: [['z', ['bad']], ['a', ['worse']]] },
 };
@@ -42,7 +44,7 @@ const CASES = {
 for (const [name, c] of Object.entries(CASES)) {
   test(`verify parity: ${name}`, { skip }, () => {
     const files = c.files.map(([f, list]) => ({ path: `ledger/${f}.jsonl`, text: jl(list) }));
-    const opts = { handovers: c.handovers || [], decisions: c.decisions || [] };
+    const opts = { handovers: c.handovers || [], decisions: c.decisions || [], handoverEvals: c.handoverEvals };
     assert.deepEqual(pyVerify(files, opts), JSON.parse(JSON.stringify(Ledger.verify(files, opts))));
   });
 }
@@ -76,6 +78,17 @@ test('verify-ledger finds flat and folder handovers and decision kinds on disk',
   const r = JSON.parse(run(root, ['--json']).stdout);
   assert.deepEqual(r.errors.map(e => e.rule), ['V3']);
   assert.match(r.errors[0].msg, /D-2/);
+});
+
+test('verify-ledger V8 reads the evals a handover froze from handover.yaml', { skip }, () => {
+  const root = reg();
+  const e = hash => ev('eval', { eval: 'EV-1', agent: 'A', outcome: 'pass', metrics: { m: 1 }, cases: 1, source: 'pipeline', fingerprint: 'f', eval_hash: hash });
+  put(root, 'handovers/H-1/handover.yaml', 'id: H-1\nrevision: r-aaaa1111\nevals: {"EV-1": "abc"}\n');
+  put(root, 'ledger/checks.jsonl', jl([gate(), handover(), e('abc')]));
+  assert.equal(run(root).status, 0);
+  put(root, 'ledger/checks.jsonl', jl([gate(), handover(), e('xyz')]));
+  const r = JSON.parse(run(root, ['--json']).stdout);
+  assert.deepEqual(r.errors.map(x => x.rule), ['V8']);
 });
 
 test('the sample registry has a consistent ledger', { skip }, () => {
