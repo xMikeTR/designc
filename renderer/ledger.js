@@ -41,6 +41,7 @@ const Ledger = (() => {
     escape_classified: 'designc.jsonl',
     false_positive: 'pipeline.jsonl',
     handover: 'designc.jsonl',
+    handover_closed: 'designc.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -99,7 +100,7 @@ const Ledger = (() => {
     },
     task: {
       required: ['task', 'status'],
-      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier'],
+      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover'],
       enums: { status: ['passed', 'failed', 'blocked', 'running'] },
     },
     needs_decision: {
@@ -127,6 +128,11 @@ const Ledger = (() => {
       optional: ['commit', 'dirty'],
       enums: {},
       types: { commit: 'string|null', dirty: 'boolean' },
+    },
+    handover_closed: {
+      required: ['handover', 'outcome'],
+      optional: [],
+      enums: { outcome: ['delivered', 'abandoned'] },
     },
     gate: {
       required: ['source', 'revision', 'ready', 'verdict', 'clauses', 'findings'],
@@ -427,6 +433,38 @@ const Ledger = (() => {
     return 0;
   }
 
+  // Spend per element and handover, from `task` events that name a handover and an element.
+  // Reruns and failures count; events with no handover or no element are left out. Returns
+  // Map(element name -> [{handover, tokens, cost}]) for the last `window` handovers, oldest first
+  // (a handover's place is the time of its first task). Expects events in Ledger.order.
+  function elementHistory(events, { window = 10 } = {}) {
+    const byEl = new Map(), first = new Map();
+    for (const e of events) {
+      if (e.kind !== 'task' || !e.handover || !e.element) continue;
+      if (!first.has(e.handover)) first.set(e.handover, first.size);
+      const rows = byEl.get(e.element) || new Map();
+      const r = rows.get(e.handover) || { handover: e.handover, tokens: 0, cost: 0 };
+      r.tokens += totalTokens(e); r.cost += typeof e.cost === 'number' ? e.cost : 0;
+      rows.set(e.handover, r); byEl.set(e.element, rows);
+    }
+    const out = new Map();
+    for (const [el, rows] of byEl) out.set(el, [...rows.values()].sort((a, b) => first.get(a.handover) - first.get(b.handover)).slice(-window));
+    return out;
+  }
+
+  // What one handover has cost so far. After a `handover_closed` event the figure is final: later tasks
+  // are counted in `afterClose` and left out of the totals. `closed` is the outcome or null.
+  function handoverActuals(events, id) {
+    const close = events.filter(e => e.kind === 'handover_closed' && e.handover === id).pop();
+    const out = { tokens: 0, cost: 0, tasks: 0, closed: close ? close.outcome : null, afterClose: 0 };
+    for (const e of events) {
+      if (e.kind !== 'task' || e.handover !== id) continue;
+      if (close && e._ts > close._ts) { out.afterClose++; continue; }
+      out.tasks++; out.tokens += totalTokens(e); out.cost += typeof e.cost === 'number' ? e.cost : 0;
+    }
+    return out;
+  }
+
   // What each agent did, for the Improve view. One row per agent and role, newest activity last-seen.
   // Reads the agent_* kinds and unapproved_change; every other kind is ignored.
   function agentActivity(events) {
@@ -471,7 +509,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
