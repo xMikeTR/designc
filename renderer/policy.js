@@ -11,6 +11,9 @@ const Policy = (() => {
   // Evidence and agreement are what make a business decision a business decision; only a human supplies them.
   const HUMAN_FIELDS = ['agreed_by', 'evidence'];
 
+  // Set when a human marks an assumption reviewed (reviewAssumption); an agent may draft the assumption, never its review.
+  const REVIEW_FIELDS = ['reviewed_by', 'reviewed_at'];
+
   // Tools that change the registry. Settings can deny them or leave them out, never make them silent.
   const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'mint_proposal'];
 
@@ -41,6 +44,8 @@ const Policy = (() => {
         if (field) return no(`${field} is recorded when a human binds a decision; leave it out and write the decision as minted.`);
         const human = HUMAN_FIELDS.find(f => Object.prototype.hasOwnProperty.call(doc, f));
         if (human) return no(`${human} is added by a human, not an agent; leave it out.`);
+        const reviewed = Array.isArray(doc.assumptions) && doc.assumptions.some(a => a && typeof a === 'object' && REVIEW_FIELDS.some(f => Object.prototype.hasOwnProperty.call(a, f)));
+        if (reviewed) return no('An assumption is marked reviewed by a human, not an agent; leave reviewed_by and reviewed_at out.');
       }
     }
     return { ok: true };

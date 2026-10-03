@@ -18,7 +18,7 @@ const ROLES = {
     instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
-    instructions: 'You are the Analyst for System 4. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works.',
+    instructions: 'You are the Analyst for System 4. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
     starters: ['What should change in the factory given the recent escapes?', 'Which lint rule would have caught the most failed runs?', 'Is any rule noisy enough to reconsider?'] },
 };
 function roleCfg(role) {
@@ -54,7 +54,7 @@ const READERS = {
   get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
   get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }),
   list_decisions: () => JSON.stringify({
-    decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
+    decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, assumptions: d.assumptions || [], latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
     requirements: A.requirements.map(r => ({ id: r.id, title: r.title, elements: r.elements })),
   }),
   read_registry_file: async a => { const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },

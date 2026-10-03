@@ -285,6 +285,8 @@ An agent also declares its workflow shape in `d.agent.pattern` (`single-call`, `
 
 Quality attribute scenarios (`scenarios/*.yaml`) may carry `importance` and `difficulty` (`high`, `medium` or `low`). Once any scenario is rated, the Scenarios section in the Design sidebar becomes a utility tree: grouped by quality attribute, most important and hardest first, unrated last. Ratings only order the list; a value other than high, medium or low blocks the ready gate.
 
+A decision can list the assumptions it rests on: `assumptions: [{"text": "Volume stays under 1k a day", "review_by": "2027-01-01"}]`. Once a bound decision has an assumption past its review date, the ready gate blocks until you press Mark reviewed on the decision in the sidebar and set the next date. Agents can draft assumptions but cannot mark them reviewed; the Analyst checks decisions against a short rubric that includes overdue assumptions.
+
 ```yaml
 # evals/EV-triage.yaml
 id: EV-triage

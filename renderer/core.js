@@ -664,6 +664,25 @@ const Core = (() => {
     return id;
   }
 
+  // A decision's assumptions (`assumptions: [{text, review_by}]`) go stale: past review_by the gate blocks until a human
+  // reviews them. A YAML date (review_by: 2027-01-01) reads as a Date, so both spellings are normalised first.
+  const isoDay = v => {
+    const t = v instanceof Date ? v.toISOString().slice(0, 10) : v;
+    if (typeof t !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(t)) return null;
+    const d = new Date(t + 'T00:00:00Z');
+    return !isNaN(d) && d.toISOString().slice(0, 10) === t ? t : null;
+  };
+  function assumptionClauses(dec, today, clauses) {
+    if (dec.assumptions == null) return;
+    const bad = { kind: 'assumption', text: `${dec.id}: each assumption needs text and a review_by date (YYYY-MM-DD)`, decision: dec.id };
+    if (!Array.isArray(dec.assumptions)) { clauses.push(bad); return; }
+    let flagged = false;
+    for (const a of dec.assumptions) {
+      const day = a && typeof a === 'object' && typeof a.text === 'string' && a.text.trim() ? isoDay(a.review_by) : null;
+      if (!day) { if (!flagged) clauses.push(bad); flagged = true; continue; }
+      if (day < today) clauses.push({ kind: 'assumption', text: `${dec.id}: assumption "${a.text.trim().slice(0, 60)}" was due for review on ${day}`, decision: dec.id });
+    }
+  }
   function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [], evals = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
@@ -672,6 +691,7 @@ const Core = (() => {
       for (const x of list) { if (seen.has(x.id) && !said.has(x.id)) { said.add(x.id); clauses.push({ kind: 'duplicate', text: `duplicate id ${x.id}`, [kind]: x.id }); } seen.add(x.id); }
     }
     for (const e of registryErrors) clauses.push({ kind: 'registry', text: `${e.path} does not parse`, path: e.path });
+    const today = new Date(now).toISOString().slice(0, 10);
     const bound = decisions.filter(d => d.status === 'bound');
     const covers = (dec, f) => dec.effect === 'accept' && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b));
     for (const f of diags) {
@@ -685,6 +705,7 @@ const Core = (() => {
       if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
+      assumptionClauses(dec, today, clauses);
       if (business) businessEvidence(dec, evidenceHosts, clauses);
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
