@@ -324,3 +324,7 @@ To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's 
 | `renderer/app.js` | Workbench: Monaco setup, views, panels, sheet, dashboards |
 
 Headless screenshots for docs or CI: `DESIGNC_SNAPSHOT=out/shot DESIGNC_STEPS='[]' xvfb-run npx electron . --no-sandbox /path/to/registry`.
+
+## Deployment view picker
+
+The Deployment view lists each `deployment` view declared in the model (`key · scope · environment`) and `All of <environment>`. A view scoped to a software system hides unrelated nodes and shows other systems' instances in shared nodes as "+ N from <system>". Clicking a node shows what is lost if it is unavailable, split into this view and other systems. `"deployment"` in `designc.json` sets the default (a view key, else an environment name); your last pick is remembered per registry.
