@@ -27,7 +27,7 @@ def state(root):
     except OSError:
         raise SystemExit(f'designc: cannot read {cfg.get("model") or "model/workspace.dsl"} in {root}. Open a registry folder, or set "model" in designc.json.') from None
     model = parse(src)
-    diags = check(model, cfg.get('chainHops') or 4)
+    diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4)
     reg = load_registry(root)
     g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'])
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}

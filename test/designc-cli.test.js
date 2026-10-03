@@ -22,7 +22,7 @@ test('the sample registry gives the documented result in both implementations', 
   const errs = py.findings.filter(f => !f.suppressed && f.sev === 'error').map(f => f.code).sort();
   const warns = py.findings.filter(f => !f.suppressed && f.sev === 'warning').map(f => f.code).sort();
   assert.deepEqual(errs, ['DC002', 'DC004']);
-  assert.deepEqual(warns, ['DC001', 'DC003', 'DC005', 'DC006']);
+  assert.deepEqual(warns, ['DC001', 'DC003', 'DC005', 'DC006', 'DC008']);
   assert.equal(py.findings.filter(f => f.suppressed).length, 1);
   same(root, 'sample-registry');
 });
@@ -37,18 +37,18 @@ const MODEL = `workspace "Shop" {
         properties { "d.instances" "1" "d.critical" "yes" "d.availability" "0.999" "d.zone" "dmz" }
       }
       db = container "Orders DB" "" "SQL" "Database" {
-        properties { "d.availability" "0.9999" "d.zone" "data" "d.suppress" "DC006: audited" }
+        properties { "d.availability" "0.9999" "d.zone" "data" "d.suppress" "DC006: audited" "d.latency.max" "300" }
       }
       wk = container "Worker" { properties { "d.instances" "3" "d.zone" "data" "d.availability" 0.99 } }
       q = container "Queue"
     }
     u -> api "uses"
-    api -> db "writes" "TCP" { properties { "d.interaction" "sync" "d.writes" "order" "d.concurrency" "none" "d.encrypted" "no" } }
+    api -> db "writes" "TCP" { properties { "d.interaction" "sync" "d.writes" "order" "d.concurrency" "none" "d.encrypted" "no" "d.timeout" "100" } }
     wk -> db "writes" { properties { "d.writes" "order" "d.interaction" "sync" "d.retry" "fixed" "d.idempotent" "no" } }
     api -> q "emits" { properties { "d.interaction" "async" "d.delivery" "at-least-once" "d.idempotent" "no" } }
     wk -> q "reads" { properties { "d.intraction" "async" "d.retry.max" "x" } }
-    api -> wk "calls"
-    wk -> api "calls back"
+    api -> wk "calls" { properties { "d.interaction" "sync" "d.retry" "fixed" "d.retry.max" "9" "d.idempotent" "yes" "d.timeout" "40" } }
+    wk -> api "calls back" { properties { "d.timeout" "50" "d.fanout" "parallel" } }
   }
   views { systemContext web { include * } }
 }
