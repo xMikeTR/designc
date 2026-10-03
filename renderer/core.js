@@ -673,6 +673,37 @@ const Core = (() => {
     });
   }
 
+  // ---------- agent evals ----------
+  // evals/<id>.yaml names an agent, a command that writes a results file, and thresholds on its metrics.
+  // The runner only reports numbers; designc applies the thresholds, so the same results always give the same verdict.
+  const THRESHOLD = /^\s*([A-Za-z_][\w.-]*)\s*(>=|<=|==|>|<)\s*(-?\d+(?:\.\d+)?)\s*$/;
+  function parseThreshold(text) {
+    const m = typeof text === 'string' ? THRESHOLD.exec(text) : null;
+    if (!m) return { error: `"${text}" is not "<metric> <op> <number>", e.g. task_success >= 0.85` };
+    return { metric: m[1], op: m[2], value: Number(m[3]) };
+  }
+  const THRESHOLD_OPS = { '>=': (a, b) => a >= b, '<=': (a, b) => a <= b, '>': (a, b) => a > b, '<': (a, b) => a < b, '==': (a, b) => a === b };
+  function scoreEval(evalDef, results) {
+    const list = (evalDef && evalDef.thresholds) || [];
+    if (!list.length) return { error: `eval ${evalDef && evalDef.id} has no thresholds` };
+    const parsed = list.map(parseThreshold);
+    const bad = parsed.find(t => t.error);
+    if (bad) return { error: bad.error };
+    if (!results || typeof results !== 'object' || Array.isArray(results)) return { error: 'results must be an object with metrics and cases' };
+    const metrics = results.metrics;
+    if (!metrics || typeof metrics !== 'object' || Array.isArray(metrics) || !Object.values(metrics).every(v => typeof v === 'number' && Number.isFinite(v)))
+      return { error: 'results.metrics must be an object of numbers' };
+    if (!Number.isInteger(results.cases) || results.cases < 0) return { error: 'results.cases must be a whole number, 0 or more' };
+    const thresholds = parsed.map(t => {
+      const actual = Object.prototype.hasOwnProperty.call(metrics, t.metric) ? metrics[t.metric] : null;
+      return { ...t, actual, ok: actual !== null && THRESHOLD_OPS[t.op](actual, t.value) };
+    });
+    const reasons = thresholds.filter(t => !t.ok).map(t => t.actual === null ? `${t.metric} is missing from the results` : `${t.metric} ${t.actual} is not ${t.op} ${t.value}`);
+    const out = { outcome: reasons.length ? 'fail' : 'pass', metrics, cases: results.cases, thresholds };
+    if (reasons.length) out.reason = reasons.join('; ');
+    return out;
+  }
+
   // ---------- blast radius ----------
   // Who is hurt when one element misbehaves (fails, stalls or answers wrongly). Callers are found by
   // walking relationships backwards. A sync caller goes `down` and the damage continues through it; an
@@ -1228,6 +1259,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, latestFitness, parseThreshold, scoreEval, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
