@@ -8,10 +8,14 @@ const PROPS = [
   ['d.idempotent', 'relationship', ['yes', 'no'], 'Whether the receiver handles this interaction idempotently (DC001, DC004).'],
   ['d.retry', 'relationship', ['none', 'fixed', 'backoff'], 'Caller retry policy (DC004).'],
   ['d.retry.max', 'relationship', null, 'Maximum retry attempts, a whole number.'],
+  ['d.timeout', 'relationship', null, 'Caller timeout in milliseconds. Must cover the callee\'s worst case (DC007).'],
   ['d.encrypted', 'relationship', ['yes', 'no'], 'Encrypted in transit (DC006).'],
   ['d.authenticated', 'relationship', ['yes', 'no'], 'Caller is authenticated (DC006).'],
   ['d.writes', 'relationship', null, 'Comma-separated entities written to the destination store (DC002).'],
   ['d.concurrency', 'relationship', ['none', 'optimistic', 'pessimistic'], 'Concurrency control on those writes (DC002).'],
+  ['d.latency.max', 'element', null, 'Worst-case own processing time in milliseconds, not counting its calls (DC007).'],
+  ['d.fanout', 'element', ['sequential', 'parallel'], 'Whether the element makes its outgoing sync calls one after another or together. Default sequential (DC007).'],
+  ['d.retry.budget', 'element', null, 'Retry amplification this receiver tolerates; overrides retryAmplification in designc.json (DC008).'],
   ['d.instances', 'element', null, 'Running instances, a whole number (DC002, DC005).'],
   ['d.critical', 'element', ['yes', 'no'], 'On a critical path (DC005).'],
   ['d.zone', 'element', null, 'Trust zone name; children inherit it (DC006).'],
@@ -1030,13 +1034,22 @@ function renderSheet() {
     const br = Core.blastRadius(m, A.selected, { mode: 'misbehaves' });
     for (const [kind, list] of [['down', br.down], ['degraded', br.degraded], ['unknown', br.unknown]]) for (const x of list) blast.set(x.id, kind);
   }
+  // Timing badges: every sync rel shows its timeout against the callee's worst case; a selected box shows the retry multiplier it puts on what it reaches.
+  const tim = A.badges === 'timing' ? Core.timing(m, { retryAmplification: A.cfg.retryAmplification || 4 }) : null;
+  const amp = tim && A.selected && m.elements.has(A.selected) ? Core.amplificationFrom(m, A.selected) : new Map();
+  const TIM_COL = { ok: 'var(--ink3)', violation: 'var(--err)', unknown: 'var(--warn)' };
+  const timLabel = (r, t) => [r.description, t.timeout == null ? '' : t.status === 'unknown' ? t.timeout + ' ms vs ?' : `${t.timeout} ms vs ${t.worst} ms`, t.factor > 1 ? '×' + t.factor : ''].filter(Boolean).join(' · ');
   const BLAST_BADGE = { down: ['down', 'var(--err)'], degraded: ['deg', 'var(--warn)'], unknown: ['?', 'var(--ink3)'] };
   host_.innerHTML = drawModel(m, L, {
     attr: 'el', zoom: fitZoom(host_, L, A.zoom),
-    edgeStyle: r => { const sev = relSev.get(r.id), hot = A.selected && (r.src === A.selected || r.dst === A.selected), as = Core.interaction(r) === 'async';
+    edgeStyle: r => { const t = tim && tim.rels.get(r.id);
+      if (t) return { color: TIM_COL[t.status], width: t.status === 'ok' ? 1.3 : 2, dash: '', marker: t.status === 'violation' ? 'error' : t.status === 'unknown' ? 'warning' : 'n', labelColor: t.status === 'ok' ? null : TIM_COL[t.status], label: timLabel(r, t) };
+      if (tim) return { color: col(null), width: 1, dash: Core.interaction(r) === 'async' ? '6 4' : '', marker: 'n', labelColor: null, label: '' };
+      const sev = relSev.get(r.id), hot = A.selected && (r.src === A.selected || r.dst === A.selected), as = Core.interaction(r) === 'async';
       return { color: col(sev), width: hot ? 2.4 : sev ? 1.8 : 1.3, dash: as ? '6 4' : '', marker: sev || 'n', labelColor: sev ? col(sev) : null, label: r.description ? r.description + (as ? ' (async)' : '') : '' }; },
     nodeStyle: e => {
       const base = { stroke: A.selected === e.id ? 'var(--accent)' : 'var(--ink)', sw: A.selected === e.id ? 2.6 : 1.5 };
+      if (tim) { const x = amp.get(e.id); return x > 1 ? { ...base, badge: '×' + x, badgeColor: x > (A.cfg.retryAmplification || 4) ? 'var(--err)' : 'var(--ink3)' } : base; }
       if (A.badges === 'blast') { const b = BLAST_BADGE[blast.get(e.id)]; return b ? { ...base, badge: b[0], badgeColor: b[1] } : base; }
       if (A.badges === 'findings') return { ...base, badge: elN.get(e.id), badgeColor: col(elSev.get(e.id)) };
       const t = telByEl.get(e.name); if (!t) return base;

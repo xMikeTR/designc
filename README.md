@@ -3,7 +3,7 @@
 A system design IDE. The design is the source; code is a build output.
 It opens a **registry folder** and gives you the three systems in one window:
 
-- **Design (System 1):** a Structurizr DSL editor (Monaco, the VS Code editor engine) with live lint (DC000 to DC006) as squiggles, completions and hovers for `d.*` properties, a C4 sheet beside it, decisions and requirements as YAML files, the definition-of-ready gate, grill-me, and handover.
+- **Design (System 1):** a Structurizr DSL editor (Monaco, the VS Code editor engine) with live lint (DC000 to DC008) as squiggles, completions and hovers for `d.*` properties, a C4 sheet beside it, decisions and requirements as YAML files, the definition-of-ready gate, grill-me, and handover.
 - **Build (System 2):** live agent runs from Langfuse, plus what the pipeline recorded in `ledger/*.jsonl`: tokens per passing task, reruns, each decision's latest check result, items waiting on a decision, and as-built vs designed drift.
 - **Code map (as built):** a C4 map of an existing codebase, extracted deterministically from the repo, overlaid on the design so drift is visible. Every box and arrow links to the lines of code that prove it.
 - **Agent panel:** a chat pane like Copilot's with three roles (Architect, Grill-me, Analyst). Model-agnostic: use the built-in agent with any model your gateway routes, or plug in any ACP agent (Claude Code, Codex, Gemini CLI, Copilot, your own). Either way it reads the workspace and every change waits for your approval.
@@ -247,11 +247,28 @@ The app itself only appends: check results to `ledger/checks.jsonl`, and handove
 {
   "model": "model/workspace.dsl",
   "chainHops": 4,
+  "retryAmplification": 4,
   "llm": { "baseUrl": "https://your-gateway/v1", "model": "claude-sonnet", "apiKeyEnv": "DESIGNC_LLM_API_KEY" }
 }
 ```
 
 Grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
+
+## Timing and retries
+
+Declare how long calls may take and the app checks the numbers agree. Only synchronous calls count; async rels, parent and child pairs and calls from a person are skipped.
+
+| Property | On | Meaning |
+| --- | --- | --- |
+| `d.timeout` | relationship | Caller timeout in milliseconds |
+| `d.latency.max` | element | Worst-case own processing time in milliseconds, not counting its calls |
+| `d.fanout` | element | `sequential` (default) or `parallel`: whether its outgoing calls add up or only the slowest counts |
+| `d.retry.budget` | element | Retry amplification this receiver tolerates; overrides the project default |
+
+- **DC007 (error).** A rel's `d.timeout` is less than the callee's worst case: its `d.latency.max` plus, for each of its outgoing sync rels, `d.timeout × (1 + d.retry.max)` (the maximum instead of the sum when `d.fanout` is `parallel`). Judged only on rels that declare `d.timeout`; missing values give a warning that names them.
+- **DC008 (warning).** Along a sync chain the product of attempts `(1 + d.retry.max)` is higher than the receiver's `d.retry.budget`, or else `retryAmplification` in `designc.json` (default 4). Retries declared without `d.retry.max` give a warning asking for it.
+
+Both rules come from a concept note and are not yet backed by an incident. On the C4 sheet, choose "Badges: timing": each sync rel shows its timeout against the callee's worst case (red when it fails, amber when something is missing), and selecting a box shows the retry multiplier it puts on everything it reaches.
 
 ## Agent evals
 
@@ -332,7 +349,7 @@ To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's 
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC006, gate, drift. Same rules and results as the Python CLI in `python/designc` |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC008, gate, drift. Same rules and results as the Python CLI in `python/designc` |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
 | `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |
