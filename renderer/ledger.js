@@ -450,10 +450,28 @@ const Ledger = (() => {
     return [...rows.values()];
   }
 
+  // How each eval is trending, for the Improve view. One row per eval id, oldest result first in `series`.
+  // `metrics[name]` holds every recorded value in time order plus the change from the previous run to the latest.
+  function evalTrends(events) {
+    const by = new Map();
+    for (const e of events.filter(x => x.kind === 'eval' && !x.sample).sort((a, b) => (a._ts || 0) - (b._ts || 0))) {
+      if (!by.has(e.eval)) by.set(e.eval, { eval: e.eval, agent: e.agent, runs: 0, passed: 0, failed: 0, latest: null, metrics: {} });
+      const r = by.get(e.eval); r.agent = e.agent; r.runs++;
+      if (e.outcome === 'pass') r.passed++; else r.failed++;
+      r.latest = { outcome: e.outcome, source: e.source, ts: e._ts || 0, cases: e.cases };
+      for (const [k, v] of Object.entries(e.metrics || {})) (r.metrics[k] = r.metrics[k] || { values: [] }).values.push(v);
+    }
+    for (const r of by.values()) for (const m of Object.values(r.metrics)) {
+      const n = m.values.length;
+      m.latest = m.values[n - 1]; m.change = n > 1 ? m.latest - m.values[n - 2] : null;
+    }
+    return [...by.values()];
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
