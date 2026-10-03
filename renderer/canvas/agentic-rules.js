@@ -146,7 +146,7 @@
           for (const a of m.elements.values()) {
             const pattern = get(a, 'd.agent.pattern');
             if (pattern == null) {
-              if (isAgent(a) && get(a, 'd.agent.autonomy') != null) res.push(D('AG011', 'warning', 'd.agent.pattern undeclared', m.locEl(a), { hint: 'set d.agent.pattern', unknown: true }));
+              if (get(a, 'd.agent.autonomy') != null) res.push(D('AG011', 'warning', 'd.agent.pattern undeclared', m.locEl(a), { hint: 'set d.agent.pattern', unknown: true }));
               continue;
             }
             const why = get(a, 'd.agent.patternWhy');

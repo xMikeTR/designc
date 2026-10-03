@@ -680,7 +680,7 @@ const Core = (() => {
     for (const a of dec.assumptions) {
       const day = a && typeof a === 'object' && typeof a.text === 'string' && a.text.trim() ? isoDay(a.review_by) : null;
       if (!day) { if (!flagged) clauses.push(bad); flagged = true; continue; }
-      if (day < today) clauses.push({ kind: 'assumption', text: `${dec.id}: assumption "${a.text.trim().slice(0, 60)}" was due for review on ${day}`, decision: dec.id });
+      if (day < today) clauses.push({ kind: 'assumption', text: `${dec.id}: assumption "${Array.from(a.text.trim()).slice(0, 60).join('')}" was due for review on ${day}`, decision: dec.id });
     }
   }
   function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [], evals = [], now = Date.now() }) {
@@ -820,7 +820,7 @@ const Core = (() => {
   // relationship away from an agent appear. An agent has the Agent tag or declares d.agent.autonomy (as the evals do). An irreversible call with no human approval is `unguarded`.
   function agentTopology(model) {
     const agents = new Set([...model.elements.values()].filter(e => e.tags.has('Agent') || get(e, 'd.agent.autonomy') != null).map(e => e.id));
-    const edges = model.rels.filter(r => (agents.has(r.src) || agents.has(r.dst)) && r.src !== r.dst && !structural(model, r)).map(r => {
+    const edges = model.rels.filter(r => (agents.has(r.src) || agents.has(r.dst)) && r.src !== r.dst && model.elements.has(r.src) && model.elements.has(r.dst) && !structural(model, r)).map(r => {
       const effect = get(r, 'd.tool.effect'), approval = get(r, 'd.approval');
       return { id: r.id, src: r.src, dst: r.dst, description: r.description || '', effect: effect == null ? null : effect, approval: approval == null ? null : approval,
         protocol: get(r, 'd.protocol') == null ? null : get(r, 'd.protocol'), unguarded: effect === 'irreversible' && approval !== 'human' };
