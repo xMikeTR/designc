@@ -136,6 +136,9 @@ test('deployment environments parse the same', { skip }, () => {
     }
     views { deployment s "Live" "ok" { include * }
       deployment * Ghost { include * }
+      deployment nowhere Live "bad-scope" { include * }
+      deployment a Live "container-scope" { include * }
+      deployment * Live "all" { include * }
       systemContext s "ctx" { include * } }
   } }`;
   same(tmpRegistry({ 'model/workspace.dsl': dsl }), 'deployment');

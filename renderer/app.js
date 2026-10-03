@@ -1230,42 +1230,65 @@ function canvasHostFor() {
   };
 }
 // ---------------------------------------------------------------- deployment (read-only)
-function deploymentChoice() { return Core.deploymentView(A.model, A.cfg.deployment || null); }
+const deployKey = () => `designc.deployPick:${A.root ? (A.root.root || A.root.name) : ''}`;
+function deployMemory(id) {
+  try { if (id === undefined) return localStorage.getItem(deployKey()); if (id) localStorage.setItem(deployKey(), id); else localStorage.removeItem(deployKey()); } catch (e) { /* no storage: the pick lasts for this session */ }
+  return null;
+}
+// The picker's current choice: this session's pick, the remembered one, the designc.json default, else the first.
+// `list` is empty when the model declares no environment; `error` says a configured default names nothing.
+function deploymentChoice() {
+  const list = Core.deploymentChoices(A.model);
+  if (!list.length) return { list, current: null };
+  const byId = id => list.find(c => c.id === id);
+  const dv = A.cfg.deployment ? Core.deploymentView(A.model, A.cfg.deployment) : null;
+  const fromCfg = dv && !dv.error ? byId(dv.view ? `view:${dv.view.key || dv.view.scope}` : `env:${dv.env.name}`) : null;
+  const current = byId(A.deployPick) || byId(deployMemory()) || fromCfg || list[0];
+  return { list, current, error: !A.deployPick && dv && dv.error ? dv.error : null };
+}
+const deployPicker = d => d.list.some(c => c.view) || d.list.filter(c => !c.view).length > 1;
 function deploymentSidebar() {
-  const v = deploymentChoice();
-  const rows = v.choices.map(n => `<div class="row ${v.env && v.env.name === n ? 'active' : ''}"><span class="tw"></span><span class="lbl">${esc(n)}</span></div>`).join('');
-  return section('deploy', 'Environments', rows || '<div class="hint">This model declares no deploymentEnvironment.</div>') +
-    '<div class="hint">Read-only. Choose the environment with "deployment" in designc.json. Edit the model in the Design view.</div>';
+  const d = deploymentChoice();
+  const rows = d.list.map(c => `<div class="row ${d.current && d.current.id === c.id ? 'active' : ''}" data-dppick="${esc(c.id)}"><span class="tw"></span><span class="lbl">${esc(c.label)}</span></div>`).join('');
+  return section('deploy', 'Views', rows || '<div class="hint">This model declares no deploymentEnvironment.</div>') +
+    '<div class="hint">Read-only. Pick a declared view or a whole environment; the default is "deployment" in designc.json. Edit the model in the Design view.</div>';
 }
-function deployNodeHtml(n, path = '') {
-  if (n.kind === 'containerInstance' || n.kind === 'softwareSystemInstance') {
-    const missing = !n.ref;
-    return `<div class="dp-inst ${missing ? 'dp-bad' : ''}"><b>${esc(n.name)}</b><span>${missing ? 'unknown element' : esc(n.kind === 'containerInstance' ? 'container instance' : 'system instance')}</span></div>`;
-  }
+function deployInstHtml(n) {
+  const missing = !n.ref;
+  return `<div class="dp-inst ${missing ? 'dp-bad' : ''}"><b>${esc(n.name)}</b><span>${missing ? 'unknown element' : esc(n.kind === 'containerInstance' ? 'container instance' : 'system instance')}</span></div>`;
+}
+function deployNodeHtml(sn) {
+  const n = sn.node;
   const meta = [n.technology, n.instances && n.instances !== '1' ? `${n.instances} instances` : ''].filter(Boolean).join(' · ');
-  const here = path ? `${path}/${n.name}` : n.name;
-  return `<div class="dp-node ${n.kind === 'infrastructureNode' ? 'dp-infra' : ''}"><div class="dp-h" data-dpnode="${esc(here)}" title="Show what fails if this node is unavailable"><b>${esc(n.name)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</div>${n.children.map(c => deployNodeHtml(c, here)).join('')}</div>`;
+  const shared = sn.shared.map(x => `<div class="dp-shared">+ ${x.count} from ${esc(x.system)}</div>`).join('');
+  return `<div class="dp-node ${n.kind === 'infrastructureNode' ? 'dp-infra' : ''}"><div class="dp-h" data-dpnode="${esc(sn.path)}" title="Show what fails if this node is unavailable"><b>${esc(n.name)}</b>${meta ? `<span>${esc(meta)}</span>` : ''}</div>${sn.insts.map(deployInstHtml).join('')}${shared}${sn.children.map(deployNodeHtml).join('')}</div>`;
 }
-function unavailableHtml(path, env) {
+function unavailableHtml(path, env, view) {
   const r = Core.blastRadius(A.model, path, { mode: 'unavailable', environment: env });
   if (r.error) return `<div class="note">${esc(r.error)}</div>`;
-  const row = (label, l) => l.length ? `<div><b>${label}</b> ${l.map(x => esc(x.name)).join(', ')}</div>` : '';
+  const sys = view && view.system ? view.system : null;
+  const row = (label, l) => {
+    if (!l.length) return '';
+    if (!sys) return `<div><b>${label}</b> ${l.map(x => esc(x.name)).join(', ')}</div>`;
+    return Core.splitBySystem(A.model, l, sys).map(side => `<div><b>${label}</b> <i>${side.here ? 'this view' : 'also affected (other systems)'}</i>: ${side.groups.map(g => `${g.system ? `${esc(g.system)}: ` : ''}${g.items.map(x => esc(x.name)).join(', ')}`).join('; ')}</div>`).join('');
+  };
   return `<div class="dp-impact"><h3>If ${esc(path)} is unavailable</h3>${row('Lost', r.lost) || '<div>No element loses all its instances.</div>'}${row('Still running, reduced', r.survivors)}${row('Down (sync callers)', r.down)}${row('Degraded (async)', r.degraded)}${row('Unknown (undeclared interaction)', r.unknown)}</div>`;
 }
-function deployLinksHtml(env) {
-  const views = ((A.model && A.model.deployment && A.model.deployment.views) || []).filter(x => x.environment === env.name);
-  let h = '';
-  if (env.rels && env.rels.length) h += `<div class="block"><h3>Links</h3><div class="tw2"><table class="t"><tr><th>From</th><th>To</th><th>What</th><th>Technology</th></tr>${env.rels.map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.dst)}</td><td>${esc(r.description || '')}</td><td>${esc(r.technology || '')}</td></tr>`).join('')}</table></div></div>`;
-  if (views.length) h += `<div class="note">Deployment views declared for this environment: ${views.map(x => esc(x.key || x.scope)).join(', ')}.</div>`;
-  return h;
+function deployLinksHtml(rels) {
+  if (!rels.length) return '';
+  return `<div class="block"><h3>Links</h3><div class="tw2"><table class="t"><tr><th>From</th><th>To</th><th>What</th><th>Technology</th></tr>${rels.map(r => `<tr><td>${esc(r.src)}</td><td>${esc(r.dst)}</td><td>${esc(r.description || '')}</td><td>${esc(r.technology || '')}</td></tr>`).join('')}</table></div></div>`;
 }
 function renderDeployment() {
-  const v = deploymentChoice(); const el = $('#special');
-  if (v.error) { el.innerHTML = `<div class="note">${esc(v.error)}</div>`; return; }
-  if (!v.env) { el.innerHTML = `<div class="note">${v.choices.length ? `This model declares several environments (${esc(v.choices.join(', '))}). Set "deployment" in designc.json to choose one.` : 'This model declares no deploymentEnvironment. Add one in the Design view to see where containers run.'}</div>`; return; }
-  el.innerHTML = `<div class="dp"><h2>${esc(v.env.name)}</h2>${v.env.nodes.map(n => deployNodeHtml(n)).join('') || '<div class="note">This environment has no deployment nodes.</div>'}${deployLinksHtml(v.env)}<div id="dpImpact"></div></div>`;
-  el.querySelectorAll('[data-dpnode]').forEach(h => h.addEventListener('click', ev => { ev.stopPropagation(); $('#dpImpact').innerHTML = unavailableHtml(h.dataset.dpnode, v.env.name); }));
+  const d = deploymentChoice(); const el = $('#special');
+  if (!d.current) { el.innerHTML = '<div class="note">This model declares no deploymentEnvironment. Add one in the Design view to see where containers run.</div>'; return; }
+  const c = d.current, sc = Core.deploymentScope(A.model, c.env, c.view);
+  const picker = deployPicker(d) ? `<label class="dp-pick">View <select id="dpPick">${d.list.map(x => `<option value="${esc(x.id)}" ${x.id === c.id ? 'selected' : ''}>${esc(x.label)}</option>`).join('')}</select></label>` : '';
+  const hidden = sc.scoped && sc.hidden ? `<div class="note">${sc.hidden} node${sc.hidden === 1 ? '' : 's'} outside ${esc(sc.system)} not shown. Pick "All of ${esc(c.env.name)}" to see them.</div>` : '';
+  el.innerHTML = `<div class="dp"><h2>${esc(c.label)}</h2>${d.error ? `<div class="note">${esc(d.error)}</div>` : ''}${picker}${sc.nodes.map(deployNodeHtml).join('') || '<div class="note">This environment has no deployment nodes.</div>'}${hidden}${deployLinksHtml(sc.rels)}<div id="dpImpact"></div></div>`;
+  el.querySelectorAll('[data-dpnode]').forEach(h => h.addEventListener('click', ev => { ev.stopPropagation(); $('#dpImpact').innerHTML = unavailableHtml(h.dataset.dpnode, c.env.name, c.view); }));
+  const sel = $('#dpPick'); if (sel) sel.addEventListener('change', () => pickDeployment(sel.value));
 }
+function pickDeployment(id) { A.deployPick = id; deployMemory(id); renderSidebar(); renderSpecial(); }
 function renderCanvasView() {
   const el = $('#special');
   if (A.canvasApi && el.querySelector('.dcv-stage')) { A.canvasApi.refresh(); return; }
@@ -1336,8 +1359,9 @@ function improveDash() {
 
 // ---------------------------------------------------------------- events
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], .node, [data-s]'); if (!t) return;
+  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], [data-dppick], .node, [data-s]'); if (!t) return;
   const d = t.dataset;
+  if (d.dppick) return pickDeployment(d.dppick);
   if (d.close) { e.stopPropagation(); closeTab(d.close); return; }
   if (d.tab) return activate(d.tab);
   if (d.toggle && !e.target.closest('.acts')) { A.collapsed.has(d.toggle) ? A.collapsed.delete(d.toggle) : A.collapsed.add(d.toggle); renderSidebar(); return; }

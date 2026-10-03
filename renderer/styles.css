@@ -312,3 +312,6 @@ pre.yamlprev{padding:6px 8px;white-space:pre-wrap}
 .dp-h[data-dpnode] { cursor: pointer; }
 .dp-impact { margin-top: 16px; border-top: 1px solid var(--edge); padding-top: 8px; font-size: 12px; }
 .dp-impact h3 { font-size: 12px; margin: 0 0 6px; }
+.dp-shared { color: var(--fg3); font-size: 11px; opacity: .7; padding: 2px 8px; }
+.dp-pick { display: block; margin: 0 0 8px; font-size: 12px; color: var(--fg2); }
+.dp-pick select { margin-left: 6px; }

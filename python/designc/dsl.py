@@ -357,7 +357,16 @@ def parse(src):
         env = next((e for e in envs if e.name == v.environment or (e.ident and e.ident == v.environment)), None)
         if not env:
             errors.append({'line': v.line, 'msg': f'deployment view names unknown environment "{v.environment}"'}); continue
-        views.append(NS(scope=v.scope, environment=env.name, key=v.key, line=v.line))
+        system = None
+        if v.scope != '*':
+            eid = idents.get(v.scope)
+            el = els.get(eid) if eid else None
+            if not el:
+                errors.append({'line': v.line, 'msg': f'deployment view names unknown software system "{v.scope}"'}); continue
+            if el.kind != 'softwareSystem':
+                errors.append({'line': v.line, 'msg': 'deployment view scope must be a software system'}); continue
+            system = el.id
+        views.append(NS(scope=v.scope, environment=env.name, key=v.key, line=v.line, system=system))
     m = Model(st['name'], els, rels, errors)
     m.deployment = {'environments': envs, 'views': views}
     return m
