@@ -916,11 +916,12 @@ const Core = (() => {
   // (System 4 joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'behaviour', 'vocabulary', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'evals', 'behaviour', 'vocabulary', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
-  return files.map(f => f.path).filter(p => p === model || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')));
+  // evals/ holds the definitions (.yaml) the gate reads and the results files it does not, so only the definitions count.
+  return files.map(f => f.path).filter(p => p === model || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')) && !(p.startsWith('evals/') && !/\.ya?ml$/.test(p)));
 }
 function gateRecord({ modelText, diags, gate, source, git }) {
     const clauses = byCanonical(gate.clauses.map(c => ({ kind: c.kind, text: c.text })));
@@ -935,8 +936,8 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
   // Pure: the caller reads the files and writes the result.
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [] }) {
-    const content = [model, ...requirements, ...decisions, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [] }) {
+    const content = [model, ...requirements, ...decisions, ...evals, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
@@ -948,6 +949,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
+evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 files:
 ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
