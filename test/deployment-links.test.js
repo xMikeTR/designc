@@ -50,10 +50,21 @@ test('a deployment relationship naming an unknown identifier is an error with a 
 
 test('deployment views are listed and must name a declared environment', () => {
   assert.deepEqual(Core.parse(dsl).deployment.views, [
-    { scope: 'sys', environment: 'Live', key: 'live-view', line: 21 },
+    { scope: 'sys', environment: 'Live', key: 'live-view', line: 21, system: 'sys' },
   ]);
   const m = Core.parse(dsl.replace('systemContext sys "ctx" { include * }', 'deployment * Live2 {\n   include *\n  }'));
   assert.deepEqual(m.errors.map(e => e.msg), ['deployment view names unknown environment "Live2"']);
   assert.equal(m.errors[0].line, 25);
   assert.equal(m.deployment.views.length, 1);
+});
+
+test('a deployment view scope is * or a declared software system', () => {
+  const swap = scope => Core.parse(dsl.replace('deployment sys "Live"', `deployment ${scope} "Live"`));
+  assert.deepEqual(swap('*').errors, []);
+  assert.equal(swap('*').deployment.views[0].system, null);
+  assert.deepEqual(swap('nowhere').errors.map(e => e.msg), ['deployment view names unknown software system "nowhere"']);
+  assert.equal(swap('nowhere').errors[0].line, 21);
+  assert.equal(swap('nowhere').deployment.views.length, 0, 'an invalid view is not listed');
+  assert.deepEqual(swap('api').errors.map(e => e.msg), ['deployment view scope must be a software system']);
+  assert.deepEqual(swap('api').deployment.views, []);
 });
