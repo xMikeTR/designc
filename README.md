@@ -248,6 +248,7 @@ The app itself only appends: check results to `ledger/checks.jsonl`, and handove
   "model": "model/workspace.dsl",
   "chainHops": 4,
   "retryAmplification": 4,
+  "currency": "GBP",
   "llm": { "baseUrl": "https://your-gateway/v1", "model": "claude-sonnet", "apiKeyEnv": "DESIGNC_LLM_API_KEY" }
 }
 ```
@@ -269,6 +270,12 @@ Declare how long calls may take and the app checks the numbers agree. Only synch
 - **DC008 (warning).** Along a sync chain the product of attempts `(1 + d.retry.max)` is higher than the receiver's `d.retry.budget`, or else `retryAmplification` in `designc.json` (default 4). Retries declared without `d.retry.max` give a warning asking for it.
 
 Both rules come from a concept note and are not yet backed by an incident. On the C4 sheet, choose "Badges: timing": each sync rel shows its timeout against the callee's worst case (red when it fails, amber when something is missing), and selecting a box shows the retry multiplier it puts on everything it reaches.
+
+## Cost forecast
+
+Freezing a handover shows what it is likely to cost before you confirm. designc compares the model being frozen with the newest handover's model, finds the containers and components that changed (added, changed, or at either end of a changed relationship), and prices each from what past handovers spent on it, read from `task` events in the ledger that name a `handover` and an `element`. With at least 3 past handovers of history an element is measured: the median is the expected figure and the p90 the high end. With fewer it shows "no basis" and is left out, and the total says how many changed elements it covers. Removed elements are listed, not priced.
+
+The forecast is written into `handover.yaml`. Build has a "Handovers: forecast against actual" table: the actual is every task recorded against the handover, reruns and failures included, and is final once you close the handover ("Close as delivered" or "Abandon"). "Copy summary" puts a plain-text summary on the clipboard for a leadership update; nothing is sent anywhere. Settings: `"currency": "GBP"` and `"forecast": { "minSamples": 3, "window": 10 }`. What the pipeline must record is in `docs/cost-forecast-contract.md`. There is no price table and no spend limit: limits belong to System 2.
 
 ## Agent evals
 
