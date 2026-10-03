@@ -35,7 +35,7 @@ thresholds:
 maxAge: 7d                       # optional: 30m, 12h, 7d
 ```
 
-`command` runs through the shell with the registry folder as its working directory, . In the app, secret-looking environment variables are removed unless listed in `designc.json` `inheritEnv`; `designc eval` passes its own environment through. Decide `maxAge` from how often the agent's behaviour can drift (model or prompt changes); leave it out if the fingerprint check is enough.
+`command` runs through the shell with the registry folder as its working directory. In the app, secret-looking environment variables are removed unless listed in `designc.json` `inheritEnv`; `designc eval` passes its own environment through. Decide `maxAge` from how often the agent's behaviour can drift (model or prompt changes); leave it out if the fingerprint check is enough.
 
 ## 3. The model
 
