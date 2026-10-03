@@ -208,6 +208,45 @@
         "caught_by_member"
       ]
     },
+    "eval": {
+      "stream": "checks.jsonl",
+      "required": [
+        "eval",
+        "agent",
+        "outcome",
+        "metrics",
+        "cases",
+        "source",
+        "fingerprint",
+        "eval_hash"
+      ],
+      "optional": [
+        "ms",
+        "exit_code",
+        "reason"
+      ],
+      "enums": {
+        "outcome": [
+          "pass",
+          "fail"
+        ],
+        "source": [
+          "local",
+          "pipeline"
+        ]
+      },
+      "types": {
+        "eval": "string",
+        "agent": "string",
+        "metrics": "object",
+        "cases": "number",
+        "fingerprint": "string",
+        "eval_hash": "string"
+      },
+      "rules": [
+        "fail_needs_evidence"
+      ]
+    },
     "extraction": {
       "stream": "designc.jsonl",
       "required": [

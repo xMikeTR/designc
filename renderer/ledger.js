@@ -31,6 +31,7 @@ const Ledger = (() => {
   const STREAM = {
     check: 'checks.jsonl',
     fitness: 'checks.jsonl',
+    eval: 'checks.jsonl',
     gate: 'checks.jsonl',
     task: 'pipeline.jsonl',
     needs_decision: 'pipeline.jsonl',
@@ -70,6 +71,13 @@ const Ledger = (() => {
       optional: ['ms', 'exit_code', 'reason'],
       enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
 
+      rules: ['fail_needs_evidence'],
+    },
+    eval: {
+      required: ['eval', 'agent', 'outcome', 'metrics', 'cases', 'source', 'fingerprint', 'eval_hash'],
+      optional: ['ms', 'exit_code', 'reason'],
+      enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
+      types: { eval: 'string', agent: 'string', metrics: 'object', cases: 'number', fingerprint: 'string', eval_hash: 'string' },
       rules: ['fail_needs_evidence'],
     },
     escape: {
@@ -166,8 +174,8 @@ const Ledger = (() => {
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
   };
   // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
-  const isType = (v, t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : typeof v === t;
-  const TYPE_NAMES = { boolean: 'a boolean', string: 'a string', array: 'an array', 'string|null': 'a string or null' };
+  const isType = (v, t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : t === 'object' ? isPlainObject(v) : typeof v === t;
+  const TYPE_NAMES = { boolean: 'a boolean', string: 'a string', array: 'an array', object: 'an object', number: 'a number', 'string|null': 'a string or null' };
   const basename = p => String(p || '').split(/[\\/]/).pop();
 
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
