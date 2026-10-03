@@ -268,7 +268,7 @@ Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the f
 
 Run > Run All Decision Checks (Ctrl+Shift+B) runs each decision's `checks` as shell commands in the registry folder, writes pass or fail to the ledger, and streams output to the Output panel. Because those commands come from the repository, the app asks you to trust a folder the first time, like VS Code's workspace trust. Only trust folders whose decisions you'd be willing to run.
 
-To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's user data folder. It is deliberately not a `designc.json` setting, because that file comes with the repository.
+To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's user data folder (`~/.config/designc` on Linux, `%APPDATA%\designc` on Windows, `~/Library/Application Support/designc` on macOS; Electron names it after `productName`). It is deliberately not a `designc.json` setting, because that file comes with the repository.
 
 ## Keys
 
