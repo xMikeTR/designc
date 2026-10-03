@@ -163,7 +163,7 @@ async function gitCommitFlow() {
     }
   }
   const r = await gitDo('Commit', () => host.gitCommit(G.msg));
-  if (r && r.ok) { G.msg = ''; renderSidebar(); }
+  if (r && r.ok) { G.msg = ''; renderSidebar(); await recordGate('local'); }
 }
 
 document.addEventListener('input', e => { if (e.target.id === 'gitMsg') G.msg = e.target.value; });

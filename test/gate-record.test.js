@@ -75,3 +75,17 @@ test('gateUnchanged compares with the last gate event from the same source only'
   assert.equal(Ledger.gateUnchanged([g({ commit: null })], noGit), true, 'absent and null commit are the same');
   assert.equal(Ledger.gateUnchanged([{ kind: 'check', source: 'local', _ts: 9 }, g({})], now), true);
 });
+
+test('dirtyInputs: only files the gate reads count, ledger changes never do', () => {
+  const Core = require('../renderer/core.js');
+  const f = (path, index = ' ', worktree = 'M') => ({ path, index, worktree });
+  const cfg = { model: 'model/workspace.dsl' };
+  assert.deepEqual(Core.dirtyInputs([f('ledger/checks.jsonl'), f('handovers/x/handover.yaml'), f('asbuilt/facts.json'), f('notes.md')], cfg), []);
+  assert.deepEqual(Core.dirtyInputs([f('decisions/D-1.yaml'), f('ledger/a.jsonl')], cfg), ['decisions/D-1.yaml']);
+  assert.deepEqual(Core.dirtyInputs([f('model/workspace.dsl', '?', '?'), f('requirements/R-1.yml', 'A', ' '), f('scenarios/s.yaml', 'R', ' '), f('designc.json')], cfg),
+    ['model/workspace.dsl', 'requirements/R-1.yml', 'scenarios/s.yaml', 'designc.json']);
+  assert.deepEqual(Core.dirtyInputs([f('design/other.dsl')], { model: 'design/other.dsl' }), ['design/other.dsl'], 'a configured model path counts');
+  assert.deepEqual(Core.dirtyInputs([f('model/workspace.dsl')], {}), ['model/workspace.dsl'], 'default model path');
+  assert.deepEqual(Core.dirtyInputs([f('decisions-notes.md')], cfg), [], 'a folder name is not a prefix match');
+  assert.deepEqual(Core.GATE_INPUTS, ['decisions', 'requirements', 'scenarios', 'designc.json']);
+});
