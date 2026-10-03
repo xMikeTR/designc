@@ -718,6 +718,26 @@ const Core = (() => {
     return els.find(e => e.ident && e.ident === entry.element) || els.find(e => e.name === entry.name) || null;
   }
 
+  // ---------- gate record ----------
+  // The model revision a handover and a gate event both carry: r- plus 8 hex of the model text.
+  const modelRevision = text => `r-${hash16(String(text)).slice(0, 8)}`;
+  // Canonical JSON: keys sorted at every level, no whitespace. Mirrored in python/designc/record.py.
+  const canonical = v => Array.isArray(v) ? `[${v.map(canonical).join(',')}]`
+    : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`
+      : JSON.stringify(v);
+  const byCanonical = list => list.map(x => [canonical(x), x]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(p => p[1]);
+  const verdictHash = ({ ready, clauses, findings }) => hash16(canonical({ ready, clauses, findings }));
+  // One gate ledger event (without envelope) for what the gate says now. Findings keep the label as `on`
+  // (System 4 joins on element names) and drop lines, messages, hints and related locations. Clauses and
+  // findings are in canonical order, so diagnostic order never changes the record or its verdict.
+  function gateRecord({ modelText, diags, gate, source, git }) {
+    const clauses = byCanonical(gate.clauses.map(c => ({ kind: c.kind, text: c.text })));
+    const findings = byCanonical(diags.map(d => ({ code: d.code, sev: d.sev, on: d.loc.label, loc: d.loc.kind, unknown: !!d.unknown, suppressed: !!d.suppressed })));
+    const ev = { kind: 'gate', source, revision: modelRevision(modelText), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
+    if (git) { ev.commit = git.commit; ev.dirty = !!git.dirty; }
+    return ev;
+  }
+
   // ---------- handover ----------
   // A frozen handover is a folder: handovers/<yyyymmdd>-<hash8>/ holding handover.yaml and verbatim copies
   // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
@@ -730,7 +750,7 @@ const Core = (() => {
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const q = JSON.stringify;
     const head = `id: ${id}
-revision: r-${hash16(model.text).slice(0, 8)}
+revision: ${modelRevision(model.text)}
 created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
@@ -1118,6 +1138,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

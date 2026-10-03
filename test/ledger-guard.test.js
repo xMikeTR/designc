@@ -26,3 +26,13 @@ test('the store is the only ledger append path', () => {
     assert.equal(read(f).includes('sessions.jsonl'), false, `${f} should not reference sessions.jsonl directly`);
   }
 });
+
+test('python/designc/ledger.py is the only Python code that writes under ledger/', () => {
+  const dir = path.join(ROOT, 'python', 'designc');
+  for (const f of fs.readdirSync(dir).filter(n => n.endsWith('.py') && n !== 'ledger.py')) {
+    const text = fs.readFileSync(path.join(dir, f), 'utf8');
+    assert.equal(/open\([^)]*['"][aw]\+?b?['"]/.test(text), false, `${f} opens a file for writing; ledger lines go through ledger.append_event`);
+    assert.equal(/\.write\(|\.write_text\(|os\.replace|shutil\./.test(text), false, `${f} writes files; ledger lines go through ledger.append_event`);
+    assert.equal(/checks\.jsonl|designc\.jsonl|agents\.jsonl|pipeline\.jsonl|sessions\.jsonl/.test(text), false, `${f} names a ledger stream file`);
+  }
+});

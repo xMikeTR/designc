@@ -31,6 +31,7 @@ const Ledger = (() => {
   const STREAM = {
     check: 'checks.jsonl',
     fitness: 'checks.jsonl',
+    gate: 'checks.jsonl',
     task: 'pipeline.jsonl',
     needs_decision: 'pipeline.jsonl',
     needs_decision_resolved: 'designc.jsonl',
@@ -61,21 +62,27 @@ const Ledger = (() => {
       required: ['decision', 'check', 'outcome', 'source'],
       optional: ['ms', 'exit_code', 'reason'],
       enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
+
+      rules: ['fail_needs_evidence'],
     },
     fitness: {
       required: ['scenario', 'check', 'outcome', 'source'],
       optional: ['ms', 'exit_code', 'reason'],
       enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
+
+      rules: ['fail_needs_evidence'],
     },
     escape: {
       required: ['id', 'description'],
       optional: ['code', 'caught_by', 'source', 'traces'],
       enums: {},
+      rules: ['caught_by_member'],
     },
     escape_classified: {
       required: ['escape', 'caught_by'],
       optional: [],
       enums: {},
+      rules: ['caught_by_member'],
     },
     false_positive: {
       required: ['code'],
@@ -109,8 +116,15 @@ const Ledger = (() => {
     },
     handover: {
       required: ['handover', 'revision'],
-      optional: [],
+      optional: ['commit', 'dirty'],
       enums: {},
+      types: { commit: 'string|null', dirty: 'boolean' },
+    },
+    gate: {
+      required: ['source', 'revision', 'ready', 'verdict', 'clauses', 'findings'],
+      optional: ['commit', 'dirty'],
+      enums: { source: ['local', 'pipeline'] },
+      types: { revision: 'string', ready: 'boolean', verdict: 'string', clauses: 'array', findings: 'array', commit: 'string|null', dirty: 'boolean' },
     },
     extraction: {
       required: ['repo', 'revision', 'projects', 'deployables', 'tests', 'elements', 'edges', 'unresolved'],
@@ -145,7 +159,24 @@ const Ledger = (() => {
   };
 
   const isPlainObject = v => v != null && typeof v === 'object' && !Array.isArray(v);
+  // Conditional rules named in a kind's `rules`; each returns an error (without the kind prefix) or null.
+  // Mirrored by id in python/designc/ledger.py.
+  const RULES = {
+    fail_needs_evidence: ev => (ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason ? "exit_code: required when outcome is 'fail' (or give reason)" : null),
+    caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
+  };
+  // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
+  const isType = (v, t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : typeof v === t;
+  const TYPE_NAMES = { boolean: 'a boolean', string: 'a string', array: 'an array', 'string|null': 'a string or null' };
   const basename = p => String(p || '').split(/[\\/]/).pop();
+
+  // Skip-unchanged recording: true when the latest gate event from the same source has the same model
+  // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
+  function gateUnchanged(events, ev) {
+    let last = null;
+    for (const e of events) if (e.kind === 'gate' && e.source === ev.source && (!last || (e._ts || 0) >= (last._ts || 0))) last = e;
+    return !!last && last.revision === ev.revision && (last.commit ?? null) === (ev.commit ?? null) && last.verdict === ev.verdict;
+  }
 
   function validate(ev) {
     if (!isPlainObject(ev)) return ['event must be an object'];
@@ -165,10 +196,8 @@ const Ledger = (() => {
       for (const k of Object.keys(ev)) if (!known.has(k) && !k.startsWith('_')) errors.push(`${k}: unknown field for kind '${ev.kind}' (put extra data under payload)`);
       for (const r of spec.required) if (ev[r] === undefined) errors.push(`${ev.kind}.${r}: required`);
       if (spec.enums) for (const [f, vals] of Object.entries(spec.enums)) if (ev[f] !== undefined && !vals.includes(ev[f])) errors.push(`${ev.kind}.${f}: must be one of ${vals.join('|')}`);
-      if ((ev.kind === 'check' || ev.kind === 'fitness') && ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason)
-        errors.push(`${ev.kind}.exit_code: required when outcome is 'fail' (or give reason)`);
-      if ((ev.kind === 'escape' || ev.kind === 'escape_classified') && 'caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by))
-        errors.push(`${ev.kind}.caught_by: must be null or one of ${CAUGHT_BY.join('|')}`);
+      if (spec.types) for (const [f, t] of Object.entries(spec.types)) if (ev[f] !== undefined && !t.split('|').some(x => isType(ev[f], x))) errors.push(`${ev.kind}.${f}: must be ${TYPE_NAMES[t] || t}`);
+      for (const r of spec.rules || []) { const msg = RULES[r](ev); if (msg) errors.push(`${ev.kind}.${msg}`); }
     }
     return errors;
   }
@@ -347,7 +376,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, upcast, parse, order, escapeId, derive, totalTokens,
+    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

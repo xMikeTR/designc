@@ -1,0 +1,394 @@
+{
+  "note": "Generated from renderer/ledger.js by test/helpers/ledger-schema.js --write. Do not edit by hand.",
+  "schema_version": 1,
+  "envelope_optional": [
+    "system",
+    "run_id",
+    "trace_id",
+    "session",
+    "requirement",
+    "element",
+    "decision",
+    "task",
+    "model",
+    "tokens_in",
+    "tokens_out",
+    "cost",
+    "sample",
+    "payload"
+  ],
+  "caught_by": [
+    "S1-lint",
+    "S1-p",
+    "S1-grill",
+    "S2-runtime",
+    "S2-config"
+  ],
+  "rules": [
+    "fail_needs_evidence",
+    "caught_by_member"
+  ],
+  "kinds": {
+    "agent_approval": {
+      "stream": "agents.jsonl",
+      "required": [
+        "agent",
+        "role",
+        "tool",
+        "interrupt",
+        "outcome",
+        "via"
+      ],
+      "optional": [],
+      "enums": {
+        "via": [
+          "agui"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "agent_permission": {
+      "stream": "agents.jsonl",
+      "required": [
+        "agent",
+        "role",
+        "tool",
+        "outcome",
+        "via"
+      ],
+      "optional": [
+        "tool_kind"
+      ],
+      "enums": {
+        "via": [
+          "acp"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "agent_tool": {
+      "stream": "agents.jsonl",
+      "required": [
+        "agent",
+        "role",
+        "tool",
+        "verdict",
+        "outcome",
+        "via"
+      ],
+      "optional": [
+        "tool_kind",
+        "path"
+      ],
+      "enums": {
+        "verdict": [
+          "allow",
+          "ask",
+          "deny",
+          "agent"
+        ],
+        "via": [
+          "builtin",
+          "designc",
+          "acp",
+          "agui"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "agent_turn": {
+      "stream": "agents.jsonl",
+      "required": [
+        "agent",
+        "role",
+        "via"
+      ],
+      "optional": [
+        "model",
+        "ms",
+        "tokens",
+        "tokens_in",
+        "tokens_out",
+        "stop_reason",
+        "context_used",
+        "run_id"
+      ],
+      "enums": {
+        "via": [
+          "builtin",
+          "acp",
+          "agui"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "asbuilt_edge": {
+      "stream": "pipeline.jsonl",
+      "required": [
+        "from",
+        "to"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {},
+      "rules": []
+    },
+    "check": {
+      "stream": "checks.jsonl",
+      "required": [
+        "decision",
+        "check",
+        "outcome",
+        "source"
+      ],
+      "optional": [
+        "ms",
+        "exit_code",
+        "reason"
+      ],
+      "enums": {
+        "outcome": [
+          "pass",
+          "fail"
+        ],
+        "source": [
+          "local",
+          "pipeline"
+        ]
+      },
+      "types": {},
+      "rules": [
+        "fail_needs_evidence"
+      ]
+    },
+    "decision_promoted": {
+      "stream": "designc.jsonl",
+      "required": [
+        "decision"
+      ],
+      "optional": [
+        "fingerprints"
+      ],
+      "enums": {},
+      "types": {},
+      "rules": []
+    },
+    "escape": {
+      "stream": "designc.jsonl",
+      "required": [
+        "id",
+        "description"
+      ],
+      "optional": [
+        "code",
+        "caught_by",
+        "source",
+        "traces"
+      ],
+      "enums": {},
+      "types": {},
+      "rules": [
+        "caught_by_member"
+      ]
+    },
+    "escape_classified": {
+      "stream": "designc.jsonl",
+      "required": [
+        "escape",
+        "caught_by"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {},
+      "rules": [
+        "caught_by_member"
+      ]
+    },
+    "extraction": {
+      "stream": "designc.jsonl",
+      "required": [
+        "repo",
+        "revision",
+        "projects",
+        "deployables",
+        "tests",
+        "elements",
+        "edges",
+        "unresolved"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {},
+      "rules": []
+    },
+    "false_positive": {
+      "stream": "pipeline.jsonl",
+      "required": [
+        "code"
+      ],
+      "optional": [
+        "note"
+      ],
+      "enums": {},
+      "types": {},
+      "rules": []
+    },
+    "fitness": {
+      "stream": "checks.jsonl",
+      "required": [
+        "scenario",
+        "check",
+        "outcome",
+        "source"
+      ],
+      "optional": [
+        "ms",
+        "exit_code",
+        "reason"
+      ],
+      "enums": {
+        "outcome": [
+          "pass",
+          "fail"
+        ],
+        "source": [
+          "local",
+          "pipeline"
+        ]
+      },
+      "types": {},
+      "rules": [
+        "fail_needs_evidence"
+      ]
+    },
+    "gate": {
+      "stream": "checks.jsonl",
+      "required": [
+        "source",
+        "revision",
+        "ready",
+        "verdict",
+        "clauses",
+        "findings"
+      ],
+      "optional": [
+        "commit",
+        "dirty"
+      ],
+      "enums": {
+        "source": [
+          "local",
+          "pipeline"
+        ]
+      },
+      "types": {
+        "revision": "string",
+        "ready": "boolean",
+        "verdict": "string",
+        "clauses": "array",
+        "findings": "array",
+        "commit": "string|null",
+        "dirty": "boolean"
+      },
+      "rules": []
+    },
+    "handover": {
+      "stream": "designc.jsonl",
+      "required": [
+        "handover",
+        "revision"
+      ],
+      "optional": [
+        "commit",
+        "dirty"
+      ],
+      "enums": {},
+      "types": {
+        "commit": "string|null",
+        "dirty": "boolean"
+      },
+      "rules": []
+    },
+    "needs_decision": {
+      "stream": "pipeline.jsonl",
+      "required": [
+        "id",
+        "question",
+        "status"
+      ],
+      "optional": [
+        "task",
+        "element"
+      ],
+      "enums": {
+        "status": [
+          "open",
+          "resolved"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "needs_decision_resolved": {
+      "stream": "designc.jsonl",
+      "required": [
+        "id"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {},
+      "rules": []
+    },
+    "task": {
+      "stream": "pipeline.jsonl",
+      "required": [
+        "task",
+        "status"
+      ],
+      "optional": [
+        "title",
+        "element",
+        "reruns",
+        "turns",
+        "tokens",
+        "tokens_in",
+        "tokens_out",
+        "cost",
+        "model",
+        "tier"
+      ],
+      "enums": {
+        "status": [
+          "passed",
+          "failed",
+          "blocked",
+          "running"
+        ]
+      },
+      "types": {},
+      "rules": []
+    },
+    "unapproved_change": {
+      "stream": "agents.jsonl",
+      "required": [
+        "agent",
+        "role",
+        "path",
+        "via"
+      ],
+      "optional": [],
+      "enums": {
+        "via": [
+          "acp",
+          "agui"
+        ]
+      },
+      "types": {},
+      "rules": []
+    }
+  }
+}
