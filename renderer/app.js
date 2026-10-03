@@ -49,7 +49,7 @@ const A = {
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
   modelText: '', model: null, diags: [], gate: null,
   decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], yamlErrors: [],
-  ledgerRaw: [], ledger: [], ledgerErrors: [],
+  ledgerRaw: [], ledger: [], ledgerErrors: [], ledgerFiles: [],
   output: '', running: false, collapsed: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
   selected: null, zoom: 'fit', cursor: null,
@@ -113,7 +113,7 @@ async function loadRegistry() {
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
 }
 async function loadLedger() {
-  const files = await host.list('ledger', ['.jsonl']); A.ledgerRaw = []; A.ledgerErrors = [];
+  const files = await host.list('ledger', ['.jsonl']); A.ledgerFiles = files; A.ledgerRaw = []; A.ledgerErrors = [];
   for (const f of files) {
     const { events, errors } = Ledger.parse(f.text, f.path);
     A.ledgerRaw.push(...events); A.ledgerErrors.push(...errors);
@@ -1309,6 +1309,12 @@ function buildDash() {
   h += `<div class="block"><h3>Tasks</h3><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th class="num">Reruns</th><th class="num">Turns</th><th class="num">Tokens</th><th>Model</th></tr>${tasks.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).map(t => `<tr><td><span class="id">${esc(t.task || '')}</span> ${esc(t.title || '')}</td><td>${esc(t.element || '')}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td class="num">${t.reruns || 0}</td><td class="num">${t.turns || ''}</td><td class="num">${fmtN(Ledger.totalTokens(t))}</td><td>${esc(t.model || '')}</td></tr>`).join('')}</table></div></div></div>`;
   return h;
 }
+function ledgerIntegrityHtml() {
+  const r = Ledger.verify(A.ledgerFiles, { handovers: A.handovers.map(h => h.id), decisions: A.decisions.map(d => ({ id: d.id, kind: d.kind })) });
+  const rows = [...r.errors.map(x => ({ ...x, sev: 'Error' })), ...r.warnings.map(x => ({ ...x, sev: 'Warning' }))];
+  const summary = rows.length ? `${plural(r.errors.length, 'error')}, ${plural(r.warnings.length, 'warning')}.` : 'The ledger is consistent.';
+  return `<div class="block"><h3>Ledger integrity</h3><div class="note">${esc(summary)}${r.skipped ? ` ${esc(plural(r.skipped, 'sample event'))} skipped.` : ''} Checks that each handover follows a ready gate event at its revision, each promotion follows a passing check, every line is valid and the handovers folder matches the ledger. <code>designc verify-ledger</code> gives the same answer in CI.</div>${rows.length ? `<div class="tw2"><table class="t"><tr><th>Rule</th><th>Level</th><th>What</th></tr>${rows.map(x => `<tr><td>${esc(x.rule)}</td><td>${esc(x.sev)}</td><td>${esc(x.msg)}</td></tr>`).join('')}</table></div>` : ''}</div>`;
+}
 function improveDash() {
   const L = A.ledger, escapes = L.filter(e => e.kind === 'escape'), fps = L.filter(e => e.kind === 'false_positive'), un = escapes.filter(e => !e.caught_by);
   let h = `<div class="dash"><h1>Improve</h1><p class="lede">Where problems got past the factory, which stage should have caught them, and what should change in the design compiler or the pipeline. Proposals follow the decision lifecycle: nothing changes until you bind one.</p>`;
@@ -1323,6 +1329,7 @@ function improveDash() {
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   if (unap.length) h += `<div class="block"><h3>Unapproved changes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Agent</th><th>Role</th><th>File</th></tr>${unap.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${esc(when(e._ts))}</td><td>${esc(e.agent)}</td><td>${esc(e.role)}</td><td>${esc(e.path)}</td></tr>`).join('')}</table></div></div>`;
+  h += ledgerIntegrityHtml();
   h += `<div class="block"><h3>Proposals</h3>${A.proposals.length ? `<div class="tw2"><table class="t"><tr><th>Proposal</th><th>Kind</th><th>Change</th><th>Evidence</th><th>How we'll know</th><th>Status</th></tr>${A.proposals.map(p => `<tr data-open="${esc(p._path)}" style="cursor:pointer"><td><span class="id">${esc(p.id)}</span></td><td>${esc(p.kind || '')}</td><td>${esc(p.statement || '')}</td><td>${esc(p.evidence || '')}</td><td>${p.check ? esc(p.check) : '<span style="color:var(--err)">no check</span>'}</td><td><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span></td></tr>`).join('')}</table></div>` : '<div class="note">No proposals yet. Each should cite an escape and say how you will know the change works.</div>'}</div></div>`;
   return h;
 }

@@ -78,7 +78,8 @@ STREAM.gate = 'checks.jsonl'
 FINAL_KIND_FIELDS.gate = { required: ['source','revision','ready','verdict','clauses','findings'], optional: ['commit','dirty'], enums: {source: ['local','pipeline']} }
 FINAL_KIND_FIELDS.handover.optional = ['commit', 'dirty']
 Ledger.gateUnchanged(events, ev)     // true when the last same-source gate event matches revision+commit+verdict
-Ledger.verify(events, {handovers})   // -> {errors:[{rule, msg, event_id?}], warnings:[...], skipped: n}
+Ledger.verify(files, {handovers: ids, decisions: [{id, kind}]})   // files = raw {path, text}; -> {errors:[{rule, msg}], warnings:[...], skipped: n}
+                                      // (as built: raw files, not events, so V4/V5 see invalid lines and repeats; decisions are needed for V3's technical test)
                                       // events are raw parsed lines (pre-dedupe) so V4/V5 can see them
 ```
 
@@ -160,5 +161,5 @@ Suggested commits: one per slice (13a, 13b, 13c, 14), each with `npm test` green
 - **Skip-unchanged across branches:** after a union merge, "the last same-source gate event" is by `_ts`, so a branch merged later can make an unchanged state record once more. Harmless (one extra line), accepted.
 - **Silent gaps:** if the hook's `designc` is missing, commits leave no trail and nothing says so. Accepted for now; README tells you how to check (`designc verify-ledger` doesn't detect this by design).
 - **Behaviour change:** existing app users can no longer freeze from a dirty tree. Called out in the README and the commit message.
-- **Sample registry:** its ledger has `handover` events and no `gate` events, so verify-ledger shows cutoff warnings there. Expected, and asserted in tests so the sample findings (2 errors, 4 warnings, 1 suppressed) stay as they are.
+- **Sample registry:** its ledger has `handover` events and no `gate` events, (as built: the sample ledger has no handover events at all, so verify-ledger is simply clean there). Expected, and asserted in tests so the sample findings (2 errors, 4 warnings, 1 suppressed) stay as they are.
 - **No data migration:** new kinds and optional fields only; old lines read unchanged.

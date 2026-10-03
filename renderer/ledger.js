@@ -172,6 +172,67 @@ const Ledger = (() => {
 
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
+  // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.
+  // Rules: V1 handover preceded by a green gate at its revision (a warning when it predates the first gate event),
+  // V2 handover not dirty, V3 technical promotion preceded by a passing check, V4 every line validates,
+  // V5 no repeated event_id with different content, V6 open unapproved changes (warning),
+  // V7 handovers/ and handover events agree. Sample events are skipped. Mirrored in python/designc/verify.py.
+  const stable = v => Array.isArray(v) ? '[' + v.map(stable).join(',') + ']'
+    : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}' : JSON.stringify(v);
+  const bareRevision = r => String(r == null ? '' : r).replace(/^r-/, '');
+  function verify(files, { handovers = [], decisions = [] } = {}) {
+    const errors = [], warnings = [];
+    const err = (rule, msg) => errors.push({ rule, msg }), warn = (rule, msg) => warnings.push({ rule, msg });
+    const firstSeen = new Map(), events = [];
+    for (const f of [...files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+      const name = basename(f.path);
+      String(f.text || '').split('\n').forEach((raw, i) => {
+        if (!raw.trim()) return;
+        const at = `${name}:${i + 1}`;
+        let obj;
+        try { obj = JSON.parse(raw); } catch { return err('V4', `${at} not valid JSON`); }
+        if (!isPlainObject(obj)) return err('V4', `${at} not a JSON object`);
+        if (obj.schema_version !== undefined && obj.envelope_version !== undefined) return err('V4', `${at} both schema_version and envelope_version`);
+        if (obj.envelope_version !== undefined) return;
+        let e;
+        if (obj.schema_version === undefined) e = { ...obj, event_id: `legacy:${name}:${i + 1}` };
+        else {
+          if (obj.schema_version !== SCHEMA_VERSION) return err('V4', `${at} unknown schema_version ${obj.schema_version}`);
+          const errs = validate(obj);
+          if (errs.length) return err('V4', `${at} ${errs.join('; ')}`);
+          e = obj;
+          const seen = firstSeen.get(e.event_id);
+          if (seen) { if (seen.body !== stable(e) && !seen.reported) { seen.reported = true; err('V5', `event_id ${e.event_id} has different content at ${seen.at} and ${at}`); } return; }
+          firstSeen.set(e.event_id, { body: stable(e), at });
+        }
+        events.push({ ...e, _ts: typeof e.ts === 'number' ? e.ts : 0 });
+      });
+    }
+    events.sort((a, b) => a._ts - b._ts);
+    const live = events.filter(e => !e.sample), skipped = events.length - live.length;
+    const gates = live.filter(e => e.kind === 'gate'), checks = live.filter(e => e.kind === 'check');
+    const latest = (list, pred, ts) => list.filter(e => pred(e) && e._ts <= ts).pop();
+    const firstGate = gates.length ? gates[0]._ts : null;
+    for (const h of live.filter(e => e.kind === 'handover')) {
+      if (h.dirty === true) err('V2', `handover ${h.handover} was frozen with uncommitted gate inputs`);
+      if (firstGate === null || h._ts < firstGate) { warn('V1', `handover ${h.handover} predates gate recording`); continue; }
+      const g = latest(gates, x => bareRevision(x.revision) === bareRevision(h.revision), h._ts);
+      if (!g) err('V1', `handover ${h.handover} has no gate event at revision ${bareRevision(h.revision)} before it`);
+      else if (!g.ready) err('V1', `handover ${h.handover}: the latest gate event at revision ${bareRevision(h.revision)} before it was not ready`);
+    }
+    for (const p of live.filter(e => e.kind === 'decision_promoted')) {
+      const d = decisions.find(x => x.id === p.decision);
+      if (!d || d.kind === 'business') continue;
+      const c = latest(checks, x => x.decision === p.decision, p._ts);
+      if (!c || c.outcome !== 'pass') err('V3', `decision ${p.decision} was promoted without a passing check before it`);
+    }
+    for (const u of live.filter(e => e.kind === 'unapproved_change')) warn('V6', `unapproved change by ${u.agent} (${u.role}) to ${u.path}`);
+    const eventIds = new Set(live.filter(e => e.kind === 'handover').map(e => e.handover)), folderIds = new Set(handovers);
+    for (const id of handovers) if (!eventIds.has(id)) err('V7', `handover ${id} has no handover event in the ledger`);
+    for (const id of eventIds) if (!folderIds.has(id)) err('V7', `handover event ${id} has no handover in handovers/`);
+    return { errors, warnings, skipped };
+  }
+
   function gateUnchanged(events, ev) {
     let last = null;
     for (const e of events) if (e.kind === 'gate' && e.source === ev.source && (!last || (e._ts || 0) >= (last._ts || 0))) last = e;
@@ -376,7 +437,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

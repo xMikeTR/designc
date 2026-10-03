@@ -274,6 +274,8 @@ A local run of `check` records a `gate` event in `ledger/checks.jsonl`: the mode
 | `--by <name>` | Who ran it. Default: `DESIGNC_BY`, then the OS user. Self-asserted |
 | `--source local\|pipeline` | Label of the event. Default: `pipeline` in CI, else `local` |
 
+`python3 -m designc verify-ledger /path/to/registry` checks the trail: every handover follows a ready gate event at its revision and is not dirty, every promotion of a technical decision follows a passing check, every line is valid, and `handovers/` matches the ledger. Exit code 0 is clean, 1 means errors, 2 means the folder could not be read. The app shows the same result under Improve, Ledger integrity.
+
 To record on every commit, add a `post-commit` hook (the registry may be a subfolder of a larger repository):
 
 ```
