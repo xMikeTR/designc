@@ -5,13 +5,16 @@ import argparse
 import getpass
 import json
 import os
+import subprocess
 import sys
+import time
 
 from . import ledger, record
 from .dsl import parse
-from .gate import gate
+from .evals import score_eval
+from .gate import eval_hash, eval_problems, eval_report, gate
 from .registry import load_handover_ids, load_ledger, load_registry, load_settings
-from .rules import check
+from .rules import check, fingerprint
 from .verify import read_ledger_files, verify
 
 
@@ -69,7 +72,13 @@ def main(argv):
     v = sub.add_parser('verify-ledger', help='check the ledger trail: gates before handovers, checks before promotions, valid lines')
     v.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
     v.add_argument('--json', action='store_true', help='print the result as JSON')
+    e = sub.add_parser('eval', help='run the evals that agents name, score the results and record them in the ledger')
+    e.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
+    e.add_argument('--id', help='run only this eval')
+    e.add_argument('--source', help='local or pipeline (default: pipeline when CI is detected, else local)')
+    e.add_argument('--by', help='who ran this (default: DESIGNC_BY, then the OS user)')
     args = ap.parse_args(argv)
+    if args.cmd == 'eval': return eval_cmd(os.path.abspath(args.registry), args.id, args.source, args.by)
     if args.cmd == 'verify-ledger': return verify_ledger(os.path.abspath(args.registry), args.json)
     if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
     if args.source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
@@ -86,6 +95,50 @@ def main(argv):
     elif ci and not args.record: print('CI detected: not recording a gate event. Pass --record to record one.', file=note)
     else: record_gate(root, s, source, args.by, note)
     return 0 if r['gate']['ready'] else 1
+
+
+def eval_cmd(root, only, source, by):
+    """Run each eval an agent names, record a pass or fail. Exit 0 all passing, 1 any failing, 2 the registry cannot be read."""
+    if source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
+    try: s = state(root)
+    except SystemExit as e:
+        print(e, file=sys.stderr); return 2
+    source = source or ('pipeline' if in_ci() else 'local')
+    evals = load_registry(root)['evals']
+    by_id = {str(e['id']): e for e in evals}
+    if only is not None and only not in by_id: return usage(f'no eval {only} in evals/. Check the id, or add evals/{only}.yaml.')
+    rows = eval_report(s['model'], evals, [], 0)
+    failed = 0
+    named = set()
+    for r in rows:
+        if r['autonomy'] == 'suggest' and not r.get('evalId'): print(f"warning  {r['agent']} (suggest) has no eval; it is not blocked, but consider one."); continue
+        eid = str(r['evalId']) if r.get('evalId') else None
+        if eid is None or eid in named or (only is not None and eid != only): continue
+        named.add(eid)
+        d = by_id.get(eid)
+        if d is None: print(f"fail  {eid}: not in evals/"); failed += 1; continue
+        problems = eval_problems(d)
+        if problems or d.get('agent') != r['agent']:
+            print(f"fail  {eid}: " + ('; '.join(problems) or f"eval is for \"{d.get('agent')}\", not {r['agent']}")); failed += 1; continue
+        t0 = time.time()
+        p = subprocess.run(d['command'], shell=True, cwd=root)
+        ms = round((time.time() - t0) * 1000)
+        try:
+            with open(os.path.join(root, d['results']), encoding='utf-8') as f: results = json.load(f)
+            scored = score_eval(d, results)
+        except (OSError, ValueError) as ex: scored = {'error': f"{d['results']} could not be read as JSON: {ex}"}
+        base = {'kind': 'eval', 'eval': eid, 'agent': r['agent'], 'source': source, 'ms': ms, 'exit_code': p.returncode,
+                'fingerprint': fingerprint(s['model'], r['agentId'])['hash'], 'eval_hash': eval_hash(d), 'by': who(by)}
+        if 'error' in scored: ev = {**base, 'outcome': 'fail', 'metrics': {}, 'cases': 0, 'reason': scored['error']}
+        else:
+            ev = {**base, 'outcome': 'pass' if scored['outcome'] == 'pass' and p.returncode == 0 else 'fail', 'metrics': scored['metrics'], 'cases': scored['cases']}
+            if ev['outcome'] == 'fail': ev['reason'] = scored.get('reason') or f'the command exited with {p.returncode}'
+        res = ledger.append_event(root, ev)
+        if not res['ok']: print('designc: could not record the eval event: ' + '; '.join(res['errors']), file=sys.stderr); return 2
+        print(f"{'pass' if ev['outcome'] == 'pass' else 'fail'}  {eid} ({r['agent']}){'' if ev['outcome'] == 'pass' else ': ' + ev['reason']}")
+        failed += ev['outcome'] != 'pass'
+    if not named and only is None: print('No agent names an eval.')
+    return 1 if failed else 0
 
 
 def verify_ledger(root, as_json):
