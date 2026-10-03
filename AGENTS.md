@@ -200,6 +200,7 @@ The ledger is append-only. The app never rewrites a line; state changes are late
 | `escape_classified` | `escape, caught_by` — v1-locked: `caught_by` is required (nullable — `null` means "not classified"), must be a `Ledger.CAUGHT_BY` member or `null`. Legacy `stage` is upcast to `caught_by` | App |
 | `false_positive` | `code` — v1-locked: `note?` | Human or pipeline |
 | `handover` | `handover, revision` — v1-locked | App |
+| `gate` | `source (local/pipeline), revision, ready, verdict, clauses[], findings[]` — v1-locked: `commit?, dirty?`. A snapshot of what the gate said (no messages, lines or hints); `verdict` is `hash16` of the canonical JSON of `{ready, clauses, findings}`. Skipped when the latest event from the same source has the same revision, commit and verdict | `designc check` (`python/designc/record.py`, `checks.jsonl`) |
 | `fitness` | `scenario, check, outcome (pass/fail), source (local/pipeline)` — v1-locked: `ms?, exit_code?, reason?`; `exit_code` or `reason` required on `fail` | App's fitness runner (`checks.jsonl`) |
 | `decision_promoted` | `decision` — v1-locked: `fingerprints[]?` (`{element, name, hash}`) | App (`bindDecision`, `designc.jsonl`) |
 | `extraction` | `repo, revision, projects, deployables, tests, elements, edges, unresolved` — v1-locked. Any other stat (e.g. `modules`) goes under `payload.stats` | App |
@@ -332,7 +333,7 @@ Events handled: `TEXT_MESSAGE_START/CONTENT/END/CHUNK`, `TOOL_CALL_START/ARGS/EN
 | Agent and check processes do not inherit secrets | `childEnv` in `paths.js` |
 | A change to `designc.json` during an agent turn is flagged | `Policy.unapprovedChanges` |
 | The ledger is append-only | Only `ledger:append` writes it; state changes are new events |
-| Every ledger write goes through one validated append path | `ledger-store.js` `appendEvent`; no other code calls a raw `fs.appendFile` on `ledger/*.jsonl` |
+| Every ledger write goes through one validated append path per runtime | `ledger-store.js` `appendEvent` in JS and `python/designc/ledger.py` `append_event` in Python; no other code writes `ledger/*.jsonl` (`test/ledger-guard.test.js`) |
 | Extraction never invents edges | `extract.js` pushes to `unresolved` instead |
 | Decision checks and git run only in a trusted folder | `ensureTrusted` in `main.js`: trust is per folder like VS Code workspace trust. A trusted ancestor covers its subfolders (`isTrusted` in `paths.js`); the dialog offers this folder, the repository around it, or the parent (`trustChoices`, never the home folder or filesystem root). Saved in `state.json`. The user can skip the question entirely with `"trustAllFolders": true` in the app's `state.json` (user data folder, named after `productName`: `~/.config/designc` on Linux). It is read only from there, never from `designc.json`, and only the boolean `true` counts. |
 | Secrets stay in environment variables | Settings hold only env var names |

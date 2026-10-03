@@ -21,7 +21,7 @@ function listDir(root, dir, exts) {
 }
 
 // The renderer's loadRegistry and loadLedger, for a folder on disk.
-function nodeReport(root) {
+function nodeState(root) {
   const cfg = { model: 'model/workspace.dsl', chainHops: 4, ...(fs.existsSync(path.join(root, 'designc.json')) ? JSON.parse(fs.readFileSync(path.join(root, 'designc.json'), 'utf8')) : {}) };
   const yamlErrors = [];
   const load = dir => {
@@ -47,6 +47,10 @@ function nodeReport(root) {
   const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
   const diags = Core.check(model, { chainHops: cfg.chainHops || 4 });
   const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], scenarios });
+  return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
+}
+function nodeReport(root) {
+  const { model, diags, gate } = nodeState(root);
   return {
     errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),
     findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
@@ -199,4 +203,77 @@ test('exit codes: 0 ready, 1 not ready, 2 unusable folder', { skip }, () => {
   const none = run(path.join(os.tmpdir(), 'designc-does-not-exist'));
   assert.equal(none.status, 2);
   assert.match(none.stderr, /model\/workspace\.dsl/);
+});
+
+// ---- slice 13a: gate events and the Python ledger append path
+const py = (code, input) => {
+  const r = spawnSync('python3', ['-c', code], { cwd: PY, encoding: 'utf8', input });
+  assert.equal(r.status, 0, r.stderr);
+  return JSON.parse(r.stdout);
+};
+const pyGateRecord = root => py(`import json, sys
+from designc.cli import state
+from designc.record import gate_record
+s = state(sys.argv[1] if len(sys.argv) > 1 else ${JSON.stringify(root)})
+print(json.dumps(gate_record(s['model_text'], s['diags'], s['gate'], 'local', None), ensure_ascii=False))`);
+const nodeGateRecord = root => { const s = nodeState(root); return Core.gateRecord({ modelText: s.modelText, diags: s.diags, gate: s.gate, source: 'local', git: null }); };
+
+test('the gate record is identical in both implementations', { skip }, () => {
+  for (const root of [path.join(ROOT, 'sample-registry'), path.join(ROOT, 'fixtures', 'fullstack'), tmpRegistry({ 'model/workspace.dsl': MODEL }),
+    tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = container "Café 🚀" { properties { "d.zone" "zé" } }\n b = container "Ünïcode → x"\n a -> b "x" { properties { "d.interaction" "async" } } } }' })]) {
+    assert.deepEqual(pyGateRecord(root), nodeGateRecord(root), root);
+  }
+});
+
+test('the Python validator gives the same errors as Ledger.validate', { skip }, () => {
+  const gate = { kind: 'gate', by: 'u', source: 'local', revision: 'r-1', ready: false, verdict: 'v', clauses: [], findings: [] };
+  const cases = [
+    gate, { ...gate, commit: null, dirty: false }, { ...gate, ready: 'yes' }, { ...gate, source: 'ci' }, { ...gate, findings: {} }, { ...gate, extra: 1 },
+    { kind: 'check', by: 'u', decision: 'D', check: 'x', outcome: 'fail', source: 'local' },
+    { kind: 'check', by: 'u', decision: 'D', check: 'x', outcome: 'fail', source: 'local', reason: 'r' },
+    { kind: 'escape', by: 'u', id: 'E-1', description: 'd', caught_by: 'S9' },
+    { kind: 'escape_classified', by: 'u', escape: 'E-1', caught_by: null },
+    { kind: 'handover', by: 'u', handover: 'h', revision: 'r', dirty: 1 },
+    { kind: 'nope', by: 'u' }, { kind: 'gate' }, { ...gate, ts: '2026' }, { ...gate, _x: 1 }, { ...gate, schema_version: 2 }, { ...gate, payload: [] },
+    { ...gate, envelope_version: 1 }, 'not an object',
+  ];
+  const got = py(`import json, sys
+from designc.ledger import validate
+print(json.dumps([validate(e) for e in json.load(sys.stdin)]))`, JSON.stringify(cases));
+  assert.deepEqual(got, cases.map(e => Ledger.validate(e)));
+});
+
+test('Python appends a stamped, valid gate event to ledger/checks.jsonl, and refuses an invalid one', { skip }, () => {
+  const root = tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } }' });
+  const ev = { kind: 'gate', by: 'u', source: 'local', revision: 'r-1', ready: true, verdict: 'v', clauses: [], findings: [] };
+  const ok = py(`import json, sys
+from designc.ledger import append_event
+print(json.dumps(append_event(sys.argv[1] if len(sys.argv) > 1 else ${JSON.stringify(root)}, json.load(sys.stdin))))`, JSON.stringify(ev));
+  assert.equal(ok.ok, true);
+  const lines = fs.readFileSync(path.join(root, 'ledger', 'checks.jsonl'), 'utf8').trim().split('\n');
+  assert.equal(lines.length, 1);
+  const line = JSON.parse(lines[0]);
+  assert.deepEqual(Ledger.validate(line), []);
+  assert.equal(line.schema_version, 1);
+  assert.match(line.event_id, /^[0-9a-f-]{36}$/);
+  assert.equal(typeof line.ts, 'number');
+  const parsed = Ledger.parse(lines[0] + '\n', 'ledger/checks.jsonl');
+  assert.equal(parsed.events.length, 1);
+  const bad = py(`import json, sys
+from designc.ledger import append_event
+print(json.dumps(append_event(${JSON.stringify(root)}, json.load(sys.stdin))))`, JSON.stringify({ ...ev, ready: 'yes' }));
+  assert.equal(bad.ok, false);
+  assert.deepEqual(bad.errors, ['gate.ready: must be a boolean']);
+  assert.equal(fs.readFileSync(path.join(root, 'ledger', 'checks.jsonl'), 'utf8').trim().split('\n').length, 1, 'nothing written');
+});
+
+test('Python gate_unchanged agrees with Ledger.gateUnchanged', { skip }, () => {
+  const g = o => ({ kind: 'gate', source: 'local', revision: 'r-1', commit: 'c1', verdict: 'v1', _ts: 1, ...o });
+  const noGit = g({}); delete noGit.commit;
+  const cases = [[[], g({})], [[g({})], g({})], [[g({}), g({ _ts: 2, verdict: 'v0' })], g({})], [[g({ source: 'pipeline' })], g({})],
+    [[g({ commit: 'c0' })], g({})], [[g({ commit: null })], noGit], [[{ kind: 'check', source: 'local', _ts: 9 }, g({})], g({})]];
+  const got = py(`import json, sys
+from designc.ledger import gate_unchanged
+print(json.dumps([gate_unchanged(evs, ev) for evs, ev in json.load(sys.stdin)]))`, JSON.stringify(cases));
+  assert.deepEqual(got, cases.map(([evs, ev]) => Ledger.gateUnchanged(evs, ev)));
 });

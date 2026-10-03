@@ -2,17 +2,20 @@
 
 Exit codes: 0 ready, 1 not ready, 2 the folder cannot be read."""
 import argparse
+import getpass
 import json
 import os
 import sys
 
+from . import ledger, record
 from .dsl import parse
 from .gate import gate
 from .registry import load_ledger, load_registry, load_settings
 from .rules import check
 
 
-def report(root):
+def state(root):
+    """Everything one check run computes: the parsed model, its text, diagnostics and the gate."""
     cfg = load_settings(root)
     path = os.path.join(root, cfg.get('model') or 'model/workspace.dsl')
     try:
@@ -23,6 +26,14 @@ def report(root):
     diags = check(model, cfg.get('chainHops') or 4)
     reg = load_registry(root)
     g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'])
+    return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
+
+
+def report(root): return report_of(state(root))
+
+
+def report_of(s):
+    model, diags, g = s['model'], s['diags'], s['gate']
     return {
         'errors': model.errors,
         'findings': [{'code': d['code'], 'sev': d['sev'], 'msg': d['msg'], 'label': d['loc']['label'], 'line': d['loc']['line'],
@@ -50,12 +61,53 @@ def main(argv):
     c = sub.add_parser('check', help='lint the model and run the gate')
     c.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
     c.add_argument('--json', action='store_true', help='print the report as JSON')
+    c.add_argument('--record', action='store_true', help='record a gate event even where CI is detected')
+    c.add_argument('--no-record', action='store_true', help='never record a gate event')
+    c.add_argument('--by', help='who ran this (default: DESIGNC_BY, then the OS user)')
+    c.add_argument('--source', help='local or pipeline (default: pipeline when CI is detected, else local)')
     args = ap.parse_args(argv)
-    try: r = report(os.path.abspath(args.registry))
+    if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
+    if args.source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
+    root = os.path.abspath(args.registry)
+    try: s = state(root)
     except SystemExit as e:
         print(e, file=sys.stderr); return 2
+    r = report_of(s)
+    note = sys.stderr if args.json else sys.stdout
     print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else render(r))
+    ci = in_ci()
+    source = args.source or ('pipeline' if ci else 'local')
+    if args.no_record: pass
+    elif ci and not args.record: print('CI detected: not recording a gate event. Pass --record to record one.', file=note)
+    else: record_gate(root, s, source, args.by, note)
     return 0 if r['gate']['ready'] else 1
+
+
+CI_VARS = ('CI', 'TF_BUILD', 'GITLAB_CI', 'GITHUB_ACTIONS')
+
+
+def in_ci(): return any(os.environ.get(v) for v in CI_VARS)
+
+
+def usage(msg):
+    print(f'designc: {msg}', file=sys.stderr); return 2
+
+
+def who(by):
+    if by: return by
+    if os.environ.get('DESIGNC_BY'): return os.environ['DESIGNC_BY']
+    try: return getpass.getuser()
+    except Exception: return 'unknown'
+
+
+def record_gate(root, s, source, by, out):
+    """Append one gate event unless the latest one from this source already says the same."""
+    ev = record.gate_record(s['model_text'], s['diags'], s['gate'], source, record.git_state(root, s['cfg']))
+    if ledger.gate_unchanged(load_ledger(root), ev):
+        print('gate unchanged, not recorded', file=out); return
+    res = ledger.append_event(root, {**ev, 'by': who(by)})
+    if res['ok']: print('recorded gate event in ledger/', file=out)
+    else: print('designc: could not record the gate event: ' + '; '.join(res['errors']), file=sys.stderr)
 
 
 def main_entry():

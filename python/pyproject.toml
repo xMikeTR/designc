@@ -14,3 +14,6 @@ build-backend = "setuptools.build_meta"
 
 [tool.setuptools]
 packages = ["designc"]
+
+[tool.setuptools.package-data]
+designc = ["ledger_schema.json"]

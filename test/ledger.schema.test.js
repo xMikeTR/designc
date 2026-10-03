@@ -66,3 +66,36 @@ test('the gate sees v1 and legacy checks and picks the latest', () => {
   const b = Ledger.parse(legacy2, 'pipeline.jsonl').events.concat(Ledger.parse(v1b, 'checks.jsonl').events);
   assert.equal(Core.latestCheck(Ledger.derive(b), 'DEC-001').outcome, 'fail');
 });
+
+const gateEv = { kind: 'gate', by: 'u', source: 'local', revision: 'r-3f9a1c2e', ready: false, verdict: 'a1b2c3d4e5f60718',
+  clauses: [{ kind: 'finding', text: 'DC002 on Quotes DB is neither fixed nor accepted' }],
+  findings: [{ code: 'DC002', sev: 'error', on: 'Quotes DB', loc: 'element', unknown: false, suppressed: false }] };
+
+test('a gate event validates, with or without git fields, and goes to checks.jsonl', () => {
+  assert.deepEqual(Ledger.validate(gateEv), []);
+  assert.deepEqual(Ledger.validate({ ...gateEv, commit: 'a'.repeat(40), dirty: false }), []);
+  assert.deepEqual(Ledger.validate({ ...gateEv, commit: null }), []);
+  assert.equal(Ledger.KINDS.gate.stream, 'checks.jsonl');
+});
+
+test('a gate event is rejected when a field is missing, mistyped or out of its enum', () => {
+  const { verdict, ...noVerdict } = gateEv;
+  assert.ok(Ledger.validate(noVerdict).some(e => /gate\.verdict: required/.test(e)));
+  assert.ok(Ledger.validate({ ...gateEv, source: 'ci' }).some(e => /gate\.source: must be one of local\|pipeline/.test(e)));
+  assert.ok(Ledger.validate({ ...gateEv, ready: 'yes' }).some(e => /gate\.ready: must be a boolean/.test(e)));
+  assert.ok(Ledger.validate({ ...gateEv, findings: {} }).some(e => /gate\.findings: must be an array/.test(e)));
+  assert.ok(Ledger.validate({ ...gateEv, dirty: 'no' }).some(e => /gate\.dirty: must be a boolean/.test(e)));
+});
+
+test('a handover event may carry commit and dirty', () => {
+  const h = { kind: 'handover', by: 'u', handover: '20261003-ab12cd34', revision: 'r-ab12cd34' };
+  assert.deepEqual(Ledger.validate(h), []);
+  assert.deepEqual(Ledger.validate({ ...h, commit: 'b'.repeat(40), dirty: false }), []);
+  assert.deepEqual(Ledger.validate({ ...h, commit: null }), []);
+  assert.ok(Ledger.validate({ ...h, dirty: 1 }).some(e => /handover\.dirty: must be a boolean/.test(e)));
+});
+
+test('python/designc/ledger_schema.json is generated from this schema and up to date', () => {
+  const { build, FILE } = require('./helpers/ledger-schema.js');
+  assert.equal(fs.readFileSync(FILE, 'utf8'), build(), 'stale: run node test/helpers/ledger-schema.js --write');
+});

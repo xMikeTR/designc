@@ -264,6 +264,23 @@ python3 -m designc check /path/to/registry --json   # the same as JSON
 
 Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the folder could not be read. It does not do drift, diff, blast radius or code extraction; those stay in the app.
 
+### Recording the gate
+
+A local run of `check` records a `gate` event in `ledger/checks.jsonl`: the model revision, the commit (when the registry is in a git repository), whether the gate inputs are uncommitted, the verdict and a compact list of clauses and findings. It records nothing when the latest event from the same source already says the same. Where CI is detected (`CI`, `TF_BUILD`, `GITLAB_CI` or `GITHUB_ACTIONS`) it records nothing unless you pass `--record`.
+
+| Flag | Effect |
+| --- | --- |
+| `--record` / `--no-record` | Record even in CI, or never record |
+| `--by <name>` | Who ran it. Default: `DESIGNC_BY`, then the OS user. Self-asserted |
+| `--source local\|pipeline` | Label of the event. Default: `pipeline` in CI, else `local` |
+
+To record on every commit, add a `post-commit` hook (the registry may be a subfolder of a larger repository):
+
+```
+#!/bin/sh
+cd path/to/registry && python3 -m designc check . --record >/dev/null
+```
+
 ## Decision checks run on your machine
 
 Run > Run All Decision Checks (Ctrl+Shift+B) runs each decision's `checks` as shell commands in the registry folder, writes pass or fail to the ledger, and streams output to the Output panel. Because those commands come from the repository, the app asks you to trust a folder the first time, like VS Code's workspace trust. Only trust folders whose decisions you'd be willing to run.
