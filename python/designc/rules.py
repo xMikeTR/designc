@@ -1,5 +1,7 @@
 """Design properties, validation (DC000) and rules DC001 to DC006. A port of renderer/core.js."""
+import json
 import math
+import os
 import re
 
 YN = ['yes', 'no']
@@ -18,6 +20,16 @@ SPECS = {
         'd.aka': ('list', None), 'd.suppress': ('suppress', None),
     },
 }
+
+
+def _load_canvas_specs():
+    """The agentic and quality d.* properties, generated from renderer/canvas/vocabulary.js (test/helpers/canvas-specs.js)."""
+    with open(os.path.join(os.path.dirname(__file__), 'canvas_specs.json'), encoding='utf-8') as f: data = json.load(f)
+    for target in ('element', 'relationship'):
+        for key, spec in data[target].items(): SPECS[target][key] = (spec['k'], spec.get('v'))
+
+
+_load_canvas_specs()
 SEV = {'error': 2, 'warning': 1, 'note': 0}
 
 

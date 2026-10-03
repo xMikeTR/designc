@@ -1,0 +1,179 @@
+{
+  "note": "Generated from renderer/canvas/vocabulary.js by test/helpers/canvas-specs.js --write. Do not edit by hand.",
+  "element": {
+    "d.agent.autonomy": {
+      "k": "enum",
+      "v": [
+        "suggest",
+        "approve-writes",
+        "autonomous"
+      ]
+    },
+    "d.agent.budget": {
+      "k": "str"
+    },
+    "d.agent.codeExec": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.agent.eval": {
+      "k": "str"
+    },
+    "d.agent.externalComms": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.agent.fallback": {
+      "k": "str"
+    },
+    "d.agent.identity": {
+      "k": "enum",
+      "v": [
+        "delegated",
+        "service",
+        "shared"
+      ]
+    },
+    "d.agent.maxSteps": {
+      "k": "int"
+    },
+    "d.agent.memory": {
+      "k": "enum",
+      "v": [
+        "none",
+        "session",
+        "persistent"
+      ]
+    },
+    "d.agent.model": {
+      "k": "str"
+    },
+    "d.agent.privateData": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.agent.sandbox": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.agent.tracing": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.agent.untrustedInput": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.backup": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.data.classification": {
+      "k": "enum",
+      "v": [
+        "public",
+        "internal",
+        "confidential",
+        "restricted"
+      ]
+    },
+    "d.latency.p99": {
+      "k": "str"
+    },
+    "d.owner": {
+      "k": "str"
+    },
+    "d.pii": {
+      "k": "enum",
+      "v": [
+        "yes",
+        "no"
+      ]
+    },
+    "d.rpo": {
+      "k": "str"
+    },
+    "d.rto": {
+      "k": "str"
+    },
+    "d.scaling": {
+      "k": "enum",
+      "v": [
+        "none",
+        "vertical",
+        "horizontal",
+        "auto"
+      ]
+    },
+    "d.state": {
+      "k": "enum",
+      "v": [
+        "stateless",
+        "stateful"
+      ]
+    },
+    "d.tenant.isolation": {
+      "k": "enum",
+      "v": [
+        "none",
+        "logical",
+        "physical"
+      ]
+    },
+    "d.throughput": {
+      "k": "str"
+    }
+  },
+  "relationship": {
+    "d.approval": {
+      "k": "enum",
+      "v": [
+        "none",
+        "policy",
+        "human"
+      ]
+    },
+    "d.protocol": {
+      "k": "enum",
+      "v": [
+        "http",
+        "grpc",
+        "mcp",
+        "a2a",
+        "acp",
+        "agui",
+        "function",
+        "queue"
+      ]
+    },
+    "d.tool.effect": {
+      "k": "enum",
+      "v": [
+        "read",
+        "write",
+        "irreversible"
+      ]
+    }
+  }
+}
