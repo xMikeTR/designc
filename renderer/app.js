@@ -527,9 +527,31 @@ async function rebindAll() {
   for (const d of list) { await bindDecision(d, { confirmed: true }); await loadRegistry(); recompile(); }
   toast(`Re-bound ${plural(list.length, 'decision')}.`);
 }
+// Git facts for a gate event, or null with no usable repository. `commit` is null before the first commit.
+async function gateGit() {
+  let s; try { s = await host.gitStatus(); } catch { return null; }
+  if (!s || !s.repo || !s.trusted || s.error) return null;
+  return { commit: s.head || null, dirty: Core.dirtyInputs(s.files || [], A.cfg).length > 0 };
+}
+// Record what the gate says now, unless the latest event from this source already says the same. Returns the git facts used.
+async function recordGate(source, git) {
+  if (git === undefined) git = await gateGit();
+  const modelText = (await host.read(A.cfg.model)) || '';
+  const ev = Core.gateRecord({ modelText, diags: A.diags, gate: A.gate, source, git });
+  if (!Ledger.gateUnchanged(A.ledgerRaw, ev)) await recordEvent('gate', ev);
+  return git;
+}
 async function freezeHandover() {
   if (!A.gate || !A.gate.ready) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
+  let st = await host.gitStatus();
+  if (st.repo && !st.trusted) {
+    if (!await host.gitTrust()) { toast('Freezing needs git to check that what you freeze is committed. Trust this folder, or freeze from a registry outside git.', 'warning'); return; }
+    st = await host.gitStatus();
+  }
+  if (st.repo && st.error) { toast(`Cannot read git status: ${st.error}`, 'error'); return; }
+  const dirty = st.repo ? Core.dirtyInputs(st.files || [], A.cfg) : [];
+  if (dirty.length) { toast(`Commit before freezing: ${dirty.slice(0, 3).join(', ')}${dirty.length > 3 ? ` and ${dirty.length - 3} more` : ''} ${dirty.length === 1 ? 'has' : 'have'} uncommitted changes. A handover must name a commit.`, 'warning', [{ label: 'Open source control', run: () => setActivity('scm') }]); return; }
   const boundIds = new Set(A.decisions.filter(d => d.status === 'bound').map(d => d.id));
   const read = async (dir, exts) => (await host.list(dir, exts)).map(f => ({ path: f.path, text: f.text }));
   const decisions = [];
@@ -544,7 +566,8 @@ async function freezeHandover() {
   });
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
-  await recordEvent('handover', { handover: plan.id, revision: rev });
+  const git = await recordGate('local', st.repo ? { commit: st.head || null, dirty: false } : null);
+  await recordEvent('handover', { handover: plan.id, revision: rev, commit: git ? git.commit : null, dirty: false });
   A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
   toast(`Handover ${plan.id} frozen at r-${rev}.`);
   if (G.state.repo && G.state.trusted) { // pre-fill the commit: staged, message written, review in Source control

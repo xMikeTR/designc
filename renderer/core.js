@@ -730,7 +730,14 @@ const Core = (() => {
   // One gate ledger event (without envelope) for what the gate says now. Findings keep the label as `on`
   // (System 4 joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
-  function gateRecord({ modelText, diags, gate, source, git }) {
+  // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'designc.json'];
+// Registry-relative changed files (from git status) that are gate inputs.
+function dirtyInputs(files, cfg) {
+  const model = (cfg && cfg.model) || 'model/workspace.dsl';
+  return files.map(f => f.path).filter(p => p === model || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')));
+}
+function gateRecord({ modelText, diags, gate, source, git }) {
     const clauses = byCanonical(gate.clauses.map(c => ({ kind: c.kind, text: c.text })));
     const findings = byCanonical(diags.map(d => ({ code: d.code, sev: d.sev, on: d.loc.label, loc: d.loc.kind, unknown: !!d.unknown, suppressed: !!d.suppressed })));
     const ev = { kind: 'gate', source, revision: modelRevision(modelText), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
@@ -1138,6 +1145,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, scenarioReport, latestFitness, changeImpact, blastRadius, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
