@@ -46,3 +46,15 @@ test('handoverActuals totals a handover and marks it final once closed', () => {
   assert.deepEqual(Ledger.handoverActuals(done, 'H-1'), { tokens: 125, cost: 1.25, tasks: 2, closed: 'delivered', afterClose: 1 });
   assert.equal(Ledger.handoverActuals(ev, 'H-9').tasks, 0);
 });
+
+test('sample events are never counted as spend', () => {
+  const ev = [
+    task({ handover: 'H-1', element: 'Api', tokens: 100 }),
+    task({ handover: 'H-1', element: 'Api', tokens: 5000, sample: true }),
+    task({ handover: 'H-2', element: 'Db', tokens: 7, sample: true }),
+  ];
+  assert.deepEqual(Ledger.elementHistory(ev).get('Api'), [{ handover: 'H-1', tokens: 100, cost: 0 }]);
+  assert.equal(Ledger.elementHistory(ev).has('Db'), false);
+  assert.equal(Ledger.handoverActuals(ev, 'H-1').tokens, 100);
+  assert.equal(Ledger.handoverActuals(ev, 'H-1').tasks, 1);
+});

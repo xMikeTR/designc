@@ -196,7 +196,7 @@ def eval_report(model, evals, ledger, now):
         row['evalHash'] = eval_hash(d)
         if eval_problems(d): row['defInvalid'] = True; done('invalid', f'eval {_s(eval_id)} is invalid'); continue
         if d.get('agent') != el.name: done('invalid', f"eval {_s(eval_id)} is for \"{d.get('agent')}\", not {el.name}"); continue
-        mine = sorted((e for e in ledger if e.get('kind') == 'eval' and e.get('eval') == d['id']), key=lambda e: -(e.get('_ts') or 0))
+        mine = sorted((e for e in ledger if e.get('kind') == 'eval' and e.get('eval') == _s(d['id'])), key=lambda e: -(e.get('_ts') or 0))
         current = [e for e in mine if e.get('eval_hash') == row['evalHash']]
         latest = current[0] if current else None
         eid = _s(eval_id)

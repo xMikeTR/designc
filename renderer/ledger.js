@@ -440,7 +440,7 @@ const Ledger = (() => {
   function elementHistory(events, { window = 10 } = {}) {
     const byEl = new Map(), first = new Map();
     for (const e of events) {
-      if (e.kind !== 'task' || !e.handover || !e.element) continue;
+      if (e.kind !== 'task' || e.sample || !e.handover || !e.element) continue;
       if (!first.has(e.handover)) first.set(e.handover, first.size);
       const rows = byEl.get(e.element) || new Map();
       const r = rows.get(e.handover) || { handover: e.handover, tokens: 0, cost: 0 };
@@ -458,7 +458,7 @@ const Ledger = (() => {
     const close = events.filter(e => e.kind === 'handover_closed' && e.handover === id).pop();
     const out = { tokens: 0, cost: 0, tasks: 0, closed: close ? close.outcome : null, afterClose: 0 };
     for (const e of events) {
-      if (e.kind !== 'task' || e.handover !== id) continue;
+      if (e.kind !== 'task' || e.sample || e.handover !== id) continue;
       if (close && e._ts > close._ts) { out.afterClose++; continue; }
       out.tasks++; out.tokens += totalTokens(e); out.cost += typeof e.cost === 'number' ? e.cost : 0;
     }

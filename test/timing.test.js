@@ -133,3 +133,18 @@ test('Core.amplificationFrom gives the retry multiplier from one element to ever
   assert.equal(amp.get(id('C')), 8);
   assert.equal(amp.has(id('A')), false);
 });
+
+test('a densely connected sync graph is analysed within a step budget and says so', () => {
+  const P1 = P({ ...SYNC, 'd.retry': 'fixed', 'd.retry.max': '0', 'd.idempotent': 'yes' });
+  let els = '', rels = '';
+  for (let l = 0; l < 14; l++) for (let w = 0; w < 3; w++) els += `n${l}_${w} = container "N${l}_${w}" "" "" ${P({})}\n`;
+  for (let l = 0; l < 13; l++) for (let a = 0; a < 3; a++) for (let b = 0; b < 3; b++) rels += `n${l}_${a} -> n${l + 1}_${b} "c" ${P1}\n`;
+  const m = parse(`s = softwareSystem "S" {\n${els}}\n${rels}`);
+  const t = Date.now();
+  const ds = of(Core.check(m, { chainHops: 4 }), 'DC008');
+  assert.ok(Date.now() - t < 2000, 'DC008 took too long');
+  assert.equal(ds.filter(d => d.unknown && /too connected/.test(d.msg)).length, 1);
+  const t2 = Date.now();
+  Core.amplificationFrom(m, [...m.elements.values()].find(e => e.name === 'N0_0').id);
+  assert.ok(Date.now() - t2 < 2000, 'amplificationFrom took too long');
+});

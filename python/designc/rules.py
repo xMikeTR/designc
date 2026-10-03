@@ -306,6 +306,10 @@ def dc007(m, o):
     return out
 
 
+# Mirrors MAX_PATH_STEPS in renderer/core.js.
+MAX_PATH_STEPS = 100000
+
+
 def dc008(m, o):
     out = []; limit = o.get('retryAmplification') or 4
     for r in m.rels:
@@ -316,12 +320,14 @@ def dc008(m, o):
         if not sync_call(m, r): continue
         adj.setdefault(r.src, []).append(r); has_in.add(r.dst)
     starts = [n for n in adj if n not in has_in] or list(adj)
-    hit = {}
+    hit = {}; steps = [0]
 
     def dfs(node, seen, path, mult):
         if len(hit) >= 200: return
         for r in adj.get(node, []):
             if r.dst in seen: continue
+            steps[0] += 1
+            if steps[0] > MAX_PATH_STEPS: return
             nxt = mult * attempts_of(r)[0]; budget = get(m.elements[r.dst], 'd.retry.budget') or limit; p = path + [r]
             if nxt > budget:
                 old = hit.get(r.id)
@@ -330,6 +336,8 @@ def dc008(m, o):
             dfs(r.dst, seen | {r.dst}, p, nxt)
 
     for s in starts: dfs(s, {s}, [], 1)
+    if steps[0] > MAX_PATH_STEPS:
+        out.append(D('DC008', 'warning', f'the sync calls are too connected to check every retry path (stopped after {MAX_PATH_STEPS} steps); results below may be incomplete', m.loc_rel(adj[starts[0]][0]), hint='split the model into smaller systems or reduce cross-calls', unknown=True))
     for path, mult, budget in hit.values():
         last = path[-1]; names = [m.elements[n].name for n in [path[0].src] + [r.dst for r in path]]
         out.append(D('DC008', 'warning', f'retries multiply load ×{mult} along {" → ".join(names)}; {m.elements[last.dst].name} tolerates ×{budget}', m.loc_rel(last), hint='retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver', related=[m.loc_rel(r) for r in path[:-1]]))
