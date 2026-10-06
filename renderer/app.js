@@ -284,6 +284,7 @@ async function loadAsbuilt() {
   if (A.cmSel && (!A.asbuilt || !A.asbuilt.elements.has(A.cmSel))) A.cmSel = null;
   if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
+  if (A.cmLevel === 'code' && !cmHasCode()) { A.cmLevel = 'container'; A.cmScope = null; }
 }
 function recompile() {
   A.model = Core.parse(A.modelText);
@@ -1172,7 +1173,7 @@ function drawModel(m, L, o) {
     const shape = store
       ? `<path d="M${n.x} ${n.y + 8} V${n.y + n.h - 8} A${n.w / 2} 8 0 0 0 ${n.x + n.w} ${n.y + n.h - 8} V${n.y + 8}" fill="${fill}" stroke="${st.stroke}" stroke-width="${st.sw}" ${da}/><ellipse cx="${n.x + n.w / 2}" cy="${n.y + 8}" rx="${n.w / 2}" ry="8" fill="${fill}" stroke="${st.stroke}" stroke-width="${st.sw}" ${da}/>`
       : `<rect x="${n.x}" y="${n.y}" width="${n.w}" height="${n.h}" rx="${person ? n.h / 2 : 3}" fill="${fill}" stroke="${st.stroke}" stroke-width="${st.sw}" ${da}/>`;
-    const kind = person ? 'Person' : e.kind === 'softwareSystem' ? 'Software System' : e.kind === 'component' ? 'Component' : 'Container';
+    const kind = e.kindLabel || (person ? 'Person' : e.kind === 'softwareSystem' ? 'Software System' : e.kind === 'component' ? 'Component' : 'Container');
     const ty = store ? n.y + 35 : n.y + 28;
     const bw = st.badge ? Math.max(22, String(st.badge).length * 7 + 10) : 0;
     const badge = st.badge ? `<rect x="${n.x + n.w + 9 - bw}" y="${n.y - 9}" width="${bw}" height="22" rx="11" fill="${st.badgeColor}"/><text x="${n.x + n.w + 9 - bw / 2}" y="${n.y + 6}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--node)">${esc(st.badge)}</text>` : '';
@@ -1333,21 +1334,37 @@ function cmAdoptBtn(builtId) {
   return a ? `<div style="padding:0 20px 8px"><button class="btn block" data-a="adoptcomp" data-built="${esc(a.built)}" data-design="${esc(a.design)}">Adopt these components</button></div>` : '';
 }
 function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
-function cmModel() { return A.asbuiltFull ? Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope }) : A.asbuilt; }
+function cmHasCode() { return !!(A.facts && A.facts.code && A.facts.code.types && A.facts.code.types.length); }
+// The component the Code level opens on: the scope if it is one, else the selected component, else the first with types.
+function cmCodeScope() {
+  const has = id => id && A.facts.code.types.some(t => t.component === id);
+  if (has(A.cmScope)) return A.cmScope;
+  if (has(A.cmSel)) return A.cmSel;
+  const t = A.facts.code.types[0]; return t ? t.component : null;
+}
+function cmModel() {
+  if (A.cmLevel === 'code') return cmHasCode() ? CodeLevel.model(A.facts.code, A.cmScope) : A.asbuilt;
+  return A.asbuiltFull ? Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope }) : A.asbuilt;
+}
 function cmGo(level, scope) {
   if (level === 'component' && !cmHasComponents()) return;
+  if (level === 'code') { if (!cmHasCode()) return; if (scope === undefined || scope === null) scope = cmCodeScope(); }
   A.cmLevel = level; if (scope !== undefined) A.cmScope = scope;
   A.cmZoom = 'fit';
   const m = cmModel(); if (A.cmSel && !(m && m.elements.has(A.cmSel))) A.cmSel = null;
   renderCodemap();
 }
-function cmUp() { if (A.cmLevel === 'component') cmGo('container'); else if (A.cmLevel === 'container') cmGo('context'); }
+function cmUp() {
+  if (A.cmLevel === 'code') { const c = A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope); A.cmSel = null; return cmGo('component', c ? c.parent : null); }
+  if (A.cmLevel === 'component') cmGo('container'); else if (A.cmLevel === 'container') cmGo('context'); }
 function cmSeg() {
   const has = cmHasComponents();
-  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''}>${name}</button>`;
+  const hasCode = cmHasCode();
+  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''} ${lv === 'code' && !hasCode ? 'disabled title="No types were found. Re-extract to read them."' : ''}>${name}</button>`;
   const sc = A.cmScope && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope);
-  const crumb = A.cmLevel === 'component' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
-  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}</span>${crumb}`;
+  const cc = A.cmLevel === 'code' && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope), cp = cc && A.asbuiltFull.elements.get(cc.parent);
+  const crumb = A.cmLevel === 'code' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${cp ? ` ▸ <button class="cm-all" data-a="cmcontainer" data-id="${esc(cp.id)}">${esc(cp.name)}</button>` : ''}${cc ? ` ▸ <b>${esc(cc.name)}</b>` : ''}</span>` : A.cmLevel === 'component' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
+  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}${b('code', 'Code')}</span>${crumb}`;
 }
 function renderCodemap() {
   const el = $('#special');
@@ -1372,14 +1389,16 @@ function renderCodemap() {
   const f = A.facts || { repo: '', extractedAt: null };
   el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
       ${cmSeg()}
-      ${A.cmLevel !== 'context' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
-      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
+      ${A.cmLevel === 'code' ? '<span class="legend"><i class="lg ghost"></i>type in another component</span>' : ''}
+      ${A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
+      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
       <button class="btn" data-a="cmfit">Fit</button><button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
     <div class="cm-main"><div class="cm-canvas sheetscroll" id="cmcanvas"></div><aside class="cm-side" id="cmside"></aside></div></div>`;
   requestAnimationFrame(drawCodemap);
 }
 function drawCodemap() {
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
+  if (A.cmLevel === 'code') return drawCode(host_);
   const lvl = A.cmLevel, m = cmModel(), L = layout(m, { groupEdges: lvl === 'component' });
   const d = lvl === 'context' ? null : A.drift, cd = lvl === 'component' ? A.cdrift : null;
   const full = A.asbuiltFull;
@@ -1408,9 +1427,33 @@ function drawCodemap() {
   });
   renderCmSide();
 }
+// The Code level: the types of one component and what they refer to, drawn with the shared layout and drawing.
+function drawCode(host_) {
+  const m = cmModel(), L = layout(m);
+  host_.innerHTML = drawModel(m, L, {
+    attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
+    edgeStyle: r => { const hot = A.cmSel && (r.src === A.cmSel || r.dst === A.cmSel); return { color: hot ? 'var(--accent)' : 'var(--ink3)', width: hot ? 2.2 : 1.3, dash: r.description === 'uses' ? '6 4' : '', label: r.description }; },
+    nodeStyle: e => { const on = A.cmSel === e.id; return { stroke: on ? 'var(--accent)' : e.outside ? 'var(--ink3)' : 'var(--ink)', sw: on ? 2.8 : 1.5, dash: e.outside ? '6 3' : '', note: e.outside ? cmCompName(e.component) : '' }; },
+  });
+  renderCmSide();
+}
+const cmCompName = id => { const c = A.asbuiltFull && A.asbuiltFull.elements.get(id); return c ? c.name : ''; };
+function cmTypeSide(t) {
+  const code = A.facts.code, rows = CodeLevel.methodsOf(code, t.id).sort((a, b) => b.cc - a.cc || a.name.localeCompare(b.name));
+  const edges = dir => code.typeEdges.filter(x => (dir === 'out' ? x.from : x.to) === t.id).map(x => { const o = code.types.find(y => y.id === (dir === 'out' ? x.to : x.from)); return `<div class="evrow" data-code="${esc(x.evidence.file)}" data-line="${x.evidence.line}"><b>${dir === 'out' ? '→ ' : '← '}${esc(o ? o.name : '?')}</b> <span class="tag">${esc(x.via)}</span><div class="evfile">${esc(x.evidence.file)}:${x.evidence.line}</div></div>`; }).join('');
+  return `<h3>${esc(t.name)}</h3><div class="muted">${esc(CodeLevel.LABEL[t.kind] || t.kind)} in ${esc(cmCompName(t.component))}</div>
+    <h4>Methods (${rows.length})</h4>${rows.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><b>${esc(x.name)}</b> <span class="tag">cc ${x.cc}</span> <span class="tag">${x.lines} lines</span><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('') || '<p class="muted">No methods with a body.</p>'}
+    <h4>Files</h4>${t.files.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('')}
+    ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
+}
 function renderCmSide() {
   const side = $('#cmside'); if (!side) return;
   const f = A.facts; const d = A.cmLevel === 'container' ? A.drift : null;
+  if (A.cmLevel === 'code') {
+    const t = A.cmSel && f.code.types.find(x => x.id === A.cmSel);
+    side.innerHTML = t ? cmTypeSide(t) : `<h3>${esc(cmCompName(A.cmScope))}</h3><p class="muted">Select a type to see its methods. Dashed boxes belong to other components.</p>`;
+    return;
+  }
   if (!A.cmSel) {
     side.innerHTML = `<h3>Projects</h3>${f ? f.projects.map(p => `<div class="evrow" data-code="${esc(p.file)}" data-line="1"><b>${esc(p.name)}</b> <span class="tag">${esc(p.kind)}</span> <span class="tag">${esc(p.lang)}</span><div class="evfile">${esc(p.file)}</div></div>`).join('') : ''}<p class="muted">Select a box to see the evidence behind it.</p>`;
     return;
@@ -1762,6 +1805,7 @@ document.addEventListener('click', async e => {
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }
   if (a === 'cmlevel') return cmGo(d.level, null);
   if (a === 'cmscope') return cmGo('component', null);
+  if (a === 'cmcontainer') return cmGo('component', d.id);
   if (a === 'ghost') { A.showGhost = t.checked; return drawCodemap(); }
   if (a === 'codemapopen') return setActivity('codemap');
   if (a === 'newtaxonomy') return createAndOpen(TAXONOMY, TAXONOMY_STARTER, 4);
@@ -1795,7 +1839,7 @@ document.addEventListener('click', e => {
   e.stopPropagation();
   if (!el) return cmUp();
   if (el.kind === 'container') return cmGo('component', id);
-  if (el.kind === 'component') { A.cmSel = id; return drawCodemap(); }
+  if (el.kind === 'component') { if (cmHasCode()) { A.cmSel = null; return cmGo('code', id); } A.cmSel = id; return drawCodemap(); }
 }, true);
 document.addEventListener('keydown', e => {
   if (e.key !== 'Backspace' || A.active !== 'special:codemap' || !A.asbuiltFull) return;

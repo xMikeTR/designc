@@ -10,6 +10,7 @@ const js = require('./js');
 const link = require('./link');
 const dsl = require('./dsl');
 const components = require('./components');
+const code = require('./code');
 
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', '.idea', 'packages', 'TestResults', 'artifacts', '.venv',
   'dist', 'build', 'coverage', 'out', '.next', 'playwright-report', 'test-results', 'junit-results']);
@@ -75,6 +76,9 @@ async function extract(repo, opts = {}) {
 
   const comp = await components.build({ elements, units, edges, internal, read: f => read(path.join(repo, f)) }, opts);
 
+  const compFacts = [...comp.components.values()].map(c => ({ id: `c_${c.owner}_${c.key}`, container: elements.get(c.owner).name, files: [...new Set(c.evidence.map(v => v.file))].sort() }));
+  const codeFacts = await code.build({ components: compFacts, read: f => read(path.join(repo, f)) });
+
   const repoName = path.basename(repo);
   const renderedDsl = dsl.render(repoName, elements, edges, comp.components, comp.componentEdges);
 
@@ -85,13 +89,14 @@ async function extract(repo, opts = {}) {
     elements: els.map(e => ({ key: keyOf(e.name), name: e.name, kind: e.kind, tech: e.tech, project: e.project || null,
       ...(e.role ? { role: e.role } : {}), ...(e.ports && e.ports.length ? { ports: e.ports } : {}), evidence: e.evidence })),
     edges: edges.map(e => ({ from: elements.get(e.from).name, to: elements.get(e.to).name, kind: e.kind, label: e.label, tech: e.tech, evidence: e.evidence })),
-    unresolved: [...unresolved, ...comp.unresolved],
+    unresolved: [...unresolved, ...comp.unresolved, ...codeFacts.unresolved],
     components: [...comp.components.values()].map(c => ({
       id: `c_${c.owner}_${c.key}`, key: c.key, container: elements.get(c.owner).name, name: c.name, owner: elements.get(c.owner).name,
       basis: c.basis, tech: '', files: [...new Set(c.evidence.map(v => v.file))].sort(), evidence: c.evidence,
     })),
     internal,
     componentEdges: comp.componentEdges,
+    code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges },
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };
 }
