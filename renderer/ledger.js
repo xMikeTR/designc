@@ -722,10 +722,51 @@ const Ledger = (() => {
     return { tasks: out, problems };
   }
 
+  // Judge calibration (display only): `labels` are the parsed factory/labels/<dimension>.yaml files, each
+  // {dimension, rounds: [{date, judge_version, precision, recall, n}]}. The latest valid round by date decides:
+  // below when precision or recall is under `threshold`, else stale when older than `maxAgeDays`, else ok.
+  // Invalid rounds are reported and skipped. Nothing here reaches the gate.
+  const DAY = 86400000;
+  const isoDate = d => (d instanceof Date && !isNaN(d) ? d.toISOString().slice(0, 10) : typeof d === 'string' ? d : null);
+  const roundProblem = r => {
+    if (!isPlainObject(r)) return 'must be a mapping';
+    const date = isoDate(r.date);
+    if (!date || !/^\d{4}-\d{2}-\d{2}$/.test(date) || isNaN(Date.parse(date))) return 'date must be YYYY-MM-DD';
+    if (typeof r.judge_version !== 'string' && typeof r.judge_version !== 'number') return 'judge_version is required';
+    if (!String(r.judge_version).trim()) return 'judge_version is required';
+    for (const m of ['precision', 'recall']) if (typeof r[m] !== 'number' || !(r[m] >= 0 && r[m] <= 1)) return `${m} must be a number from 0 to 1`;
+    if (!Number.isInteger(r.n) || r.n < 1) return 'n must be a whole number of at least 1';
+    return null;
+  };
+  function calibrationStatus(labels, { now = Date.now(), threshold = 0.8, maxAgeDays = 30 } = {}) {
+    const problems = [], seen = new Set(), dimensions = [];
+    for (const f of labels) {
+      if (!isPlainObject(f)) { problems.push('a file in factory/labels is not a mapping'); continue; }
+      const dimension = String(f.dimension);
+      if (seen.has(dimension)) { problems.push(`${dimension} is listed more than once`); continue; }
+      seen.add(dimension);
+      const valid = [];
+      if (!Array.isArray(f.rounds)) problems.push(`${dimension}: rounds must be a list`);
+      else f.rounds.forEach((r, i) => {
+        const bad = roundProblem(r);
+        if (bad) problems.push(`${dimension} round ${i + 1}: ${bad}`);
+        else valid.push({ ...r, date: isoDate(r.date), judge_version: String(r.judge_version) });
+      });
+      valid.sort((a, b) => a.date.localeCompare(b.date));
+      const latest = valid.length ? valid[valid.length - 1] : null;
+      if (!latest) { dimensions.push({ dimension, status: 'uncalibrated', latest: null, ageDays: null, short: [], rounds: [] }); continue; }
+      const ageDays = Math.floor((now - Date.parse(latest.date)) / DAY);
+      const short = ['precision', 'recall'].filter(m => latest[m] < threshold);
+      dimensions.push({ dimension, latest, ageDays, short, rounds: valid, status: short.length ? 'below' : ageDays > maxAgeDays ? 'stale' : 'ok' });
+    }
+    dimensions.sort((a, b) => a.dimension.localeCompare(b.dimension));
+    return { dimensions, problems, threshold, maxAgeDays };
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

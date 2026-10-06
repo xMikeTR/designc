@@ -1,0 +1,4 @@
+# Rounds of the judge:test-gaming judge scored against labels a person made on real traces.
+rounds:
+  - { date: 2026-09-12, judge_version: j1, precision: 0.78, recall: 0.82, n: 30 }
+  - { date: 2026-10-01, judge_version: j2, precision: 0.91, recall: 0.86, n: 42 }

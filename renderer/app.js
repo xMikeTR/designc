@@ -117,7 +117,7 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy(); await loadFactoryTasks();
+  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels();
 }
 // factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
 // binding pins exactly what was read. Not a gate input.
@@ -141,6 +141,28 @@ async function bindFactoryTask(id) {
   if (!confirm(`${t.status === 'changed' ? 'Re-bind' : 'Bind'} eval task ${id}? Binding means you, ${A.user}, accept this definition: suite runs that use a different version of it will be flagged.`)) return;
   await recordEvent('factory_task_bound', { task_id: id, hash: src.hash });
   toast(`Bound ${id}.`, 'info');
+}
+// factory/labels/<dimension>.yaml: rounds of a judge scored against a person's labels. Shown in Improve, never gating.
+async function loadLabels() {
+  A.labels = []; A.labelErrors = [];
+  for (const f of await host.list('factory/labels', ['.yaml', '.yml'])) {
+    try {
+      const o = jsyaml.load(textOf(f.path) ?? f.text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
+      A.labels.push({ ...o, dimension: o.dimension || f.path.split('/').pop().replace(/\.ya?ml$/, ''), _path: f.path });
+    } catch (e) { A.labelErrors.push(`${f.path} does not parse: ${e.reason || e.message}`); }
+  }
+}
+const CAL_TAG = { ok: 'bound', below: 'fail', stale: 'warning', uncalibrated: 'minted' };
+function calibrationHtml() {
+  if (!A.labels || (!A.labels.length && !A.labelErrors.length)) return '';
+  const r = Ledger.calibrationStatus(A.labels, { threshold: (A.cfg.factory || {}).calibrationThreshold });
+  const pct = x => `${Math.round(x * 100)}%`;
+  const notes = [...A.labelErrors, ...r.problems.map(p => `factory/labels: ${p}`)];
+  return `<div class="block"><h3>Judge calibration<span class="spacer"></span><span class="note-i">${plural(r.dimensions.filter(d => d.status === 'ok').length, 'dimension')} calibrated</span></h3>
+    <div class="note">How well each judge agrees with your labels, from <code>factory/labels/</code>. A judge's verdicts are trustworthy while its latest round has precision and recall of at least ${pct(r.threshold)} and is no more than ${r.maxAgeDays} days old. This is shown, not enforced.</div>
+    ${notes.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}
+    ${r.dimensions.length ? `<div class="tw2"><table class="t"><tr><th>Dimension</th><th>Judge</th><th class="num">Precision</th><th class="num">Recall</th><th class="num">Labelled</th><th>Latest round</th><th>Status</th><th></th></tr>${r.dimensions.map(d => `<tr><td><span class="id">${esc(d.dimension)}</span></td>${d.latest ? `<td>${esc(d.latest.judge_version)}</td><td class="num">${pct(d.latest.precision)}</td><td class="num">${pct(d.latest.recall)}</td><td class="num">${fmtN(d.latest.n)}</td><td>${esc(d.latest.date)} (${esc(plural(d.ageDays, 'day'))} ago)</td>` : '<td colspan="5" style="color:var(--fg3)">No valid round yet</td>'}<td><span class="tag ${CAL_TAG[d.status] || ''}">${esc(d.status)}</span>${d.short.length ? `<div style="color:var(--warn);font-size:11.5px">${esc(d.short.join(' and '))} under ${pct(r.threshold)}</div>` : ''}</td><td><button class="lnk" data-file="${esc((A.labels.find(x => String(x.dimension) === d.dimension) || {})._path || '')}">Open</button></td></tr>`).join('')}</table></div>` : ''}</div>`;
 }
 const TASK_TAG = { minted: 'minted', checked: 'checked', bound: 'bound', changed: 'warning', retired: 'superseded', invalid: 'fail' };
 function factoryTasksHtml() {
@@ -1601,7 +1623,7 @@ function improveDash() {
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(t.element || '')}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
-  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml();
+  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
