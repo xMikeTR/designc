@@ -1,0 +1,13 @@
+id: S2-0002
+title: Referral emails are sent once
+status: checked
+source:
+  failure_mode: FM-03
+  registry: design
+  escape: E-5e6f7a8b
+input:
+  registry: design
+  handover: 20261001-3f9c2a10
+  commit: 7be12c4
+graders:
+  gates: [build, tests, scope]

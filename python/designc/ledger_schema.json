@@ -27,6 +27,7 @@
   "rules": [
     "fail_needs_evidence",
     "suite_run_shape",
+    "hash_not_blank",
     "aborted_needs_reason",
     "caught_by_member"
   ],
@@ -265,6 +266,22 @@
       "enums": {},
       "types": {},
       "rules": []
+    },
+    "factory_task_bound": {
+      "stream": "factory.jsonl",
+      "required": [
+        "task_id",
+        "hash"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "task_id": "string",
+        "hash": "string"
+      },
+      "rules": [
+        "hash_not_blank"
+      ]
     },
     "failure_mode_classified": {
       "stream": "factory.jsonl",

@@ -3,7 +3,7 @@
    from tests. agent.js owns roles and tools; the decisions about what an agent may do live here. */
 const Policy = (() => {
   // Folders each role may write through ACP fs/write_text_file.
-  const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//], analyst: [/^proposals\//] };
+  const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//], analyst: [/^proposals\//, /^factory\/tasks\//] };
 
   // Written only by a human binding a decision (bindDecision), never by an agent.
   const PROMOTION_FIELDS = ['promoted_against', 'promoted_by', 'promoted_at'];
@@ -31,13 +31,18 @@ const Policy = (() => {
     const no = error => ({ ok: false, error });
     if (!rel) return no('designc only lets agents write inside the registry. The codebase is read-only here; code changes go through the coding pipeline.');
     if (!(WRITE_PATHS[role] || []).some(re => re.test(rel))) return no(`The ${role} role may not write ${rel}.`);
-    const dir = /^(decisions|proposals)\//.exec(rel);
+    const dir = /^(decisions|proposals|factory\/tasks)\//.exec(rel);
     if (dir) {
       if (!/\.yaml$/.test(rel)) return no(`Agents may only write .yaml files in ${dir[1]}/.`);
       let doc = null;
       try { doc = parseYaml(content); } catch { /* reported below */ }
       if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return no(`${rel} is not valid YAML with top-level fields, so designc cannot check it. Fix the file and write it again.`);
       const status = String(doc.status == null ? '' : doc.status).trim().toLowerCase();
+      if (dir[1] === 'factory/tasks') {
+        if (status === 'bound') return no('Binding an eval task is a human action; write it as minted.');
+        const field = ['bound_by', 'bound_at', 'hash'].find(f => Object.prototype.hasOwnProperty.call(doc, f));
+        if (field) return no(`${field} is recorded when a human binds a task; leave it out.`);
+      }
       if (dir[1] === 'decisions' && (status === 'bound' || status === 'superseded')) return no('Binding a decision is a human action; write it as minted.');
       if (dir[1] === 'decisions') {
         const field = PROMOTION_FIELDS.find(f => Object.prototype.hasOwnProperty.call(doc, f));

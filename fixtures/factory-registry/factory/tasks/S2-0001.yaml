@@ -1,0 +1,14 @@
+id: S2-0001
+title: Quote writes use optimistic concurrency
+status: checked
+source:
+  failure_mode: FM-02
+  registry: design
+  escape: E-1a2b3c4d
+input:
+  registry: design
+  handover: 20261001-3f9c2a10
+  commit: 7be12c4
+graders:
+  gates: [build, tests, decision_checks, scope]
+  gradients: ['judge:test-gaming']
