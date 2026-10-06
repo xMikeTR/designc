@@ -1,15 +1,39 @@
 # designc desktop
 
-A system design IDE. The design is the source; code is a build output.
-It opens a **registry folder** and gives you the three systems in one window:
+A system design IDE in which **the design is the source and code is a build output**. It opens a *registry folder* (plain files: a Structurizr DSL model, decisions, requirements, a ledger) and hosts three systems of a design-to-code factory in one window: a design compiler, an as-built code map, and a pipeline and improvement view.
 
-- **Design:** a Structurizr DSL editor (Monaco, the VS Code editor engine) with live lint (DC000 to DC008) as squiggles, completions and hovers for `d.*` properties, a C4 sheet beside it, decisions and requirements as YAML files, the definition-of-ready gate, grill-me, and handover.
-- **Build:** live agent runs from Langfuse, plus what the pipeline recorded in `ledger/*.jsonl`: tokens per passing task, reruns, each decision's latest check result, items waiting on a decision, and as-built vs designed drift.
-- **Code map (as built):** a C4 map of an existing codebase, extracted deterministically from the repo, overlaid on the design so drift is visible. Every box and arrow links to the lines of code that prove it.
-- **Agent panel:** a chat pane like Copilot's with three roles (Architect, Grill-me, Analyst). Model-agnostic: use the built-in agent with any model your gateway routes, or plug in any ACP agent (Claude Code, Codex, Gemini CLI, Copilot, your own). Either way it reads the workspace and every change waits for your approval.
-- **Improve:** escapes by the stage that should have caught them, rule health, and proposals as YAML files.
+The rule behind every feature: **probabilistic components propose; deterministic components and humans decide.** Agents (LLMs) can draft and suggest. Nothing they produce is written without a policy check and your explicit approval, and the gate that says "ready for handover" is plain code, not a model.
 
 ![Explorer](docs/explorer.png)
+
+## Contents
+
+- [Quick start](#run-it) and [installers](#build-an-installer)
+- [The views](#the-views), one by one
+- [Code map](#code-map), its levels, code quality and coverage
+- [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
+- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
+- Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
+
+## The views
+
+The activity bar on the left switches views. Menu: View, or the shortcuts shown in tooltips.
+
+| View | What it is for | What you do there |
+| --- | --- | --- |
+| **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
+| **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC008) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
+| **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
+| **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
+| **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
+| **Code map** | What the code actually is (as built) | Extract a .NET, TS/JS or F# codebase into a C4 map with evidence, down to **types and methods**, overlaid on the design as drift, with code quality warnings. See [Code map](#code-map) |
+| **Build** | The coding pipeline | Agent runs from Langfuse plus ledger events: tokens per passing task, reruns, decision checks, needs-decision items, drift, handover cost forecast against actual |
+| **Source control** | Git, daily loop | Branch, fetch, pull (fast-forward only), push (never forces), stage, commit. Freezing a handover pre-fills the commit. Compare tab shows a meaning-level diff of the model |
+| **Improve** | Evals and the improvement loop | Escapes by the stage that should have caught them, rule health, proposals, agent activity, ledger integrity, agent evals, factory suite runs, failure modes, eval tasks, judge calibration, escapes in other registries |
+| **Set up** | First-run settings page | Model file, LLM provider and Langfuse; each skippable, with Test connection. Keys stay in environment variables |
+| **Agent panel** (right) | Chat with roles | Architect, Grill-me and Analyst; built-in, ACP or AG-UI agents. Every write is a diff card you approve |
+
+Typical flow: sketch or import the design (Canvas, Design, or "Start the design from this map" on a legacy codebase), let lint and the gate tell you what is missing, record decisions, freeze a handover for the build pipeline, then watch Build and Improve for what the pipeline did and where it escaped.
 
 ## Run it
 
@@ -57,6 +81,35 @@ Matching to the design is by normalised name (`Referral.Worker` matches `Referra
 - **Designed, not found in code:** dotted edges on the map, and designed elements with no match.
 
 With no design yet, "Start the design from this map" turns the as-built model into `model/workspace.dsl`, which is the quickest way into a legacy codebase.
+
+### Languages
+
+.NET (`.csproj`, `.fsproj`) is the deepest: stores, HTTP and Service Bus edges, routes. JS/TS packages (SPA, Node API, library) and Express routes, and outbound `fetch`/`axios`, SignalR and Service Bus calls are read too. Types and methods (below) are read for C#, TS/JS and F#.
+
+### Levels
+
+The switcher on the Code map runs **Context, Containers, Components, Code**: C4 levels 1 to 4. Double-click a container to scope Components to it, a component to open its types, empty canvas or Backspace to go up. Components come from function classes, controllers, libraries, first folders and `extract.components` overrides in `designc.json`.
+
+### Code level (C4 level 4)
+
+Code shows the **types** (class, record, struct, interface, enum, module) of one component and the types they use in other components, with edges `inherits`, `new` and `uses` resolved by name inside a container. A name declared twice in one container is listed under Unresolved rather than guessed. Select a type for its methods, worst complexity first, with file and line.
+
+Cyclomatic complexity, size and coupling are computed by designc itself (pattern-based, no compiler). Limits: C# property accessors and operators are not measured; TS/JS object-literal methods and UMD-wrapped files are not; F# type headers must keep `=` on the first line and a `let` bound to a lambda counts as a value. These numbers are for review, not precise to the compiler.
+
+### Code quality (warnings, never blocking)
+
+Set limits in `designc.json`:
+
+```json
+{
+  "quality": { "cyclomatic": 10, "crap": 30, "methodLines": 60, "coupling": 8, "typeMethods": 20 },
+  "extract": { "coverage": ["**/coverage.cobertura.xml", "coverage/lcov.info"] }
+}
+```
+
+A number is a maximum; `{ "min": n }` or `{ "max": n }` say it explicitly. A breach is strictly beyond the limit. Methods are judged one by one and rolled up as worst value and breach count per type, component and container, shown as badges on every level, in the type panel, and in Problems (click to open file and line). They are warnings only: they never reach the gate and the Python CLI does not know them. CRAP needs coverage: Cobertura (coverlet) and lcov reports named by `extract.coverage` are read at extraction, and **with no coverage CRAP is unknown (`?`), never zero**. Coverage is as fresh as the last extraction. Paths in reports are matched by trailing segments because CI roots differ; an ambiguous match is not guessed.
+
+More checks plug into a registry without touching the judge or the UI: `Quality.register({ id, code, title, scope, better, value })` in `renderer/quality.js`.
 
 ## Langfuse (Build and Improve)
 
@@ -255,7 +308,9 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 }
 ```
 
-Grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
+`llm.provider` is `openai` (default, any OpenAI-compatible gateway), `anthropic` (key in the env var named by `apiKeyEnv`, default `ANTHROPIC_API_KEY`) or `vertex` (Claude on Vertex AI using your own `gcloud auth application-default login`; set `project` and `region`).
+
+With the `openai` provider, grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
 ## Timing and retries
 
@@ -359,11 +414,20 @@ To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's 
 | Ctrl+Shift+R | Extract the code map |
 | Ctrl+Shift+M / U | Problems / Output panel |
 
+## Tests and mocks
+
+```
+node --test test/*.test.js
+```
+
+Core logic, the extractors, the ledger, the Python CLI parity and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
+
 ## Layout of the code
 
 | File | Role |
 | --- | --- |
-| `extract.js` | Deterministic .NET extractor: projects, stores, HTTP and Service Bus edges, each with evidence |
+| `extract/` | Deterministic extraction: `csharp.js`, `js.js`, `js-calls.js` for containers and edges; `components*.js`; `code.js` with `code-cs.js`, `code-js.js`, `code-fs.js` for types and methods; `coverage.js`; `link.js`, `dsl.js` |
+| `renderer/quality.js` | Pure, pluggable code quality metric registry (QC001 to QC005) |
 | `telemetry.js` | Langfuse reader: Observations v2 and Scores v3, grouped into runs |
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
