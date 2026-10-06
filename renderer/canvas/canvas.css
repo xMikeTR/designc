@@ -41,7 +41,7 @@
 .dcv-edge{cursor:pointer}
 .dcv-edge .dcv-hit{stroke:transparent;stroke-width:14}
 .dcv-elabel{font:11px var(--ui,system-ui);fill:var(--ink2,#4a5a6f);text-anchor:middle;paint-order:stroke;stroke:var(--paper,#f2f5f7);stroke-width:5px;stroke-linejoin:round;pointer-events:none}
-.dcv-ghost-edge{stroke:var(--accent,#2c5aa0);stroke-width:2;stroke-dasharray:5 4}
+.dcv-ghost-edge{pointer-events:none;stroke:var(--accent,#2c5aa0);stroke-width:2;stroke-dasharray:5 4}
 .dcv-empty{font:14px var(--ui,system-ui);fill:var(--fg3,#8a939d)}
 .dcv-dragghost{position:fixed;z-index:1000;pointer-events:none;background:var(--editor,#fff);border:1px solid var(--accent,#2c5aa0);border-radius:4px;padding:4px 8px;font:12.5px system-ui;box-shadow:0 4px 12px rgba(0,0,0,.15)}
 .dcv-inspector{overflow:auto;border-left:1px solid var(--edge,#d6dae0);background:var(--chrome,#f3f4f6);padding:12px 14px 24px}
