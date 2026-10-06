@@ -101,6 +101,20 @@
       cancelAnimationFrame(S.raf);
       S.raf = requestAnimationFrame(() => { renderSVG(); renderInspector(); renderToolbar(); if (S.review) renderReview(); });
     }
+    // Connection handles: one on each side of a box, as [side, x, y].
+    function handlePoints(p, shape) {
+      const o = 4, ox = shape === 'diamond' ? 14 : o;
+      return [['top', p.x + W / 2, p.y - o], ['right', p.x + W + ox, p.y + H / 2], ['bottom', p.x + W / 2, p.y + H + o], ['left', p.x - ox, p.y + H / 2]];
+    }
+    // The box under a world point, by geometry, so nothing drawn on top (the ghost line, a label) can hide it.
+    function nodeAt(w, exceptId) {
+      const m = S.model, pad = 10; if (!m) return null;
+      for (const e of L.leavesOf(m)) {
+        const p = S.pos.get(e.id);
+        if (p && e.id !== exceptId && w.x >= p.x - pad && w.x <= p.x + W + pad && w.y >= p.y - pad && w.y <= p.y + H + pad) return e.id;
+      }
+      return null;
+    }
     function renderSVG() {
       const m = S.model; if (!m) return;
       const sel = selected(), elSev = new Map(), elN = new Map(), relSev = new Map();
@@ -135,10 +149,10 @@
           ${stencil ? `<text x="${p.x + 10}" y="${p.y + (shape.startsWith('cylinder') ? 30 : 18)}" class="dcv-glyph">${stencil.glyph}</text>` : ''}
           <text x="${p.x + W / 2}" y="${ty}" class="dcv-name">${esc(trunc(e.name, 22))}</text><text x="${p.x + W / 2}" y="${ty + 16}" class="dcv-sub">${esc(trunc(sub, 30))}</text>
           ${elN.get(e.id) ? `<circle cx="${p.x + W - 2}" cy="${p.y + 2}" r="11" fill="${SEV[sev]}"/><text x="${p.x + W - 2}" y="${p.y + 6}" class="dcv-badge">${elN.get(e.id)}</text>` : ''}
-          <circle class="dcv-handle" cx="${p.x + W + (shape === 'diamond' ? 14 : 4)}" cy="${p.y + H / 2}" r="7"><title>Drag to connect</title></circle></g>`;
+          ${handlePoints(p, shape).map(([side, hx, hy]) => `<circle class="dcv-handle" data-side="${side}" cx="${hx}" cy="${hy}" r="7"><title>Drag to connect</title></circle>`).join('')}</g>`;
       }
       if (S.drag && S.drag.type === 'connect') {
-        const a = S.pos.get(S.drag.from); if (a) h += `<line class="dcv-ghost-edge" x1="${a.x + W}" y1="${a.y + H / 2}" x2="${S.drag.cur.x}" y2="${S.drag.cur.y}" marker-end="url(#dcv-mk-sel)"/>`;
+        const a = S.pos.get(S.drag.from); if (a) h += `<line class="dcv-ghost-edge" x1="${S.drag.x0}" y1="${S.drag.y0}" x2="${S.drag.cur.x}" y2="${S.drag.cur.y}" marker-end="url(#dcv-mk-sel)"/>`;
       }
       if (!m.elements.size) h += `<text x="60" y="80" class="dcv-empty">Drag a stencil from the left, or insert a reference architecture.</text>`;
       world.innerHTML = h;
@@ -387,7 +401,10 @@
       if (ev.button !== 0) return; stage.focus(); commitInline(true);
       const w = toWorld(ev.clientX, ev.clientY);
       const handle = ev.target.closest('.dcv-handle'), node = ev.target.closest('.dcv-node'), edge = ev.target.closest('.dcv-edge'), bound = ev.target.closest('.dcv-boundary');
-      if (handle && node) { S.drag = { type: 'connect', from: node.dataset.id, cur: w }; }
+      if (handle && node) {
+        const hx = +handle.getAttribute('cx'), hy = +handle.getAttribute('cy');
+        S.drag = { type: 'connect', from: node.dataset.id, cur: w, x0: hx, y0: hy };
+      }
       else if (node) { const id = node.dataset.id, p = S.pos.get(id); S.drag = { type: 'node', id, dx: w.x - p.x, dy: w.y - p.y, moved: false, sx: ev.clientX, sy: ev.clientY }; }
       else if (edge) { const r = S.model.rels[+edge.dataset.rel]; if (r) selectRel(r); return; }
       else if (bound) {
@@ -407,8 +424,8 @@
     svg.addEventListener('pointerup', ev => {
       const d = S.drag; S.drag = null; if (!d) return;
       if (d.type === 'connect') {
-        const hit = document.elementFromPoint(ev.clientX, ev.clientY), node = hit && hit.closest && hit.closest('.dcv-node');
-        if (node && node.dataset.id !== d.from) { const rel = connect(d.from, node.dataset.id); if (rel) setTimeout(() => startRelLabel(rel), 30); } else renderSVG();
+        const to = nodeAt(toWorld(ev.clientX, ev.clientY), d.from);
+        if (to) { const rel = connect(d.from, to); if (rel) setTimeout(() => startRelLabel(rel), 30); } else renderSVG();
         return;
       }
       if (d.type === 'node') { if (d.moved) saveLayout(); else selectEl(d.id); return; }
