@@ -1464,7 +1464,7 @@ function cmTypeSide(t) {
   rows.forEach(x => { x.warn = hot.has(x.name); });
   return `<h3>${esc(t.name)}</h3><div class="muted">${esc(CodeLevel.LABEL[t.kind] || t.kind)} in ${esc(cmCompName(t.component))}</div>
     ${qf.length ? `<h4>Quality (${qf.length})</h4>${qf.map(f => `<div class="evrow" data-code="${esc(f.file)}" data-line="${f.line}"><span class="tag warning">${esc(f.code)}</span> ${esc(f.msg)}</div>`).join('')}` : ''}
-    <h4>Methods (${rows.length})</h4>${rows.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><b>${esc(x.name)}</b> <span class="tag${x.warn ? ' warning' : ''}">cc ${x.cc}</span> <span class="tag">${x.lines} lines</span><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('') || '<p class="muted">No methods with a body.</p>'}
+    <h4>Methods (${rows.length})</h4>${rows.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><b>${esc(x.name)}</b> <span class="tag${x.warn ? ' warning' : ''}">cc ${x.cc}</span> <span class="tag">${x.lines} lines</span> ${x.coverage == null ? '<span class="tag" title="No coverage report covers this method">cov ?</span>' : `<span class="tag">cov ${Math.round(x.coverage * 100)}%</span> <span class="tag">CRAP ${Math.round(Quality.crap(x.cc, x.coverage) * 10) / 10}</span>`}<div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('') || '<p class="muted">No methods with a body.</p>'}
     <h4>Files</h4>${t.files.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('')}
     ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
 }
