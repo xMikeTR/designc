@@ -1,0 +1,2 @@
+rounds:
+  - { date: 2026-10-02, judge_version: j1, precision: 0.88, recall: 0.64, n: 25 }
