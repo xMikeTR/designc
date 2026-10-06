@@ -13,6 +13,8 @@ const crypto = require('crypto');
 const ledgerStore = require('./ledger-store');
 const git = require('./git');
 const Setup = require('./renderer/setup.js');
+const Llm = require('./renderer/llm.js');
+const LlmNet = require('./llm-net.js');
 
 let win = null, root = null, watcher = null, watchTimer = null, changed = new Set();
 const running = new Map();
@@ -224,6 +226,13 @@ handle('agent:chat', async (id, payload) => {
   const baseUrl = cfg.baseUrl || process.env.DESIGNC_LLM_BASE_URL;
   const key = process.env[cfg.apiKeyEnv || 'DESIGNC_LLM_API_KEY'];
   const model = (agents[payload.role] && agents[payload.role].model) || cfg.model || process.env.DESIGNC_LLM_MODEL;
+  const prov = Llm.provider(cfg);
+  if (!prov) return { error: 'not_configured' };
+  if (prov !== 'openai') {
+    const ac = new AbortController(); streams.set(id, ac);
+    try { return { model, ...(await LlmNet.call(cfg, { model, messages: payload.messages, tools: payload.tools, stream: true, signal: ac.signal, env: process.env, onText: t => win.webContents.send('agent:delta', id, t) })) }; }
+    finally { streams.delete(id); }
+  }
   if (!baseUrl || !model) return { error: 'not_configured' };
   if (!key) return { error: 'no_key', env: cfg.apiKeyEnv || 'DESIGNC_LLM_API_KEY' };
   const body = { model, messages: payload.messages, tools: payload.tools && payload.tools.length ? payload.tools : undefined, stream: true, temperature: 0.2 };
@@ -441,6 +450,12 @@ handle('llm:chat', async (messages) => {
   const baseUrl = cfg.baseUrl || process.env.DESIGNC_LLM_BASE_URL;
   const key = process.env[cfg.apiKeyEnv || 'DESIGNC_LLM_API_KEY'];
   const model = cfg.model || process.env.DESIGNC_LLM_MODEL;
+  const prov = Llm.provider(cfg);
+  if (!prov) return { error: 'not_configured' };
+  if (prov !== 'openai') {
+    const r = await LlmNet.call(cfg, { model, messages, env: process.env });
+    return r.message ? { text: r.message.content || '' } : r;
+  }
   if (!baseUrl || !model) return { error: 'not_configured' };
   if (!key) return { error: 'no_key', env: cfg.apiKeyEnv || 'DESIGNC_LLM_API_KEY' };
   try {
@@ -464,7 +479,7 @@ handle('setup:test', async (kind, draft) => {
   if (p.error) return p;
   const host = new URL(p.url).host, names = Setup.envNames({ [kind]: d[kind] });
   const saved = readSettings()[kind] || {};
-  const known = (() => { try { return new URL(saved.baseUrl).host === host && names.every(n => Setup.envNames({ [kind]: saved }).includes(n)); } catch { return false; } })();
+  const known = Setup.hostOf(kind, saved) === host && names.every(n => Setup.envNames({ [kind]: saved }).includes(n));
   if (!known) {
     const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Send', 'Cancel'], defaultId: 1, cancelId: 1, message: `Send the value of ${names.join(' and ')} to ${host}?`,
       detail: 'Test connection reads the key from your environment and sends it to this host. It is not saved anywhere.' });

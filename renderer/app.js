@@ -803,10 +803,10 @@ async function runChecks(list) {
 // ---------------------------------------------------------------- LLM (grill-me, proposal drafting)
 function parseJson(text) { const t = String(text || '').replace(/^[\s\S]*?```(?:json)?\s*/i, m => (m.includes('```') ? '' : m)).replace(/```[\s\S]*$/, ''); const s = t.indexOf('{'), e = t.lastIndexOf('}'); return JSON.parse(t.slice(s, e + 1)); }
 function llmError(r) {
-  if (r.error === 'not_configured') return ['Grill-me needs a model. Set llm.baseUrl and llm.model in designc.json (your LiteLLM gateway, OpenAI-compatible).', [{ label: 'Open designc.json', run: () => openFile('designc.json') }]];
-  if (r.error === 'no_key') return [`Set the ${r.env} environment variable to your gateway key, then restart designc.`, []];
-  if (r.error === 'http') return [`The gateway answered ${r.status}: ${r.message}`, []];
-  return [`Couldn't reach the gateway: ${r.message || r.error}`, []];
+  if (r.error === 'not_configured') return ['Grill-me needs a model. Use Set up this folder to choose a model provider, or set llm in designc.json.', [{ label: 'Open designc.json', run: () => openFile('designc.json') }]];
+  if (r.error === 'no_key') return [`Set the ${r.env} environment variable to your model key, then restart designc.`, []];
+  if (r.error === 'http') return [`The model provider answered ${r.status}: ${r.message}`, []];
+  return [`Couldn't reach the model provider: ${r.message || r.error}`, []];
 }
 async function grill() {
   if (!A.root || A.grill.busy) return;

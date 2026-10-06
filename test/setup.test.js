@@ -84,3 +84,46 @@ test('the starter model parses with no errors', () => {
   const m = Core.parse(Setup.STARTER_MODEL);
   assert.deepEqual(m.errors, []);
 });
+
+// ---- providers: anthropic (a local API key) beside the OpenAI-compatible gateway ----
+const ANT = { provider: 'anthropic', model: 'claude-sonnet-5-5' };
+
+test('anthropic reads ANTHROPIC_API_KEY by default and needs no base URL', () => {
+  assert.deepEqual(Setup.envNames({ llm: ANT }), ['ANTHROPIC_API_KEY']);
+  assert.deepEqual(Setup.envNames({ llm: { ...ANT, apiKeyEnv: 'MY_K' } }), ['MY_K']);
+  assert.deepEqual(Setup.envNames({ llm: { model: 'm' } }), ['DESIGNC_LLM_API_KEY'], 'no provider is the gateway, as before');
+  assert.deepEqual(Setup.validate({ llm: ANT }), []);
+});
+
+test('validate names an unknown provider and checks an anthropic base URL like any other', () => {
+  assert.equal(Setup.validate({ llm: { provider: 'bedrock' } })[0].field, 'llm.provider');
+  assert.equal(Setup.validate({ llm: { ...ANT, baseUrl: 'http://example.com' } })[0].field, 'llm.baseUrl');
+});
+
+test('probe for anthropic goes to api.anthropic.com with the key in x-api-key and one token', () => {
+  const p = Setup.probe('llm', { llm: ANT }, { ANTHROPIC_API_KEY: 'sk-1' });
+  assert.equal(p.url, 'https://api.anthropic.com/v1/messages');
+  assert.equal(p.init.headers['x-api-key'], 'sk-1');
+  assert.equal(JSON.parse(p.init.body).max_tokens, 1);
+  assert.equal(JSON.parse(p.init.body).model, 'claude-sonnet-5-5');
+  assert.equal(Setup.probe('llm', { llm: ANT }, {}).error, 'missing');
+  assert.equal(Setup.probe('llm', { llm: { provider: 'anthropic' } }, { ANTHROPIC_API_KEY: 'k' }).error, 'incomplete');
+});
+
+test('hostOf gives the host a section talks to, so Test connection knows what is already saved', () => {
+  assert.equal(Setup.hostOf('llm', ANT), 'api.anthropic.com');
+  assert.equal(Setup.hostOf('llm', { baseUrl: 'https://gw.example.com/v1' }), 'gw.example.com');
+  assert.equal(Setup.hostOf('llm', { provider: 'anthropic', baseUrl: 'http://localhost:9' }), 'localhost:9');
+  assert.equal(Setup.hostOf('llm', undefined), null);
+});
+
+test('verdict names the provider it talked to', () => {
+  assert.deepEqual(Setup.verdict('llm', { llm: ANT }, { status: 200, body: { model: 'claude-x' } }), { ok: true, detail: 'The Anthropic API answered as claude-x.' });
+  assert.match(Setup.verdict('llm', { llm: ANT }, { status: 401, body: {} }).error, /^The Anthropic API refused the key/);
+  assert.match(Setup.verdict('llm', { llm: ANT }, { status: 404, body: { error: { message: 'model: nope' } } }).hint, /model name/);
+});
+
+test('merge sets provider, and drops it when the gateway is chosen so older files stay as they were', () => {
+  assert.deepEqual(Setup.merge({}, { llm: { provider: 'anthropic', model: 'm', baseUrl: '', apiKeyEnv: '' } }), { llm: { provider: 'anthropic', model: 'm' } });
+  assert.deepEqual(Setup.merge({ llm: { provider: 'anthropic', model: 'm' } }, { llm: { provider: 'openai', baseUrl: 'https://g/v1', model: 'm' } }), { llm: { baseUrl: 'https://g/v1', model: 'm' } });
+});
