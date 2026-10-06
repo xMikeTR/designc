@@ -1070,7 +1070,7 @@ const Core = (() => {
   const byCanonical = list => list.map(x => [canonical(x), x]).sort((a, b) => (a[0] < b[0] ? -1 : a[0] > b[0] ? 1 : 0)).map(p => p[1]);
   const verdictHash = ({ ready, clauses, findings }) => hash16(canonical({ ready, clauses, findings }));
   // One gate ledger event (without envelope) for what the gate says now. Findings keep the label as `on`
-  // (System 4 joins on element names) and drop lines, messages, hints and related locations. Clauses and
+  // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
 const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'evals', 'behaviour', 'vocabulary', 'designc.json'];

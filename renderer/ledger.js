@@ -173,7 +173,7 @@ const Ledger = (() => {
       optional: [],
       enums: { via: ['acp', 'agui'] },
     },
-    // Factory evals: an eval harness run of System 2, written through `designc record` (allowlisted kinds).
+    // Factory evals: an eval harness run of the Build pipeline, written through `designc record` (allowlisted kinds).
     // A suite run states its versions once and pins each eval task's hash and grader lists, so a trial's
     // outcome can be derived from the ledger alone (Ledger.suiteRuns).
     suite_run: {

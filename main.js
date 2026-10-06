@@ -99,10 +99,10 @@ function buildMenu() {
     { role: 'editMenu' },
     { label: 'View', submenu: [
       { label: 'Explorer', accelerator: 'CmdOrCtrl+Shift+E', click: send('view:explorer') },
-      { label: 'Design (System 1)', accelerator: 'CmdOrCtrl+Shift+D', click: send('view:design') },
+      { label: 'Design', accelerator: 'CmdOrCtrl+Shift+D', click: send('view:design') },
       { label: 'Code Map (as built)', accelerator: 'CmdOrCtrl+Shift+K', click: send('view:codemap') },
-      { label: 'Build (System 2)', click: send('view:build') },
-      { label: 'Improve (System 4)', click: send('view:improve') },
+      { label: 'Build', click: send('view:build') },
+      { label: 'Improve', click: send('view:improve') },
       { type: 'separator' },
       { label: 'Toggle C4 Sheet', accelerator: 'CmdOrCtrl+Alt+V', click: send('toggle-sheet') },
       { label: 'Agent Panel', accelerator: 'CmdOrCtrl+Alt+I', click: send('toggle-agent') },
@@ -195,7 +195,7 @@ handle('codebase:read', async (p, rel) => {
   return fsp.readFile(abs, 'utf8');
 });
 
-// Langfuse telemetry for Run (S2) and Improve (S4). Keys come from the environment, never the repo.
+// Langfuse telemetry for Build and Improve. Keys come from the environment, never the repo.
 handle('telemetry:fetch', async () => {
   if (!root) return { error: 'no_folder' };
   let cfg = null;

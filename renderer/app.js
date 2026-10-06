@@ -534,7 +534,7 @@ async function newProposal(p = {}) {
 status: minted          # minted | checked | bound | rejected
 kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing
 evidence: ${yamlStr(p.evidence || '')}
-statement: ${p.statement ? yamlStr(p.statement) : 'TODO the change to System 1 or System 2'}
+statement: ${p.statement ? yamlStr(p.statement) : 'TODO the change to Design or Build'}
 check: ${yamlStr(p.check || '')}
 ${p.drafted ? 'drafted_by: llm\n' : ''}`, p.statement ? null : 5);
 }
@@ -721,8 +721,8 @@ async function draftProposals() {
   if (!escapes.length) { toast('There are no escapes to learn from yet.'); return; }
   A.drafting = true; renderSidebar();
   const r = await host.chat([
-    { role: 'system', content: 'You are the analyst in the improvement system (System 4) of a design-to-code factory. You propose changes to the factory, never to the product, and never apply them.' },
-    { role: 'user', content: `System 1 is a design compiler (lint rules DC001-DC006, P behavioural models, grill-me questions, a definition-of-ready gate). System 2 is an agentic coding pipeline (planner, executor agents, routing, verify).
+    { role: 'system', content: 'You are the analyst in Improve, the evals and improvement loop of a design-to-code factory. You propose changes to the factory, never to the product, and never apply them.' },
+    { role: 'user', content: `Design is the design compiler (lint rules DC001-DC006, P behavioural models, grill-me questions, a definition-of-ready gate). Build is the agentic coding pipeline (planner, executor agents, routing, verify).
 RULES: ${JSON.stringify(Core.RULES.map(x => ({ code: x.code, title: x.title, source: x.source })))}
 ESCAPES: ${JSON.stringify(escapes)}
 EXISTING PROPOSALS: ${JSON.stringify(A.proposals.map(p => p.statement))}
@@ -771,13 +771,13 @@ function renderBadges() {
 function tabTitle(id) { return id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'S2' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'S4'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (System 2)', 'special:improve': 'Improve (System 4)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -808,7 +808,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design · System 1', codemap: 'Code map · as built', build: 'Build · System 2', improve: 'Improve · System 4', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology' };
+  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open Folder</button><button class="btn block" data-a="sample">Open Sample Registry</button>`; return; }
@@ -938,7 +938,7 @@ function renderWelcome() {
   if (A.root) {
     w.innerHTML = `<div class="wl"><h1>${esc(A.root.name)}<small>${esc(A.root.root)}</small></h1>
       <div><h2>Start</h2>${A.model && A.model.elements.size ? `<button class="l" data-file="${esc(A.cfg.model)}">Open the model (${esc(A.cfg.model)})</button>` : `<button class="l" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`}
-        <button class="l" data-a="design">Show the ready gate</button><button class="l" data-a="codemapopen">Code map of ${A.cfg.codebase ? esc(String(A.cfg.codebase).split('/').pop()) : 'a codebase'}</button><button class="l" data-a="builddash">Build dashboard (System 2)</button><button class="l" data-a="improvedash">Improve dashboard (System 4)</button></div>
+        <button class="l" data-a="design">Show the ready gate</button><button class="l" data-a="codemapopen">Code map of ${A.cfg.codebase ? esc(String(A.cfg.codebase).split('/').pop()) : 'a codebase'}</button><button class="l" data-a="builddash">Build dashboard</button><button class="l" data-a="improvedash">Improve dashboard</button></div>
       <div><h2>Keys</h2><table><tr><td>Ctrl+S</td><td>Save</td></tr><tr><td>Ctrl+Shift+B</td><td>Run all decision checks</td></tr><tr><td>Ctrl+Shift+G</td><td>Ask grill-me</td></tr><tr><td>Ctrl+Alt+V</td><td>Toggle the C4 sheet</td></tr><tr><td>Ctrl+.</td><td>Record a decision for a problem</td></tr><tr><td>Backspace, in the Code map</td><td>Up one level</td></tr></table></div></div>`;
     return;
   }
@@ -948,7 +948,7 @@ function renderWelcome() {
     <div><h2>A registry folder holds</h2><table>
       <tr><td>model/workspace.dsl</td><td>C4 model with d.* design properties</td></tr><tr><td>behaviour/*.p</td><td>P models, one per protocol</td></tr>
       <tr><td>requirements/*.yaml</td><td>Jira keys the design answers</td></tr><tr><td>decisions/*.yaml</td><td>Decisions, each with checks</td></tr>
-      <tr><td>proposals/*.yaml</td><td>System 4 proposals</td></tr><tr><td>ledger/*.jsonl</td><td>Events from every system</td></tr>
+      <tr><td>proposals/*.yaml</td><td>Improve proposals</td></tr><tr><td>ledger/*.jsonl</td><td>Events from every system</td></tr>
       <tr><td>designc.json</td><td>Settings and model gateway</td></tr></table></div></div>`;
 }
 
@@ -1302,7 +1302,7 @@ function renderCmSide() {
     ${edgesOf('out') ? `<h4>Depends on</h4>${edgesOf('out')}` : ''}${edgesOf('in') ? `<h4>Used by</h4>${edgesOf('in')}` : ''}`;
 }
 
-// ---------------------------------------------------------------- dashboards (System 2 / System 4)
+// ---------------------------------------------------------------- dashboards (Build / Improve)
 function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
@@ -1529,7 +1529,7 @@ function suiteRunsHtml(L) {
     return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${chip}</a>` : chip;
   };
   const detail = r => `<tr><td colspan="10"><div class="tw2"><table class="t"><tr><th>Eval task</th><th>Trials</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th>Gates</th><th>Gradients</th></tr>${r.tasks.map(t => `<tr><td><span class="id">${esc(t.task_id)}</span></td><td>${t.trials.map(trialChip).join(' ')}</td><td class="num">${pct(t.passAt1)}</td><td class="num">${pct(t.passK)}</td><td>${esc(t.gates.join(', '))}</td><td>${esc(t.gradients.join(', '))}</td></tr>`).join('')}</table></div>${r.stray ? `<div class="note">${plural(r.stray, 'grader event')} named a task, trial or grader this run did not declare and were left out.</div>` : ''}${r.finished && r.finished.reason ? `<div class="note">Aborted: ${esc(r.finished.reason)}</div>` : ''}</td></tr>`;
-  return `<div class="block"><h3>Suite runs</h3><div class="note">Eval harness runs of System 2, from <code>ledger/factory.jsonl</code>, newest first. A trial passes when every gate grader passed. Harness means the run finished before a gate reported, so the harness failed, not the agent; it is left out of pass@1. pass^${k} is pass@1 to the power ${k}, averaged over eval tasks. Click a run to see its trials; hover a trial for each grader's verdict. Gradients are shown but never decide a trial.</div><div class="tw2"><table class="t"><tr><th>Started</th><th>Suite</th><th>Harness</th><th>Model</th><th>Prompt</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th class="num">Every trial passed</th><th>Trials</th><th>Status</th></tr>${runs.map(r => {
+  return `<div class="block"><h3>Suite runs</h3><div class="note">Eval harness runs of the Build pipeline, from <code>ledger/factory.jsonl</code>, newest first. A trial passes when every gate grader passed. Harness means the run finished before a gate reported, so the harness failed, not the agent; it is left out of pass@1. pass^${k} is pass@1 to the power ${k}, averaged over eval tasks. Click a run to see its trials; hover a trial for each grader's verdict. Gradients are shown but never decide a trial.</div><div class="tw2"><table class="t"><tr><th>Started</th><th>Suite</th><th>Harness</th><th>Model</th><th>Prompt</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th class="num">Every trial passed</th><th>Trials</th><th>Status</th></tr>${runs.map(r => {
     const open = A.suiteOpen.has(r.suite_run_id);
     return `<tr data-suite="${esc(r.suite_run_id)}" style="cursor:pointer"><td>${open ? '▾' : '▸'} ${esc(when(r.started))}</td><td>${esc(r.suite)}</td><td><span class="code">${esc(r.harness_version)}</span></td><td>${esc(r.model)}</td><td>${esc(r.prompt_version)}</td><td class="num">${pct(r.passAt1)}</td><td class="num">${pct(r.passK)}</td><td class="num">${r.allPassed} of ${r.tasks.length}</td><td>${['pass', 'fail', 'harness', 'incomplete'].filter(o => r.counts[o]).map(o => `<span class="tag ${TRIAL_TAG[o]}">${r.counts[o]} ${o}</span>`).join(' ')}</td><td><span class="tag ${RUN_TAG[r.status]}">${esc(r.status)}</span></td></tr>${open ? detail(r) : ''}`;
   }).join('')}</table></div></div>`;

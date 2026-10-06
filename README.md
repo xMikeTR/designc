@@ -3,11 +3,11 @@
 A system design IDE. The design is the source; code is a build output.
 It opens a **registry folder** and gives you the three systems in one window:
 
-- **Design (System 1):** a Structurizr DSL editor (Monaco, the VS Code editor engine) with live lint (DC000 to DC008) as squiggles, completions and hovers for `d.*` properties, a C4 sheet beside it, decisions and requirements as YAML files, the definition-of-ready gate, grill-me, and handover.
-- **Build (System 2):** live agent runs from Langfuse, plus what the pipeline recorded in `ledger/*.jsonl`: tokens per passing task, reruns, each decision's latest check result, items waiting on a decision, and as-built vs designed drift.
+- **Design:** a Structurizr DSL editor (Monaco, the VS Code editor engine) with live lint (DC000 to DC008) as squiggles, completions and hovers for `d.*` properties, a C4 sheet beside it, decisions and requirements as YAML files, the definition-of-ready gate, grill-me, and handover.
+- **Build:** live agent runs from Langfuse, plus what the pipeline recorded in `ledger/*.jsonl`: tokens per passing task, reruns, each decision's latest check result, items waiting on a decision, and as-built vs designed drift.
 - **Code map (as built):** a C4 map of an existing codebase, extracted deterministically from the repo, overlaid on the design so drift is visible. Every box and arrow links to the lines of code that prove it.
 - **Agent panel:** a chat pane like Copilot's with three roles (Architect, Grill-me, Analyst). Model-agnostic: use the built-in agent with any model your gateway routes, or plug in any ACP agent (Claude Code, Codex, Gemini CLI, Copilot, your own). Either way it reads the workspace and every change waits for your approval.
-- **Improve (System 4):** escapes by the stage that should have caught them, rule health, and proposals as YAML files.
+- **Improve:** escapes by the stage that should have caught them, rule health, and proposals as YAML files.
 
 ![Explorer](docs/explorer.png)
 
@@ -116,7 +116,7 @@ How it stays governed:
 - **Fail closed.** A role can only call tools it lists; anything else, including made-up tool names, is refused and the refusal goes back to the model. Deny always wins.
 - **Validate, then ask.** A model edit is checked deterministically first (its `find` must match the model exactly once); only a valid change reaches you, as a diff.
 - **Nothing is written without Approve.** Decisions and proposals are created as `minted`. Binding stays a human action outside the panel, and no agent can run checks, edit code or touch the ledger directly.
-- **Everything is recorded.** Every tool call (allowed, denied, approved, declined) and every turn's token count goes to `ledger/agents.jsonl`, so System 4 and the value metrics can see what the agents did.
+- **Everything is recorded.** Every tool call (allowed, denied, approved, declined) and every turn's token count goes to `ledger/agents.jsonl`, so Improve and the value metrics can see what the agents did.
 
 The panel includes your editor selection and a short workspace summary with each message. It talks to the same OpenAI-compatible gateway as grill-me (`llm` in `designc.json`); the model must support tool calling. Per-role overrides:
 
@@ -215,7 +215,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `requirements/*.yaml` | Jira keys the design answers |
 | `decisions/*.yaml` | Decisions: `minted`, then `bound` by a human, each with `checks` |
 | `evals/*.yaml` | Agent evals: the command, results file and thresholds that judge an agent. Human-written; no agent role may write here |
-| `proposals/*.yaml` | System 4 proposals, same lifecycle |
+| `proposals/*.yaml` | Improve proposals, same lifecycle |
 | `handovers/*.yaml` | Frozen handovers, written by Run > Freeze Handover |
 | `asbuilt/` | The last code-map extraction: `workspace.dsl` and `facts.json` with evidence |
 | `telemetry/` | Sample Langfuse data (sample registry only) |
