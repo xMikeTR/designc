@@ -286,6 +286,19 @@ async function loadAsbuilt() {
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
   if (A.cmLevel === 'code' && !cmHasCode()) { A.cmLevel = 'container'; A.cmScope = null; }
 }
+// Code quality (QC rules): warnings only, judged from designc.json `quality`. Never reaches the gate.
+let QMEMO = null;
+function qualityNow() {
+  const code = A.facts && A.facts.code, key = A.cfg.quality;
+  if (QMEMO && QMEMO.code === code && QMEMO.key === key) return QMEMO.out;
+  QMEMO = { code, key, out: Quality.judge(code, key) };
+  return QMEMO.out;
+}
+// badge for one Code map box: the number of breaches under it, red-amber, nothing when clean
+function cmQualityBadge(e) {
+  const r = qualityNow().rollup, hit = (A.cmLevel === 'code' ? r.type.get(e.id) : e.kind === 'component' ? r.component.get(e.id) : e.kind === 'container' ? r.container.get(e.name) : null);
+  return hit && hit.breaches ? { badge: hit.breaches, badgeColor: 'var(--warn)' } : {};
+}
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
@@ -1036,7 +1049,8 @@ function improveSidebar() {
 // ---------------------------------------------------------------- panel
 function renderPanel() {
   const live = A.diags.filter(d => !d.suppressed);
-  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length;
+  const qual = A.root ? qualityNow() : { findings: [], problems: [] };
+  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + qual.findings.length + qual.problems.length;
   $('#probCount').textContent = A.root ? total : '';
   document.querySelectorAll('[data-panel]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.panel === A.panel)));
   $('#panelClear').style.display = A.panel === 'output' ? '' : 'none';
@@ -1052,10 +1066,14 @@ function renderPanel() {
   const seenP = new Set();
   for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
   groups.push(...byPath);
+  const qrows = new Map();
+  for (const f of qual.findings) { if (!qrows.has(f.file)) qrows.set(f.file, []); qrows.get(f.file).push({ sev: 'warning', msg: f.msg, code: f.code, line: f.line, codeFile: true }); }
+  for (const [file, rows] of qrows) groups.push([file, rows]);
+  if (qual.problems.length) groups.push(['designc.json', qual.problems.map(m => ({ sev: 'warning', msg: m, code: 'quality', line: 1 }))]);
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" data-open="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
       ${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
@@ -1417,12 +1435,13 @@ function drawCodemap() {
     },
     nodeStyle: e => {
       const on = A.cmSel === e.id;
+      const q = cmQualityBadge(e);
       if (e.kind === 'component') {
         const warn = cd && full && cd.scored.has(e.parent) && !cd.toDesign.has(e.id), ink = cd && cd.toDesign.has(e.id);
-        return { stroke: on ? 'var(--accent)' : warn ? 'var(--warn)' : ink ? 'var(--ink)' : 'var(--ink3)', sw: on ? 2.8 : warn ? 2.2 : 1.5, dash: warn ? '6 3' : '', note: warn ? 'not in design' : '' };
+        return { ...q, stroke: on ? 'var(--accent)' : warn ? 'var(--warn)' : ink ? 'var(--ink)' : 'var(--ink3)', sw: on ? 2.8 : warn ? 2.2 : 1.5, dash: warn ? '6 3' : '', note: warn ? 'not in design' : '' };
       }
       const mapped = !d || d.toDesign.has(e.id);
-      return { stroke: on ? 'var(--accent)' : mapped ? 'var(--ink)' : 'var(--warn)', sw: on ? 2.8 : mapped ? 1.5 : 2.2, dash: mapped ? '' : '6 3', note: mapped ? '' : 'not in design' };
+      return { ...q, stroke: on ? 'var(--accent)' : mapped ? 'var(--ink)' : 'var(--warn)', sw: on ? 2.8 : mapped ? 1.5 : 2.2, dash: mapped ? '' : '6 3', note: mapped ? '' : 'not in design' };
     },
   });
   renderCmSide();
@@ -1433,7 +1452,7 @@ function drawCode(host_) {
   host_.innerHTML = drawModel(m, L, {
     attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
     edgeStyle: r => { const hot = A.cmSel && (r.src === A.cmSel || r.dst === A.cmSel); return { color: hot ? 'var(--accent)' : 'var(--ink3)', width: hot ? 2.2 : 1.3, dash: r.description === 'uses' ? '6 4' : '', label: r.description }; },
-    nodeStyle: e => { const on = A.cmSel === e.id; return { stroke: on ? 'var(--accent)' : e.outside ? 'var(--ink3)' : 'var(--ink)', sw: on ? 2.8 : 1.5, dash: e.outside ? '6 3' : '', note: e.outside ? cmCompName(e.component) : '' }; },
+    nodeStyle: e => { const on = A.cmSel === e.id; return { ...cmQualityBadge(e), stroke: on ? 'var(--accent)' : e.outside ? 'var(--ink3)' : 'var(--ink)', sw: on ? 2.8 : 1.5, dash: e.outside ? '6 3' : '', note: e.outside ? cmCompName(e.component) : '' }; },
   });
   renderCmSide();
 }
@@ -1441,8 +1460,11 @@ const cmCompName = id => { const c = A.asbuiltFull && A.asbuiltFull.elements.get
 function cmTypeSide(t) {
   const code = A.facts.code, rows = CodeLevel.methodsOf(code, t.id).sort((a, b) => b.cc - a.cc || a.name.localeCompare(b.name));
   const edges = dir => code.typeEdges.filter(x => (dir === 'out' ? x.from : x.to) === t.id).map(x => { const o = code.types.find(y => y.id === (dir === 'out' ? x.to : x.from)); return `<div class="evrow" data-code="${esc(x.evidence.file)}" data-line="${x.evidence.line}"><b>${dir === 'out' ? '→ ' : '← '}${esc(o ? o.name : '?')}</b> <span class="tag">${esc(x.via)}</span><div class="evfile">${esc(x.evidence.file)}:${x.evidence.line}</div></div>`; }).join('');
+  const qf = qualityNow().findings.filter(f => f.typeId === t.id), hot = new Set(qf.filter(f => f.method).map(f => f.method));
+  rows.forEach(x => { x.warn = hot.has(x.name); });
   return `<h3>${esc(t.name)}</h3><div class="muted">${esc(CodeLevel.LABEL[t.kind] || t.kind)} in ${esc(cmCompName(t.component))}</div>
-    <h4>Methods (${rows.length})</h4>${rows.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><b>${esc(x.name)}</b> <span class="tag">cc ${x.cc}</span> <span class="tag">${x.lines} lines</span><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('') || '<p class="muted">No methods with a body.</p>'}
+    ${qf.length ? `<h4>Quality (${qf.length})</h4>${qf.map(f => `<div class="evrow" data-code="${esc(f.file)}" data-line="${f.line}"><span class="tag warning">${esc(f.code)}</span> ${esc(f.msg)}</div>`).join('')}` : ''}
+    <h4>Methods (${rows.length})</h4>${rows.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><b>${esc(x.name)}</b> <span class="tag${x.warn ? ' warning' : ''}">cc ${x.cc}</span> <span class="tag">${x.lines} lines</span><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('') || '<p class="muted">No methods with a body.</p>'}
     <h4>Files</h4>${t.files.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('')}
     ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
 }
