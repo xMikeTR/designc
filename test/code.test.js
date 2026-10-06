@@ -72,3 +72,19 @@ test('JS/TS: classes and modules of one container link by name, an import names 
   assert.equal(edge('class:Orders', 'class:Cart').via, 'new');
   assert.equal(r.unresolved.length, 0);
 });
+
+test('F#: a module and a type of one container link by name, qualified calls name the module', async () => {
+  const files = {
+    'rating/Rates.fs': 'module Rates\nlet price q = if q > 1 then 2 else 1\n',
+    'rating/Engine.fs': 'module Engine\ntype Engine(repo: Repo) =\n    member _.Run() = Rates.price 1\n',
+    'rating/Repo.fs': 'module Repo\ntype Repo() =\n    member _.Get() = 1\n',
+  };
+  const r = await code.build({
+    components: [{ id: 'c_rating', container: 'Rating', files: Object.keys(files) }],
+    read: async f => files[f],
+  });
+  const byName = Object.fromEntries(r.types.map(t => [t.kind + ':' + t.name, t]));
+  const edge = (a, b) => r.typeEdges.find(e => e.from === byName[a].id && e.to === byName[b].id);
+  assert.ok(edge('class:Engine', 'module:Rates'));
+  assert.ok(edge('class:Engine', 'class:Repo'));
+});

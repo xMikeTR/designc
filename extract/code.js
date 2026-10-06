@@ -5,9 +5,10 @@
 // share is reported as unresolved, never guessed. Metrics are not judged here (renderer/quality.js does that).
 const cs = require('./code-cs');
 const js = require('./code-js');
+const fsharp = require('./code-fs');
 
 const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-const SCANNERS = [{ re: /\.cs$/i, mod: cs }, { re: /\.(?:[cm]?[jt]s|[jt]sx)$/i, mod: js }];
+const SCANNERS = [{ re: /\.cs$/i, mod: cs }, { re: /\.(?:[cm]?[jt]s|[jt]sx)$/i, mod: js }, { re: /\.fs$/i, mod: fsharp }];
 const RANK = { uses: 1, new: 2, inherits: 3 };
 
 async function build({ components, read }) {
