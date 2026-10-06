@@ -9,7 +9,7 @@ import subprocess
 import sys
 import time
 
-from . import ledger, record
+from . import factory, ledger, record
 from .dsl import parse
 from .evals import score_eval
 from .gate import eval_hash, eval_problems, eval_report, gate
@@ -77,7 +77,12 @@ def main(argv):
     e.add_argument('--id', help='run only this eval')
     e.add_argument('--source', help='local or pipeline (default: pipeline when CI is detected, else local)')
     e.add_argument('--by', help='who ran this (default: DESIGNC_BY, then the OS user)')
+    r = sub.add_parser('record', help='append factory eval events (suite_run, grader, suite_run_finished) read as JSON lines from stdin')
+    r.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
+    r.add_argument('--by', help='who recorded this, for events that name nobody (default: DESIGNC_BY, then the OS user)')
+    r.add_argument('--json', action='store_true', help='print the result as JSON')
     args = ap.parse_args(argv)
+    if args.cmd == 'record': return record_cmd(os.path.abspath(args.registry), args.by, args.json)
     if args.cmd == 'eval': return eval_cmd(os.path.abspath(args.registry), args.id, args.source, args.by)
     if args.cmd == 'verify-ledger': return verify_ledger(os.path.abspath(args.registry), args.json)
     if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
@@ -139,6 +144,19 @@ def eval_cmd(root, only, source, by):
         failed += ev['outcome'] != 'pass'
     if not named and only is None: print('No agent names an eval.')
     return 1 if failed else 0
+
+
+def record_cmd(root, by, as_json):
+    """Exit codes: 0 every line recorded, 1 a line was refused and nothing was written, 2 the folder cannot be read."""
+    if not os.path.isdir(root):
+        print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    r = factory.record(root, sys.stdin.read(), who(by))
+    if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
+    elif r['ok']: print(f"recorded {r['recorded']} event{'' if r['recorded'] == 1 else 's'} in ledger/")
+    else:
+        for e in r['errors']: print(f"line {e['line']}: {e['msg']}", file=sys.stderr)
+        print('designc: nothing was recorded. Fix the lines above and send the whole batch again.', file=sys.stderr)
+    return 0 if r['ok'] else 1
 
 
 def verify_ledger(root, as_json):

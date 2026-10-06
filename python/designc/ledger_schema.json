@@ -26,6 +26,8 @@
   ],
   "rules": [
     "fail_needs_evidence",
+    "suite_run_shape",
+    "aborted_needs_reason",
     "caught_by_member"
   ],
   "kinds": {
@@ -335,6 +337,37 @@
       },
       "rules": []
     },
+    "grader": {
+      "stream": "factory.jsonl",
+      "required": [
+        "suite_run_id",
+        "task_id",
+        "trial",
+        "grader",
+        "verdict"
+      ],
+      "optional": [
+        "reason",
+        "ms",
+        "judge_version",
+        "rubric_hash"
+      ],
+      "enums": {
+        "verdict": [
+          "pass",
+          "fail",
+          "unknown",
+          "skipped"
+        ]
+      },
+      "types": {
+        "suite_run_id": "string",
+        "task_id": "string",
+        "trial": "number",
+        "grader": "string"
+      },
+      "rules": []
+    },
     "handover": {
       "stream": "designc.jsonl",
       "required": [
@@ -397,6 +430,56 @@
       "enums": {},
       "types": {},
       "rules": []
+    },
+    "suite_run": {
+      "stream": "factory.jsonl",
+      "required": [
+        "suite_run_id",
+        "suite",
+        "harness_version",
+        "model",
+        "prompt_version",
+        "trials",
+        "tasks"
+      ],
+      "optional": [
+        "configurator"
+      ],
+      "enums": {},
+      "types": {
+        "suite_run_id": "string",
+        "suite": "string",
+        "harness_version": "string",
+        "model": "string",
+        "prompt_version": "string",
+        "trials": "number",
+        "tasks": "object"
+      },
+      "rules": [
+        "suite_run_shape"
+      ]
+    },
+    "suite_run_finished": {
+      "stream": "factory.jsonl",
+      "required": [
+        "suite_run_id",
+        "outcome"
+      ],
+      "optional": [
+        "reason"
+      ],
+      "enums": {
+        "outcome": [
+          "completed",
+          "aborted"
+        ]
+      },
+      "types": {
+        "suite_run_id": "string"
+      },
+      "rules": [
+        "aborted_needs_reason"
+      ]
     },
     "task": {
       "stream": "pipeline.jsonl",

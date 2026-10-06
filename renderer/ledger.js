@@ -49,6 +49,9 @@ const Ledger = (() => {
     agent_permission: 'agents.jsonl',
     agent_approval: 'agents.jsonl',
     unapproved_change: 'agents.jsonl',
+    suite_run: 'factory.jsonl',
+    grader: 'factory.jsonl',
+    suite_run_finished: 'factory.jsonl',
   };
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
 
@@ -170,6 +173,29 @@ const Ledger = (() => {
       optional: [],
       enums: { via: ['acp', 'agui'] },
     },
+    // Factory evals: an eval harness run of System 2, written through `designc record` (allowlisted kinds).
+    // A suite run states its versions once and pins each eval task's hash and grader lists, so a trial's
+    // outcome can be derived from the ledger alone (Ledger.suiteRuns).
+    suite_run: {
+      required: ['suite_run_id', 'suite', 'harness_version', 'model', 'prompt_version', 'trials', 'tasks'],
+      optional: ['configurator'],
+      enums: {},
+      types: { suite_run_id: 'string', suite: 'string', harness_version: 'string', model: 'string', prompt_version: 'string', trials: 'number', tasks: 'object' },
+      rules: ['suite_run_shape'],
+    },
+    grader: {
+      required: ['suite_run_id', 'task_id', 'trial', 'grader', 'verdict'],
+      optional: ['reason', 'ms', 'judge_version', 'rubric_hash'],
+      enums: { verdict: ['pass', 'fail', 'unknown', 'skipped'] },
+      types: { suite_run_id: 'string', task_id: 'string', trial: 'number', grader: 'string' },
+    },
+    suite_run_finished: {
+      required: ['suite_run_id', 'outcome'],
+      optional: ['reason'],
+      enums: { outcome: ['completed', 'aborted'] },
+      types: { suite_run_id: 'string' },
+      rules: ['aborted_needs_reason'],
+    },
   };
 
   const isPlainObject = v => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -177,6 +203,21 @@ const Ledger = (() => {
   // Mirrored by id in python/designc/ledger.py.
   const RULES = {
     fail_needs_evidence: ev => (ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason ? "exit_code: required when outcome is 'fail' (or give reason)" : null),
+    suite_run_shape: ev => {
+      if (ev.trials !== undefined && !(Number.isInteger(ev.trials) && ev.trials >= 1)) return 'trials: must be a whole number of at least 1';
+      if (!isPlainObject(ev.tasks)) return null;
+      const ids = Object.keys(ev.tasks);
+      if (!ids.length) return 'tasks: must name at least one eval task';
+      const names = v => Array.isArray(v) && v.every(x => typeof x === 'string' && x);
+      for (const id of ids) {
+        const t = ev.tasks[id];
+        if (!isPlainObject(t) || typeof t.hash !== 'string' || !t.hash) return `tasks.${id}: needs a hash`;
+        if (!names(t.gates) || !t.gates.length) return `tasks.${id}: needs at least one gate grader`;
+        if (t.gradients !== undefined && !names(t.gradients)) return `tasks.${id}: gradients must be a list of grader names`;
+      }
+      return null;
+    },
+    aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
   };
   // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
@@ -506,10 +547,66 @@ const Ledger = (() => {
     return [...by.values()];
   }
 
+  // Factory evals: one row per suite run, oldest first. A trial passes when every gate grader its suite_run pinned
+  // passed and fails as soon as one failed; otherwise it is `incomplete` while the run is open and `harness` once
+  // suite_run_finished arrived (the harness, not the agent, failed). Gradients never decide. The latest event per
+  // grader wins; gate events after the finish are ignored, gradient events still count. Events naming a task, trial
+  // or grader the run did not declare count as `stray`. pass@1 is passed / judged (pass + fail) trials per task,
+  // pass^k its k-th power; run figures are means over tasks that have a score. Expects events in Ledger.order.
+  function suiteRuns(events, { k = 3 } = {}) {
+    const runs = new Map();
+    for (const e of events) {
+      if (e.sample) continue;
+      if (e.kind === 'suite_run' && !runs.has(e.suite_run_id)) {
+        runs.set(e.suite_run_id, { run: e, finished: null, stray: 0, trials: new Map() });
+        continue;
+      }
+      const r = runs.get(e.suite_run_id);
+      if (!r) continue;
+      if (e.kind === 'suite_run_finished' && !r.finished) { r.finished = e; continue; }
+      if (e.kind !== 'grader') continue;
+      const spec = r.run.tasks[e.task_id];
+      const isGate = spec && spec.gates.includes(e.grader), isGradient = spec && (spec.gradients || []).includes(e.grader);
+      if (!spec || !(isGate || isGradient) || !(Number.isInteger(e.trial) && e.trial >= 1 && e.trial <= r.run.trials)) { r.stray++; continue; }
+      if (isGate && r.finished) continue;
+      const key = `${e.task_id}\u0000${e.trial}`;
+      const tr = r.trials.get(key) || { gates: {}, gradients: {}, trace_id: null };
+      tr[isGate ? 'gates' : 'gradients'][e.grader] = e.verdict;
+      if (e.trace_id) tr.trace_id = e.trace_id;
+      r.trials.set(key, tr);
+    }
+    const mean = xs => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : null);
+    return [...runs.values()].map(({ run, finished, stray, trials }) => {
+      const counts = { pass: 0, fail: 0, incomplete: 0, harness: 0 };
+      const tasks = Object.entries(run.tasks).map(([task_id, spec]) => {
+        const rows = [];
+        for (let n = 1; n <= run.trials; n++) {
+          const tr = trials.get(`${task_id}\u0000${n}`) || { gates: {}, gradients: {}, trace_id: null };
+          const vs = spec.gates.map(x => tr.gates[x]);
+          const outcome = vs.includes('fail') ? 'fail' : vs.every(v => v === 'pass') ? 'pass' : finished ? 'harness' : 'incomplete';
+          counts[outcome]++;
+          rows.push({ trial: n, outcome, ...tr });
+        }
+        const passed = rows.filter(x => x.outcome === 'pass').length, judged = passed + rows.filter(x => x.outcome === 'fail').length;
+        const passAt1 = judged ? passed / judged : null;
+        return { task_id, hash: spec.hash, gates: spec.gates, gradients: spec.gradients || [], trials: rows, passed, judged, passAt1,
+          passK: passAt1 === null ? null : Math.pow(passAt1, k), allPassed: passed === run.trials };
+      });
+      const scored = tasks.filter(x => x.passAt1 !== null);
+      return {
+        suite_run_id: run.suite_run_id, suite: run.suite, harness_version: run.harness_version, model: run.model, prompt_version: run.prompt_version,
+        configurator: run.configurator || null, trials: run.trials, started: run._ts || 0,
+        finished: finished ? { outcome: finished.outcome, reason: finished.reason || null, ts: finished._ts || 0 } : null,
+        status: finished ? finished.outcome : 'running', tasks, counts, stray, k,
+        passAt1: mean(scored.map(x => x.passAt1)), passK: mean(scored.map(x => x.passK)), allPassed: tasks.filter(x => x.allPassed).length,
+      };
+    });
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, suiteRuns, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

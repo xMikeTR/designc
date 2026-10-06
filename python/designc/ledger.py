@@ -30,6 +30,19 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'suite_run_shape':
+        t = ev.get('trials')
+        if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'
+        tasks = ev.get('tasks')
+        if not isinstance(tasks, dict): return None
+        if not tasks: return 'tasks: must name at least one eval task'
+        names = lambda v: isinstance(v, list) and all(isinstance(x, str) and x for x in v)
+        for tid, task in tasks.items():
+            if not isinstance(task, dict) or not isinstance(task.get('hash'), str) or not task['hash']: return f'tasks.{tid}: needs a hash'
+            if not names(task.get('gates')) or not task['gates']: return f'tasks.{tid}: needs at least one gate grader'
+            if 'gradients' in task and not names(task['gradients']): return f'tasks.{tid}: gradients must be a list of grader names'
+    elif rid == 'aborted_needs_reason':
+        if ev.get('outcome') == 'aborted' and not ev.get('reason'): return "reason: required when outcome is 'aborted'"
     elif rid == 'caught_by_member':
         v = ev.get('caught_by')
         if 'caught_by' in ev and v is not None and v not in SCHEMA['caught_by']:
