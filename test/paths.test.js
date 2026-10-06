@@ -56,3 +56,27 @@ test('isTrusted: the user-level trust-everything switch trusts any folder, nothi
   assert.equal(isTrusted([], '/w/repo', 'yes'), false, 'only the boolean true counts');
   assert.equal(isTrusted([], '/w/repo', undefined), false);
 });
+
+const { registryDir } = require('../paths.js');
+
+test('registryDir resolves a listed key relative to the open folder; reads inside it go through confine', () => {
+  fs.mkdirSync(path.join(tmp, 'design-a', 'ledger'), { recursive: true });
+  const dir = registryDir(root, { a: '../design-a' }, 'a');
+  assert.equal(dir, path.join(tmp, 'design-a'));
+  assert.equal(confine(dir, 'ledger/x.jsonl'), path.join(tmp, 'design-a', 'ledger', 'x.jsonl'));
+  assert.throws(() => confine(dir, '../reg/designc.json'), /outside the open folder/, 'no stepping from a listed registry into another folder');
+});
+test('registryDir refuses an unknown key, an inherited key, a non-string value and a folder that does not exist', () => {
+  assert.throws(() => registryDir(root, { a: '../design-a' }, 'b'), /not listed/);
+  assert.throws(() => registryDir(root, { a: '../design-a' }, '__proto__'), /not listed/);
+  assert.throws(() => registryDir(root, { a: '../design-a' }, 'toString'), /not listed/);
+  assert.throws(() => registryDir(root, undefined, 'a'), /not listed/);
+  assert.throws(() => registryDir(root, { a: 42 }, 'a'), /not listed/);
+  assert.throws(() => registryDir(root, { a: '../missing' }, 'a'), /does not exist/);
+  assert.throws(() => registryDir(root, { a: '../out/secret.txt' }, 'a'), /does not exist/, 'a file is not a registry');
+});
+test('a symlink inside a listed registry cannot lead out of it', () => {
+  const dir = path.join(tmp, 'design-a');
+  fs.symlinkSync(outside, path.join(dir, 'escape'));
+  assert.throws(() => confine(registryDir(root, { a: '../design-a' }, 'a'), 'escape/secret.txt'), /outside the open folder/);
+});

@@ -28,7 +28,7 @@ function inside(rel) {
   return confine(root, rel);
 }
 const toRel = abs => path.relative(root, abs).split(path.sep).join('/');
-const { confine, childEnv, isTrusted, trustChoices } = require('./paths');
+const { confine, childEnv, isTrusted, trustChoices, registryDir } = require('./paths');
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'bin', 'obj', '.idea', '.vs']);
 
 async function tree(abs, depth = 0) {
@@ -164,15 +164,26 @@ handle('fs:tree', async () => (root ? tree(root) : []));
 handle('fs:read', async rel => fsp.readFile(inside(rel), 'utf8'));
 handle('fs:exists', async rel => { try { await fsp.access(inside(rel)); return true; } catch { return false; } });
 handle('fs:write', async (rel, text) => { const abs = inside(rel); await fsp.mkdir(path.dirname(abs), { recursive: true }); await fsp.writeFile(abs, text, 'utf8'); return true; });
-handle('fs:list', async (relDir, ext) => {
-  const abs = inside(relDir); let names = [];
+// Files in one folder with their text, paths relative to `base`; each file is confined again, so a symlink inside
+// the folder cannot lead out of `base`.
+async function listDir(base, relDir, ext) {
+  const abs = confine(base, relDir); let names = [];
   try { names = await fsp.readdir(abs); } catch { return []; }
   const out = [];
   for (const n of names.filter(n => !ext || ext.some(x => n.endsWith(x))).sort()) {
-    try { out.push({ path: toRel(path.join(abs, n)), text: await fsp.readFile(path.join(abs, n), 'utf8') }); } catch { /* skip */ }
+    try { const f = confine(base, path.relative(base, path.join(abs, n))); out.push({ path: path.relative(base, f).split(path.sep).join('/'), text: await fsp.readFile(f, 'utf8') }); } catch { /* skip */ }
   }
   return out;
-});
+}
+handle('fs:list', async (relDir, ext) => { if (!root) throw new Error('No folder is open'); return listDir(root, relDir, ext); });
+// Sibling registries named in designc.json `registries`: read-only, each confined to its own folder. There is no
+// write handler and no agent tool reaches these.
+const regDir = key => { if (!root) throw new Error('No folder is open'); return registryDir(root, readSettings().registries, key); };
+handle('registry:keys', async () => Object.entries(readSettings().registries || {}).filter(([, v]) => typeof v === 'string').map(([key, p]) => {
+  let exists = true; try { regDir(key); } catch { exists = false; } return { key, path: p, exists };
+}));
+handle('registry:read', async (key, rel) => fsp.readFile(confine(regDir(key), rel), 'utf8'));
+handle('registry:list', async (key, relDir, ext) => listDir(regDir(key), relDir, ext));
 // The single validated append path for both ledger envelopes (renderer/ledger.js). See
 // plan/ledger-schema-s1-manifest.json R-5 — every other write goes through here or is legacy above.
 handle('ledger:event', async event => ledgerStore.appendEvent(root, event));

@@ -61,6 +61,7 @@ const A = {
   cmLevel: 'container', cmScope: null, asbuiltFull: null, cdrift: null,
   tel: { runs: [], meta: null, error: null, loading: false }, badges: 'findings',
   canvasApi: null, canvasLayout: null,
+  regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
 let editor = null, monacoRef = null;
 
@@ -126,6 +127,33 @@ async function loadLedger() {
   A.ledgerRaw = Ledger.order(A.ledgerRaw);
   deriveLedger();
 }
+// Escapes recorded in the sibling registries named in designc.json `registries` (read-only: main has no write
+// handler for them). Each registry's ledger is parsed and derived the same way as this one's.
+async function loadRegistries() {
+  A.regs = { ...A.regs, loading: true }; const rows = [], problems = [];
+  let keys = []; try { keys = await host.registries(); } catch (e) { problems.push({ key: '', msg: e.message }); }
+  for (const r of keys) {
+    if (!r.exists) { problems.push({ key: r.key, msg: `${r.path} does not exist. Check the path in designc.json registries.` }); continue; }
+    try {
+      let evs = [], bad = 0;
+      for (const f of await host.registryList(r.key, 'ledger', ['.jsonl'])) { const { events, errors } = Ledger.parse(f.text, f.path); evs.push(...events); bad += errors.length; }
+      if (bad) problems.push({ key: r.key, msg: `${plural(bad, 'ledger line')} could not be read and ${bad === 1 ? 'was' : 'were'} skipped.` });
+      for (const e of Ledger.derive(Ledger.order(evs))) if (e.kind === 'escape') rows.push({ ...e, registry: r.key });
+    } catch (e) { problems.push({ key: r.key, msg: e.message }); }
+  }
+  rows.sort((a, b) => (b._ts || 0) - (a._ts || 0));
+  A.regs = { loaded: true, loading: false, keys, rows, problems };
+  if (A.active === 'special:improve') renderAll();
+}
+function otherRegistriesHtml() {
+  const R = A.regs, keys = R.keys || [];
+  if (!keys.length && !R.problems.length) return '';
+  const stage = k => (STAGES.find(([s]) => s === k) || [k, k ? k : 'Not classified'])[1];
+  const probs = R.problems.map(p => `<div class="note" style="color:var(--err)">${p.key ? `<b>${esc(p.key)}</b>: ` : ''}${esc(p.msg)}</div>`).join('');
+  return `<div class="block"><h3>Escapes in other registries<span class="spacer"></span><button class="btn" data-regs-refresh ${R.loading ? 'disabled' : ''}>${R.loading ? 'Reading…' : 'Refresh'}</button></h3>
+    <div class="note">Read-only, from the registries listed in <code>designc.json</code> <code>registries</code> (${keys.map(k => esc(k.key)).join(', ')}). Classify them in their own registry.</div>${probs}
+    ${R.rows.length ? `<div class="tw2"><table class="t"><tr><th>Registry</th><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${R.rows.map(e => `<tr><td>${esc(e.registry)}</td><td>${esc(when(e.ts))}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td>${esc(stage(e.caught_by))}</td></tr>`).join('')}</table></div>` : `<div class="note">${R.loaded ? 'No escapes recorded there.' : 'Not read yet.'}</div>`}</div>`;
+}
 // The ledger is append-only: classification and resolution are later events, folded in here.
 function deriveLedger() { A.ledger = Ledger.derive(A.ledgerRaw); }
 // The only call of host.appendLedgerEvent (test/ledger-guard.test.js, LS-05): every writer goes
@@ -170,7 +198,7 @@ function recompile() {
   setMarkers();
 }
 async function reloadAll() {
-  await loadSettings(); await loadModel(); await loadRegistry(); await loadLedger(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry();
+  await loadSettings(); await loadModel(); await loadRegistry(); await loadLedger(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
 }
 
 // ---------------------------------------------------------------- telemetry (Langfuse)
@@ -1499,6 +1527,7 @@ function improveDash() {
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(t.element || '')}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
+  h += otherRegistriesHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
@@ -1576,6 +1605,7 @@ document.addEventListener('click', async e => {
       description: `${t.task}: ${t.runs.length} attempt${t.runs.length === 1 ? '' : 's'}, last ${t.final}${err ? ` (${err})` : ''}`, source: 'langfuse', traces: t.runs.map(r => r.traceId) });
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
+  if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
