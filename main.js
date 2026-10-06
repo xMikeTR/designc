@@ -12,6 +12,7 @@ const http = require('http');
 const crypto = require('crypto');
 const ledgerStore = require('./ledger-store');
 const git = require('./git');
+const Setup = require('./renderer/setup.js');
 
 let win = null, root = null, watcher = null, watchTimer = null, changed = new Set();
 const running = new Map();
@@ -440,6 +441,28 @@ handle('llm:chat', async (messages) => {
     if (!res.ok) return { error: 'http', status: res.status, message: (body.error && body.error.message) || res.statusText };
     return { text: body.choices && body.choices[0] && body.choices[0].message ? body.choices[0].message.content : '' };
   } catch (e) { return { error: 'network', message: e.message }; }
+});
+
+// "Set up this folder" (renderer/setup.js). The renderer learns only whether a variable is set. Test connection reads
+// a value here and sends it to the draft's host; unless that name and host are already in designc.json, the human
+// confirms in a native dialog first, so a draft cannot send any variable anywhere unseen.
+handle('setup:env', async names => Setup.envStatus(Array.isArray(names) ? names : [], process.env));
+handle('setup:test', async (kind, draft) => {
+  const d = draft && typeof draft === 'object' ? draft : {};
+  const p = Setup.probe(kind, d, process.env);
+  if (p.error) return p;
+  const host = new URL(p.url).host, names = Setup.envNames({ [kind]: d[kind] });
+  const saved = readSettings()[kind] || {};
+  const known = (() => { try { return new URL(saved.baseUrl).host === host && names.every(n => Setup.envNames({ [kind]: saved }).includes(n)); } catch { return false; } })();
+  if (!known) {
+    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Send', 'Cancel'], defaultId: 1, cancelId: 1, message: `Send the value of ${names.join(' and ')} to ${host}?`,
+      detail: 'Test connection reads the key from your environment and sends it to this host. It is not saved anywhere.' });
+    if (r.response !== 0) return { error: 'Cancelled.', hint: 'Nothing was sent.' };
+  }
+  try {
+    const res = await fetch(p.url, { ...p.init, signal: AbortSignal.timeout(15000) });
+    return Setup.verdict(kind, d, { status: res.status, body: await res.json().catch(() => ({})) });
+  } catch (e) { return Setup.verdict(kind, d, { network: e.name === 'TimeoutError' ? 'no answer in 15 seconds' : e.message }); }
 });
 
 app.whenReady().then(() => {

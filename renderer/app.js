@@ -768,16 +768,16 @@ function renderBadges() {
   const dc = A.drift ? A.drift.undeclared.length + A.drift.unknownEls.length : 0;
   const b4 = $('#badge-codemap'); b4.textContent = dc; b4.className = 'badge' + (dc ? ' on' : '');
 }
-function tabTitle(id) { return id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1303,7 +1303,7 @@ function renderCmSide() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -1587,8 +1587,8 @@ document.addEventListener('click', async e => {
     if (d.s === 'problems') return showPanel('problems');
     if (d.s === 'output') return showPanel('output');
     if (d.s === 'gate') return setActivity('design');
-    if (d.s === 'llm') return openFile('designc.json');
-    if (d.s === 'tel') { if (A.tel.error && A.tel.error.error === 'not_configured') return openFile('designc.json'); if (A.tel.error) toast(telErrorText(A.tel.error), 'warning'); return loadTelemetry(); }
+    if (d.s === 'llm') return A.cfg.llm && A.cfg.llm.baseUrl && A.cfg.llm.model ? openFile('designc.json') : openSetup();
+    if (d.s === 'tel') { if (A.tel.error && A.tel.error.error === 'not_configured') return openSetup(); if (A.tel.error) toast(telErrorText(A.tel.error), 'warning'); return loadTelemetry(); }
     if (d.s === 'folder') return setActivity('explorer');
   }
   if (d.panel) return showPanel(d.panel);
@@ -1687,7 +1687,7 @@ host.onCmd(cmd => {
   if (cmd === 'run-checks') return runChecks();
   if (cmd === 'grill') return grill();
   if (cmd === 'freeze') return freezeHandover();
-  if (cmd === 'open-settings') return A.root && openFile('designc.json');
+  if (cmd === 'open-settings') return A.root && host.exists('designc.json').then(has => (has ? openFile('designc.json') : openSetup()));
   if (cmd === 'help:props') { showPanel('output'); A.output += '\nDesign properties\n' + PROPS.map(([k, t, v, d]) => `  ${k.padEnd(18)} ${t.padEnd(13)} ${v ? v.join(' | ') : ''}\n  ${' '.repeat(18)} ${d}`).join('\n') + '\n'; renderPanel(); }
 });
 host.onChanged(paths => { if (A.root) { gitRefreshSoon(); if (typeof agentSawChange === 'function') agentSawChange(paths); onDiskChanged(paths); } });
@@ -1703,6 +1703,8 @@ async function onFolder(info) {
   A.root = info; A.tree = await host.tree();
   await reloadAll();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
+  SU.draft = null;
+  if (!(await host.exists('designc.json'))) await openSetup(); // a new folder starts at Set up
   if (A.activity !== 'explorer' || !A.sidebarOpen) { A.activity = 'explorer'; A.sidebarOpen = true; $('#shell').classList.remove('nosidebar'); }
   document.querySelectorAll('#activity button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.act === 'explorer')));
   renderAll();

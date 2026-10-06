@@ -243,6 +243,8 @@ The app itself only appends: check results to `ledger/checks.jsonl`, and handove
 
 ## Settings (`designc.json`)
 
+Opening a folder with no `designc.json` starts at **Set up this folder** (also Help → Open settings, or click LLM or Langfuse in the status bar while they are not configured). It asks for the model file, the LLM gateway and Langfuse, each skippable, shows whether each named environment variable is set and the `export` line to add to `~/.profile` if not, tests each connection, and saves `designc.json`. Keys stay in your environment: the file holds only variable names. Test connection asks before sending a key to a host that is not already in `designc.json`.
+
 ```json
 {
   "model": "model/workspace.dsl",

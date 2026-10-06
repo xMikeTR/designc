@@ -31,6 +31,8 @@ contextBridge.exposeInMainWorld('host', {
   runCheck: (id, cmd) => ipcRenderer.invoke('check:run', id, cmd),
   cancelCheck: id => ipcRenderer.invoke('check:cancel', id),
   chat: messages => ipcRenderer.invoke('llm:chat', messages),
+  setupEnv: names => ipcRenderer.invoke('setup:env', names),
+  setupTest: (kind, draft) => ipcRenderer.invoke('setup:test', kind, draft),
   chooseCodebase: () => ipcRenderer.invoke('codebase:choose'),
   extract: p => ipcRenderer.invoke('codebase:extract', p),
   readCode: (p, rel) => ipcRenderer.invoke('codebase:read', p, rel),
