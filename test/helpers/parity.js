@@ -57,7 +57,7 @@ function nodeReport(root) {
 }
 
 function pyReport(root) {
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json', '--no-record'], { cwd: PY, encoding: 'utf8' });
   assert.ok(r.stdout, `designc printed nothing. stderr: ${r.stderr}`);
   return JSON.parse(r.stdout);
 }

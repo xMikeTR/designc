@@ -142,7 +142,7 @@ test('unicode in names hashes the same (UTF-16 code units)', { skip }, () => {
 });
 
 test('exit codes: 0 ready, 1 not ready, 2 unusable folder', { skip }, () => {
-  const run = root => spawnSync('python3', ['-m', 'designc', 'check', root], { cwd: PY, encoding: 'utf8' });
+  const run = root => spawnSync('python3', ['-m', 'designc', 'check', root, '--no-record'], { cwd: PY, encoding: 'utf8' });
   const clean = tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } }' });
   assert.equal(run(clean).status, 0);
   assert.equal(run(path.join(ROOT, 'sample-registry')).status, 1);

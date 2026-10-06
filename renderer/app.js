@@ -87,7 +87,8 @@ function toast(msg, kind = 'info', actions = []) {
 
 // ---------------------------------------------------------------- registry loading
 function textOf(path) { const b = A.buffers.get(path); return b ? b.model.getValue() : null; }
-async function readText(path) { const t = textOf(path); if (t != null) return t; try { return await host.read(path); } catch { return null; } }
+// Optional files (settings, model, as-built) are probed with exists first: a rejected fs:read is logged by Electron in the main process.
+async function readText(path) { const t = textOf(path); if (t != null) return t; try { return (await host.exists(path)) ? await host.read(path) : null; } catch { return null; } }
 
 async function loadSettings() {
   A.cfg = { model: 'model/workspace.dsl', chainHops: 4, retryAmplification: 4, llm: {} };
@@ -383,7 +384,7 @@ function activate(id) {
   A.active = id;
   const isFile = id && !id.startsWith('special:');
   $('#monaco').style.visibility = isFile ? 'visible' : 'hidden';
-  $('#special').style.display = id && !isFile ? 'block' : 'none';
+  $('#special').style.display = !id || isFile ? 'none' : id === 'special:canvas' ? 'grid' : 'block'; // the canvas lays out as a grid (.dcv)
   $('#welcome').style.display = id ? 'none' : 'block';
   if (isFile) { const b = A.buffers.get(id); editor.updateOptions({ readOnly: !!b.ro }); editor.setModel(b.model); if (b.view) editor.restoreViewState(b.view); editor.focus(); }
   else if (id) renderSpecial();
