@@ -1,3 +1,8 @@
 {
-  "factory": { "k": 3 }
+  "factory": {
+    "k": 3
+  },
+  "registries": {
+    "design": "../design-registry"
+  }
 }

@@ -52,4 +52,17 @@ function trustChoices(root, repoRoot, home) {
   return out;
 }
 
-module.exports = { confine, childEnv, isTrusted, trustChoices };
+// A sibling registry listed in designc.json `registries` ({key: path relative to the open folder}), read-only.
+// Only an own string entry counts, so the renderer cannot name `__proto__` or `toString`; the folder must exist.
+// Paths inside it then go through confine(dir, rel) like the open folder's.
+function registryDir(root, registries, key) {
+  const map = registries && typeof registries === 'object' ? registries : {};
+  const v = Object.prototype.hasOwnProperty.call(map, key) ? map[key] : null;
+  if (typeof v !== 'string' || !v.trim()) throw new Error(`Registry ${key} is not listed in designc.json registries`);
+  const dir = path.resolve(root, v.trim());
+  let st = null; try { st = fs.statSync(dir); } catch { /* missing */ }
+  if (!st || !st.isDirectory()) throw new Error(`Registry ${key} (${v}) does not exist. Check the path in designc.json registries`);
+  return dir;
+}
+
+module.exports = { confine, childEnv, isTrusted, trustChoices, registryDir };
