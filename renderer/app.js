@@ -117,7 +117,29 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
+  await loadTaxonomy();
 }
+// factory/taxonomy.yaml: the failure modes escapes are classified against. Not a gate input (the CLI never reads it),
+// so a parse error is shown in Improve rather than blocking the gate.
+const TAXONOMY = 'factory/taxonomy.yaml';
+async function loadTaxonomy() {
+  A.taxonomy = null; A.taxonomyError = null;
+  const t = await readText(TAXONOMY); if (t == null) return;
+  try { A.taxonomy = jsyaml.load(t) || {}; } catch (e) { A.taxonomyError = `${e.reason || e.message} (line ${(e.mark && e.mark.line + 1) || 1})`; }
+}
+const TAXONOMY_STARTER = `# Failure modes of the Build pipeline, from reading its traces (error analysis). Each escape in a design
+# registry can be classified as one of these in Improve. triage: spec (the handover should have said),
+# fix (the factory must change) or grader (an eval must catch it).
+modes:
+  - id: FM-01
+    name: Test gaming
+    description: The agent changed or weakened a test to make it pass.
+    triage: grader
+  - id: FM-02
+    name: Spec gap
+    description: The handover did not say something the code needed.
+    triage: spec
+`;
 async function loadLedger() {
   const files = await host.list('ledger', ['.jsonl']); A.ledgerFiles = files; A.ledgerRaw = []; A.ledgerErrors = [];
   for (const f of files) {
@@ -149,10 +171,28 @@ function otherRegistriesHtml() {
   const R = A.regs, keys = R.keys || [];
   if (!keys.length && !R.problems.length) return '';
   const stage = k => (STAGES.find(([s]) => s === k) || [k, k ? k : 'Not classified'])[1];
+  const fm = Ledger.failureModes(A.ledger, { taxonomy: A.taxonomy }), modes = fm.modes;
+  const fmCell = e => { const cur = fm.byEscape.get(`${e.registry}/${e.id}`) || '';
+    return `<td><select class="inline" data-fm-reg="${esc(e.registry)}" data-fm-esc="${esc(e.id)}" aria-label="Failure mode of ${esc(e.id)}"><option value="">Not classified</option>${modes.map(m => `<option value="${esc(m.id)}" ${cur === m.id ? 'selected' : ''}>${esc(m.id)} ${esc(m.name)}</option>`).join('')}${cur && !modes.some(m => m.id === cur) ? `<option value="${esc(cur)}" selected>${esc(cur)} (not in the taxonomy)</option>` : ''}</select></td>`; };
   const probs = R.problems.map(p => `<div class="note" style="color:var(--err)">${p.key ? `<b>${esc(p.key)}</b>: ` : ''}${esc(p.msg)}</div>`).join('');
   return `<div class="block"><h3>Escapes in other registries<span class="spacer"></span><button class="btn" data-regs-refresh ${R.loading ? 'disabled' : ''}>${R.loading ? 'Reading…' : 'Refresh'}</button></h3>
-    <div class="note">Read-only, from the registries listed in <code>designc.json</code> <code>registries</code> (${keys.map(k => esc(k.key)).join(', ')}). Classify them in their own registry.</div>${probs}
-    ${R.rows.length ? `<div class="tw2"><table class="t"><tr><th>Registry</th><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${R.rows.map(e => `<tr><td>${esc(e.registry)}</td><td>${esc(when(e.ts))}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td>${esc(stage(e.caught_by))}</td></tr>`).join('')}</table></div>` : `<div class="note">${R.loaded ? 'No escapes recorded there.' : 'Not read yet.'}</div>`}</div>`;
+    <div class="note">Read-only, from the registries listed in <code>designc.json</code> <code>registries</code> (${keys.map(k => esc(k.key)).join(', ')}). The stage is classified in their own registry; the failure mode is recorded here.</div>${probs}
+    ${R.rows.length ? `<div class="tw2"><table class="t"><tr><th>Registry</th><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th>${modes.length ? '<th>Failure mode</th>' : ''}</tr>${R.rows.map(e => `<tr><td>${esc(e.registry)}</td><td>${esc(when(e.ts))}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td>${esc(stage(e.caught_by))}</td>${modes.length ? fmCell(e) : ''}</tr>`).join('')}</table></div>` : `<div class="note">${R.loaded ? 'No escapes recorded there.' : 'Not read yet.'}</div>`}</div>`;
+}
+// Escapes per failure mode (Ledger.failureModes). Shown once there is a taxonomy, a classification or another registry.
+const TRIAGE_LABEL = { spec: 'Spec: the handover should have said', fix: 'Fix: the factory must change', grader: 'Grader: an eval must catch it' };
+function failureModesHtml() {
+  const has = A.taxonomy || A.taxonomyError || A.ledger.some(e => e.kind === 'failure_mode_classified') || (A.regs.keys || []).length;
+  if (!has) return '';
+  const fm = Ledger.failureModes(A.ledger, { taxonomy: A.taxonomy, escapes: A.regs.rows.map(e => ({ registry: e.registry, id: e.id })) });
+  const exists = A.taxonomy != null || A.taxonomyError;
+  const warn = [...(A.taxonomyError ? [`${TAXONOMY} does not parse: ${A.taxonomyError}`] : []), ...fm.problems.map(p => `${TAXONOMY}: ${p}`),
+    ...fm.unknown.map(u => `${u.registry} ${u.escape} is classified as ${u.failure_mode}, which ${TAXONOMY} does not list. Add it there or reclassify the escape.`)];
+  const max = Math.max(1, ...fm.modes.map(m => m.count));
+  return `<div class="block"><h3>Failure modes<span class="spacer"></span>${exists ? `<button class="btn" data-file="${TAXONOMY}">Open taxonomy</button>` : '<button class="btn" data-a="newtaxonomy">Create factory/taxonomy.yaml</button>'}</h3>
+    <div class="note">Escapes from other registries, grouped by failure mode from <code>${TAXONOMY}</code>. Classify each one in the table below. Triage says where the fix belongs. ${fm.unclassified.length ? `${plural(fm.unclassified.length, 'escape')} not classified yet.` : ''}</div>
+    ${warn.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}
+    ${fm.modes.length ? `<div class="tw2"><table class="t"><tr><th>Mode</th><th>Name</th><th>Triage</th><th class="num">Escapes</th><th style="width:30%"></th></tr>${fm.modes.map(m => `<tr title="${esc(m.description)}"><td><span class="id">${esc(m.id)}</span></td><td>${esc(m.name)}${m.description ? `<div style="color:var(--fg3);font-size:11.5px">${esc(m.description)}</div>` : ''}</td><td>${m.triage ? esc(TRIAGE_LABEL[m.triage]) : '<span style="color:var(--fg3)">Not triaged</span>'}</td><td class="num">${m.count}</td><td><div class="bartrack"><div class="barfill" style="width:${(m.count / max) * 100}%"></div></div></td></tr>`).join('')}</table></div>` : `<div class="note">${exists ? 'The taxonomy lists no failure modes yet.' : 'No taxonomy yet. Create one from what you see in the traces, then classify escapes against it.'}</div>`}</div>`;
 }
 // The ledger is append-only: classification and resolution are later events, folded in here.
 function deriveLedger() { A.ledger = Ledger.derive(A.ledgerRaw); }
@@ -461,7 +501,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any)) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory')) await loadRegistry();
   if (any('ledger')) await loadLedger();
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -1527,7 +1567,7 @@ function improveDash() {
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(t.element || '')}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
-  h += otherRegistriesHtml();
+  h += failureModesHtml() + otherRegistriesHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
@@ -1664,11 +1704,13 @@ document.addEventListener('click', async e => {
   if (a === 'cmscope') return cmGo('component', null);
   if (a === 'ghost') { A.showGhost = t.checked; return drawCodemap(); }
   if (a === 'codemapopen') return setActivity('codemap');
+  if (a === 'newtaxonomy') return createAndOpen(TAXONOMY, TAXONOMY_STARTER, 4);
   if (a === 'newmodel') return createAndOpen(A.cfg.model, `workspace "${A.root.name}" {\n  model {\n    \n  }\n}\n`, 3);
 });
 document.addEventListener('change', async e => {
   const d = e.target.dataset;
   if (d.classify) await recordEvent('escape_classified', { escape: d.classify, caught_by: e.target.value || null });
+  if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });
 $('#panelClose').addEventListener('click', () => { A.panelOpen = false; $('#workbench').classList.add('nopanel'); });

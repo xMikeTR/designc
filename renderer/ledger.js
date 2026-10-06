@@ -52,6 +52,7 @@ const Ledger = (() => {
     suite_run: 'factory.jsonl',
     grader: 'factory.jsonl',
     suite_run_finished: 'factory.jsonl',
+    failure_mode_classified: 'factory.jsonl',
   };
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
 
@@ -195,6 +196,14 @@ const Ledger = (() => {
       enums: { outcome: ['completed', 'aborted'] },
       types: { suite_run_id: 'string' },
       rules: ['aborted_needs_reason'],
+    },
+    // A person names the failure mode (factory/taxonomy.yaml) of an escape recorded in a design registry, by its
+    // designc.json `registries` key. Written by the app only (never by `designc record`); null clears it.
+    failure_mode_classified: {
+      required: ['registry', 'escape', 'failure_mode'],
+      optional: [],
+      enums: {},
+      types: { registry: 'string', escape: 'string', failure_mode: 'string|null' },
     },
   };
 
@@ -633,10 +642,43 @@ const Ledger = (() => {
     return out;
   }
 
+  // Factory evals: escapes per failure mode. `taxonomy` is factory/taxonomy.yaml parsed ({modes: [{id, name, triage?,
+  // description?}]}) or null; `escapes` are the known escapes as {registry, id}. The latest failure_mode_classified per
+  // registry and escape wins and null clears it. An id the taxonomy does not list is a warning (`unknown`), never counted.
+  // Classifications of escapes not in `escapes` still count: their registry may just be unreachable.
+  const TRIAGE = ['spec', 'fix', 'grader'];
+  function failureModes(events, { taxonomy = null, escapes = [] } = {}) {
+    const problems = [], modes = [], ids = new Set();
+    if (taxonomy != null) {
+      if (!isPlainObject(taxonomy)) problems.push('factory/taxonomy.yaml must be a mapping with a modes list');
+      else if (!Array.isArray(taxonomy.modes)) problems.push('modes must be a list');
+      else taxonomy.modes.forEach((m, i) => {
+        const id = isPlainObject(m) && m.id != null && String(m.id).trim() ? String(m.id).trim() : null;
+        if (!id) return problems.push(`mode ${i + 1} needs an id`);
+        if (ids.has(id)) return problems.push(`${id} is listed more than once`);
+        ids.add(id);
+        if (!m.name || !String(m.name).trim()) problems.push(`${id} needs a name`);
+        if (m.triage != null && !TRIAGE.includes(m.triage)) problems.push(`${id}: triage must be ${TRIAGE.slice(0, -1).join(', ')} or ${TRIAGE[TRIAGE.length - 1]}`);
+        modes.push({ id, name: m.name ? String(m.name) : '', triage: TRIAGE.includes(m.triage) ? m.triage : null, description: m.description ? String(m.description) : '', count: 0, escapes: [] });
+      });
+    }
+    const latest = new Map();
+    for (const e of events) if (e.kind === 'failure_mode_classified') latest.set(`${e.registry}/${e.escape}`, e);
+    const byEscape = new Map(), unknown = [], byId = new Map(modes.map(m => [m.id, m]));
+    for (const [key, e] of latest) {
+      if (e.failure_mode == null) continue;
+      byEscape.set(key, e.failure_mode);
+      const m = byId.get(e.failure_mode);
+      if (m) { m.count++; m.escapes.push({ registry: e.registry, escape: e.escape }); } else unknown.push({ registry: e.registry, escape: e.escape, failure_mode: e.failure_mode });
+    }
+    const unclassified = escapes.filter(x => !byEscape.has(`${x.registry}/${x.id}`)).map(x => ({ registry: x.registry, escape: x.id }));
+    return { modes, byEscape, unknown, unclassified, problems };
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, suiteRuns, suiteCompare, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

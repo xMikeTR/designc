@@ -266,6 +266,22 @@
       "types": {},
       "rules": []
     },
+    "failure_mode_classified": {
+      "stream": "factory.jsonl",
+      "required": [
+        "registry",
+        "escape",
+        "failure_mode"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "registry": "string",
+        "escape": "string",
+        "failure_mode": "string|null"
+      },
+      "rules": []
+    },
     "false_positive": {
       "stream": "pipeline.jsonl",
       "required": [

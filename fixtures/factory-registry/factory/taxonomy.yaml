@@ -1,0 +1,15 @@
+# Failure modes of the Build pipeline, from reading its traces (error analysis).
+# triage: spec (the handover should have said), fix (the factory must change) or grader (an eval must catch it).
+modes:
+  - id: FM-01
+    name: Test gaming
+    description: The agent changed or weakened a test to make it pass.
+    triage: grader
+  - id: FM-02
+    name: Spec gap
+    description: The handover did not say something the code needed.
+    triage: spec
+  - id: FM-03
+    name: Unbounded retries
+    description: Generated code retries a remote call with no budget.
+    triage: fix
