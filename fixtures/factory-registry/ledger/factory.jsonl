@@ -71,3 +71,7 @@
 {"kind":"grader","suite_run_id":"run-2026-10-05-c","task_id":"S2-0002","trial":1,"grader":"build","verdict":"pass","trace_id":"lf-run-2026-10-05-c-S2-0002-1","event_id":"mock-071","ts":1791195060000,"by":"mock-harness","schema_version":1}
 {"kind":"grader","suite_run_id":"run-2026-10-05-c","task_id":"S2-0002","trial":1,"grader":"tests","verdict":"pass","trace_id":"lf-run-2026-10-05-c-S2-0002-1","event_id":"mock-072","ts":1791195120000,"by":"mock-harness","schema_version":1}
 {"kind":"grader","suite_run_id":"run-2026-10-05-c","task_id":"S2-0002","trial":1,"grader":"scope","verdict":"pass","trace_id":"lf-run-2026-10-05-c-S2-0002-1","event_id":"mock-073","ts":1791195180000,"by":"mock-harness","schema_version":1}
+{"kind":"failure_mode_classified","by":"mike","registry":"design","escape":"E-1a2b3c4d","failure_mode":"FM-02","schema_version":1,"event_id":"mock-fm-001","ts":1791208860000}
+{"kind":"failure_mode_classified","by":"mike","registry":"design","escape":"E-9c0d1e2f","failure_mode":"FM-01","schema_version":1,"event_id":"mock-fm-002","ts":1791208920000}
+{"kind":"failure_mode_classified","by":"mike","registry":"design","escape":"E-5e6f7a8b","failure_mode":"FM-03","schema_version":1,"event_id":"mock-fm-003","ts":1791208980000}
+{"kind":"failure_mode_classified","by":"mike","registry":"design","escape":"E-5e6f7a8b","failure_mode":"FM-09","schema_version":1,"event_id":"mock-fm-004","ts":1791209040000}
