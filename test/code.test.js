@@ -52,3 +52,23 @@ test('no self edges and no edges to unknown names', async () => {
   assert.ok(r.typeEdges.every(e => e.from !== e.to));
   assert.ok(!r.typeEdges.some(e => /task/i.test(e.to)));
 });
+
+test('JS/TS: classes and modules of one container link by name, an import names the module, a class and a module of one name stay apart', async () => {
+  const files = {
+    'web/src/orders/index.ts': 'import { price } from "../pricing/index";\nexport class Orders extends Base {\n  run() { return new Cart(); }\n}\nexport function load() { return 1; }',
+    'web/src/pricing/index.ts': 'export function price() { if (1) { return 2; } return 1; }',
+    'web/src/cart.ts': 'export class Cart {}\nexport class Base {}',
+    'web/src/cart/index.ts': 'export function cart() { return 1; }',
+  };
+  const r = await code.build({
+    components: [{ id: 'c_web_orders', container: 'Web', files: ['web/src/orders/index.ts'] }, { id: 'c_web_pricing', container: 'Web', files: ['web/src/pricing/index.ts'] }, { id: 'c_web_cart', container: 'Web', files: ['web/src/cart.ts', 'web/src/cart/index.ts'] }],
+    read: async f => files[f],
+  });
+  const byName = Object.fromEntries(r.types.map(t => [t.kind + ':' + t.name, t]));
+  assert.ok(byName['module:cart'] && byName['class:Cart'] && byName['module:cart'].id !== byName['class:Cart'].id);
+  const edge = (a, b) => r.typeEdges.find(e => e.from === byName[a].id && e.to === byName[b].id);
+  assert.equal(edge('module:orders', 'module:pricing').via, 'uses');
+  assert.equal(edge('class:Orders', 'class:Base').via, 'inherits');
+  assert.equal(edge('class:Orders', 'class:Cart').via, 'new');
+  assert.equal(r.unresolved.length, 0);
+});
