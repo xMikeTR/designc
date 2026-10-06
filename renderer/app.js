@@ -1519,20 +1519,34 @@ function traceUrl(id) {
   const base = ((A.cfg.langfuse || {}).baseUrl || '').replace(/\/$/, ''), run = A.tel.runs.find(r => r.projectId);
   return id && base && run ? `${base}/project/${encodeURIComponent(run.projectId)}/traces/${encodeURIComponent(id)}` : null;
 }
+// A score change in percentage points, signed; the class colours it.
+const pts = x => (x === null || x === undefined ? '—' : `<span class="delta ${x > 0 ? 'up' : x < 0 ? 'down' : ''}">${x > 0 ? '+' : x < 0 ? '−' : '±'}${Math.abs(Math.round(x * 100))} pts</span>`);
+const TASK_CMP = { changed: 'Task edited since the baseline, not compared', new: 'New task, not in the baseline', unscored: 'No judged trial on one side' };
 function suiteRunsHtml(L) {
-  const k = ((A.cfg.factory || {}).k) || 3, runs = Ledger.suiteRuns(L, { k }).reverse();
-  if (!runs.length) return '';
+  const k = ((A.cfg.factory || {}).k) || 3, all = Ledger.suiteRuns(L, { k });
+  if (!all.length) return '';
+  const cmp = Ledger.suiteCompare(all), byId = new Map(all.map(r => [r.suite_run_id, r]));
   const trialChip = x => {
     const url = traceUrl(x.trace_id), title = `Trial ${x.trial}: ${x.outcome}${Object.keys(x.gates).length ? ' · ' + Object.entries(x.gates).map(([g, v]) => `${g} ${v}`).join(', ') : ''}${Object.keys(x.gradients).length ? ' · ' + Object.entries(x.gradients).map(([g, v]) => `${g} ${v}`).join(', ') : ''}${x.trace_id ? ' · trace ' + x.trace_id : ''}`;
     const gradFails = Object.values(x.gradients).filter(v => v === 'fail').length;
     const chip = `<span class="tag ${TRIAL_TAG[x.outcome]}" title="${esc(title)}">#${x.trial} ${esc(x.outcome)}${gradFails ? ` · ${plural(gradFails, 'gradient')} failed` : ''}</span>`;
     return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${chip}</a>` : chip;
   };
-  const detail = r => `<tr><td colspan="10"><div class="tw2"><table class="t"><tr><th>Eval task</th><th>Trials</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th>Gates</th><th>Gradients</th></tr>${r.tasks.map(t => `<tr><td><span class="id">${esc(t.task_id)}</span></td><td>${t.trials.map(trialChip).join(' ')}</td><td class="num">${pct(t.passAt1)}</td><td class="num">${pct(t.passK)}</td><td>${esc(t.gates.join(', '))}</td><td>${esc(t.gradients.join(', '))}</td></tr>`).join('')}</table></div>${r.stray ? `<div class="note">${plural(r.stray, 'grader event')} named a task, trial or grader this run did not declare and were left out.</div>` : ''}${r.finished && r.finished.reason ? `<div class="note">Aborted: ${esc(r.finished.reason)}</div>` : ''}</td></tr>`;
-  return `<div class="block"><h3>Suite runs</h3><div class="note">Eval harness runs of the Build pipeline, from <code>ledger/factory.jsonl</code>, newest first. A trial passes when every gate grader passed. Harness means the run finished before a gate reported, so the harness failed, not the agent; it is left out of pass@1. pass^${k} is pass@1 to the power ${k}, averaged over eval tasks. Click a run to see its trials; hover a trial for each grader's verdict. Gradients are shown but never decide a trial.</div><div class="tw2"><table class="t"><tr><th>Started</th><th>Suite</th><th>Harness</th><th>Model</th><th>Prompt</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th class="num">Every trial passed</th><th>Trials</th><th>Status</th></tr>${runs.map(r => {
-    const open = A.suiteOpen.has(r.suite_run_id);
-    return `<tr data-suite="${esc(r.suite_run_id)}" style="cursor:pointer"><td>${open ? '▾' : '▸'} ${esc(when(r.started))}</td><td>${esc(r.suite)}</td><td><span class="code">${esc(r.harness_version)}</span></td><td>${esc(r.model)}</td><td>${esc(r.prompt_version)}</td><td class="num">${pct(r.passAt1)}</td><td class="num">${pct(r.passK)}</td><td class="num">${r.allPassed} of ${r.tasks.length}</td><td>${['pass', 'fail', 'harness', 'incomplete'].filter(o => r.counts[o]).map(o => `<span class="tag ${TRIAL_TAG[o]}">${r.counts[o]} ${o}</span>`).join(' ')}</td><td><span class="tag ${RUN_TAG[r.status]}">${esc(r.status)}</span></td></tr>${open ? detail(r) : ''}`;
-  }).join('')}</table></div></div>`;
+  const taskCmp = (c, id) => { const x = c.tasks[id]; if (!c.baseline || !x) return '—'; return x.status === 'compared' ? `${pts(x.passAt1)} / ${pts(x.passK)}` : `<span class="note-i">${esc(TASK_CMP[x.status])}</span>`; };
+  const change = (r, c) => {
+    const rep = c.repeatOf ? ` <span class="tag" title="${esc(`Same harness version as the run started ${when(byId.get(c.repeatOf).started)}`)}">repeat</span>` : '';
+    if (!c.baseline) return `<span class="note-i">First version</span>${rep}`;
+    const vs = `vs <span class="code">${esc(c.baselineVersion)}</span>`;
+    if (!c.compared) return `<span class="note-i">No task to compare ${vs}</span>${rep}`;
+    return `${pts(c.passAt1)} pass@1 · ${pts(c.passK)} pass^${k} ${vs} <span class="note-i">(${plural(c.compared, 'task')})</span>${rep}`;
+  };
+  const detail = (r, c) => `<tr><td colspan="10"><div class="tw2"><table class="t"><tr><th>Eval task</th><th>Trials</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th>Change (pass@1 / pass^${k})</th><th>Gates</th><th>Gradients</th></tr>${r.tasks.map(t => `<tr><td><span class="id">${esc(t.task_id)}</span></td><td>${t.trials.map(trialChip).join(' ')}</td><td class="num">${pct(t.passAt1)}</td><td class="num">${pct(t.passK)}</td><td>${taskCmp(c, t.task_id)}</td><td>${esc(t.gates.join(', '))}</td><td>${esc(t.gradients.join(', '))}</td></tr>`).join('')}</table></div>${c.dropped.length ? `<div class="note">Not in this run but in the baseline: ${c.dropped.map(esc).join(', ')}.</div>` : ''}${r.stray ? `<div class="note">${plural(r.stray, 'grader event')} named a task, trial or grader this run did not declare and were left out.</div>` : ''}${r.finished && r.finished.reason ? `<div class="note">Aborted: ${esc(r.finished.reason)}</div>` : ''}</td></tr>`;
+  const suites = [...new Set(all.map(r => r.suite))];
+  const table = suite => `<h4 class="su-h">${esc(suite)}</h4><div class="tw2"><table class="t"><tr><th>Started</th><th>Harness</th><th>Model</th><th>Prompt</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th>Change</th><th class="num">Every trial passed</th><th>Trials</th><th>Status</th></tr>${all.filter(r => r.suite === suite).reverse().map(r => {
+    const open = A.suiteOpen.has(r.suite_run_id), c = cmp.get(r.suite_run_id);
+    return `<tr data-suite="${esc(r.suite_run_id)}" style="cursor:pointer"><td>${open ? '▾' : '▸'} ${esc(when(r.started))}</td><td><span class="code">${esc(r.harness_version)}</span></td><td>${esc(r.model)}</td><td>${esc(r.prompt_version)}</td><td class="num">${pct(r.passAt1)}</td><td class="num">${pct(r.passK)}</td><td>${change(r, c)}</td><td class="num">${r.allPassed} of ${r.tasks.length}</td><td>${['pass', 'fail', 'harness', 'incomplete'].filter(o => r.counts[o]).map(o => `<span class="tag ${TRIAL_TAG[o]}">${r.counts[o]} ${o}</span>`).join(' ')}</td><td><span class="tag ${RUN_TAG[r.status]}">${esc(r.status)}</span></td></tr>${open ? detail(r, c) : ''}`;
+  }).join('')}</table></div>`;
+  return `<div class="block"><h3>Suite runs</h3><div class="note">Eval harness runs of the Build pipeline, from <code>ledger/factory.jsonl</code>, by suite, newest first. A trial passes when every gate grader passed. Harness means the run finished before a gate reported, so the harness failed, not the agent; it is left out of pass@1. pass^${k} is pass@1 to the power ${k}, averaged over eval tasks. Change compares each run with the latest earlier run on a different harness version, only over eval tasks whose hash is unchanged and judged on both sides; a repeat is a run on a harness version already run. Click a run to see its trials; hover a trial for each grader's verdict. Gradients are shown but never decide a trial.</div>${suites.map(table).join('')}</div>`;
 }
 
 // ---------------------------------------------------------------- events

@@ -603,10 +603,40 @@ const Ledger = (() => {
     });
   }
 
+  // Factory evals: each run of suiteRuns (oldest first) against its baseline, the latest earlier run of the same suite on a
+  // different harness_version that has a score. A run on the same harness_version as an earlier one is a repeat (repeatOf)
+  // and is never a baseline for its own version. Only tasks whose hash matches the baseline and that are scored on both
+  // sides are compared, so an edited eval task never moves the number; the run delta is the mean of those task deltas.
+  function suiteCompare(runs) {
+    const out = new Map();
+    runs.forEach((r, i) => {
+      const earlier = runs.slice(0, i).filter(x => x.suite === r.suite).reverse();
+      const same = earlier.find(x => x.harness_version === r.harness_version);
+      const base = earlier.find(x => x.harness_version !== r.harness_version && x.passAt1 !== null) || null;
+      const byId = new Map(base ? base.tasks.map(x => [x.task_id, x]) : []);
+      const tasks = {}, deltas = [];
+      for (const x of r.tasks) {
+        const b = byId.get(x.task_id);
+        if (!base) continue;
+        if (!b) { tasks[x.task_id] = { status: 'new' }; continue; }
+        if (b.hash !== x.hash) { tasks[x.task_id] = { status: 'changed' }; continue; }
+        if (x.passAt1 === null || b.passAt1 === null) { tasks[x.task_id] = { status: 'unscored' }; continue; }
+        const d = { status: 'compared', passAt1: x.passAt1 - b.passAt1, passK: x.passK - b.passK };
+        tasks[x.task_id] = d; deltas.push(d);
+      }
+      const mean = f => (deltas.length ? deltas.reduce((a, d) => a + d[f], 0) / deltas.length : null);
+      const ids = new Set(r.tasks.map(x => x.task_id));
+      out.set(r.suite_run_id, { baseline: base ? base.suite_run_id : null, baselineVersion: base ? base.harness_version : null,
+        repeatOf: same ? same.suite_run_id : null, compared: deltas.length, passAt1: mean('passAt1'), passK: mean('passK'), tasks,
+        dropped: base ? base.tasks.map(x => x.task_id).filter(id => !ids.has(id)) : [] });
+    });
+    return out;
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, suiteRuns, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, suiteRuns, suiteCompare, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

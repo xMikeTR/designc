@@ -330,3 +330,6 @@ pre.yamlprev{padding:6px 8px;white-space:pre-wrap}
 .su-save{display:flex;align-items:center;gap:14px}
 .su button.l{background:none;border:0;color:var(--accent);cursor:pointer;padding:0}
 @media (max-width:640px){.su-row{grid-template-columns:1fr}.su-row small{grid-column:1}}
+.delta.up{color:var(--ok)}.delta.down{color:var(--err)}
+.note-i{color:var(--fg3)}
+h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
