@@ -103,7 +103,7 @@
     },
     {
       id: 'design-to-code', title: 'Design-to-code factory', pattern: 'designc itself',
-      about: 'System 1 designs, System 2 builds, System 4 improves: the architecture this IDE belongs to.',
+      about: 'Design, Build and Improve: the architecture this IDE belongs to.',
       elements: `{p}_eng = person "Engineer {p}"
 {p}_llm = softwareSystem "Model provider {p}" "" "LLM,External"
 {p}_sys = softwareSystem "Design-to-code factory {p}" {

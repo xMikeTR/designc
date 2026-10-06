@@ -1,6 +1,6 @@
 # Recording spend so designc can forecast handovers
 
-This guide is for whoever builds System 2 (the pipeline) or any other writer of `ledger/*.jsonl`. designc prices a handover from what past handovers cost, so the pipeline must record spend in a form it can read. designc never sets or enforces limits; budgets per agent and sub-agent belong to the pipeline.
+This guide is for whoever builds Build (the coding pipeline) or any other writer of `ledger/*.jsonl`. designc prices a handover from what past handovers cost, so the pipeline must record spend in a form it can read. designc never sets or enforces limits; budgets per agent and sub-agent belong to the pipeline.
 
 ## What to write
 

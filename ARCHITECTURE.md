@@ -18,8 +18,8 @@
 ## System Overview
 
 designc is an Electron desktop IDE for system design in which the design is the source of
-truth and code is a build output. One window hosts the design compiler (System 1), a view
-of the coding pipeline's runs (System 2), the improvement loop (System 4), an as-built code
+truth and code is a build output. One window hosts the design compiler (Design), a view
+of the coding pipeline's runs (Build), the evals and improvement loop (Improve), an as-built code
 map extracted from a .NET and JS/TS codebase, and an agent panel. It opens a *registry*
 folder of plain files (model, decisions, requirements, proposals, handovers, ledger). It
 talks to an OpenAI-compatible LLM gateway, Langfuse, ACP agent processes and AG-UI agent
