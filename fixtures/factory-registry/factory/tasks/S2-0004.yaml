@@ -1,0 +1,7 @@
+id: S2-0004
+title: Draft from the Analyst, no failure mode yet
+status: minted
+input:
+  registry: design
+graders:
+  gates: [build]

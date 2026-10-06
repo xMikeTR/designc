@@ -9,10 +9,15 @@ let n = 0;
 const out = [];
 const emit = ev => out.push({ ...ev, event_id: `mock-${String(++n).padStart(3, '0')}`, ts: T0 + n * 60000 });
 
+// Each eval task pins the hash of its file in fixtures/factory-registry/factory/tasks/, as the real harness would,
+// so Improve's Eval tasks can tell a run that used another definition.
+const fs = require('fs'), path = require('path');
+const Core = require('../renderer/core.js');
+const taskHash = id => Core.evalHash({ _text: fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'factory-registry', 'factory', 'tasks', `${id}.yaml`), 'utf8') });
 const TASKS = {
-  'S2-0001': { hash: '3f9c2a10b7d4e581', gates: ['build', 'tests', 'decision_checks', 'scope'], gradients: ['judge:test-gaming'] },
-  'S2-0002': { hash: '91ab03cc5e2f7d60', gates: ['build', 'tests', 'scope'] },
-  'S2-0003': { hash: 'c47e8d1209fa3b55', gates: ['build', 'tests'], gradients: ['judge:test-gaming'] },
+  'S2-0001': { hash: taskHash('S2-0001'), gates: ['build', 'tests', 'decision_checks', 'scope'], gradients: ['judge:test-gaming'] },
+  'S2-0002': { hash: taskHash('S2-0002'), gates: ['build', 'tests', 'scope'] },
+  'S2-0003': { hash: taskHash('S2-0003'), gates: ['build', 'tests'], gradients: ['judge:test-gaming'] },
 };
 
 function suite(id, harness_version, prompt_version, results, finish, edits = {}) {

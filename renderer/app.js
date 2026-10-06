@@ -117,7 +117,41 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy();
+  await loadTaxonomy(); await loadFactoryTasks();
+}
+// factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
+// binding pins exactly what was read. Not a gate input.
+async function loadFactoryTasks() {
+  A.ftasks = []; A.ftaskErrors = [];
+  for (const f of await host.list('factory/tasks', ['.yaml', '.yml'])) {
+    const text = textOf(f.path) ?? f.text;
+    try {
+      const o = jsyaml.load(text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
+      A.ftasks.push({ ...o, id: o.id || f.path.split('/').pop().replace(/\.ya?ml$/, ''), hash: Core.evalHash({ _text: text }), _path: f.path });
+    } catch (e) { A.ftaskErrors.push(`${f.path} does not parse: ${e.reason || e.message}`); }
+  }
+}
+async function bindFactoryTask(id) {
+  const r = Ledger.factoryTasks(A.ledger, { tasks: A.ftasks, taxonomy: A.taxonomy }), t = r.tasks.find(x => x.id === id), src = A.ftasks.find(x => String(x.id) === id);
+  if (!t || !src) return;
+  if (!t.bindable) return toast(t.bindProblem || `${id} cannot be bound while it is ${t.status}.`, 'warning');
+  const b = A.buffers.get(src._path);
+  if (b && b.dirty) return toast(`${src._path} has unsaved edits. Save it first, so the hash recorded is the file you reviewed.`, 'warning');
+  if (!confirm(`${t.status === 'changed' ? 'Re-bind' : 'Bind'} eval task ${id}? Binding means you, ${A.user}, accept this definition: suite runs that use a different version of it will be flagged.`)) return;
+  await recordEvent('factory_task_bound', { task_id: id, hash: src.hash });
+  toast(`Bound ${id}.`, 'info');
+}
+const TASK_TAG = { minted: 'minted', checked: 'checked', bound: 'bound', changed: 'warning', retired: 'superseded', invalid: 'fail' };
+function factoryTasksHtml() {
+  if (!A.ftasks || (!A.ftasks.length && !A.ftaskErrors.length)) return '';
+  const runs = Ledger.suiteRuns(A.ledger, { k: (A.cfg.factory || {}).k || 3 });
+  const r = Ledger.factoryTasks(A.ledger, { tasks: A.ftasks, taxonomy: A.taxonomy, runs });
+  const notes = [...A.ftaskErrors, ...r.problems.map(p => `factory/tasks: ${p}`), ...r.tasks.flatMap(t => [...t.problems.map(p => `${t.id}: ${p}`), ...t.warnings])];
+  return `<div class="block"><h3>Eval tasks<span class="spacer"></span><span class="note-i">${plural(r.tasks.filter(t => t.status === 'bound').length, 'bound task')}</span></h3>
+    <div class="note">Regression tests for the Build pipeline, from <code>factory/tasks/</code>. A task is minted, checked by running its reference solution, then bound by you; binding pins the file's hash. Editing a bound task makes it changed until you bind it again, and suite runs that used another version are flagged.</div>
+    ${notes.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}
+    ${r.tasks.length ? `<div class="tw2"><table class="t"><tr><th>Task</th><th>Failure mode</th><th>Status</th><th class="num">Suite runs</th><th></th></tr>${r.tasks.map(t => `<tr><td><span class="id">${esc(t.id)}</span>${t.title ? ` ${esc(t.title)}` : ''}</td><td>${t.failureMode ? esc(t.failureMode) : '<span style="color:var(--fg3)">none</span>'}</td><td><span class="tag ${TASK_TAG[t.status] || ''}">${esc(t.status)}</span>${t.offDefinition.length ? `<div style="color:var(--warn);font-size:11.5px">${esc(plural(t.offDefinition.length, 'run'))} used a different definition</div>` : ''}</td><td class="num">${t.runs.length}</td><td>${t.bindable ? `<button class="btn" data-bindtask="${esc(t.id)}">${t.status === 'changed' ? 'Re-bind' : 'Bind'}</button>` : t.bindProblem && t.status !== 'bound' && t.status !== 'retired' && t.status !== 'invalid' ? `<span style="color:var(--fg3);font-size:11.5px" title="${esc(t.bindProblem)}">needs a failure mode</span>` : ''}<button class="lnk" data-file="${esc((A.ftasks.find(x => String(x.id) === t.id) || {})._path || '')}">Open</button></td></tr>`).join('')}</table></div>` : ''}</div>`;
 }
 // factory/taxonomy.yaml: the failure modes escapes are classified against. Not a gate input (the CLI never reads it),
 // so a parse error is shown in Improve rather than blocking the gate.
@@ -1567,7 +1601,7 @@ function improveDash() {
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(t.element || '')}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
-  h += failureModesHtml() + otherRegistriesHtml();
+  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
@@ -1645,6 +1679,7 @@ document.addEventListener('click', async e => {
       description: `${t.task}: ${t.runs.length} attempt${t.runs.length === 1 ? '' : 's'}, last ${t.final}${err ? ` (${err})` : ''}`, source: 'langfuse', traces: t.runs.map(r => r.traceId) });
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
+  if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);

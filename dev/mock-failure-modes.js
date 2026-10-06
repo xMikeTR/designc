@@ -2,7 +2,7 @@
 // Appends a person's failure-mode classifications of the design-registry fixture's escapes to the factory fixture,
 // through the one append path (ledger-store.js). designc record refuses this kind: classification is the app's.
 //   node dev/mock-failure-modes.js fixtures/factory-registry
-// Run it after dev/mock-suite-run.js when regenerating the fixture ledger. The last classification names FM-09, which
+// Regenerate the fixture ledger with dev/mock-suite-run.js, then this, then dev/mock-task-binds.js. The last classification names FM-09, which
 // the taxonomy does not list, so the warning shows.
 const { appendEvent } = require('../ledger-store.js');
 const root = process.argv[2] || 'fixtures/factory-registry';

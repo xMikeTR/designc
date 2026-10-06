@@ -53,6 +53,7 @@ const Ledger = (() => {
     grader: 'factory.jsonl',
     suite_run_finished: 'factory.jsonl',
     failure_mode_classified: 'factory.jsonl',
+    factory_task_bound: 'factory.jsonl',
   };
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
 
@@ -205,6 +206,15 @@ const Ledger = (() => {
       enums: {},
       types: { registry: 'string', escape: 'string', failure_mode: 'string|null' },
     },
+    // A human binds an eval task (factory/tasks/<id>.yaml): this pins the hash of the file as it was read, like
+    // decision_promoted. Editing the file afterwards makes the task `changed` until it is bound again.
+    factory_task_bound: {
+      required: ['task_id', 'hash'],
+      optional: [],
+      enums: {},
+      types: { task_id: 'string', hash: 'string' },
+      rules: ['hash_not_blank'],
+    },
   };
 
   const isPlainObject = v => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -226,6 +236,7 @@ const Ledger = (() => {
       }
       return null;
     },
+    hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
   };
@@ -675,10 +686,46 @@ const Ledger = (() => {
     return { modes, byEscape, unknown, unclassified, problems };
   }
 
+  // Factory evals: eval tasks. `tasks` are factory/tasks/*.yaml rows `{id, title?, status?, source?, hash, ...}` with `hash` the
+  // hash of the file text (computed by the caller). The file says minted, checked or retired; `bound` is never in a file:
+  // it is the latest factory_task_bound for the id with the file's current hash. A bind whose hash no longer matches
+  // makes the task `changed`. Binding needs source.failure_mode (the task must come from an observed failure); a mode the
+  // taxonomy does not list is only a warning. `runs` (suiteRuns output) name the suite runs that used each task and
+  // those that pinned a hash other than the bound one.
+  const TASK_FILE_STATUS = ['minted', 'checked', 'retired'];
+  const taskBindProblem = t => (t && t.source && typeof t.source === 'object' && t.source.failure_mode && String(t.source.failure_mode).trim() ? null
+    : 'A task is bound only when it names the failure mode it came from (source.failure_mode), so it is a regression test of something that happened.');
+  function factoryTasks(events, { tasks = [], taxonomy = null, runs = [] } = {}) {
+    const problems = [], seen = new Set(), out = [];
+    const boundBy = new Map();
+    for (const e of events) if (e.kind === 'factory_task_bound') boundBy.set(e.task_id, e.hash);
+    const known = taxonomy && Array.isArray(taxonomy.modes) ? new Set(taxonomy.modes.filter(isPlainObject).map(m => String(m.id))) : null;
+    tasks.forEach((t, i) => {
+      const id = t && t.id != null && String(t.id).trim() ? String(t.id).trim() : null;
+      if (!id) return problems.push(`task ${i + 1} needs an id`);
+      if (seen.has(id)) return problems.push(`${id} is listed more than once`);
+      seen.add(id);
+      const own = [], warnings = [], raw = t.status == null ? 'minted' : String(t.status).trim().toLowerCase();
+      if (raw === 'bound') own.push('status bound is recorded when a human binds a task; write it as minted or checked');
+      else if (!TASK_FILE_STATUS.includes(raw)) own.push(`status must be ${TASK_FILE_STATUS.slice(0, -1).join(', ')} or ${TASK_FILE_STATUS[TASK_FILE_STATUS.length - 1]}`);
+      const boundHash = boundBy.has(id) ? boundBy.get(id) : null;
+      const status = own.length ? 'invalid' : raw === 'retired' ? 'retired' : boundHash === null ? raw : boundHash === t.hash ? 'bound' : 'changed';
+      const bindProblem = taskBindProblem(t);
+      const fmId = t.source && t.source.failure_mode ? String(t.source.failure_mode).trim() : '';
+      if (fmId && known && !known.has(fmId)) warnings.push(`${id} names failure mode ${fmId}, which ${'factory/taxonomy.yaml'} does not list`);
+      const used = runs.filter(r => r.tasks.some(x => x.task_id === id));
+      out.push({ id, title: t.title ? String(t.title) : '', status, hash: t.hash, boundHash, failureMode: fmId || null, problems: own, warnings,
+        bindable: !own.length && status !== 'retired' && status !== 'bound' && !bindProblem, bindProblem,
+        runs: used.map(r => r.suite_run_id),
+        offDefinition: boundHash === null ? [] : used.filter(r => r.tasks.some(x => x.task_id === id && x.hash !== boundHash)).map(r => r.suite_run_id) });
+    });
+    return { tasks: out, problems };
+  }
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
