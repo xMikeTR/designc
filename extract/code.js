@@ -4,9 +4,10 @@
 // component and resolves each reference to a type of the same container by name. A name that two types of one container
 // share is reported as unresolved, never guessed. Metrics are not judged here (renderer/quality.js does that).
 const cs = require('./code-cs');
+const js = require('./code-js');
 
 const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-const SCANNERS = [{ re: /\.cs$/i, mod: cs }];
+const SCANNERS = [{ re: /\.cs$/i, mod: cs }, { re: /\.(?:[cm]?[jt]s|[jt]sx)$/i, mod: js }];
 const RANK = { uses: 1, new: 2, inherits: 3 };
 
 async function build({ components, read }) {
@@ -18,7 +19,7 @@ async function build({ components, read }) {
       if (!sc) continue;
       const found = sc.mod.scan(file, await read(file)).types;
       for (const t of found) {
-        const id = `t_${c.id}_${keyOf(t.name)}`;
+        const id = `t_${c.id}_${t.kind === 'module' ? 'm_' : ''}${keyOf(t.name)}`; // a module and a class of the same name are different types
         let m = types.get(id);
         if (!m) { m = { id, key: keyOf(t.name), name: t.name, kind: t.kind, component: c.id, container: c.container, files: [], methods: [], refs: [] }; types.set(id, m); }
         m.files.push({ file, line: t.line, endLine: t.endLine });
@@ -34,7 +35,8 @@ async function build({ components, read }) {
   const warned = new Set();
   for (const t of types.values()) {
     for (const r of t.refs) {
-      const cands = byName.get(`${t.container}|${keyOf(r.name)}`) || [];
+      // an import names a module; every other reference names a type
+      const cands = (byName.get(`${t.container}|${keyOf(r.name)}`) || []).filter(x => (x.kind === 'module') === !!r.module);
       if (!cands.length) continue;
       if (cands.length > 1) {
         const w = `${t.container}|${r.name}`;
