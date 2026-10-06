@@ -54,7 +54,7 @@ const A = {
   modelText: '', model: null, diags: [], gate: null,
   decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], evals: [], yamlErrors: [],
   ledgerRaw: [], ledger: [], ledgerErrors: [], ledgerFiles: [],
-  output: '', running: false, collapsed: new Set(),
+  output: '', running: false, collapsed: new Set(), suiteOpen: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
   selected: null, zoom: 'fit', cursor: null,
   asbuilt: null, facts: null, drift: null, extracting: false, cmSel: null, cmZoom: 'fit', showGhost: true,
@@ -1503,16 +1503,43 @@ function improveDash() {
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
   if (trends.length) h += `<div class="block"><h3>Agent evals</h3><div class="note">Every recorded result, from <code>ledger/checks.jsonl</code>. Change is against the run before the latest.</div><div class="tw2"><table class="t"><tr><th>Eval</th><th>Agent</th><th class="num">Runs</th><th class="num">Passed</th><th>Latest</th><th>Metrics</th></tr>${trends.map(r => `<tr><td><span class="id">${esc(r.eval)}</span></td><td>${esc(r.agent)}</td><td class="num">${fmtN(r.runs)}</td><td class="num">${fmtN(r.passed)}</td><td>${esc(r.latest.outcome)} · ${esc(r.latest.source)} · ${esc(when(r.latest.ts))}</td><td>${Object.entries(r.metrics).map(([k, m]) => `${esc(k)} ${esc(String(m.latest))}${m.change === null ? '' : ` (${m.change > 0 ? '+' : ''}${esc(String(+m.change.toFixed(4)))})`}`).join(', ')}</td></tr>`).join('')}</table></div></div>`;
+  h += suiteRunsHtml(L);
   if (unap.length) h += `<div class="block"><h3>Unapproved changes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Agent</th><th>Role</th><th>File</th></tr>${unap.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${esc(when(e._ts))}</td><td>${esc(e.agent)}</td><td>${esc(e.role)}</td><td>${esc(e.path)}</td></tr>`).join('')}</table></div></div>`;
   h += ledgerIntegrityHtml();
   h += `<div class="block"><h3>Proposals</h3>${A.proposals.length ? `<div class="tw2"><table class="t"><tr><th>Proposal</th><th>Kind</th><th>Change</th><th>Evidence</th><th>How we'll know</th><th>Status</th></tr>${A.proposals.map(p => `<tr data-open="${esc(p._path)}" style="cursor:pointer"><td><span class="id">${esc(p.id)}</span></td><td>${esc(p.kind || '')}</td><td>${esc(p.statement || '')}</td><td>${esc(p.evidence || '')}</td><td>${p.check ? esc(p.check) : '<span style="color:var(--err)">no check</span>'}</td><td><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span></td></tr>`).join('')}</table></div>` : '<div class="note">No proposals yet. Each should cite an escape and say how you will know the change works.</div>'}</div></div>`;
   return h;
 }
 
+// Factory evals: suite runs recorded by an eval harness through `designc record` (ledger/factory.jsonl).
+const pct = x => (x === null ? '—' : `${Math.round(x * 100)}%`);
+const TRIAL_TAG = { pass: 'pass', fail: 'fail', incomplete: 'checked', harness: 'warning' };
+const RUN_TAG = { running: 'checked', completed: 'pass', aborted: 'fail' };
+// A Langfuse trace link needs the project id, which only comes back with telemetry; without it the id is shown as text.
+function traceUrl(id) {
+  const base = ((A.cfg.langfuse || {}).baseUrl || '').replace(/\/$/, ''), run = A.tel.runs.find(r => r.projectId);
+  return id && base && run ? `${base}/project/${encodeURIComponent(run.projectId)}/traces/${encodeURIComponent(id)}` : null;
+}
+function suiteRunsHtml(L) {
+  const k = ((A.cfg.factory || {}).k) || 3, runs = Ledger.suiteRuns(L, { k }).reverse();
+  if (!runs.length) return '';
+  const trialChip = x => {
+    const url = traceUrl(x.trace_id), title = `Trial ${x.trial}: ${x.outcome}${Object.keys(x.gates).length ? ' · ' + Object.entries(x.gates).map(([g, v]) => `${g} ${v}`).join(', ') : ''}${Object.keys(x.gradients).length ? ' · ' + Object.entries(x.gradients).map(([g, v]) => `${g} ${v}`).join(', ') : ''}${x.trace_id ? ' · trace ' + x.trace_id : ''}`;
+    const gradFails = Object.values(x.gradients).filter(v => v === 'fail').length;
+    const chip = `<span class="tag ${TRIAL_TAG[x.outcome]}" title="${esc(title)}">#${x.trial} ${esc(x.outcome)}${gradFails ? ` · ${plural(gradFails, 'gradient')} failed` : ''}</span>`;
+    return url ? `<a href="${esc(url)}" target="_blank" rel="noreferrer">${chip}</a>` : chip;
+  };
+  const detail = r => `<tr><td colspan="10"><div class="tw2"><table class="t"><tr><th>Eval task</th><th>Trials</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th>Gates</th><th>Gradients</th></tr>${r.tasks.map(t => `<tr><td><span class="id">${esc(t.task_id)}</span></td><td>${t.trials.map(trialChip).join(' ')}</td><td class="num">${pct(t.passAt1)}</td><td class="num">${pct(t.passK)}</td><td>${esc(t.gates.join(', '))}</td><td>${esc(t.gradients.join(', '))}</td></tr>`).join('')}</table></div>${r.stray ? `<div class="note">${plural(r.stray, 'grader event')} named a task, trial or grader this run did not declare and were left out.</div>` : ''}${r.finished && r.finished.reason ? `<div class="note">Aborted: ${esc(r.finished.reason)}</div>` : ''}</td></tr>`;
+  return `<div class="block"><h3>Suite runs</h3><div class="note">Eval harness runs of System 2, from <code>ledger/factory.jsonl</code>, newest first. A trial passes when every gate grader passed. Harness means the run finished before a gate reported, so the harness failed, not the agent; it is left out of pass@1. pass^${k} is pass@1 to the power ${k}, averaged over eval tasks. Click a run to see its trials; hover a trial for each grader's verdict. Gradients are shown but never decide a trial.</div><div class="tw2"><table class="t"><tr><th>Started</th><th>Suite</th><th>Harness</th><th>Model</th><th>Prompt</th><th class="num">pass@1</th><th class="num">pass^${k}</th><th class="num">Every trial passed</th><th>Trials</th><th>Status</th></tr>${runs.map(r => {
+    const open = A.suiteOpen.has(r.suite_run_id);
+    return `<tr data-suite="${esc(r.suite_run_id)}" style="cursor:pointer"><td>${open ? '▾' : '▸'} ${esc(when(r.started))}</td><td>${esc(r.suite)}</td><td><span class="code">${esc(r.harness_version)}</span></td><td>${esc(r.model)}</td><td>${esc(r.prompt_version)}</td><td class="num">${pct(r.passAt1)}</td><td class="num">${pct(r.passK)}</td><td class="num">${r.allPassed} of ${r.tasks.length}</td><td>${['pass', 'fail', 'harness', 'incomplete'].filter(o => r.counts[o]).map(o => `<span class="tag ${TRIAL_TAG[o]}">${r.counts[o]} ${o}</span>`).join(' ')}</td><td><span class="tag ${RUN_TAG[r.status]}">${esc(r.status)}</span></td></tr>${open ? detail(r) : ''}`;
+  }).join('')}</table></div></div>`;
+}
+
 // ---------------------------------------------------------------- events
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], [data-dppick], .node, [data-s]'); if (!t) return;
+  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], [data-dppick], [data-suite], .node, [data-s]'); if (!t) return;
   const d = t.dataset;
+  if (d.suite) { A.suiteOpen.has(d.suite) ? A.suiteOpen.delete(d.suite) : A.suiteOpen.add(d.suite); return renderSpecial(); }
   if (d.dppick) return pickDeployment(d.dppick);
   if (d.close) { e.stopPropagation(); closeTab(d.close); return; }
   if (d.tab) return activate(d.tab);

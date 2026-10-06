@@ -327,6 +327,8 @@ A local run of `check` records a `gate` event in `ledger/checks.jsonl`: the mode
 
 `python3 -m designc verify-ledger /path/to/registry` checks the trail: every handover follows a ready gate event at its revision and is not dirty, every promotion of a technical decision follows a passing check, every line is valid, and `handovers/` matches the ledger. Exit code 0 is clean, 1 means errors, 2 means the folder could not be read. The app shows the same result under Improve, Ledger integrity.
 
+An eval harness records suite runs with `python3 -m designc record /path/to/registry --by <harness>`, sending `suite_run`, `grader` and `suite_run_finished` events as JSON lines on stdin. Nothing else can be recorded this way, and a batch with one bad line records nothing. The folder needs no model. Improve shows the runs under Suite runs: pass@1, pass^k and every trial passed per run, and each trial's grader verdicts per eval task. Try it with `node dev/mock-suite-run.js | (cd python && python3 -m designc record ../fixtures/factory-registry --by mock-harness)` on a copy of the fixture.
+
 To record on every commit, add a `post-commit` hook (the registry may be a subfolder of a larger repository):
 
 ```
