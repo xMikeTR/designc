@@ -3,10 +3,18 @@
    this page asks main whether each name is set (true or false) and never sees a value. */
 const SU = { current: {}, invalid: null, exists: false, modelExists: true, starter: true, draft: null, skip: { llm: false, langfuse: false }, env: {}, results: {}, errors: [], busy: '' };
 
-const SU_FIELDS = {
-  llm: [['baseUrl', 'Base URL', 'https://your-gateway/v1', 'An OpenAI-compatible endpoint, such as a LiteLLM gateway.'],
+const SU_PROVIDERS = [['openai', 'OpenAI-compatible gateway (LiteLLM and similar)'], ['anthropic', 'Anthropic API (a key on this machine)']];
+// The llm fields depend on the provider; langfuse has one set.
+const SU_LLM_FIELDS = {
+  openai: [['baseUrl', 'Base URL', 'https://your-gateway/v1', 'An OpenAI-compatible endpoint, such as a LiteLLM gateway.'],
     ['model', 'Model', 'claude-sonnet', 'The model name your gateway expects.'],
     ['apiKeyEnv', 'API key variable', Setup.DEFAULTS.apiKeyEnv, 'The name of the environment variable that holds the key.']],
+  anthropic: [['model', 'Model', 'claude-sonnet-5-5', 'An Anthropic model name.'],
+    ['apiKeyEnv', 'API key variable', 'ANTHROPIC_API_KEY', 'The name of the environment variable that holds your Anthropic key.'],
+    ['baseUrl', 'Base URL (optional)', 'https://api.anthropic.com', 'Leave blank for api.anthropic.com. Set it only for a proxy.']],
+};
+const SU_FIELDS = {
+  get llm() { return SU_LLM_FIELDS[Llm.provider(SU.draft && SU.draft.llm) || 'openai']; },
   langfuse: [['baseUrl', 'Base URL', 'https://cloud.langfuse.com', 'The Langfuse host, without /api.'],
     ['publicKeyEnv', 'Public key variable', Setup.DEFAULTS.publicKeyEnv, 'The name of the variable that holds the public key.'],
     ['secretKeyEnv', 'Secret key variable', Setup.DEFAULTS.secretKeyEnv, 'The name of the variable that holds the secret key.']],
@@ -18,7 +26,7 @@ async function openSetup() {
   SU.exists = t != null; SU.invalid = null; SU.current = {};
   if (t != null) { try { SU.current = JSON.parse(t) || {}; } catch (e) { SU.invalid = e.message; } }
   const c = SU.current, pick = (o, ks) => Object.fromEntries(ks.map(k => [k, (o && o[k]) || '']));
-  SU.draft = { model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['baseUrl', 'model', 'apiKeyEnv']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
+  SU.draft = { model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
   SU.skip = { llm: false, langfuse: false }; SU.results = {}; SU.errors = []; SU.busy = '';
   await setupCheckModel();
   await setupRefreshEnv();
@@ -43,9 +51,15 @@ function setupResultHtml(kind) {
   const head = { missing: 'A key is not set.', incomplete: 'Not ready to test.', invalid: 'Check the fields above.' }[r.error] || r.error;
   return `<div class="su-res err">${esc(head)}${r.hint ? ` ${esc(r.hint)}` : ''}</div>`;
 }
+function setupProviderRow() {
+  const cur = Llm.provider(SU.draft.llm) || 'openai';
+  const err = SU.errors.find(e => e.field === 'llm.provider');
+  return `<label class="su-row"><span>Provider</span><select data-su="llm.provider" ${SU.skip.llm ? 'disabled' : ''}>${SU_PROVIDERS.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+    <small>${esc(err ? err.msg : 'Where the model runs. The key never goes in designc.json.')}</small></label>`;
+}
 function setupSection(kind, title, about) {
   const errs = new Map(SU.errors.map(e => [e.field, e.msg]));
-  const rows = SU_FIELDS[kind].map(([f, label, ph, help]) => `<label class="su-row"><span>${esc(label)}</span>
+  const rows = (kind === 'llm' ? setupProviderRow() : '') + SU_FIELDS[kind].map(([f, label, ph, help]) => `<label class="su-row"><span>${esc(label)}</span>
     <input data-su="${kind}.${f}" value="${esc(SU.draft[kind][f])}" placeholder="${esc(ph)}" spellcheck="false" ${SU.skip[kind] ? 'disabled' : ''}>
     <small>${esc(errs.get(`${kind}.${f}`) || help)}</small></label>`).join('');
   return `<div class="block su-sec${SU.skip[kind] ? ' skipped' : ''}"><h3>${esc(title)}<span class="spacer"></span><label class="su-skip"><input type="checkbox" data-su-skip="${kind}" ${SU.skip[kind] ? 'checked' : ''}> Skip</label></h3>
@@ -64,7 +78,7 @@ function renderSetup() {
       <label class="su-row"><span>Model file</span><input data-su="model" value="${esc(SU.draft.model)}" placeholder="model/workspace.dsl" spellcheck="false"><small>${esc(modelErr ? modelErr.msg : SU.modelExists ? 'This file exists.' : 'This file does not exist yet.')}</small></label>
       ${SU.modelExists ? '' : `<label class="su-check"><input type="checkbox" data-su-starter ${SU.starter ? 'checked' : ''}> Create it with a small starter model</label>`}
     </div></div>
-    ${setupSection('llm', 'Model gateway (LLM)', 'Used by grill-me, drafting and the built-in agent. Any OpenAI-compatible endpoint that supports tool calling.')}
+    ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
     ${setupSection('langfuse', 'Langfuse', 'Where Build reads agent runs from. designc only reads; it needs a project\'s public and secret key.')}
     <div class="su-save"><button class="btn primary" data-su-save ${SU.invalid || SU.busy ? 'disabled' : ''}>${SU.exists ? 'Save designc.json' : 'Create designc.json'}</button>
     ${SU.errors.length ? `<span class="su-res err">Fix ${plural(SU.errors.length, 'field')} first.</span>` : ''}${SU.exists ? '<button class="l" data-su-open>Open designc.json in the editor</button>' : ''}</div></div>`;
@@ -108,6 +122,7 @@ document.addEventListener('change', async e => {
   if (!t.matches('[data-su]') || !SU.draft) return;
   const kind = t.dataset.su.split('.')[0];
   if (kind === 'model') { await setupCheckModel(); return renderSetup(); }
+  if (t.dataset.su === 'llm.provider') { SU.results.llm = null; await setupRefreshEnv(); return renderSetup(); }
   await setupRefreshEnv();
   const box = $(`#suEnv-${kind}`); if (box) box.innerHTML = setupEnvHtml(kind);
 });

@@ -516,10 +516,10 @@ async function loadAcpAgents() {
 }
 
 function agentError(r) {
-  if (r.error === 'not_configured') return 'The agent panel needs a model. Set llm.baseUrl and llm.model in designc.json (your LiteLLM gateway).';
-  if (r.error === 'no_key') return `Set the ${r.env} environment variable to your gateway key, then restart designc.`;
-  if (r.error === 'http') return `The gateway answered ${r.status}: ${r.message}${/tool/i.test(r.message || '') ? ' (does this model support tool calling?)' : ''}`;
-  return `Couldn't reach the gateway: ${r.message || r.error}`;
+  if (r.error === 'not_configured') return 'The agent panel needs a model. Open Help, Open settings, or use Set up this folder to choose a model provider.';
+  if (r.error === 'no_key') return `Set the ${r.env} environment variable to your model key, then restart designc.`;
+  if (r.error === 'http') return `The model provider answered ${r.status}: ${r.message}${/tool/i.test(r.message || '') ? ' (does this model support tool calling?)' : ''}`;
+  return `Couldn't reach the model provider: ${r.message || r.error}`;
 }
 
 // ---------------------------------------------------------------- rendering
