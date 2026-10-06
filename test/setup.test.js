@@ -127,3 +127,47 @@ test('merge sets provider, and drops it when the gateway is chosen so older file
   assert.deepEqual(Setup.merge({}, { llm: { provider: 'anthropic', model: 'm', baseUrl: '', apiKeyEnv: '' } }), { llm: { provider: 'anthropic', model: 'm' } });
   assert.deepEqual(Setup.merge({ llm: { provider: 'anthropic', model: 'm' } }, { llm: { provider: 'openai', baseUrl: 'https://g/v1', model: 'm' } }), { llm: { baseUrl: 'https://g/v1', model: 'm' } });
 });
+
+// ---- vertex: Claude on Vertex AI with Application Default Credentials ----
+const VTX = { provider: 'vertex', project: 'my-proj', region: 'europe-west1', model: 'claude-sonnet-4-5@20250929' };
+
+test('vertex reads no key variable and checks project and region', () => {
+  assert.deepEqual(Setup.envNames({ llm: VTX }), []);
+  assert.deepEqual(Setup.validate({ llm: VTX }), []);
+  assert.equal(Setup.validate({ llm: { ...VTX, project: 'a/b' } })[0].field, 'llm.project');
+  assert.equal(Setup.validate({ llm: { ...VTX, region: 'x.evil.com' } })[0].field, 'llm.region');
+});
+
+test('probe for vertex gives the URL for the confirm and says what is missing', () => {
+  const p = Setup.probe('llm', { llm: VTX }, {});
+  assert.match(p.url, /^https:\/\/europe-west1-aiplatform\.googleapis\.com\//);
+  assert.equal(p.vertex, true);
+  assert.equal(Setup.probe('llm', { llm: { ...VTX, project: '' } }, {}).error, 'incomplete');
+  assert.match(Setup.probe('llm', { llm: { ...VTX, project: '' } }, {}).hint, /project/);
+  assert.equal(Setup.probe('llm', { llm: { ...VTX, model: '' } }, {}).error, 'incomplete');
+});
+
+test('hostOf for vertex is the regional Vertex host, and global has none in front', () => {
+  assert.equal(Setup.hostOf('llm', VTX), 'europe-west1-aiplatform.googleapis.com');
+  assert.equal(Setup.hostOf('llm', { provider: 'vertex', project: 'p' }), 'aiplatform.googleapis.com');
+});
+
+test('verdict for vertex points at gcloud and the project, not a key', () => {
+  assert.deepEqual(Setup.verdict('llm', { llm: VTX }, { status: 200, body: { model: 'claude-x' } }), { ok: true, detail: 'Vertex AI answered as claude-x.' });
+  const v = Setup.verdict('llm', { llm: VTX }, { status: 403, body: {} });
+  assert.match(v.error, /^Vertex AI refused/); assert.match(v.hint, /gcloud auth application-default login/); assert.match(v.hint, /my-proj/);
+  assert.match(Setup.verdict('llm', { llm: VTX }, { status: 404, body: {} }).hint, /region/);
+});
+
+test('merge keeps project and region for vertex', () => {
+  assert.deepEqual(Setup.merge({}, { llm: { provider: 'vertex', project: 'p', region: '', model: 'm', apiKeyEnv: '' } }), { llm: { provider: 'vertex', project: 'p', model: 'm' } });
+});
+
+test('llmReady says whether designc.json names enough to call a model, per provider', () => {
+  assert.equal(Setup.llmReady({ baseUrl: 'https://g/v1', model: 'm' }), true);
+  assert.equal(Setup.llmReady({ model: 'm' }), false, 'a gateway needs a base URL');
+  assert.equal(Setup.llmReady({ provider: 'anthropic', model: 'm' }), true);
+  assert.equal(Setup.llmReady({ provider: 'vertex', project: 'p', model: 'm' }), true);
+  assert.equal(Setup.llmReady({ provider: 'vertex', model: 'm' }), false);
+  assert.equal(Setup.llmReady(undefined), false);
+});

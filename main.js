@@ -473,6 +473,8 @@ handle('llm:chat', async (messages) => {
 // a value here and sends it to the draft's host; unless that name and host are already in designc.json, the human
 // confirms in a native dialog first, so a draft cannot send any variable anywhere unseen.
 handle('setup:env', async names => Setup.envStatus(Array.isArray(names) ? names : [], process.env));
+// Whether Application Default Credentials are available through gcloud; the token itself never leaves main.
+handle('setup:adc', async () => { const t = await LlmNet.token(); return t.error ? { error: t.error, hint: t.hint } : { ok: true }; });
 handle('setup:test', async (kind, draft) => {
   const d = draft && typeof draft === 'object' ? draft : {};
   const p = Setup.probe(kind, d, process.env);
@@ -481,9 +483,19 @@ handle('setup:test', async (kind, draft) => {
   const saved = readSettings()[kind] || {};
   const known = Setup.hostOf(kind, saved) === host && names.every(n => Setup.envNames({ [kind]: saved }).includes(n));
   if (!known) {
-    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Send', 'Cancel'], defaultId: 1, cancelId: 1, message: `Send the value of ${names.join(' and ')} to ${host}?`,
-      detail: 'Test connection reads the key from your environment and sends it to this host. It is not saved anywhere.' });
+    const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Send', 'Cancel'], defaultId: 1, cancelId: 1,
+      message: p.vertex ? `Send a Google access token from gcloud to ${host}?` : `Send the value of ${names.join(' and ')} to ${host}?`,
+      detail: p.vertex ? 'Test connection asks gcloud for a short-lived token and sends it to this host. It is not saved anywhere.' : 'Test connection reads the key from your environment and sends it to this host. It is not saved anywhere.' });
     if (r.response !== 0) return { error: 'Cancelled.', hint: 'Nothing was sent.' };
+  }
+  if (p.vertex) {
+    const sec = { ...d.llm, maxTokens: 1 };
+    const r = await LlmNet.call(sec, { model: String(sec.model).trim(), messages: [{ role: 'user', content: 'Reply with OK.' }], env: process.env, signal: AbortSignal.timeout(30000) });
+    if (r.error === 'no_gcloud' || r.error === 'no_adc') return { error: r.error === 'no_gcloud' ? 'gcloud is not installed.' : 'Google credentials are not set up.', hint: r.hint };
+    if (r.error === 'http') return Setup.verdict(kind, d, { status: r.status, body: { error: { message: r.message } } });
+    if (r.error === 'network' || r.cancelled) return Setup.verdict(kind, d, { network: r.message || 'no answer in 30 seconds' });
+    if (r.error) return { error: 'Not ready to test.', hint: 'Check the project, region and model.' };
+    return Setup.verdict(kind, d, { status: 200, body: { model: r.model } });
   }
   try {
     const res = await fetch(p.url, { ...p.init, signal: AbortSignal.timeout(15000) });

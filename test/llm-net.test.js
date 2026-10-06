@@ -62,3 +62,39 @@ test('an abort is reported as cancelled', async () => {
   const ac = new AbortController(); ac.abort();
   assert.deepEqual(await LlmNet.call(cfg(), args({ signal: ac.signal })), { cancelled: true });
 });
+
+// ---- vertex: Application Default Credentials through the gcloud the person runs ----
+test('adcToken runs gcloud, trims the token and caches it for 50 minutes', async () => {
+  let runs = 0, t = 1000;
+  const a = LlmNet.adc({ run: async () => { runs++; return { stdout: 'ya29.tok\n' }; }, now: () => t });
+  assert.deepEqual(await a.token(), { token: 'ya29.tok' });
+  t += 49 * 60000; await a.token(); assert.equal(runs, 1);
+  t += 2 * 60000; await a.token(); assert.equal(runs, 2);
+});
+
+test('adcToken says gcloud is missing, or that ADC is not set up, with the command to run', async () => {
+  const none = LlmNet.adc({ run: async () => { const e = new Error('spawn gcloud ENOENT'); e.code = 'ENOENT'; throw e; } });
+  const r1 = await none.token();
+  assert.equal(r1.error, 'no_gcloud'); assert.match(r1.hint, /Install the Google Cloud CLI/);
+  const out = LlmNet.adc({ run: async () => { const e = new Error('x'); e.code = 1; e.stderr = 'Could not automatically determine credentials'; throw e; } });
+  const r2 = await out.token();
+  assert.equal(r2.error, 'no_adc'); assert.match(r2.hint, /gcloud auth application-default login/);
+  assert.equal((await out.token()).error, 'no_adc', 'a failure is not cached');
+});
+
+test('a vertex call sends the ADC token to the Vertex URL and returns the same shapes', async () => {
+  const seenReq = [];
+  const fakeFetch = async (url, init) => { seenReq.push({ url, init }); return { ok: true, headers: { get: () => 'application/json' }, json: async () => ({ model: 'claude-v', content: [{ type: 'text', text: 'Hi' }], usage: { input_tokens: 1, output_tokens: 1 } }) }; };
+  const a = LlmNet.adc({ run: async () => ({ stdout: 'tok\n' }) });
+  const r = await LlmNet.call({ provider: 'vertex', project: 'p1', region: 'europe-west1' }, args({ adc: a, fetch: fakeFetch }));
+  assert.equal(r.message.content, 'Hi');
+  assert.match(seenReq[0].url, /^https:\/\/europe-west1-aiplatform\.googleapis\.com\/v1\/projects\/p1\/locations\/europe-west1\/publishers\/anthropic\/models\/claude-x:rawPredict$/);
+  assert.equal(seenReq[0].init.headers.authorization, 'Bearer tok');
+});
+
+test('a vertex call with no gcloud or no project returns that error without calling the network', async () => {
+  const noG = LlmNet.adc({ run: async () => { const e = new Error('x'); e.code = 'ENOENT'; throw e; } });
+  const never = async () => { throw new Error('should not be called'); };
+  assert.equal((await LlmNet.call({ provider: 'vertex', project: 'p' }, args({ adc: noG, fetch: never }))).error, 'no_gcloud');
+  assert.equal((await LlmNet.call({ provider: 'vertex' }, args({ adc: LlmNet.adc({ run: async () => ({ stdout: 't' }) }), fetch: never, env: {} }))).error, 'no_project');
+});

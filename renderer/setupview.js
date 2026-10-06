@@ -3,7 +3,7 @@
    this page asks main whether each name is set (true or false) and never sees a value. */
 const SU = { current: {}, invalid: null, exists: false, modelExists: true, starter: true, draft: null, skip: { llm: false, langfuse: false }, env: {}, results: {}, errors: [], busy: '' };
 
-const SU_PROVIDERS = [['openai', 'OpenAI-compatible gateway (LiteLLM and similar)'], ['anthropic', 'Anthropic API (a key on this machine)']];
+const SU_PROVIDERS = [['openai', 'OpenAI-compatible gateway (LiteLLM and similar)'], ['anthropic', 'Anthropic API (a key on this machine)'], ['vertex', 'Claude on Vertex AI (Google ADC, for work)']];
 // The llm fields depend on the provider; langfuse has one set.
 const SU_LLM_FIELDS = {
   openai: [['baseUrl', 'Base URL', 'https://your-gateway/v1', 'An OpenAI-compatible endpoint, such as a LiteLLM gateway.'],
@@ -12,6 +12,9 @@ const SU_LLM_FIELDS = {
   anthropic: [['model', 'Model', 'claude-sonnet-5-5', 'An Anthropic model name.'],
     ['apiKeyEnv', 'API key variable', 'ANTHROPIC_API_KEY', 'The name of the environment variable that holds your Anthropic key.'],
     ['baseUrl', 'Base URL (optional)', 'https://api.anthropic.com', 'Leave blank for api.anthropic.com. Set it only for a proxy.']],
+  vertex: [['project', 'Google Cloud project', 'my-project-123', 'The project id that has Claude enabled in Vertex AI. Falls back to GOOGLE_CLOUD_PROJECT.'],
+    ['region', 'Region', 'global', 'Leave blank for global, or enter a region like europe-west1 (some Claude models are regional).'],
+    ['model', 'Model', 'claude-sonnet-4-5@20250929', 'The Vertex AI model id.']],
 };
 const SU_FIELDS = {
   get llm() { return SU_LLM_FIELDS[Llm.provider(SU.draft && SU.draft.llm) || 'openai']; },
@@ -26,7 +29,7 @@ async function openSetup() {
   SU.exists = t != null; SU.invalid = null; SU.current = {};
   if (t != null) { try { SU.current = JSON.parse(t) || {}; } catch (e) { SU.invalid = e.message; } }
   const c = SU.current, pick = (o, ks) => Object.fromEntries(ks.map(k => [k, (o && o[k]) || '']));
-  SU.draft = { model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
+  SU.draft = { model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
   SU.skip = { llm: false, langfuse: false }; SU.results = {}; SU.errors = []; SU.busy = '';
   await setupCheckModel();
   await setupRefreshEnv();
@@ -34,11 +37,21 @@ async function openSetup() {
 }
 
 async function setupCheckModel() { SU.modelExists = !!SU.draft.model && Setup.validate({ model: SU.draft.model }).length === 0 && await host.exists(SU.draft.model.trim()); }
-async function setupRefreshEnv() { try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; } }
+async function setupRefreshEnv() {
+  try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; }
+  SU.adc = !SU.skip.llm && Llm.provider(SU.draft.llm) === 'vertex' ? await host.setupAdc().catch(e => ({ error: 'no_adc', hint: e.message })) : null;
+}
 const setupDraft = () => ({ model: SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse });
 
+function setupAdcHtml() {
+  const a = SU.adc; if (!a) return '';
+  if (a.ok) return '<div class="su-env ok"><span class="dot pass"></span>Google credentials are available through <code>gcloud</code>.</div>';
+  const cmd = a.error === 'no_gcloud' ? '' : '<pre>gcloud auth application-default login</pre>';
+  return `<div class="su-env"><span class="dot fail"></span>${a.error === 'no_gcloud' ? '<code>gcloud</code> is not installed. Install the Google Cloud CLI, then run:<pre>gcloud auth application-default login</pre>' : `Google credentials are not set up. Run this in a terminal, then choose Check again:${cmd}`}<button class="l" data-su-adc>Check again</button></div>`;
+}
 function setupEnvHtml(kind) {
   if (SU.skip[kind]) return '';
+  if (kind === 'llm' && Llm.provider(SU.draft.llm) === 'vertex') return setupAdcHtml();
   return Setup.envNames({ [kind]: SU.draft[kind] }).map(n => SU.env[n]
     ? `<div class="su-env ok"><span class="dot pass"></span><code>${esc(n)}</code> is set</div>`
     : `<div class="su-env"><span class="dot fail"></span><code>${esc(n)}</code> is not set. Add this line to <code>~/.profile</code>, then log out and in (or restart designc from a shell that has it):<pre>${esc(Setup.exportLine(n) || '')}</pre></div>`).join('');
@@ -128,7 +141,8 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('click', e => {
   if (A.active !== 'special:setup') return;
-  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open]'); if (!t) return;
+  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open], [data-su-adc]'); if (!t) return;
+  if (t.matches('[data-su-adc]')) return setupRefreshEnv().then(renderSetup);
   if (t.dataset.suTest) return setupTest(t.dataset.suTest);
   if (t.matches('[data-su-save]')) return setupSave();
   if (t.matches('[data-su-open]')) return openFile('designc.json');

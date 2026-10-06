@@ -518,6 +518,9 @@ async function loadAcpAgents() {
 function agentError(r) {
   if (r.error === 'not_configured') return 'The agent panel needs a model. Open Help, Open settings, or use Set up this folder to choose a model provider.';
   if (r.error === 'no_key') return `Set the ${r.env} environment variable to your model key, then restart designc.`;
+  if (r.error === 'no_gcloud' || r.error === 'no_adc') return `${r.error === 'no_gcloud' ? 'gcloud is not installed.' : 'Google credentials are not set up.'} ${r.hint}`;
+  if (r.error === 'no_project') return 'Set llm.project in designc.json (Set up this folder has a field for it), or GOOGLE_CLOUD_PROJECT in your environment.';
+  if (r.error === 'invalid') return 'The llm settings in designc.json are not valid. Open Set up this folder to check the provider, project, region and model.';
   if (r.error === 'http') return `The model provider answered ${r.status}: ${r.message}${/tool/i.test(r.message || '') ? ' (does this model support tool calling?)' : ''}`;
   return `Couldn't reach the model provider: ${r.message || r.error}`;
 }
