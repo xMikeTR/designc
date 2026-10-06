@@ -55,6 +55,10 @@ const Setup = (() => {
       if (!ENV_NAME.test(String(sec[f]).trim())) errs.push({ field: `${key}.${f}`, msg: 'Enter the name of an environment variable (like MY_API_KEY), not the key itself.' });
     };
     const urlField = (sec, key) => { if (sec && !blank(sec.baseUrl)) { const m = urlProblem(String(sec.baseUrl).trim()); if (m) errs.push({ field: `${key}.baseUrl`, msg: m }); } };
+    for (const f of ['project', 'region']) {
+      const v = draft.llm && draft.llm[f];
+      if (!blank(v) && !(f === 'project' ? /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/ : /^[a-z0-9-]{1,40}$/).test(String(v).trim())) errs.push({ field: `llm.${f}`, msg: f === 'project' ? 'Enter the Google Cloud project id, like my-project-123.' : 'Enter a region like europe-west1, or global.' });
+    }
     if (!blank(draft.model)) {
       const m = String(draft.model).trim();
       if (!m.endsWith('.dsl') || m.startsWith('/') || /^[A-Za-z]:/.test(m) || m.split(/[\\/]/).includes('..')) errs.push({ field: 'model', msg: 'Enter a .dsl path inside this folder, like model/workspace.dsl.' });
@@ -88,9 +92,15 @@ const Setup = (() => {
     if (kind !== 'llm' && kind !== 'langfuse') return { error: 'invalid', hint: `Unknown connection ${kind}.` };
     const prov = kind === 'llm' ? L.provider(sec) : null;
     const needsUrl = kind === 'langfuse' || prov === 'openai';
-    if (!sec || (needsUrl && blank(sec.baseUrl)) || (kind === 'llm' && blank(sec.model))) return { error: 'incomplete', hint: kind === 'langfuse' ? 'Enter the base URL first.' : needsUrl ? 'Enter the base URL and the model first.' : 'Enter the model first.' };
+    if (!sec || (needsUrl && blank(sec.baseUrl)) || (kind === 'llm' && blank(sec.model))) return { error: 'incomplete', hint: prov === 'vertex' ? 'Enter the project and the model first.' : kind === 'langfuse' ? 'Enter the base URL first.' : needsUrl ? 'Enter the base URL and the model first.' : 'Enter the model first.' };
     const bad = validate({ [kind]: sec });
     if (bad.length) return { error: 'invalid', hint: bad[0].msg };
+    if (prov === 'vertex') {
+      const r = L.request(sec, { model: String(sec.model).trim(), messages: [], env, token: 'x' });
+      if (r.error === 'no_project') return { error: 'incomplete', hint: 'Enter the Google Cloud project first.' };
+      if (r.error) return { error: 'invalid', hint: 'Check the project, region and model.' };
+      return { url: r.url, init: null, vertex: true };
+    }
     const base = blank(sec.baseUrl) ? '' : String(sec.baseUrl).trim().replace(/\/$/, '');
     const names = kind === 'llm' ? llmNames(draft) : lfNames(draft);
     const unset = names.filter(n => blank(env[n]));
@@ -112,8 +122,13 @@ const Setup = (() => {
     const what = kind === 'llm' ? WHAT[L.provider(draft.llm)] || 'gateway' : 'Langfuse';
     if (res.network) return { error: `Couldn't reach the ${what}: ${res.network}`, hint: 'Check the base URL and that the service is running.' };
     const b = res.body || {};
-    if (res.status >= 200 && res.status < 300) return { ok: true, detail: kind === 'llm' ? `The ${what} answered as ${b.model || String(draft.llm.model).trim()}.` : 'Langfuse accepted the keys.' };
+    if (res.status >= 200 && res.status < 300) return { ok: true, detail: kind === 'llm' ? `${what === 'Vertex AI' ? '' : 'The '}${what} answered as ${b.model || String(draft.llm.model).trim()}.` : 'Langfuse accepted the keys.' };
     const names = (kind === 'llm' ? llmNames(draft) : lfNames(draft)).join(' and ');
+    if (kind === 'llm' && L.provider(draft.llm) === 'vertex') {
+      const proj = String(draft.llm.project || '').trim();
+      if (res.status === 401 || res.status === 403) return { error: `Vertex AI refused the credentials (HTTP ${res.status}).`, hint: `Run gcloud auth application-default login, and check the account can use Vertex AI in project ${proj}.` };
+      if (res.status === 404) return { error: 'Vertex AI has no such model here (HTTP 404).', hint: 'Check the model name and the region: Claude models are not offered in every region. Try global.' };
+    }
     if (res.status === 401 || res.status === 403) return { error: `The ${what} refused the key (HTTP ${res.status}).`, hint: `Check the value of ${names}, then restart designc.` };
     if (res.status === 404) return { error: `The ${what} has no such endpoint (HTTP 404).`, hint: kind === 'llm' ? (L.provider(draft.llm) === 'openai' ? 'Check the base URL: an OpenAI-compatible gateway usually ends in /v1.' : 'Check the model name the provider expects.') : 'Check the base URL: it is the Langfuse host, without /api.' };
     const msg = (b.error && b.error.message) || b.message || (typeof b.error === 'string' ? b.error : '') || `HTTP ${res.status}`;
@@ -124,14 +139,22 @@ const Setup = (() => {
   function hostOf(kind, sec) {
     if (!sec) return null;
     try {
+      const prov = kind === 'llm' ? L.provider(sec) : null;
+      if (prov === 'vertex') { const r = blank(sec.region) ? 'global' : String(sec.region).trim(); return r === 'global' ? 'aiplatform.googleapis.com' : `${r}-aiplatform.googleapis.com`; }
       if (!blank(sec.baseUrl)) return new URL(String(sec.baseUrl).trim()).host;
-      return kind === 'llm' && L.provider(sec) === 'anthropic' ? 'api.anthropic.com' : null;
+      return prov === 'anthropic' ? 'api.anthropic.com' : null;
     } catch { return null; }
+  }
+
+  function llmReady(sec) {
+    const p = L.provider(sec);
+    if (!sec || !p || blank(sec.model)) return false;
+    return p === 'openai' ? !blank(sec.baseUrl) : p === 'vertex' ? !blank(sec.project) : true;
   }
 
   const exportLine = n => (ENV_NAME.test(n) ? `export ${n}="<your key>"` : null);
 
-  const m = { ENV_NAME, DEFAULTS, STARTER_MODEL, envNames, envStatus, validate, merge, probe, verdict, hostOf, exportLine };
+  const m = { ENV_NAME, DEFAULTS, STARTER_MODEL, envNames, envStatus, validate, merge, probe, verdict, hostOf, llmReady, exportLine };
   if (typeof module === 'object' && module.exports) module.exports = m;
   return m;
 })();

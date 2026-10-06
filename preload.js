@@ -32,6 +32,7 @@ contextBridge.exposeInMainWorld('host', {
   cancelCheck: id => ipcRenderer.invoke('check:cancel', id),
   chat: messages => ipcRenderer.invoke('llm:chat', messages),
   setupEnv: names => ipcRenderer.invoke('setup:env', names),
+  setupAdc: () => ipcRenderer.invoke('setup:adc'),
   setupTest: (kind, draft) => ipcRenderer.invoke('setup:test', kind, draft),
   registries: () => ipcRenderer.invoke('registry:keys'),
   registryRead: (key, rel) => ipcRenderer.invoke('registry:read', key, rel),

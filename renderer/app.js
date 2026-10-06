@@ -805,6 +805,9 @@ function parseJson(text) { const t = String(text || '').replace(/^[\s\S]*?```(?:
 function llmError(r) {
   if (r.error === 'not_configured') return ['Grill-me needs a model. Use Set up this folder to choose a model provider, or set llm in designc.json.', [{ label: 'Open designc.json', run: () => openFile('designc.json') }]];
   if (r.error === 'no_key') return [`Set the ${r.env} environment variable to your model key, then restart designc.`, []];
+  if (r.error === 'no_gcloud' || r.error === 'no_adc') return [`${r.error === 'no_gcloud' ? 'gcloud is not installed.' : 'Google credentials are not set up.'} ${r.hint}`, []];
+  if (r.error === 'no_project') return ['Set llm.project in designc.json (Set up this folder has a field for it), or GOOGLE_CLOUD_PROJECT in your environment.', []];
+  if (r.error === 'invalid') return ['The llm settings in designc.json are not valid. Open Set up this folder to check the provider, project, region and model.', []];
   if (r.error === 'http') return [`The model provider answered ${r.status}: ${r.message}`, []];
   return [`Couldn't reach the model provider: ${r.message || r.error}`, []];
 }
@@ -914,7 +917,7 @@ function renderStatus() {
   const g = A.gate; const hasModel = A.model && A.model.elements.size;
   const pos = A.cursor && A.active && !A.active.startsWith('special:') ? `Ln ${A.cursor.lineNumber}, Col ${A.cursor.column}` : '';
   const lang = A.active && !A.active.startsWith('special:') ? ({ structurizr: 'Structurizr DSL', yaml: 'YAML', p: 'P', json: 'JSON', markdown: 'Markdown', csharp: 'C#', fsharp: 'F#', xml: 'XML', python: 'Python', typescript: 'TypeScript', javascript: 'JavaScript', sql: 'SQL' }[langFor(A.active)] || 'Plain Text') : '';
-  const llm = A.cfg.llm && A.cfg.llm.baseUrl && A.cfg.llm.model ? `LLM: ${A.cfg.llm.model}` : 'LLM: not configured';
+  const llm = Setup.llmReady(A.cfg.llm) ? `LLM: ${A.cfg.llm.model}` : 'LLM: not configured';
   st.innerHTML = `<button data-s="folder" title="${esc(A.root.root)}">${esc(A.root.name)}</button>
     <button data-s="problems" title="Problems"><svg viewBox="0 0 16 16"><circle cx="8" cy="8" r="6"/><path d="M5.5 5.5l5 5M10.5 5.5l-5 5"/></svg>${e}<svg viewBox="0 0 16 16"><path d="M8 2l6.5 12h-13z"/><path d="M8 6.5v3.5M8 12v.5"/></svg>${w}</button>
     ${A.running ? '<button data-s="output">Running checks…</button>' : ''}
@@ -1728,7 +1731,7 @@ document.addEventListener('click', async e => {
     if (d.s === 'problems') return showPanel('problems');
     if (d.s === 'output') return showPanel('output');
     if (d.s === 'gate') return setActivity('design');
-    if (d.s === 'llm') return A.cfg.llm && A.cfg.llm.baseUrl && A.cfg.llm.model ? openFile('designc.json') : openSetup();
+    if (d.s === 'llm') return Setup.llmReady(A.cfg.llm) ? openFile('designc.json') : openSetup();
     if (d.s === 'tel') { if (A.tel.error && A.tel.error.error === 'not_configured') return openSetup(); if (A.tel.error) toast(telErrorText(A.tel.error), 'warning'); return loadTelemetry(); }
     if (d.s === 'folder') return setActivity('explorer');
   }
