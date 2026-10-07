@@ -348,6 +348,7 @@ const Core = (() => {
       'd.availability': { k: 'float' }, 'd.owns': { k: 'list' }, 'd.store': { k: 'enum', v: YN },
       'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
+      'd.code': { k: 'list' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
     },
   };
   function parseSuppress(raw) {
