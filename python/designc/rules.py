@@ -19,6 +19,7 @@ SPECS = {
         'd.availability': ('float', None), 'd.owns': ('list', None), 'd.store': ('enum', YN),
         'd.latency.max': ('int', None), 'd.fanout': ('enum', ['sequential', 'parallel']), 'd.retry.budget': ('int', None),
         'd.aka': ('list', None), 'd.suppress': ('suppress', None),
+        'd.code': ('list', None), 'd.risk': ('enum', ['low', 'medium', 'high']),
     },
 }
 

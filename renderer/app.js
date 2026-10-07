@@ -23,6 +23,8 @@ const PROPS = [
   ['d.owns', 'element', null, 'Comma-separated entities this element owns writes to (DC002).'],
   ['d.store', 'element', ['yes', 'no'], 'Treat as a data store. Default: the Database tag.'],
   ['d.aka', 'element', null, 'Other names, used to match code in the as-built diff.'],
+  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives. System 2 keeps task writes inside them.'],
+  ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. System 2 uses it for the merge tier.'],
   ['d.suppress', 'both', null, 'Accept findings here: "DCnnn: reason; DCnnn: reason". A reason is required.'],
 ];
 if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
