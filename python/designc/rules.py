@@ -4,6 +4,8 @@ import math
 import os
 import re
 
+from . import pathpattern
+
 YN = ['yes', 'no']
 SPECS = {
     'relationship': {
@@ -114,6 +116,22 @@ def validate(m):
                 continue
             try: parse_val(spec, raw)
             except SpecError as e: out.append(D('DC000', 'error', f'"{key}" = "{raw}": {e}', loc))
+        if target == 'element' and o.props.get('d.code') is not None:
+            out += [D('DC000', 'error', msg, loc, hint=hint) for msg, hint in code_area_problems(o)]
+    return out
+
+
+def code_area_problems(e):
+    """d.code is System 2's scope guard; its handover reader refuses what is reported here."""
+    raw = e.props['d.code']
+    entries, out = [s.strip() for s in str(raw).split(',')], []
+    if not any(entries): out.append((f'"d.code" = "{raw}": lists no paths', "remove d.code, or name where the element's code lives"))
+    else:
+        for i, s in enumerate(entries):
+            if not s: out.append((f'"d.code" = "{raw}": entry {i + 1} is blank', None)); continue
+            _, err = pathpattern.create(s)
+            if err: out.append((f'"d.code" = "{raw}": {err}', 'use repo-relative paths with *, ? and ** as a whole segment'))
+    if e.props.get('d.risk') is None: out.append(('d.code needs d.risk (System 2 refuses the handover without it)', 'set d.risk: low | medium | high'))
     return out
 
 
