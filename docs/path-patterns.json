@@ -1,5 +1,5 @@
 {
-  "about": "The meaning of a d.code path pattern, shared by designc (renderer/pathpattern.js, python/designc/pathpattern.py) and System 2 (Factory.Core PathPattern). designc owns this file; System 2 keeps a copy in tests/Factory.Integration.Tests/Fixtures/designc/. `value` is the normalised pattern; `valid: false` means it is rejected.",
+  "about": "The meaning of a d.code path pattern, shared by designc (renderer/pathpattern.js, python/designc/pathpattern.py) and System 2 (Factory.Core PathPattern). designc owns this file; System 2 keeps a copy in tests/Factory.Integration.Tests/Fixtures/designc/. `value` is the normalised pattern; `valid: false` means it is rejected. `mayOverlap` is symmetric and over-approximates: two wild segments are assumed compatible.",
   "create": [
     { "input": "src/Pricing.Api/**", "value": "src/Pricing.Api/**" },
     { "input": "./src\\Quotes/", "value": "src/Quotes" },
@@ -20,5 +20,20 @@
     { "input": "./", "valid": false },
     { "input": "", "valid": false },
     { "input": "   ", "valid": false }
+  ],
+  "mayOverlap": [
+    { "a": "src/Quotes.Data/**", "b": "src/Quotes.Data/Logging/**", "overlap": true },
+    { "a": "src/PricingApi/**", "b": "src/ReferralWorker/**", "overlap": false },
+    { "a": "src/a.cs", "b": "src/*.cs", "overlap": true },
+    { "a": "src/a.cs", "b": "src/b.cs", "overlap": false },
+    { "a": "src/a.cs", "b": "src/a.cs", "overlap": true },
+    { "a": "db/migrations/*.sql", "b": "db/migrations/pmodel/**", "overlap": false },
+    { "a": "src/*.cs", "b": "src/*/x.cs", "overlap": false },
+    { "a": "src/**/*.cs", "b": "src/a/**", "overlap": true },
+    { "a": "src/*.cs", "b": "src/a*", "overlap": true },
+    { "a": "db/**", "b": "db/migrations/*.sql", "overlap": true },
+    { "a": "src/Api", "b": "src/Api/**", "overlap": true },
+    { "a": "**", "b": "tests/x.cs", "overlap": true },
+    { "a": "src/*.cs", "b": "tests/*.cs", "overlap": false }
   ]
 }
