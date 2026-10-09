@@ -101,8 +101,9 @@ async function find(dir, globs, rel = '', depth = 0, out = []) {
 async function load(repo, globs) {
   if (globs == null || (Array.isArray(globs) && !globs.length)) return { files: [], map: new Map(), problems: [] };
   if (!Array.isArray(globs) || globs.some(g => typeof g !== 'string' || !g)) return { files: [], map: new Map(), problems: ['extract.coverage must be a list of glob patterns, for example ["**/coverage.cobertura.xml"].'] };
-  const files = await find(repo, globs.map(norm));
   const maps = [], problems = [];
+  for (const g of globs) { const why = glob.problem(norm(g)); if (why) problems.push(`extract.coverage: ${why}`); }
+  const files = await find(repo, globs.map(norm));
   for (const f of files) {
     let text = ''; try { text = await fsp.readFile(path.join(repo, f), 'utf8'); } catch { problems.push(`${f} could not be read.`); continue; }
     const m = parse(text);

@@ -41,7 +41,9 @@ async function build(facts, opts = {}) {
   const OVR = (what) => ({ where: 'designc.json', what, file: 'designc.json', line: 1, text: 'extract.components' });
   (Array.isArray(opts.components) ? opts.components : []).forEach((o, i) => {
     const ok = o && typeof o.name === 'string' && o.name.trim() && Array.isArray(o.paths) && o.paths.length && o.paths.every(g => typeof g === 'string' && g);
-    if (ok) specs.push({ name: o.name.trim(), paths: o.paths }); else unresolved.push(OVR(`extract.components entry ${i + 1} needs a string "name" and a non-empty "paths" array of globs`));
+    if (!ok) { unresolved.push(OVR(`extract.components entry ${i + 1} needs a string "name" and a non-empty "paths" array of globs`)); return; }
+    for (const g of o.paths) { const why = glob.problem(g); if (why) unresolved.push(OVR(`extract.components "${o.name.trim()}": ${why}`)); }
+    specs.push({ name: o.name.trim(), paths: o.paths });
   });
   const deferred = []; // output-binding results follow their function class, wherever it ended up
   for (const u of units || []) {
@@ -70,7 +72,7 @@ async function build(facts, opts = {}) {
     comp.evidence.push(result.evidence);
     fileComp.set(`${owner}|${u.file}`, comp);
   }
-  for (const s of specs) for (const g of s.paths) if (!globHit.has(`${s.name}\n${g}`)) unresolved.push(OVR(`extract.components "${s.name}": "${g}" matches no source file`));
+  for (const s of specs) for (const g of s.paths) if (!globHit.has(`${s.name}\n${g}`) && !glob.problem(g)) unresolved.push(OVR(`extract.components "${s.name}": "${g}" matches no source file`));
 
   // ---- keys: components sort by name per container; a key collision gets _2, _3 in that order
   const components = new Map();

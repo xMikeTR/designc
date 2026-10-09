@@ -79,4 +79,8 @@ test('find: reads report files named by repo-relative globs, skipping node_modul
   assert.ok(r.map.has('Shop.Api/Orders.cs') && r.map.has('/ci/work/web/src/cart.ts'));
   assert.deepEqual((await Cov.load(d, [])).files, []);
   assert.deepEqual((await Cov.load(d, 'nope')).problems.length, 1);
+  const bad = await Cov.load(d, ['**/coverage.{cobertura,opencover}.xml', 'lcov.info']);
+  assert.deepEqual(bad.files, ['lcov.info'], 'a rejected pattern finds nothing, the others still run');
+  assert.equal(bad.problems.length, 1);
+  assert.match(bad.problems[0], /extract\.coverage: character classes and braces are not supported/);
 });

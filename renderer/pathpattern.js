@@ -32,6 +32,18 @@ const PathPattern = (() => {
     return ss.length > 0 && matchSeg(ps[0], 0, ss[0], 0) && matchSegs(ps.slice(1), ss.slice(1));
   }
 
+  // Does the pattern match a concrete repo-relative file path? Ordinal, case-sensitive. A pattern
+  // create() rejects matches nothing.
+  const parsed = new Map();
+  function matches(pattern, path) {
+    if (!parsed.has(pattern)) parsed.set(pattern, create(pattern));
+    const p = parsed.get(pattern);
+    if (!p.ok) return false;
+    let f = String(path).replace(/\\/g, '/');
+    if (f.startsWith('./')) f = f.slice(2);
+    return matchSegs(p.segs, f.split('/').filter(Boolean));
+  }
+
   // Could any file match both normalised patterns? Over-approximates, as System 2 does: two wild
   // segments are assumed compatible, because a false "no" would let two tasks write the same file.
   function mayOverlap(a, b) {
@@ -49,6 +61,6 @@ const PathPattern = (() => {
     return overlap(as, bs);
   }
 
-  return { create, mayOverlap };
+  return { create, matches, mayOverlap };
 })();
 if (typeof module !== 'undefined') module.exports = PathPattern;

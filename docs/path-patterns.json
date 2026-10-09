@@ -1,5 +1,5 @@
 {
-  "about": "The meaning of a d.code path pattern, shared by designc (renderer/pathpattern.js, python/designc/pathpattern.py) and System 2 (Factory.Core PathPattern). designc owns this file; System 2 keeps a copy in tests/Factory.Integration.Tests/Fixtures/designc/. `value` is the normalised pattern; `valid: false` means it is rejected. `mayOverlap` is symmetric and over-approximates: two wild segments are assumed compatible.",
+  "about": "The meaning of a d.code path pattern, shared by designc (renderer/pathpattern.js, python/designc/pathpattern.py) and System 2 (Factory.Core PathPattern). designc owns this file; System 2 keeps a copy in tests/Factory.Integration.Tests/Fixtures/designc/. `value` is the normalised pattern; `valid: false` means it is rejected. `mayOverlap` is symmetric and over-approximates: two wild segments are assumed compatible. `matches` takes a concrete repo-relative file path; matching is ordinal and case-sensitive.",
   "create": [
     { "input": "src/Pricing.Api/**", "value": "src/Pricing.Api/**" },
     { "input": "./src\\Quotes/", "value": "src/Quotes" },
@@ -35,5 +35,18 @@
     { "a": "src/Api", "b": "src/Api/**", "overlap": true },
     { "a": "**", "b": "tests/x.cs", "overlap": true },
     { "a": "src/*.cs", "b": "tests/*.cs", "overlap": false }
+  ],
+  "matches": [
+    { "pattern": "src/**", "path": "src/a/b.cs", "match": true },
+    { "pattern": "src/*.cs", "path": "src/a.cs", "match": true },
+    { "pattern": "src/*.cs", "path": "src/a/b.cs", "match": false },
+    { "pattern": "src/**/Data/*.cs", "path": "src/x/y/Data/Q.cs", "match": true },
+    { "pattern": "src/**", "path": "src", "match": true },
+    { "pattern": "**/c.ts", "path": "c.ts", "match": true },
+    { "pattern": "src/*.cs", "path": "./src\\a.cs", "match": true },
+    { "pattern": "src/A/**", "path": "src/a/x.cs", "match": false },
+    { "pattern": "src/?.cs", "path": "src/ab.cs", "match": false },
+    { "pattern": "src/Api", "path": "src/Api", "match": true },
+    { "pattern": "src/Api", "path": "src/Api/x.cs", "match": false }
   ]
 }
