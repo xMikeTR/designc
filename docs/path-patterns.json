@@ -1,0 +1,24 @@
+{
+  "about": "The meaning of a d.code path pattern, shared by designc (renderer/pathpattern.js, python/designc/pathpattern.py) and System 2 (Factory.Core PathPattern). designc owns this file; System 2 keeps a copy in tests/Factory.Integration.Tests/Fixtures/designc/. `value` is the normalised pattern; `valid: false` means it is rejected.",
+  "create": [
+    { "input": "src/Pricing.Api/**", "value": "src/Pricing.Api/**" },
+    { "input": "./src\\Quotes/", "value": "src/Quotes" },
+    { "input": "  src/A/**  ", "value": "src/A/**" },
+    { "input": "src//", "value": "src" },
+    { "input": "**", "value": "**" },
+    { "input": "src/*.cs", "value": "src/*.cs" },
+    { "input": "src/**/Data/?.cs", "value": "src/**/Data/?.cs" },
+    { "input": "../x", "valid": false },
+    { "input": "/etc/passwd", "valid": false },
+    { "input": "C:/x", "valid": false },
+    { "input": "src/{a,b}/**", "valid": false },
+    { "input": "src/[ab]", "valid": false },
+    { "input": "src/a**b", "valid": false },
+    { "input": "src/a/**x", "valid": false },
+    { "input": "src//x", "valid": false },
+    { "input": "src/./x", "valid": false },
+    { "input": "./", "valid": false },
+    { "input": "", "valid": false },
+    { "input": "   ", "valid": false }
+  ]
+}

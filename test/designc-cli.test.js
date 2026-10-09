@@ -223,3 +223,16 @@ from designc.ledger import gate_unchanged
 print(json.dumps([gate_unchanged(evs, ev) for evs, ev in json.load(sys.stdin)]))`, JSON.stringify(cases));
   assert.deepEqual(got, cases.map(([evs, ev]) => Ledger.gateUnchanged(evs, ev)));
 });
+
+test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree', { skip }, () => {
+  const dsl = `workspace { model { s = softwareSystem "S" {
+    a = container "A" { properties { "d.code" "src/A/**, ../x, src/[ab]" "d.risk" "low" } }
+    b = container "B" { properties { "d.code" " , " "d.risk" "low" } }
+    c = container "C" { properties { "d.code" "src/C/**, , ./src\\\\D/" "d.risk" "high" } }
+    d = container "D" { properties { "d.code" "src/E/**" } }
+    e = container "E" { properties { "d.code" "src/F/**" "d.risk" "medium" } }
+  } } }`;
+  const root = tmpRegistry({ 'model/workspace.dsl': dsl });
+  assert.equal(nodeReport(root).findings.filter(f => f.code === 'DC000').length, 5);
+  same(root, 'd.code');
+});

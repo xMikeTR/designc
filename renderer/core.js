@@ -1,5 +1,6 @@
 // ===== designc core: Structurizr DSL subset -> IR -> diagnostics =====
 const Core = (() => {
+  const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -407,7 +408,20 @@ const Core = (() => {
         }
         try { parseVal(spec, raw); } catch (e) { out.push(D('DC000', 'error', `"${key}" = "${raw}": ${e.message}`, loc)); }
       }
+      if (target === 'element' && o.props['d.code'] != null) out.push(...codeAreaProblems(o).map(([msg, hint]) => D('DC000', 'error', msg, loc, { hint })));
     }
+    return out;
+  }
+  // d.code is System 2's scope guard; its handover reader refuses what is reported here.
+  function codeAreaProblems(e) {
+    const raw = e.props['d.code'], entries = String(raw).split(',').map(s => s.trim()), out = [];
+    if (entries.every(s => !s)) out.push([`"d.code" = "${raw}": lists no paths`, 'remove d.code, or name where the element\'s code lives']);
+    else entries.forEach((s, i) => {
+      if (!s) { out.push([`"d.code" = "${raw}": entry ${i + 1} is blank`, null]); return; }
+      const p = PP.create(s);
+      if (!p.ok) out.push([`"d.code" = "${raw}": ${p.error}`, 'use repo-relative paths with *, ? and ** as a whole segment']);
+    });
+    if (e.props['d.risk'] == null) out.push(['d.code needs d.risk (System 2 refuses the handover without it)', 'set d.risk: low | medium | high']);
     return out;
   }
 
