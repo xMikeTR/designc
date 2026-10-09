@@ -103,6 +103,7 @@ async function extract(repo, opts = {}) {
     internal,
     componentEdges: comp.componentEdges,
     code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges, ...(covStats ? { coverage: covStats } : {}) },
+    files: files.map(rel).sort(), // what d.code areas are judged against (Core.codeAreaDrift)
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };
 }

@@ -307,6 +307,7 @@ function recompile() {
   A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios, evals: A.evals });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
+  A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
   setMarkers();
 }
 async function reloadAll() {
@@ -1313,9 +1314,23 @@ function codemapSidebar() {
     h += section('drift', `Drift (${d.undeclared.length + d.unknownEls.length + d.unrealised.length + d.missingEls.length})`, body);
   } else if (A.asbuilt) h += section('drift', 'Drift', `<div class="hint">Drift appears once ${esc(A.cfg.model)} has elements to compare against.</div>`);
   if (A.cdrift && cmHasComponents()) h += section('cdrift', 'Components', cmDriftBody());
+  if (f) h += codeAreasSection();
   if (f && f.unresolved.length) h += section('unres', `Unresolved (${f.unresolved.length})`, `<div class="hint">Extraction saw these but could not tie them to an element, so they are not on the map.</div>` +
     f.unresolved.map(u => `<div class="item" data-code="${esc(u.file)}" data-line="${u.line}"><div class="l1"><span class="id">${esc(u.where)}</span></div><div class="l2">${esc(u.what)}</div><div class="l2" style="font-family:var(--mono);font-size:11px">${esc(u.file)}:${u.line}</div></div>`).join(''));
   return h;
+}
+// d.code against the files extraction read. Display only: not in Problems, the gate or the CLI.
+function codeAreasSection() {
+  const ar = A.areas;
+  if (!ar) return section('areas', 'Code areas', '<div class="hint">Re-extract to see code areas: this map was extracted before designc kept the file list.</div>');
+  if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No element declares d.code. Set it on a container or its components to say where that code lives; System 2 confines each task to it.</div>');
+  const row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
+  const empty = ar.areas.filter(a => !a.matched).length, MAX = 50;
+  const body = `<div class="hint">${plural(ar.files - ar.unclaimed.length, 'file')} of ${ar.files} that extraction read are in a code area.</div>`
+    + ar.areas.map(a => row(`${esc(a.name)}: <code>${esc(a.pattern)}</code>`, a.matched ? plural(a.matched, 'file') : 'matches none of the files extraction reads', `data-open="${esc(A.cfg.model)}" data-line="${A.model.elements.get(a.id).line}"`)).join('')
+    + (ar.unclaimed.length ? `<div class="hint" style="padding-bottom:2px"><b>In no code area</b></div>` + ar.unclaimed.slice(0, MAX).map(x => row(esc(x), '', `data-code="${esc(x)}" data-line="1"`)).join('')
+      + (ar.unclaimed.length > MAX ? `<div class="hint">and ${ar.unclaimed.length - MAX} more</div>` : '') : '');
+  return section('areas', `Code areas (${empty + ar.unclaimed.length})`, body);
 }
 function cmDriftBody() {
   const c = A.cdrift, M = A.asbuiltFull, row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
