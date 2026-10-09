@@ -22,7 +22,7 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | View | What it is for | What you do there |
 | --- | --- | --- |
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
-| **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC008) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
+| **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC009) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
@@ -79,6 +79,8 @@ Matching to the design is by normalised name (`Referral.Worker` matches `Referra
 
 - **In code, not in the design:** an undeclared dependency, or an element the design doesn't have.
 - **Designed, not found in code:** dotted edges on the map, and designed elements with no match.
+
+**Code areas** in the sidebar compare each element's `d.code` (see [Code areas](#code-areas-dcode)) with the files extraction read: how many files each pattern matches, which patterns match none, and which files are in no area. It is information only, never a finding or a gate clause. A map extracted before this existed says "Re-extract to see code areas". Extraction reads source, project and `.json` files only, so a pattern for other files (`db/migrations/*.sql`) shows as matching none.
 
 With no design yet, "Start the design from this map" turns the as-built model into `model/workspace.dsl`, which is the quickest way into a legacy codebase.
 
@@ -328,6 +330,26 @@ Declare how long calls may take and the app checks the numbers agree. Only synch
 
 Both rules come from a concept note and are not yet backed by an incident. On the C4 sheet, choose "Badges: timing": each sync rel shows its timeout against the callee's worst case (red when it fails, amber when something is missing), and selecting a box shows the retry multiplier it puts on everything it reaches.
 
+## Code areas (`d.code`)
+
+`d.code` says where an element's code lives, and `d.risk` (`low`, `medium` or `high`) how risky a change there is. System 2 confines each coding task to the element's area and gives every file to the first element whose area matches it, so the design compiler checks the areas before a handover:
+
+```
+api = container "Pricing API" {
+  properties {
+    "d.code" "src/Pricing.Api/**, tests/Pricing.Api.Tests/**"
+    "d.risk" "low"
+  }
+}
+```
+
+Patterns are repo-relative and comma-separated: `*` and `?` match within one folder name, `**` matches any number of folders and must be a whole segment. Backslashes become `/`, and a leading `./` and trailing `/` are dropped. `src/Api` is one file, not a folder: write `src/Api/**`.
+
+- **DC000 (error).** A pattern System 2 rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
+- **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged as System 2 judges it, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
+
+The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) and System 2 all run. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
+
 ## Cost forecast
 
 Freezing a handover shows what it is likely to cost before you confirm. designc compares the model being frozen with the newest handover's model, finds the containers and components that changed (added, changed, or at either end of a changed relationship), and prices each from what past handovers spent on it, read from `task` events in the ledger that name a `handover` and an `element`. With at least 3 past handovers of history an element is measured: the median is the expected figure and the p90 the high end. With fewer it shows "no basis" and is left out, and the total says how many changed elements it covers. Removed elements are listed, not priced.
@@ -432,7 +454,7 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC008, gate, drift. Same rules and results as the Python CLI in `python/designc` |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. Same rules and results as the Python CLI in `python/designc` |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
 | `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |
