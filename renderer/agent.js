@@ -36,7 +36,7 @@ const TOOLS = {
   get_gate: { d: 'Definition-of-ready verdict and every blocking clause.', p: obj({}) },
   list_decisions: { d: 'All decisions with status, effect, bindings, checks and latest check result; also requirements.', p: obj({}) },
   read_registry_file: { d: 'Read a file in the registry folder, e.g. decisions/D-0001.yaml or behaviour/quotes-writes.p.', p: obj({ path: { type: 'string' } }, ['path']) },
-  get_code_map: { d: 'The as-built map extracted from the codebase: elements, dependencies with evidence, drift against the design, unresolved items.', p: obj({}) },
+  get_code_map: { d: 'The as-built map extracted from the codebase: elements, dependencies with evidence, drift against the design, d.code areas against the files read, unresolved items.', p: obj({}) },
   search_codebase: { d: 'Case-insensitive text search across the codebase (read-only). Returns file:line matches.', p: obj({ query: { type: 'string' } }, ['query']) },
   read_code: { d: 'Read a file from the codebase (read-only), optionally a line range.', p: obj({ path: { type: 'string' }, from: { type: 'integer' }, to: { type: 'integer' } }, ['path']) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
@@ -66,6 +66,7 @@ const READERS = {
       elements: A.facts.elements.map(e => ({ name: e.name, kind: e.kind, tech: e.tech, inDesign: d ? d.toDesign.has('e_' + e.key) || !!designNameFor(e.name) : null })),
       dependencies: A.facts.edges.map(e => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, evidence: e.evidence.slice(0, 2).map(v => `${v.file}:${v.line}`) })),
       drift: d ? { inCodeNotDesign: d.undeclared.map(u => `${u.from} -> ${u.to}`), elementsInCodeOnly: d.unknownEls, designedNotInCode: d.unrealised.map(u => `${u.from} -> ${u.to}`), designElementsNotFound: d.missingEls } : 'no design to compare',
+      codeAreas: A.areas ? { areas: A.areas.areas.map(a => ({ element: a.name, pattern: a.pattern, files: a.matched })), filesRead: A.areas.files, inNoArea: A.areas.unclaimed.length, inNoAreaFirst: A.areas.unclaimed.slice(0, 50) } : 're-extract to see code areas',
       unresolved: A.facts.unresolved.map(u => `${u.where}: ${u.what} (${u.file}:${u.line})`),
     }));
   },

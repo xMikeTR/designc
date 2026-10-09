@@ -1369,6 +1369,22 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   // ---------- drift: designed vs extracted, one level down ----------
   // Components are only judged inside a container whose design declares components ("scored"). Everywhere
   // else they are neutral, so a container-only design never shows component warnings.
+  // d.code against the files extraction read (facts.files, repo-relative). Display only: never a finding or a
+  // gate clause, because the codebase is not a gate input. null when there is no file list (extracted before it).
+  function codeAreaDrift(model, files) {
+    if (!Array.isArray(files)) return null;
+    const areas = [];
+    for (const e of model.elements.values()) {
+      if (e.props['d.code'] == null) continue;
+      for (const s of String(e.props['d.code']).split(',')) {
+        const p = PP.create(s);
+        if (p.ok) areas.push({ id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length });
+      }
+    }
+    const unclaimed = areas.length ? files.filter(f => !areas.some(a => PP.matches(a.pattern, f))).sort() : [];
+    return { areas, unclaimed, files: files.length };
+  }
+
   function driftComponents(design, built) {
     const cmap = driftModels(atLevel(design, 'container'), atLevel(built, 'container'));
     const kids = (m, id) => [...m.elements.values()].filter(e => e.kind === 'component' && e.parent === id);
@@ -1610,6 +1626,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

@@ -100,3 +100,40 @@ test('an invalid pattern is left to DC000 and an intended overlap can be suppres
   assert.equal(ds.length, 1);
   assert.ok(ds[0].suppressed);
 });
+
+// Code areas against the codebase: display-only drift in the Code map, judged on the files extraction read.
+const FILES = ['src/Api/Program.cs', 'src/Api/Orders.cs', 'src/Worker/Job.cs', 'tests/Api.Tests/T.cs', 'README.json'];
+
+test('codeAreaDrift counts the files each pattern matches and lists the files no area claims', () => {
+  const m = Core.parse(model(
+    el('Api', { 'd.code': 'src/Api/**, tests/Api.Tests/**', 'd.risk': 'low' }),
+    el('Docs', { 'd.code': 'docs/**', 'd.risk': 'low' }),
+    el('Plain', {})));
+  const r = Core.codeAreaDrift(m, FILES);
+  assert.deepEqual(r.areas.map(a => [a.name, a.pattern, a.matched]),
+    [['Api', 'src/Api/**', 2], ['Api', 'tests/Api.Tests/**', 1], ['Docs', 'docs/**', 0]]);
+  assert.equal(r.areas[0].id, 'api');
+  assert.deepEqual(r.unclaimed, ['README.json', 'src/Worker/Job.cs']);
+  assert.equal(r.files, 5);
+});
+
+test('codeAreaDrift is null without a file list, and claims nothing when no element declares d.code', () => {
+  const m = Core.parse(model(el('Api', { 'd.risk': 'low' })));
+  assert.equal(Core.codeAreaDrift(m, undefined), null);
+  assert.deepEqual(Core.codeAreaDrift(m, FILES), { areas: [], unclaimed: [], files: 5 });
+});
+
+test('a pattern DC000 rejects is left out of the drift', () => {
+  const r = Core.codeAreaDrift(Core.parse(model(el('Api', { 'd.code': 'src/Api/**, ../x/**', 'd.risk': 'low' }))), FILES);
+  assert.deepEqual(r.areas.map(a => a.pattern), ['src/Api/**']);
+});
+
+test('extraction keeps the repo-relative file list it read as facts.files', async () => {
+  const path = require('path');
+  const { extract } = require('../extract.js');
+  const r = await extract(path.join(__dirname, '..', 'fixtures', 'fullstack'));
+  assert.ok(r.facts.files.length > 10);
+  assert.ok(r.facts.files.includes('api/src/Shop.Api/Program.cs'));
+  assert.ok(r.facts.files.every(f => !f.includes('\\') && !f.startsWith('/') && !/(^|\/)(obj|bin|node_modules)\//.test(f)));
+  assert.deepEqual(r.facts.files, [...r.facts.files].sort());
+});
