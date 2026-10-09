@@ -19,7 +19,7 @@ test('glob matcher handles double star, star and question mark', () => {
     ['a/b/c.ts', 'a/b/*', true],
     ['a/bxc.ts', 'a/b.c.ts', false],
     ['a/b.c', 'a/b.c', true],
-    ['a/[x].ts', 'a/[x].ts', true],
+    ['a/[x].ts', 'a/[x].ts', false], // the d.code meaning (docs/path-patterns.json): classes are rejected, match nothing
     ['a/x.ts', 'a/[x].ts', false],
     ['A/b.ts', 'a/b.ts', false],
     ['api/src/Endpoints/X.cs', 'api/src/Endpoints/**', true],
@@ -69,6 +69,16 @@ test('bad or empty overrides go to unresolved and never throw', async () => {
     assert.deepEqual(r.facts.components, base.facts.components);
     assert.equal(r.facts.unresolved.length, base.facts.unresolved.length);
   }
+});
+
+test('an override pattern the shared path meaning rejects goes to unresolved, saying why', async () => {
+  const base = await extract(FULLSTACK);
+  const r = await extract(FULLSTACK, { components: [{ name: 'B', paths: ['api/src/{Shop.Api,Shop.Functions}/**'] }, { name: 'C', paths: ['api/src/Shop.Api/End**'] }] });
+  const mine = r.facts.unresolved.filter(u => u.where === 'designc.json');
+  assert.equal(mine.length, 2);
+  assert.ok(mine.some(u => /B/.test(u.what) && /braces are not supported/.test(u.what)));
+  assert.ok(mine.some(u => /C/.test(u.what) && /invalid segment 'End\*\*'/.test(u.what)));
+  assert.deepEqual(r.facts.components, base.facts.components);
 });
 
 test('an output-binding file follows its function class when the class is overridden', async () => {

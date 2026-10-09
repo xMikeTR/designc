@@ -29,6 +29,14 @@ test('mayOverlap is symmetric and agrees with System 2 (JS)', () => {
   }
 });
 
+test('matches a concrete file path as System 2 does (JS)', () => {
+  for (const c of FIXTURE.matches) assert.equal(PathPattern.matches(c.pattern, c.path), c.match, `${c.pattern} vs ${c.path}`);
+});
+
+test('an invalid pattern matches nothing', () => {
+  for (const g of ['src/[ab].cs', 'src/a**b', '../x/**', '']) assert.equal(PathPattern.matches(g, 'src/a.cs'), false, g);
+});
+
 const PY_RUN = `
 import json, sys
 from designc import pathpattern as pp

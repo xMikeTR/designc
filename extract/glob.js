@@ -1,22 +1,9 @@
-// Built-in glob matcher for repo-relative posix paths. Supports ** (zero or more segments), * (within
-// one segment) and ? (one non-/ character); everything else is literal. Case-sensitive, pure.
-const cache = new Map();
-function compile(glob) {
-  let re = '';
-  for (let i = 0; i < glob.length; i++) {
-    const c = glob[i];
-    if (c === '*' && glob[i + 1] === '*') {
-      if (glob[i + 2] === '/') { re += '(?:[^/]+/)*'; i += 2; }
-      else if (i > 0 && glob[i - 1] === '/' && i + 2 === glob.length) { re = re.slice(0, -1) + '/.*'; i += 1; }
-      else { re += '.*'; i += 1; }
-    } else if (c === '*') re += '[^/]*';
-    else if (c === '?') re += '[^/]';
-    else re += c.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-  }
-  return new RegExp('^' + re + '$');
-}
-function match(glob, file) {
-  if (!cache.has(glob)) cache.set(glob, compile(glob));
-  return cache.get(glob).test(file);
-}
-module.exports = { match };
+// Repo-relative path patterns for extract.components and extract.coverage. One meaning across designc:
+// d.code's, which is System 2's (renderer/pathpattern.js, contract docs/path-patterns.json). A pattern that
+// meaning rejects matches nothing; callers report it through `problem`.
+const PathPattern = require('../renderer/pathpattern.js');
+
+const match = (glob, file) => PathPattern.matches(glob, file);
+const problem = glob => { const p = PathPattern.create(glob); return p.ok ? null : p.error; };
+
+module.exports = { match, problem };
