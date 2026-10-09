@@ -649,6 +649,29 @@ const Core = (() => {
         }
         return out;
       } },
+    { code: 'DC009', title: 'Overlapping code areas', source: 'System 2 contract: Fitness.owner gives a file to the first element whose d.code matches, and the plan scope guard admits overlapping areas',
+      doc: 'Each file belongs to one element. d.code may be declared on one level per branch (a container or its components, not both), and the areas of unrelated elements must not overlap. Overlap is judged as System 2 judges it, so two wildcard segments count as overlapping.',
+      fn(m) {
+        const out = [], areas = [];
+        for (const e of m.elements.values()) {
+          if (e.props['d.code'] == null) continue;
+          const pats = String(e.props['d.code']).split(',').map(s => PP.create(s)).filter(p => p.ok).map(p => p.value);
+          const outer = areas.filter(a => m.isAncestor(a.e.id, e.id)).map(a => a.e);
+          if (outer.length) {
+            const near = outer[outer.length - 1];
+            out.push(D('DC009', 'error', `"${e.name}" declares d.code inside "${near.name}", which also declares it`, m.locEl(e),
+              { hint: 'declare d.code on one level per branch: the container or its components, not both', related: outer.map(m.locEl) }));
+          }
+          for (const a of areas) {
+            if (m.isAncestor(a.e.id, e.id) || m.isAncestor(e.id, a.e.id)) continue;
+            const hit = pats.flatMap(p => a.pats.filter(q => PP.mayOverlap(p, q)).map(q => [p, q]))[0];
+            if (hit) out.push(D('DC009', 'error', `code area "${hit[0]}" may overlap "${hit[1]}" of "${a.e.name}"`, m.locEl(e),
+              { hint: 'make the areas disjoint: System 2 gives a shared file to whichever element it reads first', related: [m.locEl(a.e)] }));
+          }
+          areas.push({ e, pats });
+        }
+        return out;
+      } },
   ];
 
   const SEV = { error: 2, warning: 1, note: 0 };

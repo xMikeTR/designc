@@ -1,4 +1,4 @@
-"""Design properties, validation (DC000) and rules DC001 to DC008. A port of renderer/core.js."""
+"""Design properties, validation (DC000) and rules DC001 to DC009. A port of renderer/core.js."""
 import json
 import math
 import os
@@ -363,7 +363,26 @@ def dc008(m, o):
     return out
 
 
-RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006), ('DC007', dc007), ('DC008', dc008)]
+def dc009(m, o):
+    out, areas = [], []
+    for e in m.elements.values():
+        if e.props.get('d.code') is None: continue
+        pats = [v for v, err in (pathpattern.create(s) for s in str(e.props['d.code']).split(',')) if not err]
+        outer = [a[0] for a in areas if m.is_ancestor(a[0].id, e.id)]
+        if outer:
+            near = outer[-1]
+            out.append(D('DC009', 'error', f'"{e.name}" declares d.code inside "{near.name}", which also declares it', m.loc_el(e),
+                         hint='declare d.code on one level per branch: the container or its components, not both', related=[m.loc_el(x) for x in outer]))
+        for a, apats in areas:
+            if m.is_ancestor(a.id, e.id) or m.is_ancestor(e.id, a.id): continue
+            hit = next(((p, q) for p in pats for q in apats if pathpattern.may_overlap(p, q)), None)
+            if hit: out.append(D('DC009', 'error', f'code area "{hit[0]}" may overlap "{hit[1]}" of "{a.name}"', m.loc_el(e),
+                                 hint='make the areas disjoint: System 2 gives a shared file to whichever element it reads first', related=[m.loc_el(a)]))
+        areas.append((e, pats))
+    return out
+
+
+RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006), ('DC007', dc007), ('DC008', dc008), ('DC009', dc009)]
 
 
 def _collate(s):

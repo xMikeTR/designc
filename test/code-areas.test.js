@@ -47,3 +47,56 @@ test('d.code without d.risk is an error', () => {
 test('d.risk without d.code is fine (System 2 ignores the element)', () => {
   assert.deepEqual(findings(model(el('Api', { 'd.risk': 'low' })), 'DC000'), []);
 });
+
+// DC009: System 2 gives a file to the first element whose d.code matches it, and only one level per
+// branch may declare d.code, so overlaps and nesting are errors in the design.
+test('code areas that may overlap are a DC009 error on the element declared later', () => {
+  const ds = findings(model(
+    el('Api', { 'd.code': 'src/Api/**', 'd.risk': 'low' }),
+    el('Worker', { 'd.code': 'src/Worker/**', 'd.risk': 'low' }),
+    el('Handlers', { 'd.code': 'src/Other/**, src/Api/Handlers/*.cs', 'd.risk': 'low' })), 'DC009');
+  assert.equal(ds.length, 1);
+  assert.equal(ds[0].sev, 'error');
+  assert.equal(ds[0].loc.label, 'Handlers');
+  assert.match(ds[0].msg, /src\/Api\/Handlers\/\*\.cs/);
+  assert.match(ds[0].msg, /src\/Api\/\*\*/);
+  assert.deepEqual(ds[0].related.map(r => r.label), ['Api']);
+});
+
+test('disjoint code areas give no DC009', () => {
+  assert.deepEqual(findings(model(
+    el('Api', { 'd.code': 'src/Api/**', 'd.risk': 'low' }),
+    el('Worker', { 'd.code': 'src/Worker/**, src/*.props', 'd.risk': 'low' })), 'DC009'), []);
+});
+
+test('one DC009 per pair, however many patterns overlap', () => {
+  assert.equal(findings(model(
+    el('Api', { 'd.code': 'src/Api/**, tests/Api/**', 'd.risk': 'low' }),
+    el('Copy', { 'd.code': 'src/Api/**, tests/Api/**', 'd.risk': 'low' })), 'DC009').length, 1);
+});
+
+test('d.code on an element inside one that declares it is a DC009 error on the inner element', () => {
+  const ds = findings(`workspace { model { s = softwareSystem "S" {
+      api = container "Api" {
+        properties { "d.code" "src/Api/**" "d.risk" "low" }
+        h = component "Handlers" {
+          properties { "d.code" "src/Elsewhere/**" "d.risk" "low" }
+        }
+      }
+} } }`, 'DC009');
+  assert.equal(ds.length, 1);
+  assert.equal(ds[0].loc.label, 'Handlers');
+  assert.match(ds[0].msg, /inside "Api"/);
+  assert.deepEqual(ds[0].related.map(r => r.label), ['Api']);
+});
+
+test('an invalid pattern is left to DC000 and an intended overlap can be suppressed', () => {
+  assert.deepEqual(findings(model(
+    el('Api', { 'd.code': '../x/**', 'd.risk': 'low' }),
+    el('Worker', { 'd.code': '../x/**', 'd.risk': 'low' })), 'DC009'), []);
+  const ds = findings(model(
+    el('Api', { 'd.code': 'src/**', 'd.risk': 'low' }),
+    el('Worker', { 'd.code': 'src/Worker/**', 'd.risk': 'low', 'd.suppress': 'DC009: shared build props, owner agreed' })), 'DC009');
+  assert.equal(ds.length, 1);
+  assert.ok(ds[0].suppressed);
+});
