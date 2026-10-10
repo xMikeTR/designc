@@ -92,3 +92,8 @@
 .dcv-crumbs button{white-space:nowrap}
 .dcv-crumbs b{padding:3px 9px;font-weight:600}
 .dcv-csep{color:var(--ink3,#7b8899)}
+.dcv .dcv-ask{margin-left:4px;width:15px;height:15px;padding:0;border:1px solid var(--edge,#d6dae0);border-radius:50%;background:none;color:var(--fg3,#8a939d);font-size:10px;line-height:13px;cursor:pointer;visibility:hidden}
+.dcv-prop:hover .dcv-ask,.dcv-ask:focus{visibility:visible}
+.dcv .dcv-ask:hover{color:var(--accent,#2c5aa0);border-color:var(--accent,#2c5aa0)}
+.dcv .dcv-asklnk{display:block;margin-top:4px;padding:0;border:0;background:none;color:var(--accent,#2c5aa0);font-size:11.5px;cursor:pointer}
+.dcv-asklnk:hover{text-decoration:underline}

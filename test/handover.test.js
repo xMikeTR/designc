@@ -44,7 +44,7 @@ test('handoverPlan: vocabulary is copied when present', () => {
 });
 
 test('policy: an agent may not write under handovers/', () => {
-  for (const role of ['architect', 'grill', 'analyst'])
+  for (const role of ['architect', 'grill', 'analyst', 'tutor'])
     assert.equal(Policy.writeVerdict(role, 'handovers/20261002-abcd1234/handover.yaml', 'id: x', yaml.load).ok, false, role);
 });
 

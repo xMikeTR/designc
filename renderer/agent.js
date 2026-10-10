@@ -20,6 +20,9 @@ const ROLES = {
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
     starters: ['What should change in the factory given the recent escapes?', 'Which lint rule would have caught the most failed runs?', 'Is any rule noisy enough to reconsider?'] },
+  tutor: { label: 'Tutor', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: [],
+    instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles); if you can search the web, look and link what you used, and never invent a link. End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
+    starters: ['Explain the C4 levels using my model', 'What should I learn first to design this well?', 'Explain the findings on my model as if I were new to this'] },
 };
 function roleCfg(role) {
   const base = ROLES[role]; const o = (A.cfg.agents && A.cfg.agents[role]) || {};
@@ -556,7 +559,7 @@ function renderAgent() {
   const log = $('#agLog');
   if (!A.root) log.innerHTML = `<div class="agempty">Open a registry folder to talk to its agents.</div>`;
   else if (!c.items.length) log.innerHTML = `<div class="agempty"><p><b>${esc(r.label)}</b>. ${esc(r.instructions.split('. ')[0].replace(/^You are (the )?/, ''))}.</p>
-      <p class="muted">${isAgui() ? `${esc(agentLabel())} is a remote agent service over AG-UI (${esc((AG.aguiAgents[AG.agent.slice(5)] || {}).url || '')}). Its own tools run in the service under its governance; approvals it requires come here as cards. designc's tools run here, under the same policy as the other agents.` : AG.agent === 'builtin' ? `Runs through your gateway. Reads freely; ${roleCfg(AG.role).ask.map(t => `<code>${t}</code>`).join(', ')} ${roleCfg(AG.role).ask.length === 1 ? 'needs' : 'need'} your approval; everything else is refused.` : `${esc(agentLabel())} runs as its own process over ACP, with designc's tools as an MCP server. Its permission requests and every file write come here for approval; writes outside the registry are refused.`}</p>
+      <p class="muted">${isAgui() ? `${esc(agentLabel())} is a remote agent service over AG-UI (${esc((AG.aguiAgents[AG.agent.slice(5)] || {}).url || '')}). Its own tools run in the service under its governance; approvals it requires come here as cards. designc's tools run here, under the same policy as the other agents.` : AG.agent === 'builtin' ? `Runs through your gateway. Reads freely; ${!roleCfg(AG.role).ask.length ? 'it cannot change anything.' : ''}${roleCfg(AG.role).ask.map(t => `<code>${t}</code>`).join(', ')} ${!roleCfg(AG.role).ask.length ? '' : `${roleCfg(AG.role).ask.length === 1 ? 'needs' : 'need'} your approval; everything else is refused.`}` : `${esc(agentLabel())} runs as its own process over ACP, with designc's tools as an MCP server. Its permission requests and every file write come here for approval; writes outside the registry are refused.`}</p>
       ${r.starters.map(s => `<button class="agstart" data-agstart="${esc(s)}">${esc(s)}</button>`).join('')}</div>`;
   else log.innerHTML = c.items.map((it, i) => {
     if (it.kind === 'user') return `<div class="agmsg user">${esc(it.text)}</div>`;
@@ -581,6 +584,16 @@ function renderAgent() {
   $('#agSend').style.display = AG.busy ? 'none' : ''; $('#agStop').style.display = AG.busy ? '' : 'none';
   $('#agInput').disabled = !A.root;
 }
+function setRole(role) {
+  AG.role = role;
+  if (AG.agent !== 'builtin' && !isAgui() && AG.conns[AG.agent]) { host.acpDisconnect(AG.agent); delete AG.conns[AG.agent]; }
+}
+// "Ask the tutor" buttons across the app: switch to the Tutor, open the panel and send the question.
+function askTutor(question) {
+  if (AG.busy) return toast('The agent is still answering. Stop it or wait, then ask again.', 'error');
+  if (AG.role !== 'tutor') setRole('tutor');
+  toggleAgent(true); send(question);
+}
 function toggleAgent(force) { AG.open = force ?? !AG.open; renderAgent(); if (AG.open) setTimeout(() => $('#agInput').focus(), 50); }
 
 // ---------------------------------------------------------------- events
@@ -602,7 +615,7 @@ document.addEventListener('keydown', e => {
   if (e.target.id === 'agInput' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const v = e.target.value; e.target.value = ''; send(v); }
 });
 document.addEventListener('change', e => {
-  if (e.target.id === 'agRole') { if (AG.busy) { e.target.value = AG.role; return; } AG.role = e.target.value; if (AG.agent !== 'builtin' && !isAgui() && AG.conns[AG.agent]) { host.acpDisconnect(AG.agent); delete AG.conns[AG.agent]; } renderAgent(); }
+  if (e.target.id === 'agRole') { if (AG.busy) { e.target.value = AG.role; return; } setRole(e.target.value); renderAgent(); }
   if (e.target.id === 'agAgent') { if (AG.busy) { e.target.value = AG.agent; return; } AG.agent = e.target.value; renderAgent(); }
 });
 host.onFolder(() => { AG.conns = {}; AG.chats = {}; setTimeout(loadAcpAgents, 300); });

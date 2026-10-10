@@ -76,3 +76,11 @@ test('unapprovedChanges: a ledger file is flagged unless the app itself just app
   assert.deepEqual(flagged(['ledger/checks.jsonl'], { own: { 'ledger/checks.jsonl': 91000 } }), ['ledger/checks.jsonl']);
   assert.deepEqual(flagged(['ledger/checks.jsonl'], { approved: { 'ledger/checks.jsonl': 99000 } }), ['ledger/checks.jsonl']);
 });
+
+test('the tutor writes nothing: no write path, and a write tool it is not given is denied', () => {
+  const yaml = require('js-yaml');
+  for (const rel of ['model/workspace.dsl', 'decisions/x.yaml', 'proposals/x.yaml', 'factory/tasks/x.yaml'])
+    assert.equal(Policy.writeVerdict('tutor', rel, 'id: x', yaml.load).ok, false, rel);
+  const tutor = { allow: ['read_model', 'get_findings'], ask: [], deny: [] };
+  for (const t of Policy.WRITE_TOOLS) assert.equal(Policy.verdict(tutor, t), 'deny', t);
+});
