@@ -21,21 +21,24 @@
     if (!Core || typeof Core.registerRules !== 'function') throw new Error('designc-canvas: pass host.core, the designc compiler (Core) with the registerProperties/registerRules hooks');
     if (!Core.__dcvRegistered) { Core.registerProperties(V.coreSpecs()); Core.registerRules(AR.makeRules(Core)); Core.__dcvRegistered = true; }
     const W = L.W, H = L.H;
-    const S = { text: '', model: null, diags: [], layout: L.empty(), pos: new Map(), bounds: [], sel: null, zoom: 1, pan: { x: 40, y: 30 },
+    // scope: the opened system or container ({ident, name}, null for the whole model); view: what is drawn (L.scoped);
+    // shown: elements added at model level while something is open, kept in view until it closes.
+    const S = { text: '', model: null, view: null, scope: null, shown: [], diags: [], layout: L.empty(), pos: new Map(), bounds: [], sel: null, zoom: 1, pan: { x: 40, y: 30 },
       history: [], future: [], drag: null, review: false, cap: { ...R.CAP_DEFAULTS }, raf: 0, hover: null };
+    const HINT = 'Drag a stencil in. Drag from a box\'s handle to connect. Double-click a system or container to open it. F2 renames.';
 
     el.classList.add('dcv');
     el.innerHTML = `
       <div class="dcv-palette" aria-label="Stencils">${paletteHTML()}</div>
       <div class="dcv-stage" tabindex="0" aria-label="Design canvas">
-        <div class="dcv-toolbar">
+        <div class="dcv-toolbar"><span class="dcv-crumbs"></span>
           <button data-act="undo" title="Undo (Ctrl+Z)">Undo</button><button data-act="redo" title="Redo (Ctrl+Shift+Z)">Redo</button><span class="dcv-sep"></span>
           <button data-act="zoomout" title="Zoom out">−</button><span class="dcv-zoom"></span><button data-act="zoomin" title="Zoom in">+</button>
           <button data-act="fit" title="Fit to screen">Fit</button><button data-act="tidy" title="Lay everything out again">Tidy</button><span class="dcv-sep"></span>
           <button data-act="review" class="dcv-primary" title="Generate a design review">Design review</button>
         </div>
         <svg class="dcv-svg" xmlns="http://www.w3.org/2000/svg"><defs>${['n', 'error', 'warning', 'sel'].map(k => `<marker id="dcv-mk-${k}" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse"><path d="M0 0L10 5L0 10z" fill="${k === 'sel' ? 'var(--accent,#2c5aa0)' : SEV[k] || 'var(--ink3,#7b8899)'}"/></marker>`).join('')}</defs><g class="dcv-world"></g></svg>
-        <div class="dcv-hint">Drag a stencil in. Drag from a box's handle to connect. Double-click to rename.</div>
+        <div class="dcv-hint">${HINT}</div>
         <input class="dcv-inline" hidden aria-label="Name">
       </div>
       <aside class="dcv-inspector" aria-label="Inspector"></aside>
@@ -47,10 +50,27 @@
     function recompute() {
       S.model = Core.parse(S.text);
       S.diags = host.check ? host.check(S.model) : Core.check(S.model);
-      S.pos = L.resolve(S.model, S.layout);
-      S.bounds = L.boundaries(S.model, S.pos);
+      const sc = scopeEl();
+      if (!sc) { S.scope = null; S.shown = []; }
+      S.view = L.scoped(S.model, sc && sc.id, { show: S.shown });
+      S.pos = L.resolve(S.view, S.layout);
+      S.bounds = L.boundaries(S.view, S.pos);
       if (S.sel && !selected()) S.sel = null;
     }
+    const opens = e => !!e && ((e.kind === 'softwareSystem' && !e.tags.has('External')) || e.kind === 'container');
+    function scopeEl() {
+      if (!S.scope || !S.model) return null;
+      const e = [...S.model.elements.values()].find(x => S.scope.ident ? x.ident === S.scope.ident : x.name === S.scope.name);
+      return opens(e) ? e : null;
+    }
+    // Open a system or container (null for the whole model): only its children and what they connect to are drawn.
+    function openScope(e) {
+      commitInline(true);
+      S.scope = e ? { ident: e.ident, name: e.name } : null; S.shown = []; S.sel = null;
+      recompute(); fit();
+      host.onScope && host.onScope(S.scope && { ...S.scope });
+    }
+    function up() { const sc = scopeEl(); if (sc) openScope(sc.parent ? S.model.elements.get(sc.parent) : null); }
     function commit(text, label) {
       if (text === S.text) return;
       S.history.push(S.text); if (S.history.length > 200) S.history.shift(); S.future = [];
@@ -59,10 +79,11 @@
     }
     function edit(label, fn) { try { const r = fn(S.text); commit(r.text, label); return r; } catch (e) { flash(e.message); return null; } }
     let layoutTimer = 0;
-    const saveLayout = () => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => host.setLayout && host.setLayout(JSON.parse(JSON.stringify(S.layout))), 300); };
+    // layoutTimer is set while a save is pending; refresh() must not replace S.layout from the host until it has gone out.
+    const saveLayout = () => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => { layoutTimer = 0; host.setLayout && host.setLayout(JSON.parse(JSON.stringify(S.layout))); }, 300); };
     const keyOfId = id => { const e = S.model.elements.get(id); return e ? L.keyOf(e) : null; };
     function setPos(id, x, y) { const k = keyOfId(id); if (!k) return; S.pos.set(id, { x, y }); S.layout.positions[k] = { x: Math.round(x), y: Math.round(y) }; }
-    const pinAll = () => { S.layout.positions = L.pin(S.model, S.layout, S.pos); };
+    const pinAll = () => { S.layout.positions = L.pin(S.view, S.layout, S.pos); };
 
     // ---------------------------------------------------------------- selection helpers
     function selected() {
@@ -109,7 +130,7 @@
     }
     // The box under a world point, by geometry, so nothing drawn on top (the ghost line, a label) can hide it.
     function nodeAt(w, exceptId) {
-      const m = S.model, pad = 10; if (!m) return null;
+      const m = S.view, pad = 10; if (!m) return null;
       for (const e of L.leavesOf(m)) {
         const p = S.pos.get(e.id);
         if (p && e.id !== exceptId && w.x >= p.x - pad && w.x <= p.x + W + pad && w.y >= p.y - pad && w.y <= p.y + H + pad) return e.id;
@@ -117,7 +138,7 @@
       return null;
     }
     function renderSVG() {
-      const m = S.model; if (!m) return;
+      const m = S.view; if (!m) return;
       const sel = selected(), elSev = new Map(), elN = new Map(), relSev = new Map();
       const bump = (map, id, sev) => { if (map.get(id) !== 'error') map.set(id, sev); };
       for (const f of S.diags) {
@@ -134,19 +155,19 @@
         const a = S.pos.get(r.src), b = S.pos.get(r.dst); if (!a || !b || r.src === r.dst) return;
         const ac = [a.x + W / 2, a.y + H / 2], bc = [b.x + W / 2, b.y + H / 2];
         const p1 = clip(ac[0], ac[1], bc[0], bc[1], W + 8, H + 8), p2 = clip(bc[0], bc[1], ac[0], ac[1], W + 14, H + 14);
-        const isSel = sel && S.sel.kind === 'rel' && sel === r, sev = relSev.get(r.id), async_ = Core.interaction(r) === 'async';
+        const isSel = sel && S.sel.kind === 'rel' && sel === r.orig, sev = relSev.get(r.id), async_ = Core.interaction(r) === 'async';
         const color = isSel ? 'var(--accent,#2c5aa0)' : sev ? SEV[sev] : 'var(--ink3,#7b8899)';
         const mx = (p1[0] + p2[0]) / 2, my = (p1[1] + p2[1]) / 2;
-        h += `<g class="dcv-edge" data-rel="${i}"><line class="dcv-hit" x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}"/><line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" stroke="${color}" stroke-width="${isSel ? 2.6 : sev ? 1.9 : 1.4}"${async_ ? ' stroke-dasharray="6 4"' : ''} marker-end="url(#dcv-mk-${isSel ? 'sel' : sev || 'n'})"/>${r.description ? `<text x="${mx}" y="${my - 6}" class="dcv-elabel" style="fill:${sev ? color : ''}">${esc(trunc(r.description, 30))}</text>` : ''}</g>`;
+        h += `<g class="dcv-edge${m.outside.has(r.src) || m.outside.has(r.dst) ? ' is-outside' : ''}" data-rel="${i}"><line class="dcv-hit" x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}"/><line x1="${p1[0]}" y1="${p1[1]}" x2="${p2[0]}" y2="${p2[1]}" stroke="${color}" stroke-width="${isSel ? 2.6 : sev ? 1.9 : 1.4}"${async_ ? ' stroke-dasharray="6 4"' : ''} marker-end="url(#dcv-mk-${isSel ? 'sel' : sev || 'n'})"/>${r.description ? `<text x="${mx}" y="${my - 6}" class="dcv-elabel" style="fill:${sev ? color : ''}">${esc(trunc(r.description, 30))}</text>` : ''}</g>`;
       });
       for (const e of L.leavesOf(m)) {
         const p = S.pos.get(e.id); if (!p) continue;
-        const shape = V.shapeFor(e), on = sel && S.sel.kind === 'element' && sel === e, sev = elSev.get(e.id), ext = e.tags.has('External');
+        const shape = V.shapeFor(e), on = sel && S.sel.kind === 'element' && sel.id === e.id, sev = elSev.get(e.id), ext = e.tags.has('External');
         const st = { fill: ext ? 'var(--paper,#f3f6f8)' : 'var(--node,#fff)', stroke: on ? 'var(--accent,#2c5aa0)' : 'var(--ink,#15233a)', sw: on ? 2.6 : 1.5, dash: ext ? '5 3' : '' };
         const stencil = V.STENCILS.find(s => s.shape === shape && s.tags.every(t => e.tags.has(t)) && s.kind === e.kind) || V.STENCILS.find(s => s.shape === shape);
         const sub = `[${KIND_LABEL[e.kind]}${e.technology ? ': ' + e.technology : ''}]`;
         const ty = shape.startsWith('cylinder') ? p.y + 38 : p.y + 33;
-        h += `<g class="dcv-node${on ? ' is-sel' : ''}" data-id="${esc(e.id)}"><title>${esc(e.name)}</title>${shapeSVG(shape, p.x, p.y, st)}
+        h += `<g class="dcv-node${on ? ' is-sel' : ''}${m.outside.has(e.id) ? ' is-outside' : ''}" data-id="${esc(e.id)}"><title>${esc(e.name)}</title>${shapeSVG(shape, p.x, p.y, st)}
           ${stencil ? `<text x="${p.x + 10}" y="${p.y + (shape.startsWith('cylinder') ? 30 : 18)}" class="dcv-glyph">${stencil.glyph}</text>` : ''}
           <text x="${p.x + W / 2}" y="${ty}" class="dcv-name">${esc(trunc(e.name, 22))}</text><text x="${p.x + W / 2}" y="${ty + 16}" class="dcv-sub">${esc(trunc(sub, 30))}</text>
           ${elN.get(e.id) ? `<circle cx="${p.x + W - 2}" cy="${p.y + 2}" r="11" fill="${SEV[sev]}"/><text x="${p.x + W - 2}" y="${p.y + 6}" class="dcv-badge">${elN.get(e.id)}</text>` : ''}
@@ -155,11 +176,15 @@
       if (S.drag && S.drag.type === 'connect') {
         const a = S.pos.get(S.drag.from); if (a) h += `<line class="dcv-ghost-edge" x1="${S.drag.x0}" y1="${S.drag.y0}" x2="${S.drag.cur.x}" y2="${S.drag.cur.y}" marker-end="url(#dcv-mk-sel)"/>`;
       }
-      if (!m.elements.size) h += `<text x="60" y="80" class="dcv-empty">Drag a stencil from the left, or insert a reference architecture.</text>`;
+      const sc = m.scope && S.model.elements.get(m.scope);
+      if (sc && !L.leavesOf(m).length) h += `<text x="60" y="80" class="dcv-empty">${esc(sc.name)} is empty. Drop blocks here to add ${sc.kind === 'container' ? 'components' : 'containers'} to it.</text>`;
+      else if (!m.elements.size) h += `<text x="60" y="80" class="dcv-empty">Drag a stencil from the left, or insert a reference architecture.</text>`;
       world.innerHTML = h;
       world.setAttribute('transform', `translate(${S.pan.x} ${S.pan.y}) scale(${S.zoom})`);
     }
     function renderToolbar() {
+      const chain = []; for (let e = scopeEl(); e; e = e.parent ? S.model.elements.get(e.parent) : null) chain.unshift(e);
+      $('.dcv-crumbs').innerHTML = chain.length ? [`<button data-crumb="" title="Show the whole model">All</button>`, ...chain.map((e, i) => i === chain.length - 1 ? `<b>${esc(e.name)}</b>` : `<button data-crumb="${esc(e.id)}">${esc(e.name)}</button>`)].join('<span class="dcv-csep">›</span>') + '<span class="dcv-sep"></span>' : '';
       $('.dcv-zoom').textContent = Math.round(S.zoom * 100) + '%';
       $('[data-act=undo]').disabled = !S.history.length; $('[data-act=redo]').disabled = !S.future.length;
     }
@@ -201,7 +226,7 @@
           <p class="dcv-muted">${m.elements.size} elements, ${m.rels.length} relationships, ${agents.length} agents. ${live.filter(d => d.sev === 'error').length} errors, ${live.filter(d => d.sev === 'warning').length} warnings.</p>
           ${ag.length ? `<div class="dcv-sect">Agentic findings</div>${findingsHTML(ag.slice(0, 8))}` : agents.length ? '<p class="dcv-ok">No agentic findings.</p>' : ''}
           <div class="dcv-sect">How to draw</div>
-          <p class="dcv-muted">Drag a stencil onto the canvas; containers dropped inside a system join it. Drag from the round handle on a box to another box to connect them. Double-click to rename, Delete to remove, Ctrl+Z to undo. Everything you do is written to the DSL.</p>`;
+          <p class="dcv-muted">Drag a stencil onto the canvas; containers dropped inside a system join it. Drag from the round handle on a box to another box to connect them. Double-click a system or container to open it and draw what is inside; Backspace or the breadcrumb goes back up. F2 or double-click on anything else renames, Delete removes, Ctrl+Z undoes. Everything you do is written to the DSL.</p>`;
         return;
       }
       if (S.sel.kind === 'element') {
@@ -245,27 +270,33 @@
 
     // ---------------------------------------------------------------- actions
     function uniqueName(base) { const names = new Set([...S.model.elements.values()].map(e => e.name)); if (!names.has(base)) return base; let i = 2; while (names.has(`${base} ${i}`)) i++; return `${base} ${i}`; }
-    function flash(msg) { const h = $('.dcv-hint'); h.textContent = msg; h.classList.add('is-err'); setTimeout(() => { h.classList.remove('is-err'); h.textContent = 'Drag a stencil in. Drag from a box\'s handle to connect. Double-click to rename.'; }, 3500); }
+    function flash(msg) { const h = $('.dcv-hint'); h.textContent = msg; h.classList.add('is-err'); setTimeout(() => { h.classList.remove('is-err'); h.textContent = HINT; }, 3500); }
     function systemAt(x, y) {
       const inBox = (b, px, py) => px >= b.x && px <= b.x + b.w && py >= b.y && py <= b.y + b.h;
       const b = [...S.bounds].reverse().find(bb => bb.el.kind === 'softwareSystem' && !bb.el.tags.has('External') && inBox(bb, x, y));
       if (b) return b.el;
-      const leaf = L.leavesOf(S.model).find(e => e.kind === 'softwareSystem' && !e.tags.has('External') && (p => p && inBox({ x: p.x, y: p.y, w: W, h: H }, x, y))(S.pos.get(e.id)));
+      const leaf = L.leavesOf(S.view).find(e => e.kind === 'softwareSystem' && !e.tags.has('External') && (p => p && inBox({ x: p.x, y: p.y, w: W, h: H }, x, y))(S.pos.get(e.id)));
       return leaf || null;
     }
     function dropStencil(id, x, y, name) {
       const st = V.STENCILS.find(s => s.id === id); if (!st) return;
-      let text = S.text; let parent = null;
+      let text = S.text; let parent = null, kind = st.kind;
       if (!text.trim()) text = D.EMPTY;
-      if (st.kind === 'container' || st.kind === 'component') {
+      const sc = scopeEl(), inner = st.kind === 'container' || st.kind === 'component';
+      if (sc && inner) {
+        // Inside an opened element a block becomes its child: a container in a system, a component in a container.
+        kind = sc.kind === 'container' ? 'component' : 'container';
+        const r0 = D.ensureIdent(text, sc.ident || { line: sc.line, name: sc.name }); text = r0.text; parent = r0.ident; S.scope = { ident: r0.ident, name: sc.name };
+      } else if (inner) {
         let sys = systemAt(x, y) || [...S.model.elements.values()].find(e => e.kind === 'softwareSystem' && !e.tags.has('External'));
         if (!sys) { const r0 = D.addElement(text, { kind: 'softwareSystem', name: uniqueName('New system') }); text = r0.text; parent = r0.ident; }
         else { const r0 = D.ensureIdent(text, sys.ident || { line: sys.line, name: sys.name }); text = r0.text; parent = r0.ident; }
       }
       const nm = name || uniqueName(st.label);
-      const r = D.addElement(text, { kind: st.kind, name: nm, technology: st.tech, tags: st.tags, parent, props: st.props });
+      const r = D.addElement(text, { kind, name: nm, technology: st.tech, tags: st.tags, parent, props: st.props });
       S.layout.positions[r.ident] = { x: Math.round(x - W / 2), y: Math.round(y - H / 2) };
-      commit(r.text, `Add ${st.label}`); saveLayout();
+      if (sc && !inner) S.shown.push(r.ident);
+      saveLayout(); commit(r.text, `Add ${st.label}`);
       const e = [...S.model.elements.values()].find(x2 => x2.ident === r.ident);
       if (e) { S.sel = { kind: 'element', id: e.id, ident: e.ident }; render(); if (!name) setTimeout(() => startRename(e), 30); }
       return r.ident;
@@ -379,9 +410,10 @@
 
     // ---------------------------------------------------------------- pointer and keyboard
     $('.dcv-toolbar').addEventListener('click', ev => {
+      const c = ev.target.closest('[data-crumb]'); if (c) return openScope(c.dataset.crumb ? S.model.elements.get(c.dataset.crumb) : null);
       const a = ev.target.closest('[data-act]'); if (!a) return;
       ({ undo, redo, fit, zoomin: () => zoomAt(1.2), zoomout: () => zoomAt(1 / 1.2),
-        tidy: () => { S.layout.positions = {}; S.pos = L.resolve(S.model, S.layout, { tidy: true }); for (const [id, p] of S.pos) setPos(id, p.x, p.y); S.bounds = L.boundaries(S.model, S.pos); saveLayout(); fit(); },
+        tidy: () => { S.pos = L.resolve(S.view, S.layout, { tidy: true }); for (const [id, p] of S.pos) setPos(id, p.x, p.y); S.bounds = L.boundaries(S.view, S.pos); saveLayout(); fit(); },
         review: () => { S.review = true; renderReview(); } })[a.dataset.act]();
     });
     // palette: drag a stencil (or click to place in the middle of the view)
@@ -407,9 +439,9 @@
         S.drag = { type: 'connect', from: node.dataset.id, cur: w, x0: hx, y0: hy };
       }
       else if (node) { const id = node.dataset.id, p = S.pos.get(id); S.drag = { type: 'node', id, dx: w.x - p.x, dy: w.y - p.y, moved: false, sx: ev.clientX, sy: ev.clientY }; }
-      else if (edge) { const r = S.model.rels[+edge.dataset.rel]; if (r) selectRel(r); return; }
+      else if (edge) { const r = viewRel(edge); if (r) selectRel(r); return; }
       else if (bound) {
-        const id = bound.dataset.id; const under = [...S.pos.keys()].filter(k => { let c = S.model.elements.get(k); while (c && c.parent) { if (c.parent === id) return true; c = S.model.elements.get(c.parent); } return false; });
+        const id = bound.dataset.id; const under = [...S.pos.keys()].filter(k => { let c = S.view.elements.get(k); while (c && c.parent) { if (c.parent === id) return true; c = S.view.elements.get(c.parent); } return false; });
         S.drag = { type: 'group', id, start: w, orig: new Map(under.map(k => [k, { ...S.pos.get(k) }])), moved: false, sx: ev.clientX, sy: ev.clientY };
       } else { S.drag = { type: 'pan', sx: ev.clientX, sy: ev.clientY, pan: { ...S.pan }, moved: false }; }
       try { svg.setPointerCapture(ev.pointerId); } catch { /* synthetic pointers */ }
@@ -419,8 +451,8 @@
       const w = toWorld(ev.clientX, ev.clientY);
       if (d.type === 'connect') { d.cur = w; renderSVG(); return; }
       if (d.type === 'pan') { if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 3) d.moved = true; S.pan = { x: d.pan.x + ev.clientX - d.sx, y: d.pan.y + ev.clientY - d.sy }; renderSVG(); return; }
-      if (d.type === 'node') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; setPos(d.id, w.x - d.dx, w.y - d.dy); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); return; }
-      if (d.type === 'group') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; for (const [k, p] of d.orig) setPos(k, p.x + w.x - d.start.x, p.y + w.y - d.start.y); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); }
+      if (d.type === 'node') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; setPos(d.id, w.x - d.dx, w.y - d.dy); S.bounds = L.boundaries(S.view, S.pos); renderSVG(); return; }
+      if (d.type === 'group') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; for (const [k, p] of d.orig) setPos(k, p.x + w.x - d.start.x, p.y + w.y - d.start.y); S.bounds = L.boundaries(S.view, S.pos); renderSVG(); }
     });
     svg.addEventListener('pointerup', ev => {
       const d = S.drag; S.drag = null; if (!d) return;
@@ -429,14 +461,24 @@
         if (to) { const rel = connect(d.from, to); if (rel) setTimeout(() => startRelLabel(rel), 30); } else renderSVG();
         return;
       }
-      if (d.type === 'node') { if (d.moved) saveLayout(); else selectEl(d.id); return; }
-      if (d.type === 'group') { if (d.moved) saveLayout(); else selectEl(d.id); return; }
-      if (d.type === 'pan' && !d.moved) { S.sel = null; render(); }
+      if (d.moved) { if (d.type !== 'pan') saveLayout(); return; }
+      if (secondTap(d.type === 'pan' ? '' : d.id)) return d.type === 'node' ? activateNode(d.id) : d.type === 'group' ? activateBoundary(d.id) : up();
+      if (d.type === 'node' || d.type === 'group') selectEl(d.id);
+      else { S.sel = null; render(); }
     });
+    const viewRel = g => { const r = S.view.rels[+g.dataset.rel]; return r && r.orig; };
+    // Double-clicks on boxes, boundaries and empty canvas are told from two quick clicks on the same target, not from the
+    // browser's dblclick: the first click selects and redraws, which replaces the element the dblclick would land on.
+    let lastTap = null;
+    function secondTap(target) {
+      const now = Date.now(), hit = lastTap && lastTap.target === target && now - lastTap.t < 450;
+      lastTap = hit ? null : { target, t: now }; return hit;
+    }
+    function activateNode(id) { const e = S.model.elements.get(id); if (opens(e)) openScope(e); else if (e) startRename(e); }
+    function activateBoundary(id) { const e = S.model.elements.get(id); if (opens(e) && e.id !== S.view.scope) openScope(e); }
     svg.addEventListener('dblclick', ev => {
-      const node = ev.target.closest('.dcv-node'), edge = ev.target.closest('.dcv-edge');
-      if (node) { const e = S.model.elements.get(node.dataset.id); if (e) startRename(e); }
-      else if (edge) { const r = S.model.rels[+edge.dataset.rel]; if (r) { selectRel(r); setTimeout(() => startRelLabel(r), 30); } }
+      const edge = ev.target.closest('.dcv-edge');
+      if (edge) { const r = viewRel(edge); if (r) { selectRel(r); setTimeout(() => startRelLabel(r), 30); } }
     });
     svg.addEventListener('wheel', ev => {
       ev.preventDefault();
@@ -448,18 +490,19 @@
       const mod = ev.ctrlKey || ev.metaKey;
       if (mod && ev.key.toLowerCase() === 'z') { ev.preventDefault(); return ev.shiftKey ? redo() : undo(); }
       if (mod && ev.key.toLowerCase() === 'y') { ev.preventDefault(); return redo(); }
+      if (ev.key === 'Backspace' && !S.sel && S.scope) { ev.preventDefault(); return up(); }
       if (ev.key === 'Delete' || ev.key === 'Backspace') { ev.preventDefault(); return removeSelection(); }
       if (ev.key === 'Escape') { S.sel = null; S.drag = null; return render(); }
       if (ev.key === 'F2') { const s = selected(); if (s && S.sel.kind === 'element') startRename(s); else if (s) startRelLabel(s); return; }
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
-      if (arrows && S.sel && S.sel.kind === 'element') { ev.preventDefault(); const s = selected(), step = ev.shiftKey ? 40 : 10; const p = S.pos.get(s.id); if (p) { pinAll(); setPos(s.id, p.x + arrows[0] * step, p.y + arrows[1] * step); S.bounds = L.boundaries(S.model, S.pos); saveLayout(); renderSVG(); } }
+      if (arrows && S.sel && S.sel.kind === 'element') { ev.preventDefault(); const s = selected(), step = ev.shiftKey ? 40 : 10; const p = S.pos.get(s.id); if (p) { pinAll(); setPos(s.id, p.x + arrows[0] * step, p.y + arrows[1] * step); S.bounds = L.boundaries(S.view, S.pos); saveLayout(); renderSVG(); } }
     });
     new ResizeObserver(() => renderSVG()).observe(svg);
 
     // ---------------------------------------------------------------- public API
     function refresh() {
       const t = host.getText(); const lay = host.getLayout ? host.getLayout() : null;
-      if (lay && JSON.stringify(lay.positions) !== JSON.stringify(S.layout.positions) && !S.drag) S.layout = { ...L.empty(), ...lay, positions: { ...(lay.positions || {}) } };
+      if (lay && !layoutTimer && JSON.stringify(lay.positions) !== JSON.stringify(S.layout.positions) && !S.drag) S.layout = { ...L.empty(), ...lay, positions: { ...(lay.positions || {}) } };
       if (t === S.text && S.model) { recompute(); return render(); }
       S.text = t; recompute(); render();
     }
@@ -470,6 +513,8 @@
       select: (ref) => { const e = typeof ref === 'string' ? [...S.model.elements.values()].find(x => x.ident === ref || x.name === ref) : null; if (e) selectEl(e.id); },
       addStencil: (id, x, y, name) => dropStencil(id, x, y, name),
       connect: (a, b, desc) => { const f = n => [...S.model.elements.values()].find(e => e.ident === n || e.name === n); const A = f(a), B = f(b); return A && B ? connect(A.id, B.id, desc) : null; },
+      open: (ref) => { const e = ref == null ? null : [...S.model.elements.values()].find(x => x.ident === ref || x.name === ref); if (ref == null || opens(e)) openScope(e); },
+      scope: () => S.scope && { ...S.scope },
       insertTemplate, openReview: () => { S.review = true; renderReview(); },
       review: () => R.generate(Core, S.model, S.diags, { capacity: S.cap }),
       state: () => ({ text: S.text, layout: JSON.parse(JSON.stringify(S.layout)), selection: S.sel, diagnostics: S.diags }),
