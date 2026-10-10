@@ -80,7 +80,7 @@ Matching to the design is by normalised name (`Referral.Worker` matches `Referra
 - **In code, not in the design:** an undeclared dependency, or an element the design doesn't have.
 - **Designed, not found in code:** dotted edges on the map, and designed elements with no match.
 
-**Code areas** in the sidebar compare each element's `d.code` (see [Code areas](#code-areas-dcode)) with the files extraction read: how many files each pattern matches, which patterns match none, and which files are in no area. It is information only, never a finding or a gate clause. A map extracted before this existed says "Re-extract to see code areas". Extraction reads source, project and `.json` files only, so a pattern for other files (`db/migrations/*.sql`) shows as matching none.
+**Code areas** in the sidebar compare each element's `d.code` (see [Code areas](#code-areas-dcode)) with every file in the codebase (any type, so `db/migrations/*.sql` counts; the folders extraction skips, such as `bin`, `obj`, `node_modules` and dot-folders, do not): how many files each pattern matches, which patterns match none, and which files are in no area. An exact path that names a folder (`src/Api` with files under it) says so and suggests `src/Api/**`, because System 2 matches it as one file. It is information only, never a finding or a gate clause. A map extracted before this existed says "Re-extract to see code areas".
 
 With no design yet, "Start the design from this map" turns the as-built model into `model/workspace.dsl`, which is the quickest way into a legacy codebase.
 
