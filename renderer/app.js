@@ -561,6 +561,7 @@ async function closeTab(id) {
   renderAll();
 }
 async function save(id = A.active) {
+  if (id === 'special:canvas') id = A.cfg.model;   // the canvas edits the model buffer
   const b = A.buffers.get(id); if (!b || b.ro) return;
   const text = b.model.getValue();
   try { await host.write(id, text); b.dirty = false; b.disk = text; renderTabs(); } catch (e) { toast(`Couldn't save ${id}: ${e.message}`, 'error'); }
