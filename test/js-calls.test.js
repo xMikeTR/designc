@@ -101,3 +101,35 @@ test('JS telemetry SDK edges are labelled for what they do, not as authenticatio
   assert.equal(label('New Relic'), 'Sends telemetry to');
   assert.equal(label('Entra ID'), 'Authenticates via');
 });
+
+// A same-file function that passes its parameter to fetch (`request(url)`), called with
+// `${CSHARP}/path` against a module-level string const: seen in the PokemonTournament frontend.
+async function scanSource(files) {
+  const ctx = { repo: '/r', files: Object.keys(files), rel: f => f.replace(/^\/r\//, ''), read: async f => files[f], opts: {} };
+  return jsCalls.scan(ctx, [{ key: 'web', name: 'web', dir: '/r/web', kind: 'spa', deps: [], files: Object.keys(files) }]);
+}
+
+test('a same-file fetch wrapper resolves at its call sites, and a localhost URL links by path and port', async () => {
+  const r = await scanSource({ '/r/web/src/api.ts': [
+    "const CSHARP = 'http://localhost:5224';",
+    'async function request<T>(url: string, options: RequestInit = {}): Promise<T> {',
+    '  const res = await fetch(url, options);',
+    '  return res.json();',
+    '}',
+    'export const api = {',
+    '  login: (u: string) => request<Auth>(`${CSHARP}/auth/login`, { method: "POST" }),',
+    '  team: (id: string) => request<Team>(`${CSHARP}/teams/${id}`),',
+    '  other: () => request(someUrl),',
+    '};',
+  ].join('\n') });
+  const http = r.consumes.filter(c => c.kind === 'http');
+  assert.deepEqual(http.map(c => [c.key, c.devTarget, c.evidence.line]),
+    [['/auth/login', 'http://localhost:5224', 7], ['/teams/{}', 'http://localhost:5224', 8]]);
+  assert.deepEqual(r.elements.filter(e => e.name === 'localhost'), [], 'localhost is not an external system');
+  assert.deepEqual(r.unresolved.map(u => [u.line, u.what]), [[9, 'request() argument is not a literal, template or resolvable concatenation']]);
+});
+
+test('an external absolute URL is still an external system', async () => {
+  const r = await scanSource({ '/r/web/src/x.ts': "fetch('https://pokeapi.co/api/v2/pokemon/1');" });
+  assert.deepEqual(r.elements.map(e => e.name), ['pokeapi.co']);
+});

@@ -49,6 +49,40 @@ function resolvePathExpr(argText) {
   return sawLiteral ? out : null;
 }
 
+// Module-level `const NAME = '<literal>'` (no interpolation), so `${NAME}/path` and `NAME + '/path'`
+// resolve to the literal at a call site in the same file.
+function stringConsts(text) {
+  const out = new Map();
+  for (const m of text.matchAll(/^\s*(?:export\s+)?const\s+([A-Za-z_$][\w$]*)\s*(?::\s*string\s*)?=\s*(['"`])((?:(?!\2)[^\\$])*)\2\s*;?\s*$/gm)) out.set(m[1], m[3]);
+  return out;
+}
+function inlineConsts(argText, consts) {
+  if (!consts.size) return argText;
+  const t = argText.trim();
+  if (consts.has(t)) return `'${consts.get(t)}'`;
+  if (t.startsWith('`')) return t.replace(/\$\{\s*([A-Za-z_$][\w$]*)\s*\}/g, (all, n) => (consts.has(n) ? consts.get(n) : all));
+  return t.split(/\s*\+\s*/).map(seg => (consts.has(seg) ? `'${consts.get(seg)}'` : seg)).join(' + ');
+}
+// Same-file functions that hand their first parameter to fetch (`function request(url) { ... fetch(url) }`
+// or `const request = async (url) => fetch(url)`): the fetch is plumbing, the call sites carry the URL.
+// The enclosing function is the nearest header before the fetch whose first parameter is that identifier.
+// Only a function that is not exported and is called in the same file counts: otherwise callers elsewhere
+// would be missed silently, so its fetch stays unresolved.
+const FN_HEADER_RE = /(?:\bfunction\s+([A-Za-z_$][\w$]*)\s*(?:<[^>]*>)?\s*\(\s*([A-Za-z_$][\w$]*)|\b(?:const|let)\s+([A-Za-z_$][\w$]*)\s*=\s*(?:async\s*)?(?:<[^>]*>)?\s*\(\s*([A-Za-z_$][\w$]*))/g;
+const callSites = (text, name) => findCalls(text, new RegExp(`(?<!function\\s+)(?<![\\w$.])${name.replace(/\$/g, '\\$')}\\s*(?:<[^()]*?>)?\\s*\\(`, 'g'));
+function fetchWrappers(text, fetchCalls) {
+  const headers = [...text.matchAll(FN_HEADER_RE)].map(m => ({ name: m[1] || m[3], param: m[2] || m[4], index: m.index,
+    exported: /\bexport\s+(?:default\s+)?(?:async\s+)?$/.test(text.slice(Math.max(0, m.index - 30), m.index)) }));
+  const names = new Set(), plumbing = new Set();
+  for (const { argsText, index } of fetchCalls) {
+    const first = (splitTopLevelArgs(argsText)[0] || '').trim();
+    if (!/^[A-Za-z_$][\w$]*$/.test(first)) continue;
+    const h = headers.filter(x => x.index < index).pop();
+    if (h && h.param === first && !h.exported && callSites(text, h.name).length) { names.add(h.name); plumbing.add(index); }
+  }
+  return { names, plumbing };
+}
+
 function splitTopLevelArgs(s) {
   const args = [];
   let depth = 0, cur = '', inStr = null;
@@ -186,6 +220,14 @@ async function scan(ctx, packages) {
   const devTargetFor = key => { const p = proxies.find(p => key.startsWith(p.prefix)); return p ? p.target : undefined; };
 
   const pushHttpConsume = (owner, resolved, env, evidence) => {
+    const local = /^https?:\/\/(?:localhost|127\.0\.0\.1)(?::(\d+))?(\/[^?#]*)?/i.exec(resolved);
+    if (local) {
+      // a local service, not an external system: link by path like a relative call; the port breaks ties
+      const c = { owner, kind: 'http', key: normaliseRoute(local[2] || '/'), evidence };
+      if (local[1]) c.devTarget = `http://localhost:${local[1]}`;
+      consumes.push(c);
+      return;
+    }
     if (resolved.startsWith('http://') || resolved.startsWith('https://')) {
       let u; try { u = new URL(resolved); } catch { unresolved.push({ where: owner, what: `call target "${resolved}" is not a valid URL`, ...evidence }); return; }
       const ext = add(u.hostname, 'external', 'External HTTP API'); ext.evidence.push(evidence);
@@ -209,17 +251,30 @@ async function scan(ctx, packages) {
 
     // direct fetch/axios/ky calls (skip the wrapper module's own plumbing call)
     if (!isWrapper) {
-      for (const { argsText, index } of findCalls(t, FETCH_RE)) {
+      const consts = stringConsts(t);
+      const fetchCalls = findCalls(t, FETCH_RE);
+      const local = fetchWrappers(t, fetchCalls);
+      for (const { argsText, index } of fetchCalls) {
+        if (local.plumbing.has(index)) continue;
         const firstArg = splitTopLevelArgs(argsText)[0] || '';
-        const resolved = resolvePathExpr(firstArg);
+        const resolved = resolvePathExpr(inlineConsts(firstArg, consts));
         const evidence = { file: rel(f), line: lineOf(t, index), text: t.split('\n')[lineOf(t, index) - 1].trim().slice(0, 200) };
         if (resolved === null) { unresolved.push({ where: owner, what: 'fetch() argument is not a literal, template or resolvable concatenation', ...evidence }); continue; }
         pushHttpConsume(owner, resolved, null, evidence);
       }
+      for (const name of local.names) {
+        for (const { argsText, index } of callSites(t, name)) {
+          const firstArg = splitTopLevelArgs(argsText)[0] || '';
+          const resolved = resolvePathExpr(inlineConsts(firstArg, consts));
+          const evidence = { file: rel(f), line: lineOf(t, index), text: t.split('\n')[lineOf(t, index) - 1].trim().slice(0, 200) };
+          if (resolved === null) { unresolved.push({ where: owner, what: `${name}() argument is not a literal, template or resolvable concatenation`, ...evidence }); continue; }
+          pushHttpConsume(owner, resolved, null, evidence);
+        }
+      }
       for (const re of [AXIOS_RE, KY_RE]) {
         for (const { argsText, index } of findCalls(t, re)) {
           const firstArg = splitTopLevelArgs(argsText)[0] || '';
-          const resolved = resolvePathExpr(firstArg);
+          const resolved = resolvePathExpr(inlineConsts(firstArg, consts));
           const evidence = { file: rel(f), line: lineOf(t, index), text: t.split('\n')[lineOf(t, index) - 1].trim().slice(0, 200) };
           if (resolved === null) { unresolved.push({ where: owner, what: 'call argument is not a literal, template or resolvable concatenation', ...evidence }); continue; }
           pushHttpConsume(owner, resolved, null, evidence);
