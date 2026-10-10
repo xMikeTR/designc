@@ -55,9 +55,23 @@
   }
   // The view of one opened element: its direct children (their descendants folded in), the outside elements they
   // relate to or `show` lists (in `outside`, drawn faded) and rels lifted onto those ends. Each view rel keeps the real one as `orig`.
+  // The unopened view: components are drawn only once their container is opened, so they fold into it here
+  // (a container with components stays one box and keeps its arrows).
+  function top(m) {
+    const base = { ...m, scope: null, outside: new Set() };
+    if (![...m.elements.values()].some(e => e.kind === 'component')) return { ...base, rels: m.rels.map(r => ({ ...r, orig: r })) };
+    const up = id => { let c = m.elements.get(id); while (c && c.kind === 'component' && c.parent) c = m.elements.get(c.parent); return c ? c.id : id; };
+    const elements = new Map([...m.elements].filter(([, e]) => e.kind !== 'component' || !e.parent)), byPair = new Map();
+    for (const r of m.rels) {
+      const a = up(r.src), b = up(r.dst); if (a === b) continue;
+      const k = a + '>' + b, lifted = a !== r.src || b !== r.dst;
+      if (!byPair.has(k) || (byPair.get(k).lifted && !lifted)) byPair.set(k, { ...r, src: a, dst: b, orig: r, lifted });
+    }
+    return { ...base, elements, rels: [...byPair.values()] };
+  }
   function scoped(m, scopeId, { show = [] } = {}) {
     const sc = scopeId && m.elements.get(scopeId);
-    if (!sc) return { ...m, rels: m.rels.map(r => ({ ...r, orig: r })), scope: null, outside: new Set() };
+    if (!sc) return top(m);
     const all = [...m.elements.values()], kids = all.filter(e => e.parent === sc.id);
     const childOf = id => { let c = m.elements.get(id); while (c && c.parent && c.parent !== sc.id) c = m.elements.get(c.parent); return c && c.parent === sc.id ? c.id : null; };
     const end = id => id === sc.id ? { drop: true } : childOf(id) ? { id: childOf(id), inside: true } : { id };
