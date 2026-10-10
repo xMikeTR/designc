@@ -75,6 +75,11 @@ async function extract(repo, opts = {}) {
   }
 
   if (!projects.length) return { error: 'No .NET projects (.csproj, .fsproj) or package.json files found in this folder.' };
+  if (![...elements.values()].some(e => e.kind === 'container')) {
+    const n = projects.length;
+    return { error: `Found ${n} project${n === 1 ? '' : 's'} but nothing that runs: ${projects.map(p => `${p.name} (${p.kind})`).join(', ')}. `
+      + 'The code map draws what runs and shows libraries inside the app that references them, so set "codebase" in designc.json to a folder that also holds that app, often the repository root.' };
+  }
 
   const linked = link.link({ elements, consumes, provides }, opts);
   edges.push(...linked.edges);
