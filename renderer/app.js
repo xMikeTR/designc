@@ -23,7 +23,7 @@ const PROPS = [
   ['d.owns', 'element', null, 'Comma-separated entities this element owns writes to (DC002).'],
   ['d.store', 'element', ['yes', 'no'], 'Treat as a data store. Default: the Database tag.'],
   ['d.aka', 'element', null, 'Other names, used to match code in the as-built diff.'],
-  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder. System 2 keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
+  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder (src/Api is one file; write src/Api/**). System 2 keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
   ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. System 2 uses it for the merge tier.'],
   ['d.suppress', 'both', null, 'Accept findings here: "DCnnn: reason; DCnnn: reason". A reason is required.'],
 ];
@@ -1319,15 +1319,15 @@ function codemapSidebar() {
     f.unresolved.map(u => `<div class="item" data-code="${esc(u.file)}" data-line="${u.line}"><div class="l1"><span class="id">${esc(u.where)}</span></div><div class="l2">${esc(u.what)}</div><div class="l2" style="font-family:var(--mono);font-size:11px">${esc(u.file)}:${u.line}</div></div>`).join(''));
   return h;
 }
-// d.code against the files extraction read. Display only: not in Problems, the gate or the CLI.
+// d.code against the files in the codebase. Display only: not in Problems, the gate or the CLI.
 function codeAreasSection() {
   const ar = A.areas;
   if (!ar) return section('areas', 'Code areas', '<div class="hint">Re-extract to see code areas: this map was extracted before designc kept the file list.</div>');
   if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No element declares d.code. Set it on a container or its components to say where that code lives; System 2 confines each task to it.</div>');
   const row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
   const empty = ar.areas.filter(a => !a.matched).length, MAX = 50;
-  const body = `<div class="hint">${plural(ar.files - ar.unclaimed.length, 'file')} of ${ar.files} that extraction read are in a code area.</div>`
-    + ar.areas.map(a => row(`${esc(a.name)}: <code>${esc(a.pattern)}</code>`, a.matched ? plural(a.matched, 'file') : 'matches none of the files extraction reads', `data-open="${esc(A.cfg.model)}" data-line="${A.model.elements.get(a.id).line}"`)).join('')
+  const body = `<div class="hint">Code areas cover ${ar.files - ar.unclaimed.length} of the ${plural(ar.files, 'file')} in the codebase.</div>`
+    + ar.areas.map(a => row(`${esc(a.name)}: <code>${esc(a.pattern)}</code>`, a.matched ? plural(a.matched, 'file') : esc(a.hint || 'matches no file in the codebase'), `data-open="${esc(A.cfg.model)}" data-line="${A.model.elements.get(a.id).line}"`)).join('')
     + (ar.unclaimed.length ? `<div class="hint" style="padding-bottom:2px"><b>In no code area</b></div>` + ar.unclaimed.slice(0, MAX).map(x => row(esc(x), '', `data-code="${esc(x)}" data-line="1"`)).join('')
       + (ar.unclaimed.length > MAX ? `<div class="hint">and ${ar.unclaimed.length - MAX} more</div>` : '') : '');
   return section('areas', `Code areas (${empty + ar.unclaimed.length})`, body);

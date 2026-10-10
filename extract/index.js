@@ -15,18 +15,23 @@ const coverage = require('./coverage');
 
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', '.idea', 'packages', 'TestResults', 'artifacts', '.venv',
   'dist', 'build', 'coverage', 'out', '.next', 'playwright-report', 'test-results', 'junit-results']);
-const MAX_FILES = 20000;
+const MAX_FILES = 20000, MAX_LISTED = 100000;
 const FILE_RE = /\.(csproj|fsproj|cs|fs|js|jsx|ts|tsx|mjs|cjs|json)$/i;
 
-async function walk(dir, out, depth = 0) {
+// `out` holds the source files the scanners read; `all` names every file walked (never read), because
+// System 2 confines writes to any file, so d.code areas are judged against all of them.
+async function walk(dir, out, all, depth = 0) {
   if (depth > 12 || out.length > MAX_FILES) return out;
   let entries = [];
   try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return out; }
   for (const e of entries) {
     if (SKIP.has(e.name) || e.name.startsWith('.')) continue;
     const p = path.join(dir, e.name);
-    if (e.isDirectory()) await walk(p, out, depth + 1);
-    else if (FILE_RE.test(e.name)) out.push(p);
+    if (e.isDirectory()) await walk(p, out, all, depth + 1);
+    else {
+      if (all.length < MAX_LISTED) all.push(p);
+      if (FILE_RE.test(e.name)) out.push(p);
+    }
   }
   return out;
 }
@@ -35,7 +40,8 @@ const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 const SCANNERS = [csharp, js];
 
 async function extract(repo, opts = {}) {
-  const files = await walk(repo, []);
+  const listed = [];
+  const files = await walk(repo, [], listed);
   const rel = f => path.relative(repo, f).split(path.sep).join('/');
   const read = async f => { try { return await fsp.readFile(f, 'utf8'); } catch { return ''; } };
   const ctx = { repo, files, rel, read, opts };
@@ -103,7 +109,7 @@ async function extract(repo, opts = {}) {
     internal,
     componentEdges: comp.componentEdges,
     code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges, ...(covStats ? { coverage: covStats } : {}) },
-    files: files.map(rel).sort(), // what d.code areas are judged against (Core.codeAreaDrift)
+    files: listed.map(rel).sort(), // every file walked, what d.code areas are judged against (Core.codeAreaDrift)
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };
 }

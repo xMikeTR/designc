@@ -1369,7 +1369,7 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   // ---------- drift: designed vs extracted, one level down ----------
   // Components are only judged inside a container whose design declares components ("scored"). Everywhere
   // else they are neutral, so a container-only design never shows component warnings.
-  // d.code against the files extraction read (facts.files, repo-relative). Display only: never a finding or a
+  // d.code against every file the extraction walk listed (facts.files, repo-relative). Display only: never a finding or a
   // gate clause, because the codebase is not a gate input. null when there is no file list (extracted before it).
   function codeAreaDrift(model, files) {
     if (!Array.isArray(files)) return null;
@@ -1378,7 +1378,12 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
       if (e.props['d.code'] == null) continue;
       for (const s of String(e.props['d.code']).split(',')) {
         const p = PP.create(s);
-        if (p.ok) areas.push({ id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length });
+        if (!p.ok) continue;
+        const a = { id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length };
+        // An exact path matches one file of that name only (System 2's meaning); say so when it names a folder.
+        const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(p.value + '/')).length;
+        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; System 2 matches it as a single file. Did you mean ${p.value}/**?`;
+        areas.push(a);
       }
     }
     const unclaimed = areas.length ? files.filter(f => !areas.some(a => PP.matches(a.pattern, f))).sort() : [];

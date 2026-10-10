@@ -101,7 +101,8 @@ test('an invalid pattern is left to DC000 and an intended overlap can be suppres
   assert.ok(ds[0].suppressed);
 });
 
-// Code areas against the codebase: display-only drift in the Code map, judged on the files extraction read.
+// Code areas against the codebase: display-only drift in the Code map, judged on every file the extraction walk
+// lists (System 2 confines writes to any file, not only source the scanners parse).
 const FILES = ['src/Api/Program.cs', 'src/Api/Orders.cs', 'src/Worker/Job.cs', 'tests/Api.Tests/T.cs', 'README.json'];
 
 test('codeAreaDrift counts the files each pattern matches and lists the files no area claims', () => {
@@ -128,12 +129,24 @@ test('a pattern DC000 rejects is left out of the drift', () => {
   assert.deepEqual(r.areas.map(a => a.pattern), ['src/Api/**']);
 });
 
-test('extraction keeps the repo-relative file list it read as facts.files', async () => {
+test('an exact path that is a folder in the codebase gets a hint, because System 2 matches it as one file', () => {
+  const r = Core.codeAreaDrift(Core.parse(model(
+    el('Api', { 'd.code': 'src/Api, README.json', 'd.risk': 'low' }),
+    el('Docs', { 'd.code': 'docs', 'd.risk': 'low' }))), FILES);
+  const by = p => r.areas.find(a => a.pattern === p);
+  assert.equal(by('src/Api').matched, 0);
+  assert.equal(by('src/Api').hint, 'src/Api is a folder with 2 files; System 2 matches it as a single file. Did you mean src/Api/**?');
+  assert.equal(by('README.json').hint, undefined, 'an exact path that matches its file needs no hint');
+  assert.equal(by('docs').hint, undefined, 'nothing under it either: no hint');
+});
+
+test('extraction keeps every repo-relative file it walked as facts.files', async () => {
   const path = require('path');
   const { extract } = require('../extract.js');
   const r = await extract(path.join(__dirname, '..', 'fixtures', 'fullstack'));
   assert.ok(r.facts.files.length > 10);
   assert.ok(r.facts.files.includes('api/src/Shop.Api/Program.cs'));
+  assert.ok(r.facts.files.includes('api/Shop.sln'), 'non-source files are listed too');
   assert.ok(r.facts.files.every(f => !f.includes('\\') && !f.startsWith('/') && !/(^|\/)(obj|bin|node_modules)\//.test(f)));
   assert.deepEqual(r.facts.files, [...r.facts.files].sort());
 });
