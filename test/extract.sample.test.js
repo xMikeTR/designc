@@ -69,3 +69,13 @@ test('empty folder reports no projects', async () => {
   const r = await extract(dir);
   assert.deepEqual(r, { error: 'No .NET projects (.csproj, .fsproj) or package.json files found in this folder.' });
 });
+
+// Seen on PokemonTournament: "codebase" pointed at the F# engine library alone gave an empty map and no reason.
+test('a folder with projects but nothing that runs says why and what to change', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'extract-lib-'));
+  fs.mkdirSync(path.join(dir, 'Engine'));
+  fs.writeFileSync(path.join(dir, 'Engine', 'Engine.fsproj'), '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Library</OutputType></PropertyGroup></Project>');
+  fs.writeFileSync(path.join(dir, 'Engine', 'Lib.fs'), 'module Lib\nlet x = 1\n');
+  const r = await extract(dir);
+  assert.deepEqual(r, { error: 'Found 1 project but nothing that runs: Engine (library). The code map draws what runs and shows libraries inside the app that references them, so set "codebase" in designc.json to a folder that also holds that app, often the repository root.' });
+});
