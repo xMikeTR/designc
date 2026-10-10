@@ -36,6 +36,12 @@
     for (const e of leaves) if (!out.has(e.id)) { const p = auto.get(e.id); out.set(e.id, { x: p.x, y: p.y + (placed.length ? maxY : 0) }); }
     return out;
   }
+  // Saved positions plus the drawn position of every unsaved box, so moving one box cannot reflow the rest.
+  function pin(m, layout, pos) {
+    const out = { ...((layout && layout.positions) || {}) };
+    for (const e of leavesOf(m)) { const k = keyOf(e), p = pos.get(e.id); if (!out[k] && p) out[k] = { x: Math.round(p.x), y: Math.round(p.y) }; }
+    return out;
+  }
   function boundaries(m, pos) {
     const res = [];
     const kids = [...m.elements.values()].filter(e => [...m.elements.values()].some(c => c.parent === e.id));
@@ -47,5 +53,5 @@
     }
     return res.sort((a, b) => a.depth - b.depth);
   }
-  return { W, H, keyOf, empty, leavesOf, resolve, boundaries };
+  return { W, H, keyOf, empty, leavesOf, resolve, pin, boundaries };
 });

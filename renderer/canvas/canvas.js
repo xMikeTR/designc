@@ -62,6 +62,7 @@
     const saveLayout = () => { clearTimeout(layoutTimer); layoutTimer = setTimeout(() => host.setLayout && host.setLayout(JSON.parse(JSON.stringify(S.layout))), 300); };
     const keyOfId = id => { const e = S.model.elements.get(id); return e ? L.keyOf(e) : null; };
     function setPos(id, x, y) { const k = keyOfId(id); if (!k) return; S.pos.set(id, { x, y }); S.layout.positions[k] = { x: Math.round(x), y: Math.round(y) }; }
+    const pinAll = () => { S.layout.positions = L.pin(S.model, S.layout, S.pos); };
 
     // ---------------------------------------------------------------- selection helpers
     function selected() {
@@ -418,8 +419,8 @@
       const w = toWorld(ev.clientX, ev.clientY);
       if (d.type === 'connect') { d.cur = w; renderSVG(); return; }
       if (d.type === 'pan') { if (Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) > 3) d.moved = true; S.pan = { x: d.pan.x + ev.clientX - d.sx, y: d.pan.y + ev.clientY - d.sy }; renderSVG(); return; }
-      if (d.type === 'node') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; d.moved = true; setPos(d.id, w.x - d.dx, w.y - d.dy); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); return; }
-      if (d.type === 'group') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; d.moved = true; for (const [k, p] of d.orig) setPos(k, p.x + w.x - d.start.x, p.y + w.y - d.start.y); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); }
+      if (d.type === 'node') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; setPos(d.id, w.x - d.dx, w.y - d.dy); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); return; }
+      if (d.type === 'group') { if (!d.moved && Math.hypot(ev.clientX - d.sx, ev.clientY - d.sy) < 4) return; if (!d.moved) pinAll(); d.moved = true; for (const [k, p] of d.orig) setPos(k, p.x + w.x - d.start.x, p.y + w.y - d.start.y); S.bounds = L.boundaries(S.model, S.pos); renderSVG(); }
     });
     svg.addEventListener('pointerup', ev => {
       const d = S.drag; S.drag = null; if (!d) return;
@@ -451,7 +452,7 @@
       if (ev.key === 'Escape') { S.sel = null; S.drag = null; return render(); }
       if (ev.key === 'F2') { const s = selected(); if (s && S.sel.kind === 'element') startRename(s); else if (s) startRelLabel(s); return; }
       const arrows = { ArrowLeft: [-1, 0], ArrowRight: [1, 0], ArrowUp: [0, -1], ArrowDown: [0, 1] }[ev.key];
-      if (arrows && S.sel && S.sel.kind === 'element') { ev.preventDefault(); const s = selected(), step = ev.shiftKey ? 40 : 10; const p = S.pos.get(s.id); if (p) { setPos(s.id, p.x + arrows[0] * step, p.y + arrows[1] * step); S.bounds = L.boundaries(S.model, S.pos); saveLayout(); renderSVG(); } }
+      if (arrows && S.sel && S.sel.kind === 'element') { ev.preventDefault(); const s = selected(), step = ev.shiftKey ? 40 : 10; const p = S.pos.get(s.id); if (p) { pinAll(); setPos(s.id, p.x + arrows[0] * step, p.y + arrows[1] * step); S.bounds = L.boundaries(S.model, S.pos); saveLayout(); renderSVG(); } }
     });
     new ResizeObserver(() => renderSVG()).observe(svg);
 
