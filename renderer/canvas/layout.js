@@ -53,5 +53,26 @@
     }
     return res.sort((a, b) => a.depth - b.depth);
   }
-  return { W, H, keyOf, empty, leavesOf, resolve, pin, boundaries };
+  // The view of one opened element: its direct children (their descendants folded in), the outside elements they
+  // relate to or `show` lists (in `outside`, drawn faded) and rels lifted onto those ends. Each view rel keeps the real one as `orig`.
+  function scoped(m, scopeId, { show = [] } = {}) {
+    const sc = scopeId && m.elements.get(scopeId);
+    if (!sc) return { ...m, rels: m.rels.map(r => ({ ...r, orig: r })), scope: null, outside: new Set() };
+    const all = [...m.elements.values()], kids = all.filter(e => e.parent === sc.id);
+    const childOf = id => { let c = m.elements.get(id); while (c && c.parent && c.parent !== sc.id) c = m.elements.get(c.parent); return c && c.parent === sc.id ? c.id : null; };
+    const end = id => id === sc.id ? { drop: true } : childOf(id) ? { id: childOf(id), inside: true } : { id };
+    const elements = new Map(), outside = new Set(), byPair = new Map();
+    if (kids.length) elements.set(sc.id, { ...sc, parent: null });
+    kids.forEach(e => elements.set(e.id, { ...e }));
+    for (const r of m.rels) {
+      const a = end(r.src), b = end(r.dst);
+      if (a.drop || b.drop || (!a.inside && !b.inside) || a.id === b.id) continue;
+      [a, b].filter(x => !x.inside).forEach(x => { outside.add(x.id); elements.set(x.id, { ...m.elements.get(x.id), parent: null }); });
+      const k = a.id + '>' + b.id, lifted = a.id !== r.src || b.id !== r.dst;
+      if (!byPair.has(k) || (byPair.get(k).lifted && !lifted)) byPair.set(k, { ...r, src: a.id, dst: b.id, orig: r, lifted });
+    }
+    for (const id of show) { const e = m.elements.get(id); if (e && id !== sc.id && !childOf(id) && !elements.has(id)) { outside.add(id); elements.set(id, { ...e, parent: null }); } }
+    return { ...m, elements, rels: [...byPair.values()], scope: sc.id, outside };
+  }
+  return { W, H, keyOf, empty, leavesOf, resolve, pin, boundaries, scoped };
 });

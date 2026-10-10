@@ -87,3 +87,8 @@
 .dcv-rdoc ul{margin:0 0 10px;padding-left:20px}
 .dcv-rdoc a{color:var(--accent,#2c5aa0)}
 @media (prefers-color-scheme:dark){.dcv:not([data-theme=light]){--fg:#d4d8de;--fg2:#9aa3ad;--fg3:#6d7681;--editor:#1e2227;--chrome:#181b20;--edge:#2b3038;--paper:#13181e;--grid:rgba(111,155,224,.06);--ink:#dce5ee;--ink2:#a2b0c1;--ink3:#728196;--node:#1b232d;--accent:#6f9be0;--onaccent:#0e1520;--err:#f07166;--warn:#e0a54a;--ok:#5fc09d;--hover:rgba(255,255,255,.05)}}
+.dcv-node.is-outside,.dcv-edge.is-outside{opacity:.45}
+.dcv-crumbs{display:flex;align-items:center;font-size:12.5px;white-space:nowrap}
+.dcv-crumbs button{white-space:nowrap}
+.dcv-crumbs b{padding:3px 9px;font-weight:600}
+.dcv-csep{color:var(--ink3,#7b8899)}
