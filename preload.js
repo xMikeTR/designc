@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('host', {
   read: rel => ipcRenderer.invoke('fs:read', rel),
   exists: rel => ipcRenderer.invoke('fs:exists', rel),
   write: (rel, text) => ipcRenderer.invoke('fs:write', rel, text),
+  remove: rel => ipcRenderer.invoke('fs:remove', rel),
   list: (dir, ext) => ipcRenderer.invoke('fs:list', dir, ext),
   gitStatus: () => ipcRenderer.invoke('git:status'),
   gitTrust: () => ipcRenderer.invoke('git:trust'),

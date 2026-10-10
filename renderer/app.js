@@ -87,6 +87,18 @@ function toast(msg, kind = 'info', actions = []) {
   el.addEventListener('click', e => { const b = e.target.closest('button[data-i]'); if (b) { actions[+b.dataset.i].run(); el.remove(); } });
   $('#toasts').appendChild(el); setTimeout(() => el.remove(), actions.length ? 12000 : 5000);
 }
+// In-app replacement for window.prompt, which Electron does not support: resolves to the text, or null on Cancel.
+function askText(message, value = '') {
+  return new Promise(resolve => {
+    const el = document.createElement('div'); el.className = 'askbox';
+    el.innerHTML = `<form class="askcard"><label>${esc(message)}</label><input value="${esc(value)}" spellcheck="false"><div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button><button class="btn primary">OK</button></div></form>`;
+    const input = el.querySelector('input'), done = v => { el.remove(); resolve(v); };
+    el.querySelector('form').addEventListener('submit', e => { e.preventDefault(); done(input.value); });
+    el.querySelector('[data-ask=no]').addEventListener('click', e => { e.stopPropagation(); done(null); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+    document.body.appendChild(el); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
+  });
+}
 
 // ---------------------------------------------------------------- registry loading
 function textOf(path) { const b = A.buffers.get(path); return b ? b.model.getValue() : null; }
@@ -605,12 +617,30 @@ assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-M
 `;
   await createAndOpen(`decisions/${id}.yaml`, text, statement ? null : 8);
 }
+// The + on Decisions asks first, so a stray click creates nothing.
+async function newDecision() {
+  const statement = await askText('What was decided? (leave blank to fill in later)'); if (statement == null) return;
+  return recordDecision({ statement: statement.trim() });
+}
+// Human only, from the Explorer. The ledger and handovers are refused by the main process as well.
+async function deleteFile(path) {
+  if (/^(ledger|handovers)\//.test(path)) { toast(`${path} cannot be deleted: the ledger is append-only and handovers are frozen.`, 'warning'); return; }
+  const b = A.buffers.get(path);
+  if (!confirm(`Delete ${path}?${b && b.dirty ? ' It has unsaved changes.' : ''} Git history keeps it if it was committed.`)) return;
+  if (typeof AG !== 'undefined') AG.approved.set(path, Date.now() + 2000);
+  try { await host.remove(path); } catch (err) { toast(`${path} was not deleted: ${err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, 'error'); return; }
+  if (b) { b.model.dispose(); A.buffers.delete(path); }
+  A.tabs = A.tabs.filter(t => t !== path); if (A.active === path) activate(A.tabs[A.tabs.length - 1] || null);
+  A.tree = await host.tree();
+  if (path === A.cfg.model) await loadModel(); else await loadRegistry();
+  recompile(); renderAll({ keepEditor: A.active !== null }); toast(`Deleted ${path}.`);
+}
 async function newRequirement() {
-  const id = prompt('Jira key for the requirement', 'HRE-') || ''; if (!id.trim()) return;
+  const id = (await askText('Jira key for the requirement', 'HRE-')) || ''; if (!id.trim() || id.trim() === 'HRE-') return;
   await createAndOpen(`requirements/${id.trim()}.yaml`, `id: ${id.trim()}\ntitle: TODO\nsource: ""\nversion: 1\nelements: []\n`, 2);
 }
 async function newScenario() {
-  const id = prompt('Scenario id', 'QAS-') || ''; if (!id.trim()) return;
+  const id = (await askText('Scenario id', 'QAS-')) || ''; if (!id.trim() || id.trim() === 'QAS-') return;
   const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
   await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
 }
@@ -632,8 +662,8 @@ async function runFitness() {
   } finally { A.running = false; renderStatus(); }
 }
 async function newEval() {
-  const id = prompt('Eval id', 'EV-') || ''; if (!id.trim()) return;
-  const agent = prompt('Name of the agent element this eval judges', '') || '';
+  const id = (await askText('Eval id', 'EV-')) || ''; if (!id.trim() || id.trim() === 'EV-') return;
+  const agent = await askText('Name of the agent element this eval judges (leave blank to fill in later)'); if (agent == null) return;
   const text = `id: ${id.trim()}\nagent: ${yamlStr(agent.trim() || 'TODO')}   # an element name in the model\ncommand: TODO               # shell command that writes the results file\nresults: evals/results/${id.trim()}.json   # {"metrics": {...}, "cases": N}\nthresholds:\n  - task_success >= 0.85\n# maxAge: 7d\n`;
   await createAndOpen(`evals/${id.trim()}.yaml`, text, 3);
 }
@@ -701,7 +731,7 @@ function overdueAssumptions(d, today = new Date().toISOString().slice(0, 10)) {
 async function reviewAssumptions(d) {
   const due = overdueAssumptions(d); if (!due.length) return;
   const today = new Date().toISOString().slice(0, 10);
-  const next = prompt(`${d.id}: ${plural(due.length, 'assumption')} overdue:\n${due.map(a => `- ${a.text} (due ${a.review_by})`).join('\n')}\n\nStill true? Enter the next review date (YYYY-MM-DD). This records that you, ${A.user}, reviewed them.`, new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10));
+  const next = await askText(`${d.id}: ${plural(due.length, 'assumption')} overdue:\n${due.map(a => `- ${a.text} (due ${a.review_by})`).join('\n')}\n\nStill true? Enter the next review date (YYYY-MM-DD). This records that you, ${A.user}, reviewed them.`, new Date(Date.now() + 90 * 864e5).toISOString().slice(0, 10));
   if (next == null) return;
   const ok = /^\d{4}-\d{2}-\d{2}$/.test(next.trim()) && !isNaN(new Date(next.trim() + 'T00:00:00Z')) && next.trim() > today;
   if (!ok) { toast('Enter a date after today as YYYY-MM-DD. Nothing was changed.', 'warning'); return; }
@@ -976,7 +1006,7 @@ function treeHTML(nodes, depth) {
     }
     const [, ch] = iconFor(n.path); const b = A.buffers.get(n.path);
     const errs = n.path === A.cfg.model ? A.diags.filter(d => !d.suppressed && d.sev === 'error').length + A.model.errors.length : [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === n.path).length;
-    return `<div class="row ${A.active === n.path ? 'active' : ''}" ${pad} data-file="${esc(n.path)}"><span class="tw"></span><span class="fi">${esc(ch)}</span><span class="lbl" style="${errs ? 'color:var(--err)' : ''}">${esc(n.name)}${b && b.dirty ? ' ●' : ''}</span>${errs ? `<span class="desc" style="color:var(--err)">${errs}</span>` : ''}</div>`;
+    return `<div class="row ${A.active === n.path ? 'active' : ''}" ${pad} data-file="${esc(n.path)}"><span class="tw"></span><span class="fi">${esc(ch)}</span><span class="lbl" style="${errs ? 'color:var(--err)' : ''}">${esc(n.name)}${b && b.dirty ? ' ●' : ''}</span>${errs ? `<span class="desc" style="color:var(--err)">${errs}</span>` : ''}${/^(ledger|handovers)\//.test(n.path) ? '' : `<button class="rowdel" data-delfile="${esc(n.path)}" title="Delete ${esc(n.name)}">×</button>`}</div>`;
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
@@ -1769,6 +1799,7 @@ document.addEventListener('click', async e => {
   if (d.tab) return activate(d.tab);
   if (d.toggle && !e.target.closest('.acts')) { A.collapsed.has(d.toggle) ? A.collapsed.delete(d.toggle) : A.collapsed.add(d.toggle); renderSidebar(); return; }
   if (d.dir) { A.expanded.has(d.dir) ? A.expanded.delete(d.dir) : A.expanded.add(d.dir); renderSidebar(); return; }
+  if (d.delfile) { e.stopPropagation(); return deleteFile(d.delfile); }
   if (d.file) return openFile(d.file);
   if (d.fixfi) { e.stopPropagation(); return recordDecision({ finding: A.diags[+d.fixfi] }); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
@@ -1824,7 +1855,7 @@ document.addEventListener('click', async e => {
   if (a === 'sample') { const i = await host.openSample(); return onFolder(i); }
   if (a === 'freeze') return freezeHandover();
   if (a === 'rebindall') return rebindAll();
-  if (a === 'newdec') return recordDecision();
+  if (a === 'newdec') return newDecision();
   if (a === 'newreq') return newRequirement();
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();

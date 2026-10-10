@@ -179,7 +179,7 @@ document.addEventListener('click', async e => {
   if (k === 'stage') return gitDo('', () => host.gitStage([t.dataset.path]));
   if (k === 'unstage') return gitDo('', () => host.gitUnstage([t.dataset.path]));
   if (k === 'commit') return gitCommitFlow();
-  if (k === 'branch') { const n = (prompt('New branch name') || '').trim(); if (n) await gitDo(`Branch ${n}`, () => host.gitBranch(n)); return; }
+  if (k === 'branch') { const n = ((await askText('New branch name')) || '').trim(); if (n) await gitDo(`Branch ${n}`, () => host.gitBranch(n)); return; }
   if (k === 'fetch') return gitDo('Fetch', () => host.gitFetch());
   if (k === 'pull') {
     if (dirtyBuffers()) return toast('Save or close your unsaved edits before pulling.', 'warning');
