@@ -165,6 +165,13 @@ handle('folder:sample', () => openSample());
 handle('fs:tree', async () => (root ? tree(root) : []));
 handle('fs:read', async rel => fsp.readFile(inside(rel), 'utf8'));
 handle('fs:exists', async rel => { try { await fsp.access(inside(rel)); return true; } catch { return false; } });
+// Deleting is a person's action from the Explorer; no agent tool reaches it. The ledger is append-only and handovers are frozen.
+handle('fs:remove', async rel => {
+  const abs = inside(rel), r = toRel(abs);
+  if (/^(ledger|handovers)(\/|$)/.test(r)) throw new Error(`${r} cannot be deleted: the ledger is append-only and handovers are frozen`);
+  if (!(await fsp.stat(abs)).isFile()) throw new Error(`${r} is not a file`);
+  await fsp.unlink(abs); return true;
+});
 handle('fs:write', async (rel, text) => { const abs = inside(rel); await fsp.mkdir(path.dirname(abs), { recursive: true }); await fsp.writeFile(abs, text, 'utf8'); return true; });
 // Files in one folder with their text, paths relative to `base`; each file is confined again, so a symlink inside
 // the folder cannot lead out of `base`.

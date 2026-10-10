@@ -333,3 +333,11 @@ pre.yamlprev{padding:6px 8px;white-space:pre-wrap}
 .delta.up{color:var(--ok)}.delta.down{color:var(--err)}
 .note-i{color:var(--fg3)}
 h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
+.row .rowdel{margin-left:auto;border:0;background:none;color:var(--fg2);width:20px;height:18px;border-radius:4px;line-height:1;opacity:0;flex:none}
+.row:hover .rowdel{opacity:1}
+.row .rowdel:hover{background:var(--hover);color:var(--err)}
+.askbox{position:fixed;inset:0;z-index:60;display:grid;place-items:start center;padding-top:14vh;background:rgba(0,0,0,.18)}
+.askcard{background:var(--chrome2);border:1px solid var(--edge);box-shadow:0 8px 28px rgba(0,0,0,.3);border-radius:6px;padding:14px;display:grid;gap:10px;width:440px}
+.askcard label{white-space:pre-wrap;line-height:1.4}
+.askcard input{font:inherit;padding:5px 8px;border:1px solid var(--edge);border-radius:4px;background:var(--editor,var(--bg));color:var(--fg)}
+.askcard .ta{display:flex;gap:8px;justify-content:flex-end}
