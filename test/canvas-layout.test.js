@@ -50,8 +50,8 @@ const deep = () => Core.parse(`workspace { model {
 } }`);
 const names = (m, xs) => [...xs].map(x => (typeof x === 'string' ? m.elements.get(x) : x).name).sort();
 
-test('scoped with no scope is the whole model', () => {
-  const m = deep(), v = L.scoped(m, null);
+test('scoped with no scope and no components is the whole model', () => {
+  const m = model(), v = L.scoped(m, null);
   assert.equal(v.scope, null);
   assert.equal(v.elements, m.elements);
   assert.equal(v.rels.length, m.rels.length);
@@ -86,4 +86,13 @@ test('extra outside elements show faded even with no rel yet (a person dropped w
   const m = deep(), v = L.scoped(m, 'sandbox', { show: ['u', 'mcp', 'gone'] });
   assert.deepEqual(names(m, v.outside), ['Dev', 'Policy engine']);
   assert.equal(v.elements.get('u').parent, null);
+});
+
+test('unopened, a container with components is one box that keeps its arrows; its components wait until it is opened', () => {
+  const m = deep(), v = L.scoped(m, null);
+  assert.deepEqual(names(m, L.leavesOf(v)), ['Agent', 'Claude', 'Dev', 'Policy engine', 'Sandbox']);
+  assert.equal(v.rels.filter(r => r.src === 'policy' && r.dst === 'sandbox').length, 1, 'policy -> mcp lifts onto Sandbox');
+  assert.equal(v.rels.filter(r => r.src === 'agent' && r.dst === 'sandbox').length, 1);
+  assert.ok(!v.rels.some(r => r.src === r.dst), 'mcp -> godot folds away');
+  assert.ok(v.rels.every(r => m.rels.includes(r.orig)));
 });
