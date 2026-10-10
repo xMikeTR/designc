@@ -201,11 +201,22 @@
       const ctl = p.kind === 'enum'
         ? `<select data-prop="${p.key}"><option value="">(undeclared)</option>${p.values.map(v => `<option${value === v ? ' selected' : ''}>${v}</option>`).join('')}</select>`
         : `<input data-prop="${p.key}" value="${esc(value ?? '')}" placeholder="${p.kind === 'float' ? 'e.g. 0.999' : p.kind === 'int' ? 'e.g. 3' : ''}">`;
-      return `<label class="dcv-prop${value != null && value !== '' ? ' is-set' : ''}" title="${title}"><span>${esc(p.key.replace(/^d\./, ''))}</span>${ctl}</label>`;
+      return `<label class="dcv-prop${value != null && value !== '' ? ' is-set' : ''}" title="${title}"><span>${esc(p.key.replace(/^d\./, ''))}${host.onAsk ? `<button class="dcv-ask" data-askprop="${esc(p.key)}" title="Ask the tutor what ${esc(p.key)} means">?</button>` : ''}</span>${ctl}</label>`;
+    }
+    // Questions for the tutor (host.onAsk). Each names what it is about so the answer can tie it to this model.
+    function askProp(key) {
+      const s = selected(), where = s ? (S.sel.kind === 'element' ? `"${s.name}"` : `the relationship ${S.model.elements.get(s.src).name} → ${S.model.elements.get(s.dst).name}`) : 'my design';
+      return `What does the design property ${key} mean, why would I declare it, and what value would suit ${where}?`;
+    }
+    function askFinding(f) { return `Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`; }
+    function askSelection() {
+      const s = selected(); if (!s) return 'Explain my design so far: what is good, and what should I learn next?';
+      if (S.sel.kind !== 'element') return `Teach me about the relationship ${S.model.elements.get(s.src).name} → ${S.model.elements.get(s.dst).name} in my design: what the choice of interaction and technology means, and the trade-offs.`;
+      return `Teach me about the ${KIND_LABEL[s.kind].toLowerCase()} "${s.name}" in my design: what it is for, what usually goes inside it, and the trade-offs to think about.`;
     }
     function findingsHTML(list) {
       if (!list.length) return '';
-      return `<div class="dcv-findings">${list.map(f => `<div class="dcv-finding ${f.sev}" data-line="${f.loc.line || ''}"><b>${f.code}</b> ${esc(f.msg)}${f.hint ? `<div class="dcv-fhint">${esc(f.hint)}</div>` : ''}</div>`).join('')}</div>`;
+      return `<div class="dcv-findings">${list.map(f => `<div class="dcv-finding ${f.sev}" data-line="${f.loc.line || ''}"><b>${f.code}</b> ${esc(f.msg)}${f.hint ? `<div class="dcv-fhint">${esc(f.hint)}</div>` : ''}${host.onAsk ? `<button class="dcv-asklnk" data-askfinding="${S.diags.indexOf(f)}">Ask the tutor why</button>` : ''}</div>`).join('')}</div>`;
     }
     function propsHTML(target, node, isEl) {
       const props = V.inspectorProps(target, isEl ? node : null);
@@ -226,7 +237,8 @@
           <p class="dcv-muted">${m.elements.size} elements, ${m.rels.length} relationships, ${agents.length} agents. ${live.filter(d => d.sev === 'error').length} errors, ${live.filter(d => d.sev === 'warning').length} warnings.</p>
           ${ag.length ? `<div class="dcv-sect">Agentic findings</div>${findingsHTML(ag.slice(0, 8))}` : agents.length ? '<p class="dcv-ok">No agentic findings.</p>' : ''}
           <div class="dcv-sect">How to draw</div>
-          <p class="dcv-muted">Drag a stencil onto the canvas; containers dropped inside a system join it. Drag from the round handle on a box to another box to connect them. Double-click a system or container to open it and draw what is inside; Backspace or the breadcrumb goes back up. F2 or double-click on anything else renames, Delete removes, Ctrl+Z undoes. Everything you do is written to the DSL.</p>`;
+          <p class="dcv-muted">Drag a stencil onto the canvas; containers dropped inside a system join it. Drag from the round handle on a box to another box to connect them. Double-click a system or container to open it and draw what is inside; Backspace or the breadcrumb goes back up. F2 or double-click on anything else renames, Delete removes, Ctrl+Z undoes. Everything you do is written to the DSL.</p>
+          ${host.onAsk ? '<div class="dcv-actions"><button data-act="ask">Ask the tutor about my design</button></div>' : ''}`;
         return;
       }
       if (S.sel.kind === 'element') {
@@ -237,13 +249,13 @@
           ${field('Name', 'name', s.name)}${field('Description', 'description', s.description)}${s.kind === 'container' || s.kind === 'component' ? field('Technology', 'technology', s.technology, 'e.g. .NET 8') : ''}
           <div class="dcv-field"><span>Tags</span><div class="dcv-tags">${[...s.tags].filter(t => t !== 'Element').map(t => `<span class="dcv-tag">${esc(t)}</span>`).join('')}<input data-addtag placeholder="Add tag"></div></div>
           ${propsHTML('element', s, true)}
-          <div class="dcv-actions"><button data-act="reveal">Show in DSL</button><button data-act="delete" class="dcv-danger">Delete</button></div>`;
+          <div class="dcv-actions"><button data-act="reveal">Show in DSL</button>${host.onAsk ? '<button data-act="ask">Ask the tutor</button>' : ''}<button data-act="delete" class="dcv-danger">Delete</button></div>`;
       } else {
         insp.innerHTML = `<div class="dcv-ihead"><b>${esc(m.elements.get(s.src).name)} → ${esc(m.elements.get(s.dst).name)}</b></div>
           ${findingsHTML(S.diags.filter(d => !d.suppressed && d.loc.kind === 'relationship' && d.loc.id === s.id))}
           ${field('Description', 'description', s.description)}${field('Technology', 'technology', s.technology, 'e.g. HTTPS')}
           ${propsHTML('relationship', s, false)}
-          <div class="dcv-actions"><button data-act="reveal">Show in DSL</button><button data-act="delete" class="dcv-danger">Delete</button></div>`;
+          <div class="dcv-actions"><button data-act="reveal">Show in DSL</button>${host.onAsk ? '<button data-act="ask">Ask the tutor</button>' : ''}<button data-act="delete" class="dcv-danger">Delete</button></div>`;
       }
     }
     function targetOfSel() {
@@ -264,6 +276,9 @@
     insp.addEventListener('click', ev => {
       const t = ev.target.closest('button, .dcv-finding'); if (!t) return;
       if (t.dataset.act === 'delete') return removeSelection();
+      if (t.dataset.askprop) { ev.preventDefault(); return host.onAsk(askProp(t.dataset.askprop)); }
+      if (t.dataset.askfinding) { const f = S.diags[+t.dataset.askfinding]; return f && host.onAsk(askFinding(f)); }
+      if (t.dataset.act === 'ask') return host.onAsk(askSelection());
       if (t.dataset.act === 'reveal') { const s = selected(); if (s && host.onReveal) host.onReveal(s.line); return; }
       if (t.classList.contains('dcv-finding') && t.dataset.line && host.onReveal) host.onReveal(+t.dataset.line);
     });

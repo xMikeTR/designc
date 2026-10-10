@@ -13,7 +13,7 @@ designc is an Electron desktop IDE for system design in which the design is the 
 | Build | Coding pipeline | Agent runs from Langfuse plus pipeline events from the ledger: tokens per passing task, reruns, decision check results, needs-decision items, drift |
 | Improve | Evals and improvement loop | Escapes by the stage that should have caught them, rule health, proposals, escape suggestions from telemetry |
 | Deployment | As designed | Read-only view of one declared deployment view or whole `deploymentEnvironment` (picker; default `designc.json` `deployment`); click a node to see what is lost and what goes down if it is unavailable |
-| Agent panel | All | Chat pane with roles (Architect, Grill-me, Analyst). Three agent kinds: built-in through an OpenAI-compatible gateway, any Agent Client Protocol (ACP) agent, or a remote AG-UI agent service such as a MAF host |
+| Agent panel | All | Chat pane with roles (Architect, Grill-me, Analyst, Tutor). Three agent kinds: built-in through an OpenAI-compatible gateway, any Agent Client Protocol (ACP) agent, or a remote AG-UI agent service such as a MAF host |
 
 The governing principle, which every change must preserve: **probabilistic components propose; deterministic components and humans decide.** Agents never write anything without a policy check and, for writes, an explicit human approval.
 
@@ -317,7 +317,9 @@ Uses `GET /api/public/v2/observations` (cursor pagination, `fields=core,basic,us
 
 ### Roles and policy
 
-`ROLES` defines `architect` (Design), `grill` (Design) and `analyst` (Improve), each with `allow` (reads), `ask` (writes needing approval), `instructions` and starter prompts. `roleCfg(role)` merges overrides from `designc.json` `agents`. `verdict(role, tool)` (rules in `Policy.verdict`) **fails closed**: `deny` wins, then `ask`, then `allow`, and anything unlisted is `deny`. A write tool (`Policy.WRITE_TOOLS`) listed under `allow` in `designc.json` still returns `ask`: settings can deny a write tool, never make it silent. Tools not permitted for a role are not even offered to the model (`toolSpecs`), and are still refused if called.
+`ROLES` defines `architect` (Design), `grill` (Design), `analyst` (Improve) and `tutor` (Design, read-only: `ask` is empty and `WRITE_PATHS` has no entry, so it can neither call a write tool nor write through ACP), each with `allow` (reads), `ask` (writes needing approval), `instructions` and starter prompts. `roleCfg(role)` merges overrides from `designc.json` `agents`. `verdict(role, tool)` (rules in `Policy.verdict`) **fails closed**: `deny` wins, then `ask`, then `allow`, and anything unlisted is `deny`. A write tool (`Policy.WRITE_TOOLS`) listed under `allow` in `designc.json` still returns `ask`: settings can deny a write tool, never make it silent. Tools not permitted for a role are not even offered to the model (`toolSpecs`), and are still refused if called.
+
+**Tutor.** Teaches system design while the user designs: explains in plain words, ties the answer to the model, names sources (searches the web itself over ACP when the agent can), and ends with one question. `askTutor(question)` in `agent.js` switches to the Tutor, opens the panel and sends the question; it is called from "Ask the tutor" on each model finding in Problems, and from the canvas Inspector through the optional `host.onAsk(question)` hook (the selected element or relationship, the design as a whole, each finding, and the `?` beside each property). The canvas shows none of these buttons when the host gives no `onAsk`.
 
 ### Tools
 

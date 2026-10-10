@@ -1107,7 +1107,7 @@ function renderPanel() {
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
     rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
-      ${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
+      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
 
@@ -1563,6 +1563,7 @@ function canvasHostFor() {
     getLayout: () => A.canvasLayout,
     setLayout: (lay) => { A.canvasLayout = lay; host.write(layoutPathFor(A.cfg.model), JSON.stringify(lay)).catch(() => {}); },
     onReveal: (line) => openFile(A.cfg.model, line),
+    onAsk: (question) => askTutor(question),
     saveReview: async (markdown) => {
       const path = `reviews/${new Date().toISOString().slice(0, 10)}-design-review.md`;
       try { await host.write(path, markdown); A.tree = await host.tree(); renderSidebar(); toast(`Saved ${path}`); }
@@ -1801,6 +1802,7 @@ document.addEventListener('click', async e => {
   if (d.dir) { A.expanded.has(d.dir) ? A.expanded.delete(d.dir) : A.expanded.add(d.dir); renderSidebar(); return; }
   if (d.delfile) { e.stopPropagation(); return deleteFile(d.delfile); }
   if (d.file) return openFile(d.file);
+  if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
   if (d.fixfi) { e.stopPropagation(); return recordDecision({ finding: A.diags[+d.fixfi] }); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
   if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
