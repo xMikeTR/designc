@@ -21,8 +21,7 @@
     "S1-lint",
     "S1-p",
     "S1-grill",
-    "S2-runtime",
-    "S2-config"
+    "pipeline"
   ],
   "pipeline_stream": "pipeline.jsonl",
   "pipeline_kinds": [

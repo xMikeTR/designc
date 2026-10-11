@@ -26,7 +26,7 @@ const Ledger = (() => {
   ];
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
-  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'S2-runtime', 'S2-config'];
+  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'pipeline'];
 
   const STREAM = {
     check: 'checks.jsonl',
