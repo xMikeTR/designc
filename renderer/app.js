@@ -873,6 +873,7 @@ async function freezeHandover() {
     behaviour: await read('behaviour', ['.p']),
     vocabulary: await read('vocabulary', ['.yaml', '.yml']),
     evals: await read('evals', ['.yaml', '.yml']),
+    scenarios: await read('scenarios', ['.yaml', '.yml']),
   });
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];

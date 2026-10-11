@@ -1159,12 +1159,12 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
 
   // A frozen handover is a folder: handovers/<yyyymmdd>-<hash8>/ holding handover.yaml and verbatim copies
-  // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
+  // of the model, requirements, bound decisions, evals, scenarios, behaviour (.p) and vocabulary it was frozen from. The
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
   // elements.json (handoverElements) is derived from that content: listed and hashed, but not in the id.
   // Pure: the caller reads the files and writes the result.
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], forecast = null }) {
-    const content = [model, ...requirements, ...decisions, ...evals, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], forecast = null }) {
+    const content = [model, ...requirements, ...decisions, ...evals, ...scenarios, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(handoverElements(model.text, behaviour), null, 2) + '\n' };
@@ -1180,6 +1180,7 @@ elements: ${q(elements.path)}
 requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
+scenarios: ${q(scenarios.map(idOf))}
 ${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
 ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
