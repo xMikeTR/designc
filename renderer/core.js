@@ -721,6 +721,12 @@ const Core = (() => {
       if (day < today) clauses.push({ kind: 'assumption', text: `${dec.id}: assumption "${Array.from(a.text.trim()).slice(0, 60).join('')}" was due for review on ${day}`, decision: dec.id });
     }
   }
+  // The live decisions that answer one finding: same code, binding one of its elements; bound ones first. Display only.
+  function decisionsFor(f, decisions) {
+    const arr = v => (Array.isArray(v) ? v : []);
+    return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
+      .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
+  }
   function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [], evals = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
@@ -1632,6 +1638,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
