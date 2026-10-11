@@ -747,7 +747,8 @@ const Core = (() => {
       if (business) businessEvidence(dec, evidenceHosts, clauses);
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
-      if (!business) {
+      // An accepted risk rests on its business decision, so it needs no check; a TODO placeholder is not a check.
+      if (!business && !(dec.effect === 'accept' && !(dec.checks || []).some(c => c && !/^TODO/.test(String(c))))) {
         if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
         const last = latestCheck(ledger, dec.id);
         if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });

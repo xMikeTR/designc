@@ -163,7 +163,7 @@ def verify_ledger(root, as_json):
     if not os.path.isdir(root):
         print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
     reg = load_registry(root)
-    r = verify(read_ledger_files(root), load_handover_ids(root), [{'id': d['id'], 'kind': d.get('kind')} for d in reg['decisions']], load_handover_evals(root))
+    r = verify(read_ledger_files(root), load_handover_ids(root), [{'id': d['id'], 'kind': d.get('kind'), 'effect': d.get('effect'), 'checks': d.get('checks')} for d in reg['decisions']], load_handover_evals(root))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         for x in r['errors']: print(f"{x['rule']}  error    {x['msg']}")

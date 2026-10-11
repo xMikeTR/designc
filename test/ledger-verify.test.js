@@ -52,6 +52,8 @@ test('V3: a technical decision is promoted after a passing check; business and u
   assert.deepEqual(rules(run([promoted()], { handovers: [], decisions: [{ id: 'D-1', kind: 'business' }] })).e, []);
   assert.deepEqual(rules(run([promoted()], { handovers: [], decisions: [] })).e, [], 'a decision no longer in the registry cannot be judged');
   assert.deepEqual(rules(run([promoted()], { handovers: [], decisions: [{ id: 'D-1' }] })).e, ['V3'], 'no kind means technical');
+  assert.deepEqual(rules(run([promoted()], { handovers: [], decisions: [{ id: 'D-1', effect: 'accept', checks: ['TODO x'] }] })).e, [], 'an accepted risk with no real check needs none');
+  assert.deepEqual(rules(run([promoted()], { handovers: [], decisions: [{ id: 'D-1', effect: 'accept', checks: ['run it'] }] })).e, ['V3'], 'a listed check on an accept still counts');
 });
 
 test('V4: every line must validate', () => {

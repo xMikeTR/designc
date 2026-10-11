@@ -245,6 +245,9 @@ const Ledger = (() => {
   const TYPE_NAMES = { boolean: 'a boolean', string: 'a string', array: 'an array', object: 'an object', number: 'a number', 'string|null': 'a string or null' };
   const basename = p => String(p || '').split(/[\\/]/).pop();
 
+  // An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
+  // Same rule as the gate in core.js and python/designc (gate.py, verify.py).
+  const acceptWithoutCheck = d => d.effect === 'accept' && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
   // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.
@@ -297,7 +300,7 @@ const Ledger = (() => {
     }
     for (const p of live.filter(e => e.kind === 'decision_promoted')) {
       const d = decisions.find(x => x.id === p.decision);
-      if (!d || d.kind === 'business') continue;
+      if (!d || d.kind === 'business' || acceptWithoutCheck(d)) continue;
       const c = latest(checks, x => x.decision === p.decision, p._ts);
       if (!c || c.outcome !== 'pass') err('V3', `decision ${p.decision} was promoted without a passing check before it`);
     }

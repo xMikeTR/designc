@@ -3,6 +3,7 @@ import json
 import os
 
 from .ledger import SCHEMA, validate
+from .gate import accept_without_check
 from .record import canonical
 
 
@@ -58,7 +59,7 @@ def verify(files, handovers=(), decisions=(), handover_evals=None):
         elif not g.get('ready'): err('V1', f"handover {h.get('handover')}: the latest gate event at revision {_bare(h.get('revision'))} before it was not ready")
     for p in (e for e in live if e.get('kind') == 'decision_promoted'):
         d = next((x for x in decisions if x.get('id') == p.get('decision')), None)
-        if not d or d.get('kind') == 'business': continue
+        if not d or d.get('kind') == 'business' or accept_without_check(d): continue
         c = latest(checks, lambda x: x.get('decision') == p.get('decision'), p['_ts'])
         if not c or c.get('outcome') != 'pass': err('V3', f"decision {p.get('decision')} was promoted without a passing check before it")
     for u in (e for e in live if e.get('kind') == 'unapproved_change'):

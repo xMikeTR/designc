@@ -70,11 +70,12 @@ test('verify-ledger: exit 0 when clean, 1 with errors, 2 when the folder is miss
 
 test('verify-ledger finds flat and folder handovers and decision kinds on disk', { skip }, () => {
   const root = reg();
-  put(root, 'ledger/checks.jsonl', jl([gate(), handover(), ev('handover', { handover: 'H-2', revision: 'aaaa1111' }), ev('decision_promoted', { decision: 'D-1' }), ev('decision_promoted', { decision: 'D-2' })]));
+  put(root, 'ledger/checks.jsonl', jl([gate(), handover(), ev('handover', { handover: 'H-2', revision: 'aaaa1111' }), ev('decision_promoted', { decision: 'D-1' }), ev('decision_promoted', { decision: 'D-2' }), ev('decision_promoted', { decision: 'D-3' })]));
   put(root, 'handovers/H-1/handover.yaml', 'id: H-1\n');
   put(root, 'handovers/H-2.yaml', 'id: H-2\n');
   put(root, 'decisions/D-1.yaml', 'id: D-1\nkind: business\n');
   put(root, 'decisions/D-2.yaml', 'id: D-2\n');
+  put(root, 'decisions/D-3.yaml', 'id: D-3\neffect: accept\nchecks: ["TODO command"]\n');
   const r = JSON.parse(run(root, ['--json']).stdout);
   assert.deepEqual(r.errors.map(e => e.rule), ['V3']);
   assert.match(r.errors[0].msg, /D-2/);

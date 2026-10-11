@@ -50,3 +50,12 @@ test('policy: agents never write agreed_by or evidence on a decision', () => {
   assert.match(yl('id: a\nstatus: minted\nkind: business\nevidence: https://x\n').error || '', /human/);
   assert.deepEqual(yl('id: a\nstatus: minted\nkind: business\nstatement: "PROPOSED: x"\n'), { ok: true });
 });
+
+test('a technical accept needs no check; a TODO placeholder is not a check; listed checks still count', () => {
+  const noLedger = { ledger: [] };
+  assert.deepEqual(texts(gate([biz(), tech({ checks: [] })], noLedger)), []);
+  assert.deepEqual(texts(gate([biz(), tech({ checks: undefined })], noLedger)), []);
+  assert.deepEqual(texts(gate([biz(), tech({ checks: ['TODO command that proves it'] })], noLedger)), []);
+  assert.deepEqual(texts(gate([biz(), tech({ checks: ['x'] })], noLedger)), ['t1: no check result recorded yet']);
+  assert.deepEqual(texts(gate([biz(), tech({ effect: 'fix', relies_on: [], checks: [] })], noLedger)), ['t1 has no check']);
+});
