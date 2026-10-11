@@ -780,12 +780,29 @@ async function reviewAssumptions(d) {
   await editYaml(d._path, t => t.replace(/^assumptions:.*(?:\n(?:[ \t]+.*|-.*))*/m, '').replace(/\s*$/, `\nassumptions: ${JSON.stringify(list)}\n`));
   toast(`Reviewed ${plural(due.length, 'assumption')} on ${d.id}.`);
 }
+// A business decision binds against a requirement: pick one, or create it, and write it into the decision. Null on Cancel.
+async function chooseRequirement(d) {
+  const title = String(d.statement || '').replace(/^PROPOSED:\s*/, '').trim() || 'TODO';
+  const pick = await askChoice(`${d.id} is a business decision and needs the requirement it answers.`,
+    [...A.requirements.map(r => ({ label: `${r.id}: ${trunc(String(r.title || ''), 50)}`, value: r.id })), { label: 'New requirement', value: '', primary: !A.requirements.length }]);
+  if (pick == null) return null;
+  let id = pick;
+  if (!id) {
+    id = ((await askText('Jira key for the requirement', 'HRE-')) || '').trim(); if (!id || id === 'HRE-') return null;
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(id)) { toast(`${id} is not a usable id. Use letters, digits, dots, dashes or underscores.`, 'warning'); return null; }
+    if (A.requirements.some(r => r.id === id) || await host.exists(`requirements/${id}.yaml`)) { toast(`requirements/${id}.yaml already exists. Choose it from the list instead.`, 'warning'); return null; }
+    await host.write(`requirements/${id}.yaml`, `id: ${id}\ntitle: ${yamlStr(title)}\nsource: ""\nversion: 1\nelements: []\n`);
+  }
+  await editYaml(d._path, t => setField(t, 'requirement', id));
+  return A.requirements.find(r => r.id === id) || null;
+}
 async function bindDecision(d, { confirmed = false } = {}) {
   if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
   let against;
   if (d.kind === 'business') {
-    const req = A.requirements.find(r => r.id === d.requirement);
-    if (!req) { toast(`${d.id} is a business decision; set requirement to an existing requirement id before binding.`, 'warning'); return; }
+    let req = A.requirements.find(r => r.id === d.requirement);
+    if (!req) req = await chooseRequirement(d);
+    if (!req) return;
     against = [{ requirement: req.id, version: req.version }];
   } else against = (d.binds || []).map(n => [...A.model.elements.values()].find(e => e.name === n)).filter(Boolean)
     .map(e => ({ element: e.ident || '', name: e.name, hash: Core.fingerprint(A.model, e.id).hash }));
