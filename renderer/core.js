@@ -1353,15 +1353,29 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
 
   // ---------- drift: designed vs as-built ----------
   const key = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  // An element a pipeline names: its elements.json id (System/Container/Component, as `m.label` and handoverElements write it) first, then a
+  // name or d.aka that exactly one element carries. Null when unknown or ambiguous.
+  function resolveElement(m, ref) {
+    if (ref == null || ref === '') return null;
+    const text = String(ref);
+    const all = [...m.elements.values()];
+    const path = e => { const parts = []; for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) parts.unshift(c.name); return parts.join('/'); };
+    const byId = all.filter(e => path(e) === text);
+    if (byId.length === 1) return byId[0];
+    const k = key(text);
+    if (!k) return null;
+    const named = all.filter(e => [e.name, ...(get(e, 'd.aka') || [])].some(n => key(n) === k));
+    return named.length === 1 ? named[0] : null;
+  }
+
   function drift(m, ledger) {
-    const idx = new Map();
-    for (const e of m.elements.values()) { if (e.kind === 'person') continue; [e.name, ...(get(e, 'd.aka') || [])].forEach(n => { if (!idx.has(key(n))) idx.set(key(n), e); }); }
+    const find = ref => { const e = resolveElement(m, ref); return e && e.kind !== 'person' ? e : null; };
     const built = ledger.filter(e => e.kind === 'asbuilt_edge');
     if (!built.length) return null;
     const unknownEls = new Set(), undeclared = [], seen = new Set(), mapped = new Set();
     const designed = new Set(m.rels.filter(r => m.elements.get(r.src).kind !== 'person').map(r => r.src + '>' + r.dst));
     for (const b of built) {
-      const s = idx.get(key(b.from)), d = idx.get(key(b.to));
+      const s = find(b.from), d = find(b.to);
       if (!s) unknownEls.add(b.from); if (!d) unknownEls.add(b.to);
       if (!s || !d) continue;
       mapped.add(s.id); mapped.add(d.id); seen.add(s.id + '>' + d.id);
@@ -1668,6 +1682,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
