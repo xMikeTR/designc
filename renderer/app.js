@@ -327,7 +327,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], scenarios: A.scenarios, evals: A.evals });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -618,7 +618,7 @@ async function recordDecision({ finding, statement = '', effect = 'fix', binds, 
 status: minted          # minted | checked | bound | superseded
 kind: ${business ? 'business' : 'technical'}          # business | technical
 effect: ${effect}             # fix (the model changes) | accept (keep the risk)
-${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts\n' : ''}requirement: null
+${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
 binds: ${yamlList(binds || [])}
 resolves: ${yamlList(resolves || [])}
 statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
@@ -1093,7 +1093,7 @@ function gateOrder(clauses) {
 }
 // What the person does next, for clauses whose text names the problem but not the fix.
 function clauseHelp(c) {
-  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return 'A business decision is agreed by people outside the design. Link to where that happened: a ticket, an issue or meeting notes.';
+  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return 'A business decision is agreed by whoever owns the business. If that is someone else, link to where they agreed it: a ticket, an issue or meeting notes. If it is you, say so and your bind is the record.';
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return 'Keeping a risk is a business call, not a technical one. Point this decision at the business decision that agreed the risk, or draft one and get it agreed.';
   return '';
 }
@@ -1106,7 +1106,7 @@ function clauseActions(c) {
   if (c.kind === 'check') return b('data-run', c.decision, 'Run check');
   if (c.kind === 'assumption' && / was due for review on /.test(c.text)) return b('data-review', c.decision, 'Mark reviewed');
   if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
-  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this');
+  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
   if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
@@ -1141,8 +1141,19 @@ async function chooseBusinessDecision(d) {
   const relies = [...new Set([...(Array.isArray(d.relies_on) ? d.relies_on : []), id])];
   await editYaml(d._path, t => setField(t, 'relies_on', yamlList(relies)));
   const b = A.decisions.find(x => x.id === id);
-  if (drafted) { await openFile(drafted.path); toast(`Drafted ${id}. Add evidence, then bind it.`); }
+  if (drafted) { await openFile(drafted.path); toast((A.cfg.businessOwners || []).includes(A.user) ? `Drafted ${id}. Read it, then bind it.` : `Drafted ${id}. Bind it, then add evidence or say you are the business.`); }
   else toast(b && b.status === 'bound' ? `${d.id} now rests on ${id}.` : `${d.id} now rests on ${id}. Bind ${id} to clear the gate.`);
+}
+// Human only: the person says they are the business, so their binds need no evidence link (Core.gate businessOwners).
+async function becomeBusinessOwner(d) {
+  if (!confirm(`Record ${A.user} as a business owner? This adds ${A.user} to businessOwners in designc.json. A business decision you bind then needs no evidence link: your bind is the record.`)) return;
+  let cfg = {}; const t = await readText('designc.json');
+  if (t) { try { cfg = JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return; } }
+  const owners = Array.isArray(cfg.businessOwners) ? cfg.businessOwners : [];
+  if (!owners.includes(A.user)) cfg.businessOwners = [...owners, A.user];
+  await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n');
+  A.cfg.businessOwners = cfg.businessOwners; recompile();
+  toast(d && d.promoted_by && d.promoted_by !== A.user ? `${A.user} is a business owner. ${d.id} was bound by ${d.promoted_by}; re-bind it yourself to clear it.` : `${A.user} is a business owner.`);
 }
 async function allowEvidenceHost(h) {
   if (!h || !confirm(`Allow evidence links on ${h}? This adds it to evidenceHosts in designc.json, so any decision may cite a page there.`)) return;
@@ -1968,6 +1979,7 @@ document.addEventListener('click', async e => {
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
+  if (d.owner) { e.stopPropagation(); return becomeBusinessOwner(A.decisions.find(x => x.id === d.owner)); }
   if (d.addevidence) { e.stopPropagation(); return addEvidence(A.decisions.find(x => x.id === d.addevidence)); }
   if (d.relyon) { e.stopPropagation(); return chooseBusinessDecision(A.decisions.find(x => x.id === d.relyon)); }
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);

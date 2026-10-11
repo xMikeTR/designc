@@ -25,6 +25,15 @@ test('business decision: no check needed, but evidence is mandatory and must be 
   assert.match(texts(gate([biz()], { evidenceHosts: [] }))[0], /not allowed/);
 });
 
+test('a business decision bound by a business owner needs no evidence link; a link it does give is still judged', () => {
+  const owners = { businessOwners: ['mike'] };
+  assert.deepEqual(texts(gate([biz({ evidence: undefined, promoted_by: 'mike' })], owners)), []);
+  assert.deepEqual(texts(gate([biz({ evidence: '', promoted_by: 'mike' })], owners)), []);
+  assert.deepEqual(texts(gate([biz({ evidence: undefined, promoted_by: 'sam' })], owners)), ['b1 is a business decision without evidence']);
+  assert.deepEqual(texts(gate([biz({ evidence: undefined, promoted_by: 'mike' })])), ['b1 is a business decision without evidence']);
+  assert.match(texts(gate([biz({ evidence: 'http://x', promoted_by: 'mike' })], owners))[0], /evidence must be an https URL/);
+});
+
 test('business decision is promoted against its requirement version', () => {
   assert.match(texts(gate([biz({ promoted_against: [{ requirement: 'HRE-1', version: 2 }] })]))[0], /b1: HRE-1 changed since promotion/);
   assert.match(texts(gate([biz({ promoted_against: [{ requirement: 'HRE-9', version: 1 }] })]))[0], /b1: binding HRE-9 does not resolve/);
