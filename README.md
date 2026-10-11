@@ -80,7 +80,7 @@ Matching to the design is by normalised name (`Referral.Worker` matches `Referra
 - **In code, not in the design:** an undeclared dependency, or an element the design doesn't have.
 - **Designed, not found in code:** dotted edges on the map, and designed elements with no match.
 
-**Code areas** in the sidebar compare each element's `d.code` (see [Code areas](#code-areas-dcode)) with every file in the codebase (any type, so `db/migrations/*.sql` counts; the folders extraction skips, such as `bin`, `obj`, `node_modules` and dot-folders, do not): how many files each pattern matches, which patterns match none, and which files are in no area. An exact path that names a folder (`src/Api` with files under it) says so and suggests `src/Api/**`, because System 2 matches it as one file. It is information only, never a finding or a gate clause. A map extracted before this existed says "Re-extract to see code areas".
+**Code areas** in the sidebar compare each element's `d.code` (see [Code areas](#code-areas-dcode)) with every file in the codebase (any type, so `db/migrations/*.sql` counts; the folders extraction skips, such as `bin`, `obj`, `node_modules` and dot-folders, do not): how many files each pattern matches, which patterns match none, and which files are in no area. An exact path that names a folder (`src/Api` with files under it) says so and suggests `src/Api/**`, because an exact path matches one file. It is information only, never a finding or a gate clause. A map extracted before this existed says "Re-extract to see code areas".
 
 With no design yet, "Start the design from this map" turns the as-built model into `model/workspace.dsl`, which is the quickest way into a legacy codebase.
 
@@ -332,7 +332,7 @@ Both rules come from a concept note and are not yet backed by an incident. On th
 
 ## Code areas (`d.code`)
 
-`d.code` says where an element's code lives, and `d.risk` (`low`, `medium` or `high`) how risky a change there is. System 2 confines each coding task to the element's area and gives every file to the first element whose area matches it, so the design compiler checks the areas before a handover:
+`d.code` says where an element's code lives, and `d.risk` (`low`, `medium` or `high`) how risky a change there is. Both go into the handover's `elements.json`. Each file belongs to one element's area, and a coding agent can confine each task to that area, so the design compiler checks the areas before a handover:
 
 ```
 api = container "Pricing API" {
@@ -345,10 +345,10 @@ api = container "Pricing API" {
 
 Patterns are repo-relative and comma-separated: `*` and `?` match within one folder name, `**` matches any number of folders and must be a whole segment. Backslashes become `/`, and a leading `./` and trailing `/` are dropped. `src/Api` is one file, not a folder: write `src/Api/**`.
 
-- **DC000 (error).** A pattern System 2 rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
-- **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged as System 2 judges it, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
+- **DC000 (error).** A pattern the contract rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
+- **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
 
-The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) and System 2 all run. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
+The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
 ## Cost forecast
 

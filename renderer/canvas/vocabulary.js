@@ -117,8 +117,8 @@
     ['d.owns', 'element', 'list', null, 'Design', 'Entities this element owns writes to.'],
     ['d.store', 'element', 'enum', YN, 'Design', 'Is a data store.'],
     ['d.aka', 'element', 'list', null, 'Design', 'Other names, for matching code.'],
-    ['d.code', 'element', 'list', null, 'Design', 'Repo paths or globs where this element\'s code lives (System 2 task scope).'],
-    ['d.risk', 'element', 'enum', ['low', 'medium', 'high'], 'Design', 'How risky a change here is (System 2 merge tier).'],
+    ['d.code', 'element', 'list', null, 'Design', 'Repo paths or globs where this element\'s code lives (a coding agent\'s task scope).'],
+    ['d.risk', 'element', 'enum', ['low', 'medium', 'high'], 'Design', 'How risky a change here is (a coding agent may gate merges on it).'],
   ].map(([key, target, kind, values, group, doc]) => ({ key, target, kind, values, group, doc, source: 'designc' }));
   function inspectorProps(target, el) {
     const all = [...CORE_PROPS, ...PROP.values()].filter(p => p.target === target);

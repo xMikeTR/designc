@@ -1,5 +1,5 @@
-"""d.code path patterns: the Python mirror of renderer/pathpattern.js. System 2's meaning (Factory.Core
-PathPattern); docs/path-patterns.json is the contract all three implementations test against."""
+"""d.code path patterns: the Python mirror of renderer/pathpattern.js. designc's meaning;
+docs/path-patterns.json is the contract every implementation, designc's or a coding agent's, tests against."""
 import re
 
 
@@ -33,7 +33,7 @@ def _match_segs(ps, ss):
 
 
 def may_overlap(a, b):
-    """Could any file match both normalised patterns? Over-approximates, as System 2 does."""
+    """Could any file match both normalised patterns? Over-approximates, as the contract does."""
     as_, bs = a.split('/'), b.split('/')
     ea, eb = not any(map(_wild, as_)), not any(map(_wild, bs))
     if ea and eb: return a == b

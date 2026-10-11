@@ -1,5 +1,5 @@
-// d.code is System 2's scope guard: a pattern it rejects, an empty list or a missing d.risk fails the
-// handover in System 2, so designc reports them before the freeze (DC000).
+// d.code says where an element's code lives, in the path pattern contract (docs/path-patterns.json). A pattern
+// the contract rejects, an empty list or a missing d.risk is reported before the freeze (DC000).
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
@@ -16,7 +16,7 @@ test('valid patterns with a d.risk give no DC000', () => {
   assert.deepEqual(findings(model(el('Api', { 'd.code': 'src/Api/**, ./tests\\Api.Tests/', 'd.risk': 'low' })), 'DC000'), []);
 });
 
-test('a pattern System 2 rejects is a DC000 error naming the pattern', () => {
+test('a pattern the contract rejects is a DC000 error naming the pattern', () => {
   const ds = findings(model(el('Api', { 'd.code': 'src/Api/**, ../shared/**', 'd.risk': 'low' })), 'DC000');
   assert.equal(ds.length, 1);
   assert.equal(ds[0].sev, 'error');
@@ -40,16 +40,16 @@ test('an empty d.code or a blank entry is an error', () => {
 test('d.code without d.risk is an error', () => {
   const ds = findings(model(el('Api', { 'd.code': 'src/Api/**' })), 'DC000');
   assert.equal(ds.length, 1);
-  assert.match(ds[0].msg, /d\.code needs d\.risk/);
+  assert.equal(ds[0].msg, 'd.code needs d.risk (the handover gives both or neither)');
   assert.match(ds[0].hint, /low \| medium \| high/);
 });
 
-test('d.risk without d.code is fine (System 2 ignores the element)', () => {
+test('d.risk without d.code is fine (the handover gives the element no code area)', () => {
   assert.deepEqual(findings(model(el('Api', { 'd.risk': 'low' })), 'DC000'), []);
 });
 
-// DC009: System 2 gives a file to the first element whose d.code matches it, and only one level per
-// branch may declare d.code, so overlaps and nesting are errors in the design.
+// DC009: each file belongs to one element's d.code, and only one level per branch may declare d.code,
+// so overlaps and nesting are errors in the design.
 test('code areas that may overlap are a DC009 error on the element declared later', () => {
   const ds = findings(model(
     el('Api', { 'd.code': 'src/Api/**', 'd.risk': 'low' }),
@@ -61,6 +61,13 @@ test('code areas that may overlap are a DC009 error on the element declared late
   assert.match(ds[0].msg, /src\/Api\/Handlers\/\*\.cs/);
   assert.match(ds[0].msg, /src\/Api\/\*\*/);
   assert.deepEqual(ds[0].related.map(r => r.label), ['Api']);
+  assert.equal(ds[0].hint, 'make the areas disjoint: a file in both areas has no single owner');
+});
+
+test('DC009 names the handover contract as its source, not a consumer', () => {
+  const r = Core.RULES.find(x => x.code === 'DC009');
+  assert.equal(r.source, 'Handover contract: each file belongs to one element\'s d.code (docs/path-patterns.json)');
+  assert.match(r.doc, /Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping\.$/);
 });
 
 test('disjoint code areas give no DC009', () => {
@@ -102,7 +109,7 @@ test('an invalid pattern is left to DC000 and an intended overlap can be suppres
 });
 
 // Code areas against the codebase: display-only drift in the Code map, judged on every file the extraction walk
-// lists (System 2 confines writes to any file, not only source the scanners parse).
+// lists (a coding agent may write any file, not only source the scanners parse).
 const FILES = ['src/Api/Program.cs', 'src/Api/Orders.cs', 'src/Worker/Job.cs', 'tests/Api.Tests/T.cs', 'README.json'];
 
 test('codeAreaDrift counts the files each pattern matches and lists the files no area claims', () => {
@@ -129,13 +136,13 @@ test('a pattern DC000 rejects is left out of the drift', () => {
   assert.deepEqual(r.areas.map(a => a.pattern), ['src/Api/**']);
 });
 
-test('an exact path that is a folder in the codebase gets a hint, because System 2 matches it as one file', () => {
+test('an exact path that is a folder in the codebase gets a hint, because an exact path matches one file', () => {
   const r = Core.codeAreaDrift(Core.parse(model(
     el('Api', { 'd.code': 'src/Api, README.json', 'd.risk': 'low' }),
     el('Docs', { 'd.code': 'docs', 'd.risk': 'low' }))), FILES);
   const by = p => r.areas.find(a => a.pattern === p);
   assert.equal(by('src/Api').matched, 0);
-  assert.equal(by('src/Api').hint, 'src/Api is a folder with 2 files; System 2 matches it as a single file. Did you mean src/Api/**?');
+  assert.equal(by('src/Api').hint, 'src/Api is a folder with 2 files; an exact path matches a single file. Did you mean src/Api/**?');
   assert.equal(by('README.json').hint, undefined, 'an exact path that matches its file needs no hint');
   assert.equal(by('docs').hint, undefined, 'nothing under it either: no hint');
 });
