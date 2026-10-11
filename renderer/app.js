@@ -1091,6 +1091,12 @@ function gateOrder(clauses) {
   const rank = c => { const r = CLAUSE_ORDER.indexOf(c.kind); return r < 0 ? CLAUSE_ORDER.length : r; };
   return clauses.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i);
 }
+// What the person does next, for clauses whose text names the problem but not the fix.
+function clauseHelp(c) {
+  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return 'A business decision is agreed by people outside the design. Link to where that happened: a ticket, an issue or meeting notes.';
+  if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return 'Keeping a risk is a business call, not a technical one. Point this decision at the business decision that agreed the risk, or draft one and get it agreed.';
+  return '';
+}
 function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S+) is not allowed/.exec(c.text); return m ? m[1] : null; }
 function clauseActions(c) {
   const b = (attr, v, label, title) => `<button class="lnk" ${attr}="${esc(String(v))}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
@@ -1100,9 +1106,43 @@ function clauseActions(c) {
   if (c.kind === 'check') return b('data-run', c.decision, 'Run check');
   if (c.kind === 'assumption' && / was due for review on /.test(c.text)) return b('data-review', c.decision, 'Mark reviewed');
   if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
+  if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this');
+  if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
   if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
   return '';
+}
+// Human only: evidence is what a person agreed, so no agent tool writes it.
+async function addEvidence(d) {
+  if (!d) return;
+  const url = ((await askText(`Link to where ${d.id} was agreed (an https page: ticket, issue or meeting notes).`, 'https://')) || '').trim();
+  if (!url || url === 'https://') return;
+  let u; try { u = new URL(url); } catch { u = null; }
+  if (!u || u.protocol !== 'https:') { toast(`${url} is not an https link. Paste the full address, starting with https://.`, 'warning'); return; }
+  await editYaml(d._path, t => setField(t, 'evidence', yamlStr(url)));
+  const hosts = A.cfg.evidenceHosts || [];
+  if (!hosts.includes(u.hostname)) await allowEvidenceHost(u.hostname);
+  else toast(`Evidence added to ${d.id}.`);
+}
+// Human only, like acceptRisk: an accepted risk names the business decision it rests on.
+async function chooseBusinessDecision(d) {
+  if (!d) return;
+  const biz = A.decisions.filter(x => x.kind === 'business' && x.status !== 'superseded');
+  const pick = await askChoice(`${d.id} keeps a risk. Which business decision agreed it?`,
+    [...biz.map(x => ({ value: x.id, label: `${x.id} (${x.status}): ${trunc(String(x.statement || 'no statement'), 60)}` })), { value: '', label: 'Draft a new business decision', primary: !biz.length }]);
+  if (pick == null) return;
+  let id = pick, drafted = null;
+  if (!id) {
+    const what = ((await askText('What risk does the business accept? Say it so someone outside the team can agree to it.', String(d.statement || '').replace(/^PROPOSED:\s*/, ''))) || '').trim();
+    if (!what) return;
+    drafted = await recordDecision({ kind: 'business', effect: 'accept', statement: what, binds: d.binds || [], resolves: [], rationale: `Agreed risk behind ${d.id}`, open: false });
+    id = drafted.id;
+  }
+  const relies = [...new Set([...(Array.isArray(d.relies_on) ? d.relies_on : []), id])];
+  await editYaml(d._path, t => setField(t, 'relies_on', yamlList(relies)));
+  const b = A.decisions.find(x => x.id === id);
+  if (drafted) { await openFile(drafted.path); toast(`Drafted ${id}. Add evidence, then bind it.`); }
+  else toast(b && b.status === 'bound' ? `${d.id} now rests on ${id}.` : `${d.id} now rests on ${id}. Bind ${id} to clear the gate.`);
 }
 async function allowEvidenceHost(h) {
   if (!h || !confirm(`Allow evidence links on ${h}? This adds it to evidenceHosts in designc.json, so any decision may cite a page there.`)) return;
@@ -1118,7 +1158,7 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}</span>${clauseActions(c)}</div>`).join('') +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span>${clauseActions(c)}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
@@ -1928,6 +1968,8 @@ document.addEventListener('click', async e => {
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
+  if (d.addevidence) { e.stopPropagation(); return addEvidence(A.decisions.find(x => x.id === d.addevidence)); }
+  if (d.relyon) { e.stopPropagation(); return chooseBusinessDecision(A.decisions.find(x => x.id === d.relyon)); }
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
   if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
