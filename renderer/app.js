@@ -452,7 +452,7 @@ function setupMonaco(monaco) {
     },
   });
   monaco.editor.registerCommand('designc.recordDecision', (_a, code, line) => {
-    const f = A.diags.find(d => d.code === code && d.loc.line === line && !d.suppressed); if (f) recordDecision({ finding: f });
+    const f = A.diags.find(d => d.code === code && d.loc.line === line && !d.suppressed); if (f) decisionForFinding(f);
   });
   monaco.languages.registerCodeActionProvider('structurizr', {
     provideCodeActions(model, _range, context) {
@@ -618,10 +618,15 @@ assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-M
 `;
   await createAndOpen(`decisions/${id}.yaml`, text, statement ? null : 8);
 }
-// The + on Decisions asks first, so a stray click creates nothing.
+// The + on Decisions and Record decision on a problem ask first, so a stray click creates nothing.
 async function newDecision() {
   const statement = await askText('What was decided? (leave blank to fill in later)'); if (statement == null) return;
   return recordDecision({ statement: statement.trim() });
+}
+async function decisionForFinding(f) {
+  if (!f) return;
+  const statement = await askText(`${f.code} on ${f.loc.label}: ${f.msg.replace(/\.?$/, '.')} What was decided? (leave blank to fill in later)`); if (statement == null) return;
+  return recordDecision({ finding: f, statement: statement.trim() });
 }
 // Human only, from the Explorer. The ledger and handovers are refused by the main process as well.
 async function deleteFile(path) {
@@ -1804,7 +1809,7 @@ document.addEventListener('click', async e => {
   if (d.delfile) { e.stopPropagation(); return deleteFile(d.delfile); }
   if (d.file) return openFile(d.file);
   if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
-  if (d.fixfi) { e.stopPropagation(); return recordDecision({ finding: A.diags[+d.fixfi] }); }
+  if (d.fixfi) { e.stopPropagation(); return decisionForFinding(A.diags[+d.fixfi]); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
   if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
