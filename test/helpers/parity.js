@@ -44,7 +44,7 @@ function nodeState(root) {
   const ledger = Ledger.derive(Ledger.order(raw));
   const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
   const diags = Core.check(model, { chainHops: cfg.chainHops || 4 });
-  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], scenarios, evals });
+  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals });
   return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
 }
 function nodeReport(root) {

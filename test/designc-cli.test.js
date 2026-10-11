@@ -88,7 +88,9 @@ test('deployment environments parse the same', { skip }, () => {
 test('decisions, fingerprints, business evidence, requirements, ledger and scenarios agree', { skip }, () => {
   const root = tmpRegistry({
     'model/workspace.dsl': MODEL,
-    'designc.json': JSON.stringify({ model: 'model/workspace.dsl', evidenceHosts: ['jira.example.com'] }),
+    'designc.json': JSON.stringify({ model: 'model/workspace.dsl', evidenceHosts: ['jira.example.com'], businessOwners: ['mike'] }),
+    'decisions/D-9.yaml': 'id: D-9\nstatus: bound\nkind: business\nrequirement: R-1\npromoted_by: mike\npromoted_against: [{requirement: R-1, version: 2}]\n',
+    'decisions/D-10.yaml': 'id: D-10\nstatus: bound\nkind: business\nrequirement: R-1\npromoted_by: sam\npromoted_against: [{requirement: R-1, version: 2}]\n',
     'decisions/D-1.yaml': 'id: D-1\nstatus: bound\neffect: fix\nbinds: Orders DB\nresolves: [DC002]\nchecks: [p check]\n',
     'decisions/D-2.yaml': 'id: D-2\nstatus: bound\nkind: business\nrequirement: R-1\nevidence: https://other.example.com/x\npromoted_against: [{requirement: R-1, version: 1}]\n',
     'decisions/D-3.yaml': 'id: D-3\nstatus: bound\neffect: accept\nbinds: [Api]\nresolves: [DC005]\nchecks: [x]\npromoted_against: [{element: api, name: Api, hash: deadbeefdeadbeef}]\n',
