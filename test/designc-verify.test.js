@@ -39,6 +39,8 @@ const CASES = {
   v8ok: { files: [['checks', [gate(), handover(), ev('eval', { eval: 'EV-1', agent: 'A', outcome: 'pass', metrics: { m: 1 }, cases: 1, source: 'pipeline', fingerprint: 'f', eval_hash: 'old' })]]], handovers: ['H-1'], handoverEvals: { 'H-1': { 'EV-1': 'old' } } },
   sample: { files: [['checks', [gate({ sample: true }), handover({ sample: true, dirty: true })]]], decisions: [] },
   order: { files: [['z', ['bad']], ['a', ['worse']]] },
+  v9: { files: [['pipeline', [ev('needs_decision', { id: 'ND-1', question: 'q?', status: 'open' }), ev('needs_decision_resolved', { id: 'ND-1' }), ev('escape_classified', { escape: 'E-1', caught_by: 'S1-lint' })]]] },
+  v9ok: { files: [['pipeline', [ev('task', { task: 'T-1', status: 'passed' }), ev('asbuilt_edge', { from: 'A', to: 'B' }), ev('handover_closed', { handover: 'H-1', outcome: 'delivered' })]]], handovers: [] },
 };
 
 for (const [name, c] of Object.entries(CASES)) {

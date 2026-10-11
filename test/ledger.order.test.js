@@ -20,11 +20,11 @@ test('order sorts by _ts and is stable for equal timestamps', () => {
 
 test('two branches that each appended read back the same state in either merge order', () => {
   const base = esc('aaaaaaaa-1', 10);
-  const left = classify('11111111-a', 40, 'S1-lint'), right = classify('22222222-b', 50, 'S2-runtime');
+  const left = classify('11111111-a', 40, 'S1-lint'), right = classify('22222222-b', 50, 'pipeline');
   const one = Ledger.derive(read([base, left, right].join('\n')));
   const two = Ledger.derive(read([base, right, left].join('\n')));
   assert.deepEqual(one, two);
-  assert.equal(one[0].caught_by, 'S2-runtime');
+  assert.equal(one[0].caught_by, 'pipeline');
 });
 
 test('legacy lines keep distinct synthetic ids and are not dropped', () => {

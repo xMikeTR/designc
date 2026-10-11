@@ -25,7 +25,7 @@
             "items": { "type": "string" },
             "minItems": 1
           },
-          "risk": { "description": "d.risk: how risky a change here is. Present only when declared.", "enum": ["low", "medium", "high"] }
+          "risk": { "description": "d.risk: how risky a change here is. Present only when declared, and always present when code is (designc refuses d.code without d.risk, DC000).", "enum": ["low", "medium", "high"] }
         }
       }
     },

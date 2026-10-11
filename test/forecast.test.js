@@ -116,3 +116,33 @@ test('a name shared by several elements is not priced from a merged history', ()
   assert.equal(f.rows.filter(x => x.name === 'Shared').length, 1);
   assert.equal(f.total.expected.tokens, 0);
 });
+
+// A pipeline records spend under the element's elements.json id (System/Container/Component); older rows and
+// pipelines that only know names use the name. Both reach the same element.
+test('history keyed by elements.json id prices the element', () => {
+  const m = parse(dsl());
+  const f = Core.forecast({ before: null, after: m, history: new Map([['S/Api', hist(100, 300, 200)], ['S/Db', hist(10, 20, 30)]]) });
+  assert.equal(row(f, 'Api').status, 'measured');
+  assert.equal(row(f, 'Api').expected.tokens, 200);
+  assert.deepEqual(f.coverage, { priced: 2, changed: 2 });
+});
+
+test('id and name keys for one element are merged per handover', () => {
+  const m = parse(dsl());
+  const f = Core.forecast({ before: null, after: m, history: new Map([
+    ['Api', [{ handover: 'H-1', tokens: 100, cost: 1 }, { handover: 'H-2', tokens: 100, cost: 1 }]],
+    ['S/Api', [{ handover: 'H-2', tokens: 50, cost: 0.5 }, { handover: 'H-3', tokens: 100, cost: 1 }]]]) });
+  const api = row(f, 'Api');
+  assert.equal(api.samples, 3, 'H-1, H-2 (summed) and H-3');
+  assert.equal(api.status, 'measured');
+  assert.equal(api.expected.tokens, 100);
+  assert.equal(api.high.tokens, 150);
+});
+
+test('a name two elements share stays unpriced even when the history keys are ids', () => {
+  const m = parse(dsl({ extra: `x = container "Web" "" "" { sh = component "Shared" }
+    y = container "Worker" "" "" { sh2 = component "Shared" }` }));
+  const f = Core.forecast({ before: null, after: m, history: new Map([['S/Web/Shared', hist(100, 200, 300)]]) });
+  assert.equal(row(f, 'Shared').status, 'no basis');
+  assert.equal(row(f, 'Shared').ambiguous, true);
+});

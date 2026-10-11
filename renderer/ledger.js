@@ -26,7 +26,7 @@ const Ledger = (() => {
   ];
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
-  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'S2-runtime', 'S2-config'];
+  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'pipeline'];
 
   const STREAM = {
     check: 'checks.jsonl',
@@ -55,6 +55,11 @@ const Ledger = (() => {
     failure_mode_classified: 'factory.jsonl',
     factory_task_bound: 'factory.jsonl',
   };
+  // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
+  // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed'];
+  const PIPELINE_STREAM = 'pipeline.jsonl';
+
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
 
   // Envelope-level optional fields, allowed on every designc kind (contract.envelope).
@@ -254,7 +259,7 @@ const Ledger = (() => {
   // Rules: V1 handover preceded by a green gate at its revision (a warning when it predates the first gate event),
   // V2 handover not dirty, V3 technical promotion preceded by a passing check, V4 every line validates,
   // V5 no repeated event_id with different content, V6 open unapproved changes (warning),
-  // V7 handovers/ and handover events agree, V8 a pipeline eval after the latest handover ran under the eval file that handover froze. Sample events are skipped. Mirrored in python/designc/verify.py.
+  // V7 handovers/ and handover events agree, V8 a pipeline eval after the latest handover ran under the eval file that handover froze, V9 pipeline.jsonl holds only PIPELINE_KINDS. Sample events are skipped. Mirrored in python/designc/verify.py.
   const stable = v => Array.isArray(v) ? '[' + v.map(stable).join(',') + ']'
     : v && typeof v === 'object' ? '{' + Object.keys(v).sort().map(k => JSON.stringify(k) + ':' + stable(v[k])).join(',') + '}' : JSON.stringify(v);
   const bareRevision = r => String(r == null ? '' : r).replace(/^r-/, '');
@@ -272,6 +277,7 @@ const Ledger = (() => {
         if (!isPlainObject(obj)) return err('V4', `${at} not a JSON object`);
         if (obj.schema_version !== undefined && obj.envelope_version !== undefined) return err('V4', `${at} both schema_version and envelope_version`);
         if (obj.envelope_version !== undefined) return;
+        if (name === PIPELINE_STREAM && typeof obj.kind === 'string' && !PIPELINE_KINDS.includes(obj.kind)) err('V9', `${at} ${obj.kind} is not a kind a pipeline writes (docs/pipeline-contract.md)`);
         let e;
         if (obj.schema_version === undefined) e = { ...obj, event_id: `legacy:${name}:${i + 1}` };
         else {
@@ -766,10 +772,21 @@ const Ledger = (() => {
     return { dimensions, problems, threshold, maxAgeDays };
   }
 
+  // Telemetry runs: Designc's own agents are tagged with these systems (ROLES[*].system in agent.js);
+  // every other run, tagged or not, comes from a coding agent or pipeline and is what the cost views show.
+  const OWN_SYSTEMS = ['S1', 'S4'];
+  const pipelineRuns = runs => runs.filter(r => !OWN_SYSTEMS.includes(r.system));
+  const runTotals = runs => ({
+    runs: runs.length,
+    tokens: runs.reduce((a, r) => a + r.tokens, 0),
+    cost: runs.reduce((a, r) => a + r.cost, 0),
+    failed: runs.filter(r => ['failed', 'error'].includes(r.outcome)).length,
+  });
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
