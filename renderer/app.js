@@ -23,8 +23,8 @@ const PROPS = [
   ['d.owns', 'element', null, 'Comma-separated entities this element owns writes to (DC002).'],
   ['d.store', 'element', ['yes', 'no'], 'Treat as a data store. Default: the Database tag.'],
   ['d.aka', 'element', null, 'Other names, used to match code in the as-built diff.'],
-  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder (src/Api is one file; write src/Api/**). System 2 keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
-  ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. System 2 uses it for the merge tier.'],
+  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder (src/Api is one file; write src/Api/**). A coding agent keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
+  ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. A coding agent may use it to gate merges.'],
   ['d.suppress', 'both', null, 'Accept findings here: "DCnnn: reason; DCnnn: reason". A reason is required.'],
 ];
 if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
@@ -1442,7 +1442,7 @@ function codemapSidebar() {
 function codeAreasSection() {
   const ar = A.areas;
   if (!ar) return section('areas', 'Code areas', '<div class="hint">Re-extract to see code areas: this map was extracted before designc kept the file list.</div>');
-  if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No element declares d.code. Set it on a container or its components to say where that code lives; System 2 confines each task to it.</div>');
+  if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No element declares d.code. Set it on a container or its components to say where that code lives; a coding agent confines each task to it.</div>');
   const row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
   const empty = ar.areas.filter(a => !a.matched).length, MAX = 50;
   const body = `<div class="hint">Code areas cover ${ar.files - ar.unclaimed.length} of the ${plural(ar.files, 'file')} in the codebase.</div>`

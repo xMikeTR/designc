@@ -1,7 +1,7 @@
 /* designc desktop: d.code path patterns. Pure, no I/O, no dependencies.
    Dual-load like renderer/policy.js: <script src="pathpattern.js"> before core.js in the renderer,
-   require('./renderer/pathpattern.js') from core.js, extract/glob.js and tests. The meaning is System 2's
-   (Factory.Core PathPattern) and docs/path-patterns.json is the contract both sides test against. */
+   require('./renderer/pathpattern.js') from core.js, extract/glob.js and tests. designc owns the meaning:
+   docs/path-patterns.json is the contract its implementations and any consuming coding agent test against. */
 const PathPattern = (() => {
   // A repo-relative path or glob: `*` and `?` inside a segment, `**` as a whole segment. Character classes,
   // braces, absolute paths, `.`, `..`, empty segments and `**` inside a segment are rejected.
@@ -44,7 +44,7 @@ const PathPattern = (() => {
     return matchSegs(p.segs, f.split('/').filter(Boolean));
   }
 
-  // Could any file match both normalised patterns? Over-approximates, as System 2 does: two wild
+  // Could any file match both normalised patterns? Over-approximates, as the contract does: two wild
   // segments are assumed compatible, because a false "no" would let two tasks write the same file.
   function mayOverlap(a, b) {
     const as = a.split('/'), bs = b.split('/'), ea = !as.some(isWild), eb = !bs.some(isWild);
