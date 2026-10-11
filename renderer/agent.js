@@ -594,6 +594,13 @@ function askTutor(question) {
   if (AG.role !== 'tutor') setRole('tutor');
   toggleAgent(true); send(question);
 }
+// Grill-me in the panel, for when no model is set: uses the chosen ACP or AG-UI agent, or the first ACP one. False when there is none.
+function grillInPanel(text) {
+  if (AG.busy) { toast('The agent is still answering. Stop it or wait, then try again.', 'error'); return true; }
+  if (AG.agent === 'builtin') { const key = Object.keys(AG.acpAgents)[0]; if (!key) return false; AG.agent = key; }
+  if (AG.role !== 'grill') setRole('grill');
+  toggleAgent(true); send(text); return true;
+}
 function toggleAgent(force) { AG.open = force ?? !AG.open; renderAgent(); if (AG.open) setTimeout(() => $('#agInput').focus(), 50); }
 
 // ---------------------------------------------------------------- events

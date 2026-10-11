@@ -940,6 +940,9 @@ ${needs.join('\n') || 'none'}
 
 Reply with JSON only:
 {"questions":[{"question":"...","why":"one sentence tying it to a finding, requirement or pipeline item","code":"DC00n or null","element":"exact element name or null","business":false,"suggested_decision":"...","suggested_effect":"fix or accept","suggested_check":"command that proves it"}]}`;
+  if (!Setup.llmReady(A.cfg.llm) && grillInPanel(`Grill me on this design. Ask the 3 to 5 questions I most need to answer before it is handed to the coding pipeline, one at a time, waiting for my answer before the next. Prioritise error findings, undeclared properties on critical paths, open needs-decision items and untraced requirements; say for each why it matters and whether a product owner rather than an engineer must answer. Read the model, findings, gate and decisions with your designc tools. When an answer settles something, offer to mint a decision; never bind one.`)) {
+    A.grill.busy = false; renderSidebar(); return;
+  }
   const r = await host.chat([{ role: 'system', content: sys }, { role: 'user', content: user }]);
   A.grill.busy = false;
   if (r.error) { const [msg, acts] = llmError(r); A.grill.error = msg; toast(msg, 'warning', acts); }
