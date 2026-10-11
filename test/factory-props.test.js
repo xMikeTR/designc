@@ -1,5 +1,5 @@
-// d.code and d.risk: where an element's code lives and how risky it is to change. System 2 reads
-// them from the frozen model to scope task writes and pick the merge tier.
+// d.code and d.risk: where an element's code lives and how risky it is to change. The handover's
+// elements.json carries them for a coding agent to scope task writes and judge merges.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');

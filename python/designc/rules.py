@@ -122,7 +122,7 @@ def validate(m):
 
 
 def code_area_problems(e):
-    """d.code is System 2's scope guard; its handover reader refuses what is reported here."""
+    """d.code is where an element's code lives in the handover (docs/path-patterns.json); mirrors core.js."""
     raw = e.props['d.code']
     entries, out = [s.strip() for s in str(raw).split(',')], []
     if not any(entries): out.append((f'"d.code" = "{raw}": lists no paths', "remove d.code, or name where the element's code lives"))
@@ -131,7 +131,7 @@ def code_area_problems(e):
             if not s: out.append((f'"d.code" = "{raw}": entry {i + 1} is blank', None)); continue
             _, err = pathpattern.create(s)
             if err: out.append((f'"d.code" = "{raw}": {err}', 'use repo-relative paths with *, ? and ** as a whole segment'))
-    if e.props.get('d.risk') is None: out.append(('d.code needs d.risk (System 2 refuses the handover without it)', 'set d.risk: low | medium | high'))
+    if e.props.get('d.risk') is None: out.append(('d.code needs d.risk (the handover gives both or neither)', 'set d.risk: low | medium | high'))
     return out
 
 
@@ -377,7 +377,7 @@ def dc009(m, o):
             if m.is_ancestor(a.id, e.id) or m.is_ancestor(e.id, a.id): continue
             hit = next(((p, q) for p in pats for q in apats if pathpattern.may_overlap(p, q)), None)
             if hit: out.append(D('DC009', 'error', f'code area "{hit[0]}" may overlap "{hit[1]}" of "{a.name}"', m.loc_el(e),
-                                 hint='make the areas disjoint: System 2 gives a shared file to whichever element it reads first', related=[m.loc_el(a)]))
+                                 hint='make the areas disjoint: a file in both areas has no single owner', related=[m.loc_el(a)]))
         areas.append((e, pats))
     return out
 
