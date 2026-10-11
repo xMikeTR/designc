@@ -728,7 +728,7 @@ const Core = (() => {
     return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], scenarios = [], evals = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -751,7 +751,7 @@ const Core = (() => {
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
       assumptionClauses(dec, today, clauses);
-      if (business) businessEvidence(dec, evidenceHosts, clauses);
+      if (business) businessEvidence(dec, evidenceHosts, businessOwners, clauses);
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
       // An accepted risk rests on its business decision, so it needs no check; a TODO placeholder is not a check.
@@ -800,8 +800,10 @@ const Core = (() => {
     return { ready: clauses.length === 0, clauses };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
-  function businessEvidence(dec, hosts, clauses) {
+  // Bound by one of designc.json businessOwners, the bind itself is the record, so no link is needed.
+  function businessEvidence(dec, hosts, owners, clauses) {
     const say = text => clauses.push({ kind: 'evidence', text, decision: dec.id });
+    if (!dec.evidence && owners.includes(dec.promoted_by)) return;
     if (!dec.evidence) return say(`${dec.id} is a business decision without evidence`);
     let u = null;
     try { u = new URL(String(dec.evidence)); } catch { /* reported below */ }
