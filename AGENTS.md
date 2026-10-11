@@ -323,6 +323,8 @@ Uses `GET /api/public/v2/observations` (cursor pagination, `fields=core,basic,us
 
 **Tutor.** Teaches system design while the user designs: explains in plain words, ties the answer to the model, names sources (searches the web itself over ACP when the agent can), and ends with one question. `askTutor(question)` in `agent.js` switches to the Tutor, opens the panel and sends the question; it is called from "Ask the tutor" on each model finding in Problems, and from the canvas Inspector through the optional `host.onAsk(question)` hook (the selected element or relationship, the design as a whole, each finding, and the `?` beside each property). The canvas shows none of these buttons when the host gives no `onAsk`.
 
+**Grill-me without a model.** The Design sidebar's Grill-me (`grill()` in `app.js`) calls `host.chat` when `llm` is set. Without it, `grillInPanel(text)` in `agent.js` switches the panel to the Grill-me role on the chosen ACP or AG-UI agent (or the first ACP agent when the built-in one is chosen), opens it and sends the interrogation prompt. The questions then come one at a time in the panel, and decisions are minted only through the role's approved write path, never bound.
+
 ### Tools
 
 Readers (`READERS`): `read_model`, `get_findings`, `get_gate`, `list_decisions`, `read_registry_file`, `get_code_map`, `search_codebase`, `read_code`, `get_telemetry`. Writers (`WRITERS`): `propose_model_edit`, `mint_decision`, `mint_proposal`. A writer validates deterministically first (for example, a model edit's `find` must match exactly once) and returns an error without asking the user if invalid. Otherwise it returns `{title, detail, preview, apply}`: the card is shown and `apply` runs only on Approve.
