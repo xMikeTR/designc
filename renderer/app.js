@@ -1050,12 +1050,41 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
+// Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
+function gateOrder(clauses) {
+  const rank = c => { const r = CLAUSE_ORDER.indexOf(c.kind); return r < 0 ? CLAUSE_ORDER.length : r; };
+  return clauses.map((c, i) => ({ c, i })).sort((a, b) => rank(a.c) - rank(b.c) || a.i - b.i);
+}
+function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S+) is not allowed/.exec(c.text); return m ? m[1] : null; }
+function clauseActions(c) {
+  const b = (attr, v, label, title) => `<button class="lnk" ${attr}="${esc(String(v))}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
+  if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') : '') + b('data-askfi', fi, 'Ask the tutor'); }
+  if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
+  if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
+  if (c.kind === 'check') return b('data-run', c.decision, 'Run check');
+  if (c.kind === 'assumption' && / was due for review on /.test(c.text)) return b('data-review', c.decision, 'Mark reviewed');
+  if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
+  if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
+  if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
+  return '';
+}
+async function allowEvidenceHost(h) {
+  if (!h || !confirm(`Allow evidence links on ${h}? This adds it to evidenceHosts in designc.json, so any decision may cite a page there.`)) return;
+  let cfg = {}; const t = await readText('designc.json');
+  if (t) { try { cfg = JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return; } }
+  const hosts = Array.isArray(cfg.evidenceHosts) ? cfg.evidenceHosts : [];
+  if (!hosts.includes(h)) cfg.evidenceHosts = [...hosts, h];
+  await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n');
+  A.cfg.evidenceHosts = cfg.evidenceHosts; recompile(); toast(`${h} is now an allowed evidence host.`);
+}
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    g.clauses.map((c, i) => `<div class="clause" data-clause="${i}"><span class="k">${{ parse: 'model', finding: 'finding', decision: 'decision', check: 'check', requirement: 'requirement', needs: 'pipeline', scenario: 'scenario', promotion: 'promotion', eval: 'eval', duplicate: 'duplicate', assumption: 'assumption' }[c.kind]}</span><span>${esc(c.text)}</span>${c.kind === 'eval' && c.agent && c.evalId ? `<button class="lnk" data-runeval="${esc(String(c.evalId))}">Run eval</button>` : ''}</div>`).join('') +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}</span>${clauseActions(c)}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
@@ -1864,6 +1893,7 @@ document.addEventListener('click', async e => {
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
   if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
