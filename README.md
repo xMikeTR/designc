@@ -281,7 +281,7 @@ Everything is plain files, so git is the review and history layer: binding a dec
 
 ### Ledger events
 
-The pipeline appends lines like these; the app watches the folder and updates live.
+The pipeline appends lines like these; the app watches the folder and updates live. The pipeline is optional and any coding agent can be one: the kinds it may write, and that `element` is an `elements.json` id, are in `docs/pipeline-contract.md`.
 
 ```json
 {"schema_version":1,"by":"pipeline","kind":"task","task":"T-01","element":"Quotes DB","status":"passed","reruns":0,"turns":9,"tokens_in":48000,"tokens_out":13000,"cost":0.42,"model":"sonnet"}
@@ -290,6 +290,7 @@ The pipeline appends lines like these; the app watches the folder and updates li
 {"schema_version":1,"by":"pipeline","kind":"asbuilt_edge","from":"ReferralWorker","to":"RatingEngine"}
 {"schema_version":1,"by":"pipeline","kind":"escape","id":"E-0008","element":"Cat Model Adapter","description":"…","code":"DC004"}
 {"schema_version":1,"by":"pipeline","kind":"false_positive","code":"DC003","element":"Pricing Portal"}
+{"schema_version":1,"by":"pipeline","kind":"handover_closed","handover":"20261003-ab12cd34","outcome":"delivered"}
 ```
 
 `event_id` and `ts` are optional for external (pipeline) writers — the app's single append path stamps them if missing. Token spend on a `task` splits as `tokens_in`/`tokens_out` (`Ledger.totalTokens` sums them) plus an optional `cost`; the older single `tokens` field is still read. `escape` and `escape_classified` use `code`/`caught_by` as of the v1 envelope; older pipeline output using `rule`/`stage` is still read (upcast on load), just no longer written.
@@ -354,7 +355,7 @@ The meaning of a pattern is written down once, as test cases in `docs/path-patte
 
 Freezing a handover shows what it is likely to cost before you confirm. designc compares the model being frozen with the newest handover's model, finds the containers and components that changed (added, changed, or at either end of a changed relationship), and prices each from what past handovers spent on it, read from `task` events in the ledger that name a `handover` and an `element`. With at least 3 past handovers of history an element is measured: the median is the expected figure and the p90 the high end. With fewer it shows "no basis" and is left out, and the total says how many changed elements it covers. Removed elements are listed, not priced.
 
-The forecast is written into `handover.yaml`. Build has a "Handovers: forecast against actual" table: the actual is every task recorded against the handover, reruns and failures included, and is final once you close the handover ("Close as delivered" or "Abandon"). "Copy summary" puts a plain-text summary on the clipboard for a leadership update; nothing is sent anywhere. Settings: `"currency": "GBP"` and `"forecast": { "minSamples": 3, "window": 10 }`. What the pipeline must record is in `docs/cost-forecast-contract.md`. There is no price table and no spend limit: limits belong to System 2.
+The forecast is written into `handover.yaml`. Build has a "Handovers: forecast against actual" table: the actual is every task recorded against the handover, reruns and failures included, and is final once you close the handover ("Close as delivered" or "Abandon"). "Copy summary" puts a plain-text summary on the clipboard for a leadership update; nothing is sent anywhere. Settings: `"currency": "GBP"` and `"forecast": { "minSamples": 3, "window": 10 }`. What the pipeline must record is in `docs/cost-forecast-contract.md`. There is no price table and no spend limit: limits belong to the pipeline.
 
 ## Agent evals
 

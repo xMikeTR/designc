@@ -1,6 +1,6 @@
 # Recording spend so designc can forecast handovers
 
-This guide is for whoever builds Build (the coding pipeline) or any other writer of `ledger/*.jsonl`. designc prices a handover from what past handovers cost, so the pipeline must record spend in a form it can read. designc never sets or enforces limits; budgets per agent and sub-agent belong to the pipeline.
+This guide is for whoever builds a coding pipeline or any other writer of `ledger/*.jsonl`. designc prices a handover from what past handovers cost, so the pipeline must record spend in a form it can read. designc never sets or enforces limits; budgets per agent and sub-agent belong to the pipeline. The other kinds a pipeline may write are in `docs/pipeline-contract.md`.
 
 ## What to write
 
@@ -9,7 +9,7 @@ One `task` event per attempt, through the ledger append path, with these fields 
 | Field | Meaning |
 | --- | --- |
 | `handover` | The id of the frozen handover being built (`20261003-ab12cd34`). Without it the spend is invisible to the forecast |
-| `element` | The design element name the work was for, exactly as in the model. History is keyed by name |
+| `element` | The element the work was for: its `elements.json` id (`System/Container/Component`). A name or `d.aka` that exactly one element carries is also read. History from earlier handovers under either form is merged per element |
 | `tokens_in`, `tokens_out` | Tokens used (or `tokens` as one figure) |
 | `cost` | Cost of the attempt in the project currency, as you recorded it. designc adds it up and does not convert or price tokens |
 
