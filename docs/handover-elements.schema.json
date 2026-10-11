@@ -1,0 +1,48 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.elements/1",
+  "title": "Handover elements",
+  "description": "elements.json in a frozen handover (handovers/<id>/): the model resolved so a coding agent never parses the DSL. Written by Core.handoverElements at freeze, listed and hashed in handover.yaml. designc owns this contract; consumers conform to it. docs/handover-elements.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "elements", "relationships", "events"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.elements/1" },
+    "elements": {
+      "description": "Every element of the model, in model order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Hierarchical: the names from the software system down, joined by '/' (System/Container/Component). A person is its name." },
+          "name": { "type": "string" },
+          "kind": { "enum": ["person", "softwareSystem", "container", "component"] },
+          "code": {
+            "description": "d.code: where this element's code lives, as normalised repo path patterns (docs/path-patterns.json). Present only when declared.",
+            "type": "array",
+            "items": { "type": "string" },
+            "minItems": 1
+          },
+          "risk": { "description": "d.risk: how risky a change here is. Present only when declared.", "enum": ["low", "medium", "high"] }
+        }
+      }
+    },
+    "relationships": {
+      "description": "Model relationships by element id, one per ordered pair.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["from", "to"],
+        "additionalProperties": false,
+        "properties": { "from": { "type": "string" }, "to": { "type": "string" } }
+      }
+    },
+    "events": {
+      "description": "Event names announced in behaviour/*.p (`announce <Name>`), by file path then first appearance, each once.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

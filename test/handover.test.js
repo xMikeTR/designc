@@ -26,16 +26,28 @@ test('handoverPlan: id is yyyymmdd-hash8 and the same inputs give the same id', 
 test('handoverPlan: files land under handovers/<id>/ with a handover.yaml that lists them with hashes', () => {
   const p = Core.handoverPlan(inputs());
   const paths = p.files.map(f => f.path).sort();
-  assert.deepEqual(paths, [`handovers/${p.id}/behaviour/q.p`, `handovers/${p.id}/decisions/d1.yaml`, `handovers/${p.id}/handover.yaml`, `handovers/${p.id}/model/workspace.dsl`, `handovers/${p.id}/requirements/HRE-1.yaml`]);
+  assert.deepEqual(paths, [`handovers/${p.id}/behaviour/q.p`, `handovers/${p.id}/decisions/d1.yaml`, `handovers/${p.id}/elements.json`, `handovers/${p.id}/handover.yaml`, `handovers/${p.id}/model/workspace.dsl`, `handovers/${p.id}/requirements/HRE-1.yaml`]);
   const doc = yaml.load(p.files.find(f => f.path.endsWith('/handover.yaml')).text);
   assert.equal(doc.id, p.id);
   assert.match(doc.revision, /^r-[0-9a-f]{8}$/);
   assert.equal(doc.by, 'mike'); assert.equal(doc.created, '2026-10-02T09:30:00.000Z');
   assert.deepEqual(doc.requirements, ['HRE-1']); assert.deepEqual(doc.decisions, ['d1']);
-  assert.equal(doc.files.length, 4);
+  assert.equal(doc.files.length, 5);
   assert.ok(doc.files.every(f => /^[0-9a-f]{16}$/.test(f.hash)));
   const copy = p.files.find(f => f.path.endsWith('model/workspace.dsl'));
   assert.equal(copy.text, 'workspace {}');
+});
+
+test('handoverPlan: elements.json is the resolved model, named in handover.yaml and hashed with the other files', () => {
+  const model = { path: 'model/workspace.dsl', text: 'workspace { model { s = softwareSystem "S" { properties { d.code "src/**"\n d.risk low } } } }' };
+  const behaviour = [{ path: 'behaviour/q.p', text: 'machine M { start state S { entry { announce Saved; } } }' }];
+  const p = Core.handoverPlan(inputs({ model, behaviour }));
+  const doc = yaml.load(p.files.find(f => f.path.endsWith('/handover.yaml')).text);
+  assert.equal(doc.elements, 'elements.json');
+  const file = p.files.find(f => f.path === `handovers/${p.id}/elements.json`);
+  assert.deepEqual(JSON.parse(file.text), Core.handoverElements(model.text, behaviour));
+  assert.ok(doc.files.some(f => f.path === 'elements.json' && /^[0-9a-f]{16}$/.test(f.hash)));
+  assert.throws(() => Core.handoverPlan(inputs({ model: { path: 'model/workspace.dsl', text: 'workspace { model { x = container } }' } })), /handover refused/);
 });
 
 test('handoverPlan: vocabulary is copied when present', () => {
