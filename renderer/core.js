@@ -1134,14 +1134,41 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
 
   // ---------- handover ----------
+  // The model resolved for whatever coding agent takes the handover (docs/handover-elements.schema.json), so
+  // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
+  // d.code as normalised path patterns and d.risk where declared, relationships by id (one per pair), and the
+  // events behaviour announces. A model that does not parse, or a code area that is not a pattern, is refused.
+  function handoverElements(modelText, behaviour = []) {
+    const m = parse(modelText);
+    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+    const elements = [...m.elements.values()].map(e => {
+      const out = { id: m.label(e.id), name: e.name, kind: e.kind };
+      if (e.props['d.code'] != null) out.code = String(e.props['d.code']).split(',').map(s => s.trim()).filter(Boolean).map(s => {
+        const r = PP.create(s);
+        if (!r.ok) throw new Error(`handover refused: ${e.name} d.code: ${r.error}`);
+        return r.value;
+      });
+      if (e.props['d.risk'] != null) out.risk = e.props['d.risk'];
+      return out;
+    });
+    const pairs = new Map();
+    for (const r of m.rels) { const from = m.label(r.src), to = m.label(r.dst); pairs.set(`${from}\0${to}`, { from, to }); }
+    const events = [...new Set([...behaviour].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
+      .flatMap(f => [...f.text.matchAll(/\bannounce\s+(\w+)/g)].map(x => x[1])))];
+    return { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+  }
+
   // A frozen handover is a folder: handovers/<yyyymmdd>-<hash8>/ holding handover.yaml and verbatim copies
   // of the model, requirements, bound decisions, behaviour (.p) and vocabulary it was frozen from. The
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
+  // elements.json (handoverElements) is derived from that content: listed and hashed, but not in the id.
   // Pure: the caller reads the files and writes the result.
   function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], forecast = null }) {
     const content = [model, ...requirements, ...decisions, ...evals, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
+    const elements = { path: 'elements.json', text: JSON.stringify(handoverElements(model.text, behaviour), null, 2) + '\n' };
+    const frozen = [...content, elements].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const q = JSON.stringify;
     const head = `id: ${id}
@@ -1149,13 +1176,14 @@ revision: ${modelRevision(model.text)}
 created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
+elements: ${q(elements.path)}
 requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 ${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
-${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
+${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
-    return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...content.map(f => ({ path: dir + f.path, text: f.text }))] };
+    return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))] };
   }
 
   // Decisions the gate blocks on promotion (no fingerprint, or what they bind changed): a human can re-bind them.
@@ -1638,6 +1666,6 @@ ${content.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
