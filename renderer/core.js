@@ -412,7 +412,8 @@ const Core = (() => {
     }
     return out;
   }
-  // d.code is System 2's scope guard; its handover reader refuses what is reported here.
+  // d.code is where an element's code lives in the handover (docs/path-patterns.json); what is reported here would
+  // make a handover a coding agent cannot trust.
   function codeAreaProblems(e) {
     const raw = e.props['d.code'], entries = String(raw).split(',').map(s => s.trim()), out = [];
     if (entries.every(s => !s)) out.push([`"d.code" = "${raw}": lists no paths`, 'remove d.code, or name where the element\'s code lives']);
@@ -421,7 +422,7 @@ const Core = (() => {
       const p = PP.create(s);
       if (!p.ok) out.push([`"d.code" = "${raw}": ${p.error}`, 'use repo-relative paths with *, ? and ** as a whole segment']);
     });
-    if (e.props['d.risk'] == null) out.push(['d.code needs d.risk (System 2 refuses the handover without it)', 'set d.risk: low | medium | high']);
+    if (e.props['d.risk'] == null) out.push(['d.code needs d.risk (the handover gives both or neither)', 'set d.risk: low | medium | high']);
     return out;
   }
 
@@ -649,8 +650,8 @@ const Core = (() => {
         }
         return out;
       } },
-    { code: 'DC009', title: 'Overlapping code areas', source: 'System 2 contract: Fitness.owner gives a file to the first element whose d.code matches, and the plan scope guard admits overlapping areas',
-      doc: 'Each file belongs to one element. d.code may be declared on one level per branch (a container or its components, not both), and the areas of unrelated elements must not overlap. Overlap is judged as System 2 judges it, so two wildcard segments count as overlapping.',
+    { code: 'DC009', title: 'Overlapping code areas', source: 'Handover contract: each file belongs to one element\'s d.code (docs/path-patterns.json)',
+      doc: 'Each file belongs to one element. d.code may be declared on one level per branch (a container or its components, not both), and the areas of unrelated elements must not overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping.',
       fn(m) {
         const out = [], areas = [];
         for (const e of m.elements.values()) {
@@ -666,7 +667,7 @@ const Core = (() => {
             if (m.isAncestor(a.e.id, e.id) || m.isAncestor(e.id, a.e.id)) continue;
             const hit = pats.flatMap(p => a.pats.filter(q => PP.mayOverlap(p, q)).map(q => [p, q]))[0];
             if (hit) out.push(D('DC009', 'error', `code area "${hit[0]}" may overlap "${hit[1]}" of "${a.e.name}"`, m.locEl(e),
-              { hint: 'make the areas disjoint: System 2 gives a shared file to whichever element it reads first', related: [m.locEl(a.e)] }));
+              { hint: 'make the areas disjoint: a file in both areas has no single owner', related: [m.locEl(a.e)] }));
           }
           areas.push({ e, pats });
         }
@@ -1415,9 +1416,9 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
         const p = PP.create(s);
         if (!p.ok) continue;
         const a = { id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length };
-        // An exact path matches one file of that name only (System 2's meaning); say so when it names a folder.
+        // An exact path matches one file of that name only (the path pattern contract); say so when it names a folder.
         const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(p.value + '/')).length;
-        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; System 2 matches it as a single file. Did you mean ${p.value}/**?`;
+        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; an exact path matches a single file. Did you mean ${p.value}/**?`;
         areas.push(a);
       }
     }

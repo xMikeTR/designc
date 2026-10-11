@@ -1,5 +1,5 @@
 // The d.code path pattern contract (docs/path-patterns.json), run against the JS and Python implementations.
-// System 2 runs the same file against Factory.Core PathPattern.
+// A coding agent that reads d.code runs the same file against its own implementation.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const path = require('path');
@@ -13,7 +13,7 @@ const skip = havePython ? false : 'python3 with PyYAML is not installed';
 
 const expected = c => (c.valid === false ? { valid: false } : { valid: true, value: c.value });
 
-test('create accepts and normalises what System 2 accepts, and rejects the rest (JS)', () => {
+test('create accepts and normalises what the contract accepts, and rejects the rest (JS)', () => {
   for (const c of FIXTURE.create) {
     const r = PathPattern.create(c.input);
     assert.deepEqual(r.ok ? { valid: true, value: r.value } : { valid: false }, expected(c), JSON.stringify(c.input));
@@ -21,7 +21,7 @@ test('create accepts and normalises what System 2 accepts, and rejects the rest 
   }
 });
 
-test('mayOverlap is symmetric and agrees with System 2 (JS)', () => {
+test('mayOverlap is symmetric and agrees with the contract (JS)', () => {
   const pp = t => PathPattern.create(t).value;
   for (const c of FIXTURE.mayOverlap) {
     assert.equal(PathPattern.mayOverlap(pp(c.a), pp(c.b)), c.overlap, `${c.a} vs ${c.b}`);
@@ -29,7 +29,7 @@ test('mayOverlap is symmetric and agrees with System 2 (JS)', () => {
   }
 });
 
-test('matches a concrete file path as System 2 does (JS)', () => {
+test('matches a concrete file path as the contract says (JS)', () => {
   for (const c of FIXTURE.matches) assert.equal(PathPattern.matches(c.pattern, c.path), c.match, `${c.pattern} vs ${c.path}`);
 });
 
