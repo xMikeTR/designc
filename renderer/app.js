@@ -884,24 +884,31 @@ async function freezeHandover() {
 function appendOutput(s) { A.output += s; if (A.panel === 'output' && A.panelOpen) { const pre = $('#panelBody pre'); if (pre) { pre.textContent = A.output; $('#panelBody').scrollTop = 1e9; } else renderPanel(); } }
 async function runChecks(list) {
   if (A.running) { toast('Checks are already running.'); return; }
-  const targets = (list || A.decisions).filter(d => (d.checks || []).some(c => c && !/^TODO/.test(c)));
+  // A check written as a description is reported and not run: the shell could only fail it, and that failure would say nothing about the decision.
+  const written = d => (d.checks || []).filter(c => c && !/^TODO/.test(String(c)));
+  const targets = (list || A.decisions).filter(d => written(d).length);
   if (!targets.length) { toast('No decision has a runnable check yet.', 'warning'); return; }
   A.running = true; showPanel('output'); renderStatus();
   appendOutput(`\n── ${new Date().toLocaleTimeString()}  running checks for ${plural(targets.length, 'decision')} in ${A.root.name}\n`);
+  let skipped = 0;
   try {
     for (const d of targets) {
-      let pass = true;
-      for (const cmd of d.checks.filter(c => c && !/^TODO/.test(c))) {
+      let pass = true, ran = 0;
+      for (const cmd of written(d)) {
+        const problem = Policy.checkProblem(cmd);
+        if (problem) { skipped++; appendOutput(`\n⚠ ${d.id}  ${cmd}\nNot run. ${problem} Rewrite it as a shell command that exits 0 when the decision holds, or start it with TODO until the script exists.\n`); continue; }
         appendOutput(`\n▶ ${d.id}  $ ${cmd}\n`);
         const r = await host.runCheck(`${d.id}-${Date.now()}`, cmd);
         if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return; }
-        const ok = r.code === 0; pass = pass && ok;
+        const ok = r.code === 0; pass = pass && ok; ran++;
         appendOutput(`${ok ? '✓ passed' : `✗ failed (exit ${r.code})`} in ${(r.ms / 1000).toFixed(1)}s\n`);
+        if (r.code === 127) appendOutput(`The shell could not find the program "${String(cmd).trim().split(/\s+/)[0]}". A check runs as a command in ${A.root.name}; check the name and that it is on PATH.\n`);
         await recordEvent('check', { decision: d.id, check: cmd, outcome: ok ? 'pass' : 'fail', source: 'local', ms: r.ms, exit_code: r.code });
       }
-      appendOutput(`${pass ? '●' : '○'} ${d.id} ${pass ? 'passing' : 'failing'}\n`);
+      appendOutput(ran ? `${pass ? '●' : '○'} ${d.id} ${pass ? 'passing' : 'failing'}\n` : `○ ${d.id} not checked: no check is a command yet\n`);
     }
   } finally { A.running = false; renderStatus(); }
+  if (skipped) toast(`${plural(skipped, 'check')} read as descriptions, not commands, and were not run. See Output.`, 'warning', [{ label: 'Show output', run: () => showPanel('output') }]);
 }
 
 // ---------------------------------------------------------------- LLM (grill-me, proposal drafting)
