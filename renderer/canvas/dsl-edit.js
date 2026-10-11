@@ -200,8 +200,22 @@
     const line = out.slice(0, at).split('\n').length;
     return { text: out, src: r1.ident, dst: r2.ident, line };
   }
-  // Set (or, with an empty value, remove) a d.* property on an element or relationship.
+  // Set (or, with an empty value, remove) a d.* property on an element or relationship. The result is read back,
+  // so a write that would not land inside the properties block is refused rather than saved where nothing reads it.
   function setProperty(src, target, key, value) {
+    const r = writeProperty(src, target, key, value);
+    if (!readBack(r.text, target, key, value)) throw new Error(`${key} could not be ${value === '' || value == null ? 'removed' : 'set'} here. Edit it in the model file.`);
+    return r;
+  }
+  // True when the node's properties block holds key = value, or (with an empty value) does not hold key.
+  function readBack(src, target, key, value) {
+    const loc = locate(src);
+    const node = target.kind === 'relationship' ? findRelationship(loc, target.ref) : findElement(loc, target.ref);
+    if (!node) return false;
+    const entry = node.props && node.props.entries.find(e => e.key === key);
+    return value === '' || value == null ? !entry : !!entry && entry.valTok.v === String(value);
+  }
+  function writeProperty(src, target, key, value) {
     const loc = locate(src);
     const node = target.kind === 'relationship' ? findRelationship(loc, target.ref) : findElement(loc, target.ref);
     if (!node) throw new Error(`${target.kind} not found`);
@@ -289,5 +303,5 @@
   }
   const EMPTY = 'workspace "New system" {\n  model {\n  }\n}\n';
 
-  return { tokenize, locate, findElement, findRelationship, ensureIdent, addElement, addRelationship, setProperty, setField, deleteElement, deleteRelationship, addTag, insertSnippet, identFor, EMPTY };
+  return { tokenize, locate, findElement, findRelationship, ensureIdent, addElement, addRelationship, setProperty, readBack, setField, deleteElement, deleteRelationship, addTag, insertSnippet, identFor, EMPTY };
 });

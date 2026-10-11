@@ -131,3 +131,13 @@ test('a property added to a one-line properties block goes inside it', () => {
   m = ok(t); assert.equal(m.rels[0].props['d.tool.effect'], 'write');
   assert.equal((t.match(/d\.tool\.effect/g) || []).length, 1);
 });
+
+test('readBack says whether a property landed inside the block', () => {
+  const landed = 'workspace "W" {\n  model {\n    a = softwareSystem "A"\n    b = softwareSystem "B"\n    a -> b "Calls" {\n      properties { "d.interaction" "sync" "d.tool.effect" "read" }\n    }\n  }\n}\n';
+  const stray = 'workspace "W" {\n  model {\n    a = softwareSystem "A"\n    b = softwareSystem "B"\n    a -> b "Calls" {\n      "d.tool.effect" "read"\n      properties { "d.interaction" "sync" }\n    }\n  }\n}\n';
+  const tgt = { kind: 'relationship', ref: { line: 5, src: 'a', dst: 'b' } };
+  assert.equal(D.readBack(landed, tgt, 'd.tool.effect', 'read'), true);
+  assert.equal(D.readBack(stray, tgt, 'd.tool.effect', 'read'), false);
+  assert.equal(D.readBack(landed, tgt, 'd.interaction', ''), false);
+  assert.equal(D.readBack(stray, tgt, 'd.approval', ''), true);
+});
