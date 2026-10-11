@@ -4,6 +4,10 @@ This guide is for whoever builds a pipeline (any coding agent, in-house or not) 
 
 The machine contract is `python/designc/ledger_schema.json` (generated from `renderer/ledger.js`; `designc verify` checks a ledger against it). This page says what each kind means to designc and who may write it.
 
+## What the handover holds
+
+A frozen handover (`handovers/<id>/`, listed and hashed in `handover.yaml`) is everything the pipeline needs: `elements.json` (`docs/handover-elements.schema.json`), the model, requirements, bound decisions, `evals/*.yaml`, `behaviour/*.p`, `vocabulary/*.yaml`, and `scenarios/*.yaml` with their ids under `scenarios:`. A scenario's `fitness:` entries may be `TODO ...`: the architect has stated what done means but the fitness function is not written yet, so writing it is part of the build. Verify each file's hash before use; a file changed after the freeze is not the handover.
+
 ## Kinds a pipeline writes
 
 Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and `handover_closed`, their usual stream: `checks.jsonl`, `designc.jsonl`). Every line carries `schema_version`, `by` and `kind`; `event_id` and `ts` are stamped if missing.
