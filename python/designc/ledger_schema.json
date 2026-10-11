@@ -24,6 +24,16 @@
     "S2-runtime",
     "S2-config"
   ],
+  "pipeline_stream": "pipeline.jsonl",
+  "pipeline_kinds": [
+    "task",
+    "check",
+    "needs_decision",
+    "asbuilt_edge",
+    "escape",
+    "false_positive",
+    "handover_closed"
+  ],
   "rules": [
     "fail_needs_evidence",
     "suite_run_shape",
