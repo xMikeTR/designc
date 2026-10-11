@@ -7,6 +7,7 @@
   "license": "UNLICENSED",
   "scripts": {
     "start": "electron .",
+    "postinstall": "electron-builder install-app-deps",
     "test": "node --test \"test/**/*.test.js\"",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
@@ -14,8 +15,11 @@
     "dist:linux": "electron-builder --linux AppImage"
   },
   "dependencies": {
+    "@xterm/addon-fit": "^0.11.0",
+    "@xterm/xterm": "^6.0.0",
     "js-yaml": "^4.1.0",
-    "monaco-editor": "0.52.0"
+    "monaco-editor": "0.52.0",
+    "node-pty": "^1.1.0"
   },
   "devDependencies": {
     "electron": "^44.5.1",
@@ -35,17 +39,24 @@
       "designc-mcp.js",
       "ledger-store.js",
       "git.js",
+      "terminal.js",
+      "llm-net.js",
       "sample-codebase/**",
       "renderer/**",
       "sample-registry/**",
       "node_modules/monaco-editor/min/**",
       "node_modules/js-yaml/dist/**",
+      "node_modules/@xterm/xterm/lib/**",
+      "node_modules/@xterm/xterm/css/**",
+      "node_modules/@xterm/addon-fit/lib/**",
+      "node_modules/node-pty/**",
       "package.json"
     ],
     "asarUnpack": [
       "sample-registry/**",
       "sample-codebase/**",
-      "designc-mcp.js"
+      "designc-mcp.js",
+      "node_modules/node-pty/**"
     ],
     "win": {
       "target": "nsis"

@@ -1243,7 +1243,9 @@ function renderPanel() {
   $('#probCount').textContent = A.root ? total : '';
   document.querySelectorAll('[data-panel]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.panel === A.panel)));
   $('#panelClear').style.display = A.panel === 'output' ? '' : 'none';
-  const body = $('#panelBody');
+  const body = $('#panelBody'), term = A.panel === 'terminal';
+  body.hidden = term; $('#termBody').hidden = !term;
+  if (term) { termShow(); return; }
   if (A.panel === 'output') { body.innerHTML = `<pre class="out">${esc(A.output || 'Check runs appear here. Run > Run All Decision Checks (Ctrl+Shift+B).')}</pre>`; body.scrollTop = 1e9; return; }
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
@@ -2107,6 +2109,7 @@ host.onCmd(cmd => {
   if (cmd === 'toggle-sheet') { A.sheetOpen = !A.sheetOpen; return renderSheet(); }
   if (cmd === 'panel:problems') return showPanel('problems');
   if (cmd === 'panel:output') return showPanel('output');
+  if (cmd === 'panel:terminal') return A.panelOpen && A.panel === 'terminal' ? ($('#panelClose').click()) : showPanel('terminal');
   if (cmd === 'run-checks') return runChecks();
   if (cmd === 'grill') return grill();
   if (cmd === 'freeze') return freezeHandover();
