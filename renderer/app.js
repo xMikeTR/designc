@@ -687,7 +687,12 @@ async function newScenario() {
 async function runFitness() {
   if (A.running) { toast('Checks are already running.'); return; }
   const targets = A.scenarios.filter(s => (s.fitness || []).some(c => c && !/^TODO/.test(c)));
-  if (!targets.length) { toast('No scenario has a fitness function yet.', 'warning'); return; }
+  if (!targets.length) {
+    const todo = A.scenarios.filter(s => (s.fitness || []).length).length;
+    toast(todo ? `${plural(todo, 'scenario')} ${todo === 1 ? 'has' : 'have'} only TODO fitness functions. Replace a TODO with the shell command that measures it, then run again.`
+      : 'No scenario has a fitness function yet. Add a shell command under fitness in a scenario.', 'warning');
+    return;
+  }
   A.running = true; showPanel('output'); renderStatus();
   appendOutput(`\n── ${new Date().toLocaleTimeString()}  running fitness functions for ${plural(targets.length, 'scenario')}\n`);
   try {
