@@ -8,6 +8,12 @@ from .evals import _OPS, parse_threshold
 from .rules import fingerprint, get, hash16, interaction, num, structural
 
 
+
+def accept_without_check(dec):
+    """An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
+    Same rule as core.js and renderer/ledger.js."""
+    return dec.get('effect') == 'accept' and not any(c and not str(c).startswith('TODO') for c in (dec.get('checks') or []))
+
 def _s(v):
     """String(v) as JavaScript does it, for ids and versions read from YAML."""
     if isinstance(v, bool): return 'true' if v else 'false'
@@ -133,7 +139,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
         if business: _business_evidence(dec, list(evidence_hosts), clauses)
         elif dec.get('effect') == 'accept' and not any(i in bound_business for i in (dec.get('relies_on') or [])):
             clauses.append({'kind': 'decision', 'text': f"{dec['id']} accepts a risk without a bound business decision"})
-        if not business:
+        if not business and not accept_without_check(dec):
             if not (dec.get('checks') or []):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} has no check"}); continue
             last = latest(ledger, 'check', 'decision', dec['id'])

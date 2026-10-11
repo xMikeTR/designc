@@ -1729,7 +1729,7 @@ function buildDash() {
   return h;
 }
 function ledgerIntegrityHtml() {
-  const r = Ledger.verify(A.ledgerFiles, { handovers: A.handovers.map(h => h.id), decisions: A.decisions.map(d => ({ id: d.id, kind: d.kind })), handoverEvals: Object.fromEntries(A.handovers.filter(h => h.evals && typeof h.evals === 'object').map(h => [h.id, h.evals])) });
+  const r = Ledger.verify(A.ledgerFiles, { handovers: A.handovers.map(h => h.id), decisions: A.decisions.map(d => ({ id: d.id, kind: d.kind, effect: d.effect, checks: d.checks })), handoverEvals: Object.fromEntries(A.handovers.filter(h => h.evals && typeof h.evals === 'object').map(h => [h.id, h.evals])) });
   const rows = [...r.errors.map(x => ({ ...x, sev: 'Error' })), ...r.warnings.map(x => ({ ...x, sev: 'Warning' }))];
   const summary = rows.length ? `${plural(r.errors.length, 'error')}, ${plural(r.warnings.length, 'warning')}.` : 'The ledger is consistent.';
   return `<div class="block"><h3>Ledger integrity</h3><div class="note">${esc(summary)}${r.skipped ? ` ${esc(plural(r.skipped, 'sample event'))} skipped.` : ''} Checks that each handover follows a ready gate event at its revision, each promotion follows a passing check, every line is valid and the handovers folder matches the ledger. <code>designc verify-ledger</code> gives the same answer in CI.</div>${rows.length ? `<div class="tw2"><table class="t"><tr><th>Rule</th><th>Level</th><th>What</th></tr>${rows.map(x => `<tr><td>${esc(x.rule)}</td><td>${esc(x.sev)}</td><td>${esc(x.msg)}</td></tr>`).join('')}</table></div>` : ''}</div>`;
