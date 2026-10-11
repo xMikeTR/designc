@@ -662,7 +662,9 @@ async function acceptRisk(f) {
   const t = await recordDecision({ finding: f, effect: 'accept', statement: why.trim(), relies_on: [pick || b.id], rationale, idFrom: `accept ${f.code} ${(f.loc.names || [])[0] || ''}`, open: !b });
   if (b) { await openFile(b.path); renderAll({ keepEditor: true }); toast(`Drafted ${b.id} and ${t.id}. Add evidence to ${b.id}, then bind both.`); }
 }
-// Human only, from the Explorer. The ledger and handovers are refused by the main process as well.
+// A proposal made by mistake can go while nobody has acted on it; a bound, rejected or superseded one stays as the record.
+const propDeletable = p => !!p._path && ['minted', 'checked', undefined].includes(p.status);
+// Human only, from the Explorer, the Decisions list and the Proposals lists. The ledger and handovers are refused by the main process as well.
 async function deleteFile(path) {
   if (/^(ledger|handovers)\//.test(path)) { toast(`${path} cannot be deleted: the ledger is append-only and handovers are frozen.`, 'warning'); return; }
   const b = A.buffers.get(path);
@@ -1225,7 +1227,7 @@ function improveSidebar() {
   const escapes = A.ledger.filter(e => e.kind === 'escape'), un = escapes.filter(e => !e.caught_by);
   const uh = un.map(e => `<div class="item"><div class="l1"><span class="id">${esc(e.id)}</span><span class="desc">${esc(e.element || '')}</span></div><div class="l2">${esc(e.description || '')}</div>
       <div class="acts"><select class="inline" data-classify="${esc(e.id)}" aria-label="Stage that should have caught ${esc(e.id)}"><option value="">Should have been caught by…</option>${STAGES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div></div>`).join('') || '<div class="hint">Every escape is classified.</div>';
-  const props = A.proposals.map(p => `<div class="item" data-open="${esc(p._path)}"><div class="l1"><span class="id">${esc(p.id)}</span><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span><span class="desc">${esc(p.kind || '')}</span></div><div class="l2">${esc(p.statement || '')}</div></div>`).join('') || '<div class="hint">No proposals yet.</div>';
+  const props = A.proposals.map(p => `<div class="item" data-open="${esc(p._path)}"><div class="l1"><span class="id">${esc(p.id)}</span><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span><span class="desc">${esc(p.kind || '')}</span></div><div class="l2">${esc(p.statement || '')}</div>${propDeletable(p) ? `<div class="acts"><button class="lnk" data-delfile="${esc(p._path)}" title="Delete this proposal file. A bound proposal is superseded instead.">Delete</button></div>` : ''}</div>`).join('') || '<div class="hint">No proposals yet.</div>';
   const sug = telSuggestions();
   const sh = sug.map(t => `<div class="item"><div class="l1"><span class="id">${esc(t.task)}</span><span class="desc">${esc(t.element || '')}</span></div><div class="l2">${esc(t.why)}</div><div class="acts"><button class="lnk" data-telesc="${esc(t.task)}">Record as escape</button></div></div>`).join('');
   return (sug.length ? section('telsug', `Suggested by telemetry (${sug.length})`, sh) : '') + section('unclass', `Unclassified escapes (${un.length})`, uh)
@@ -1901,7 +1903,7 @@ function improveDash() {
   h += suiteRunsHtml(L);
   if (unap.length) h += `<div class="block"><h3>Unapproved changes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Agent</th><th>Role</th><th>File</th></tr>${unap.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${esc(when(e._ts))}</td><td>${esc(e.agent)}</td><td>${esc(e.role)}</td><td>${esc(e.path)}</td></tr>`).join('')}</table></div></div>`;
   h += ledgerIntegrityHtml();
-  h += `<div class="block"><h3>Proposals</h3>${A.proposals.length ? `<div class="tw2"><table class="t"><tr><th>Proposal</th><th>Kind</th><th>Change</th><th>Evidence</th><th>How we'll know</th><th>Status</th></tr>${A.proposals.map(p => `<tr data-open="${esc(p._path)}" style="cursor:pointer"><td><span class="id">${esc(p.id)}</span></td><td>${esc(p.kind || '')}</td><td>${esc(p.statement || '')}</td><td>${esc(p.evidence || '')}</td><td>${p.check ? esc(p.check) : '<span style="color:var(--err)">no check</span>'}</td><td><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span></td></tr>`).join('')}</table></div>` : '<div class="note">No proposals yet. Each should cite an escape and say how you will know the change works.</div>'}</div></div>`;
+  h += `<div class="block"><h3>Proposals</h3>${A.proposals.length ? `<div class="tw2"><table class="t"><tr><th>Proposal</th><th>Kind</th><th>Change</th><th>Evidence</th><th>How we'll know</th><th>Status</th><th></th></tr>${A.proposals.map(p => `<tr data-open="${esc(p._path)}" style="cursor:pointer"><td><span class="id">${esc(p.id)}</span></td><td>${esc(p.kind || '')}</td><td>${esc(p.statement || '')}</td><td>${esc(p.evidence || '')}</td><td>${p.check ? esc(p.check) : '<span style="color:var(--err)">no check</span>'}</td><td><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span></td><td>${propDeletable(p) ? `<button class="lnk" data-delfile="${esc(p._path)}" title="Delete this proposal file">Delete</button>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="note">No proposals yet. Each should cite an escape and say how you will know the change works.</div>'}</div></div>`;
   return h;
 }
 
