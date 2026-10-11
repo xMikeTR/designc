@@ -350,15 +350,16 @@ async function loadTelemetry() {
   if (A.activity === 'build' || A.activity === 'improve') renderSidebar();
 }
 setInterval(() => { if (A.root && A.tel.meta && A.tel.meta.source === 'langfuse' && document.visibilityState === 'visible') loadTelemetry(); }, 5 * 60 * 1000);
-const nkey = s => String(s || '').toLowerCase().replace(/[^a-z0-9]/g, '');
 function designNameFor(name) {
   if (!name || !A.model) return null;
-  for (const e of A.model.elements.values()) if ([e.name, ...(Core.get(e, 'd.aka') || [])].some(n => nkey(n) === nkey(name))) return e.name;
-  return null;
+  const e = Core.resolveElement(A.model, name);
+  return e ? e.name : null;
 }
+// what a pipeline's element reference (an elements.json id, or a name) is called in the design; the raw text when it matches nothing
+const elementLabel = ref => designNameFor(ref) || ref || '';
 // runs → per task (attempts, final outcome) and per design element
 function telAgg() {
-  const runs = A.tel.runs.filter(r => (r.system || 'S2') === 'S2');
+  const runs = Ledger.pipelineRuns(A.tel.runs);
   const tasks = new Map();
   for (const r of runs.slice().sort((a, b) => a.start - b.start)) {
     if (!r.task) continue;
@@ -374,8 +375,7 @@ function telAgg() {
     e.runs++; e.tokens += r.tokens; e.cost += r.cost; if (['failed', 'error'].includes(r.outcome)) e.failed++; if (r.task) e.tasks.add(r.task);
     byEl.set(k, e);
   }
-  const total = { runs: runs.length, tokens: runs.reduce((a, r) => a + r.tokens, 0), cost: A.tel.runs.reduce((a, r) => a + r.cost, 0),
-    failed: runs.filter(r => ['failed', 'error'].includes(r.outcome)).length };
+  const total = Ledger.runTotals(runs);
   const gaps = { noElement: runs.filter(r => !r.element).length, noTask: runs.filter(r => !r.task).length, unknownElement: runs.filter(r => r.element && !designNameFor(r.element)).length };
   return { runs, tasks, passedTasks, byEl, total, gaps, tpp: passedTasks.length ? total.tokens / passedTasks.length : null };
 }
@@ -932,7 +932,7 @@ async function grill() {
   if (!A.root || A.grill.busy) return;
   setActivity('design'); A.grill.busy = true; A.grill.error = null; renderSidebar();
   const live = A.diags.filter(f => !f.suppressed).map(f => `${f.code} ${f.sev} on ${f.loc.label} (line ${f.loc.line}): ${f.msg}`);
-  const needs = A.ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open').map(e => `${e.id}: ${e.question} (task ${e.task}, element ${e.element})`);
+  const needs = A.ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open').map(e => `${e.id}: ${e.question} (task ${e.task}, element ${elementLabel(e.element)})`);
   const sys = 'You are grill-me, the interrogation step of a system design compiler at a reinsurance company. The design (Structurizr DSL with d.* design properties) is the source of truth; code is generated from it. You ask questions; you never decide.';
   const user = `Ask the 3 to 5 questions the designer most needs to answer before this design is handed to the coding pipeline. Prioritise error findings, undeclared properties on critical paths, open needs-decision items from the pipeline, and untraced requirements. Each question must be concrete and about this design. Set business=true only when a product owner, not an engineer, must answer.
 
@@ -1166,7 +1166,7 @@ function buildSidebar() {
   const tokens = tasks.reduce((a, t) => a + Ledger.totalTokens(t), 0);
   const needs = A.ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open');
   const summary = tasks.length ? `<div class="hint">${passed.length} of ${plural(tasks.length, 'task')} passed. ${passed.length ? `${fmtN(tokens / passed.length)} tokens per passing task.` : ''}</div>` : '<div class="hint">No pipeline events in ledger/*.jsonl yet.</div>';
-  const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(n.element || '')}</span></div><div class="l2">${esc(n.question)}</div>
+  const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
   return section('bsum', 'Summary', summary + '<button class="btn block" data-a="builddash">Open Build dashboard</button>') + section('needs', `Waiting on a decision (${needs.length})`, nd);
 }
@@ -1176,7 +1176,7 @@ function improveSidebar() {
       <div class="acts"><select class="inline" data-classify="${esc(e.id)}" aria-label="Stage that should have caught ${esc(e.id)}"><option value="">Should have been caught by…</option>${STAGES.map(([k, l]) => `<option value="${k}">${l}</option>`).join('')}</select></div></div>`).join('') || '<div class="hint">Every escape is classified.</div>';
   const props = A.proposals.map(p => `<div class="item" data-open="${esc(p._path)}"><div class="l1"><span class="id">${esc(p.id)}</span><span class="tag ${esc(p.status || 'minted')}">${esc(p.status || 'minted')}</span><span class="desc">${esc(p.kind || '')}</span></div><div class="l2">${esc(p.statement || '')}</div></div>`).join('') || '<div class="hint">No proposals yet.</div>';
   const sug = telSuggestions();
-  const sh = sug.map(t => `<div class="item"><div class="l1"><span class="id">${esc(t.task)}</span><span class="desc">${esc(t.element || '')}</span></div><div class="l2">${esc(t.why)}</div><div class="acts"><button class="lnk" data-telesc="${esc(t.task)}">Record as escape</button></div></div>`).join('');
+  const sh = sug.map(t => `<div class="item"><div class="l1"><span class="id">${esc(t.task)}</span><span class="desc">${esc(elementLabel(t.element))}</span></div><div class="l2">${esc(t.why)}</div><div class="acts"><button class="lnk" data-telesc="${esc(t.task)}">Record as escape</button></div></div>`).join('');
   return (sug.length ? section('telsug', `Suggested by telemetry (${sug.length})`, sh) : '') + section('unclass', `Unclassified escapes (${un.length})`, uh)
     + section('props', `Proposals (${A.proposals.length})`, props + `<button class="btn block" data-a="draftprops" ${A.drafting ? 'disabled' : ''}>${A.drafting ? 'Drafting…' : 'Draft proposals from escapes'}</button>`, `<button title="New proposal" data-a="newprop">+</button>`)
     + section('idash', 'Dashboard', '<button class="btn block" data-a="improvedash">Open Improve dashboard</button>');
@@ -1815,14 +1815,14 @@ function buildDash() {
   h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
   h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
-  h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(n.element || '')}</div></td><td>${esc(n.question)}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span></td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
-  const byEl = new Map(); for (const t of tasks) { const k = t.element || 'unassigned'; if (!byEl.has(k)) byEl.set(k, []); byEl.get(k).push(t); }
+  h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}}</div></td><td>${esc(n.question)}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span></td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
+  const byEl = new Map(); for (const t of tasks) { const k = elementLabel(t.element) || 'unassigned'; if (!byEl.has(k)) byEl.set(k, []); byEl.get(k).push(t); }
   const names = new Set(A.model ? [...A.model.elements.values()].map(e => e.name) : []);
   h += `<div class="block"><h3>Tasks by element</h3><div class="tw2"><table class="t"><tr><th>Element</th><th class="num">Tasks</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Reruns</th><th class="num">Tokens</th><th class="num">Tokens per pass</th></tr>${[...byEl].map(([el, ts]) => { const p = ts.filter(t => t.status === 'passed').length, tk = ts.reduce((a, t) => a + Ledger.totalTokens(t), 0); return `<tr><td>${esc(el)}${names.has(el) || el === 'unassigned' ? '' : ' <span class="tag open">not in design</span>'}</td><td class="num">${ts.length}</td><td class="num">${p}</td><td class="num">${ts.filter(t => t.status === 'failed').length}</td><td class="num">${ts.reduce((a, t) => a + (t.reruns || 0), 0)}</td><td class="num">${fmtN(tk)}</td><td class="num">${p ? fmtN(tk / p) : 'n/a'}</td></tr>`; }).join('')}</table></div></div>`;
   const dr = A.drift || (A.model && A.model.elements.size ? Core.drift(A.model, L) : null);
   h += `<div class="block"><h3>As built vs designed</h3>${!dr ? '<div class="note">No asbuilt_edge events yet.</div>' : (!dr.undeclared.length && !dr.unrealised.length && !dr.unknownEls.length) ? '<div class="note">No drift.</div>' : `<div class="tw2"><table class="t"><tr><th>Drift</th><th>Detail</th></tr>${dr.undeclared.map(d => `<tr><td><span class="code warning">DC100</span> Undeclared dependency</td><td>${esc(d.from)} → ${esc(d.to)} is in code but not in the design</td></tr>`).join('')}${dr.unknownEls.map(n => `<tr><td><span class="code warning">DC102</span> Not in design</td><td>${esc(n)} appears in code only</td></tr>`).join('')}${dr.unrealised.map(d => `<tr><td><span class="code">DC101</span> Not built yet</td><td>${esc(d.from)} → ${esc(d.to)} is designed but not in code</td></tr>`).join('')}</table></div>`}</div>`;
   const order = { failed: 0, blocked: 1, running: 2, passed: 3 };
-  h += `<div class="block"><h3>Tasks</h3><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th class="num">Reruns</th><th class="num">Turns</th><th class="num">Tokens</th><th>Model</th></tr>${tasks.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).map(t => `<tr><td><span class="id">${esc(t.task || '')}</span> ${esc(t.title || '')}</td><td>${esc(t.element || '')}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td class="num">${t.reruns || 0}</td><td class="num">${t.turns || ''}</td><td class="num">${fmtN(Ledger.totalTokens(t))}</td><td>${esc(t.model || '')}</td></tr>`).join('')}</table></div></div></div>`;
+  h += `<div class="block"><h3>Tasks</h3><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th class="num">Reruns</th><th class="num">Turns</th><th class="num">Tokens</th><th>Model</th></tr>${tasks.slice().sort((a, b) => (order[a.status] ?? 9) - (order[b.status] ?? 9)).map(t => `<tr><td><span class="id">${esc(t.task || '')}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td class="num">${t.reruns || 0}</td><td class="num">${t.turns || ''}</td><td class="num">${fmtN(Ledger.totalTokens(t))}</td><td>${esc(t.model || '')}</td></tr>`).join('')}</table></div></div></div>`;
   return h;
 }
 function ledgerIntegrityHtml() {
@@ -1840,7 +1840,7 @@ function improveDash() {
   h += `<div class="grid2"><div class="block"><h3>Escapes by the stage that should have caught them</h3>${escapes.length ? `<div class="bars">${rows.map(([l, n], i) => `<div class="barrow"><span>${esc(l)}</span><div class="bartrack"><div class="barfill ${i === rows.length - 1 ? 'un' : ''}" style="width:${(n / max) * 100}%"></div></div><span class="c">${n}</span></div>`).join('')}</div>` : '<div class="note">No escapes yet.</div>'}</div>`;
   h += `<div class="block"><h3>Rule health</h3><div class="tw2"><table class="t"><tr><th>Rule</th><th class="num">Firing</th><th class="num">Suppressed</th><th class="num">Escapes</th><th class="num">False +</th></tr>${Core.RULES.map(r => { const f = A.diags.filter(d => d.code === r.code); return `<tr><td><span class="code">${r.code}</span> ${esc(r.title)}<div style="color:var(--fg3);font-size:11.5px">${esc(r.source)}</div></td><td class="num">${f.filter(d => !d.suppressed).length}</td><td class="num">${f.filter(d => d.suppressed).length}</td><td class="num">${escapes.filter(e => e.code === r.code).length}</td><td class="num">${fps.filter(e => e.code === r.code).length}</td></tr>`; }).join('')}</table></div></div></div>`;
   const sug = telSuggestions();
-  if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(t.element || '')}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
+  if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
   h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
