@@ -99,6 +99,17 @@ function askText(message, value = '') {
     document.body.appendChild(el); input.focus(); input.setSelectionRange(input.value.length, input.value.length);
   });
 }
+// One button per option plus Cancel; resolves to the chosen value, or null on Cancel or Escape.
+function askChoice(message, options) {
+  return new Promise(resolve => {
+    const el = document.createElement('div'); el.className = 'askbox';
+    el.innerHTML = `<div class="askcard"><label>${esc(message)}</label><div class="choices">${options.map((o, i) => `<button type="button" class="btn${o.primary ? ' primary' : ''}" data-choice="${i}">${esc(o.label)}</button>`).join('')}</div><div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button></div></div>`;
+    const done = v => { el.remove(); resolve(v); };
+    el.addEventListener('click', e => { const b = e.target.closest('[data-choice],[data-ask]'); if (!b) return; e.stopPropagation(); done(b.dataset.choice != null ? options[+b.dataset.choice].value : null); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+    document.body.appendChild(el); el.querySelector('button').focus();
+  });
+}
 
 // ---------------------------------------------------------------- registry loading
 function textOf(path) { const b = A.buffers.get(path); return b ? b.model.getValue() : null; }
@@ -597,9 +608,9 @@ async function onDiskChanged(paths) {
 async function createAndOpen(path, text, selectLine) { await host.write(path, text); A.tree = await host.tree(); await openFile(path, selectLine); await loadRegistry(); recompile(); renderAll({ keepEditor: true }); }
 const yamlList = a => `[${(a || []).map(x => /[:,\[\]{}#&*!|>'"%@`]/.test(x) ? JSON.stringify(x) : x).join(', ')}]`;
 const yamlStr = s => JSON.stringify(String(s || ''));
-async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [] } = {}) {
+async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], open = true, idFrom } = {}) {
   if (!A.root) return;
-  const id = Core.slugId(statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
+  const id = Core.slugId(idFrom || statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
   if (finding) { binds = binds || finding.loc.names.slice(0, finding.loc.kind === 'element' ? 1 : 2); resolves = resolves || [finding.code]; }
   const business = kind === 'business';
   if (business && statement) statement = `PROPOSED: ${statement}`;
@@ -611,12 +622,15 @@ ${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'ev
 binds: ${yamlList(binds || [])}
 resolves: ${yamlList(resolves || [])}
 statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
-checks:
-${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}
+${!checks.length && (business || effect === 'accept') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : 'an accepted risk rests on its business decision'}` : `checks:
+${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
 rationale: ${rationale ? yamlStr(rationale) : '""'}
 assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
 `;
-  await createAndOpen(`decisions/${id}.yaml`, text, statement ? null : 8);
+  const path = `decisions/${id}.yaml`;
+  if (open) await createAndOpen(path, text, statement ? null : 8);
+  else { await host.write(path, text); A.tree = await host.tree(); await loadRegistry(); }
+  return { id, path };
 }
 // The + on Decisions and Record decision on a problem ask first, so a stray click creates nothing.
 async function newDecision() {
@@ -627,6 +641,21 @@ async function decisionForFinding(f) {
   if (!f) return;
   const statement = await askText(`${f.code} on ${f.loc.label}: ${f.msg.replace(/\.?$/, '.')} What was decided? (leave blank to fill in later)`); if (statement == null) return;
   return recordDecision({ finding: f, statement: statement.trim() });
+}
+// Writes a technical accept decision that relies on a business decision, drafting that one if asked. Nothing is
+// bound here: the business decision still needs evidence, and a person binds both.
+async function acceptRisk(f) {
+  if (!f) return;
+  const why = await askText(`${f.code} on ${f.loc.label}: ${f.msg.replace(/\.?$/, '.')}\n\nWhy is it acceptable to keep this risk?`); if (why == null) return;
+  if (!why.trim()) { toast('Nothing was recorded: say why the risk is acceptable, that becomes the decision.', 'warning'); return; }
+  const biz = A.decisions.filter(d => d.kind === 'business' && d.status !== 'superseded');
+  const pick = await askChoice('Which business decision does this rely on? An accepted risk needs one, bound by a person with evidence.',
+    [...biz.map(d => ({ value: d.id, label: `${d.id} (${d.status}): ${trunc(d.statement || 'no statement', 60)}` })), { value: '', label: 'Draft a new business decision', primary: !biz.length }]);
+  if (pick == null) return;
+  const rationale = `Accepts ${f.code} on ${f.loc.label}: ${f.msg}`;
+  const b = pick ? null : await recordDecision({ kind: 'business', effect: 'accept', statement: why.trim(), binds: [], resolves: [], rationale, open: false });
+  const t = await recordDecision({ finding: f, effect: 'accept', statement: why.trim(), relies_on: [pick || b.id], rationale, idFrom: `accept ${f.code} ${(f.loc.names || [])[0] || ''}`, open: !b });
+  if (b) { await openFile(b.path); renderAll({ keepEditor: true }); toast(`Drafted ${b.id} and ${t.id}. Add evidence to ${b.id}, then bind both.`); }
 }
 // Human only, from the Explorer. The ledger and handovers are refused by the main process as well.
 async function deleteFile(path) {
@@ -1113,7 +1142,7 @@ function renderPanel() {
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
     rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
-      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
+      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button>` : ''}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
 
@@ -1810,6 +1839,7 @@ document.addEventListener('click', async e => {
   if (d.file) return openFile(d.file);
   if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
   if (d.fixfi) { e.stopPropagation(); return decisionForFinding(A.diags[+d.fixfi]); }
+  if (d.accfi) { e.stopPropagation(); return acceptRisk(A.diags[+d.accfi]); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
   if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
