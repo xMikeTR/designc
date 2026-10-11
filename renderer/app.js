@@ -849,6 +849,11 @@ async function computeForecast(modelText) {
   return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
 }
 async function freezeHandover() {
+  if (A.freezing) return; // a second click while the first freeze is still writing
+  A.freezing = true;
+  try { await freezeOnce(); } finally { A.freezing = false; }
+}
+async function freezeOnce() {
   if (!A.gate || !A.gate.ready) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
   let st = await host.gitStatus();
@@ -865,8 +870,6 @@ async function freezeHandover() {
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
   const modelText = (await host.read(A.cfg.model)) || '';
   const { frozen } = await computeForecast(modelText);
-  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
-  if (!confirm(`Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`)) return;
   const plan = Core.handoverPlan({
     date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
     model: { path: A.cfg.model, text: modelText },
@@ -877,6 +880,10 @@ async function freezeHandover() {
     evals: await read('evals', ['.yaml', '.yml']),
     scenarios: await read('scenarios', ['.yaml', '.yml']),
   });
+  const already = Core.frozenAs(plan.id, A.handovers);
+  if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
+  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
+  if (!confirm(`Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`)) return;
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
   const git = await recordGate('local', st.repo ? { commit: st.head || null, dirty: false } : null);

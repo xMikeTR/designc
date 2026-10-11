@@ -1190,6 +1190,15 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))] };
   }
 
+  // A frozen handover never changes. Freezing again is refused when its folder already exists (same id), or when
+  // the content hash equals the newest handover's (nothing changed since it). Returns that handover's id, else null.
+  function frozenAs(id, handovers) {
+    const hashOf = x => String(x).split('-').pop();
+    if (handovers.some(h => h && h.id === id)) return id;
+    const last = [...handovers].reverse().find(h => h && h.id);
+    return last && hashOf(last.id) === hashOf(id) ? last.id : null;
+  }
+
   // Decisions the gate blocks on promotion (no fingerprint, or what they bind changed): a human can re-bind them.
   function rebindable(g) {
     const ids = [];
@@ -1697,6 +1706,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;
