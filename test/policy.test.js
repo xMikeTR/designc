@@ -84,3 +84,24 @@ test('the tutor writes nothing: no write path, and a write tool it is not given 
   const tutor = { allow: ['read_model', 'get_findings'], ask: [], deny: [] };
   for (const t of Policy.WRITE_TOOLS) assert.equal(Policy.verdict(tutor, t), 'deny', t);
 });
+
+test('checkProblem: a check written as a description is not a command', () => {
+  for (const c of ['Model: user -> agent has d.idempotent = no', 'Test: with the MCP server stopped, a request fails', 'Telemetry: zero matches', 'ACS policy: a deny-listed read is denied'])
+    assert.match(Policy.checkProblem(c), /description, not a command/, c);
+  assert.match(Policy.checkProblem(''), /empty/);
+  assert.match(Policy.checkProblem('   '), /empty/);
+});
+
+test('checkProblem: real commands and TODO placeholders pass', () => {
+  for (const c of ['p check -tc tcOptimistic', './checks/playtest-clean.sh', 'echo hi: there', 'npm test -- --grep "Quote: writes"', 'FOO=1 make check', 'TODO command that proves it'])
+    assert.equal(Policy.checkProblem(c), null, c);
+});
+
+test('writeVerdict: an agent decision whose check is a description is refused, naming it', () => {
+  const doc = 'id: x\nstatus: minted\nchecks:\n  - "./ok.sh"\n  - "Model: agent is read-only"\n';
+  const v = wv('grill', 'decisions/x.yaml', doc);
+  assert.equal(v.ok, false);
+  assert.match(v.error, /Model: agent is read-only/);
+  assert.match(v.error, /TODO/);
+  assert.equal(wv('grill', 'decisions/x.yaml', 'id: x\nstatus: minted\nchecks:\n  - "./ok.sh"\n  - "TODO write the playtest script"\n').ok, true);
+});

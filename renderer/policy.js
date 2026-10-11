@@ -51,9 +51,22 @@ const Policy = (() => {
         if (human) return no(`${human} is added by a human, not an agent; leave it out.`);
         const reviewed = Array.isArray(doc.assumptions) && doc.assumptions.some(a => a && typeof a === 'object' && REVIEW_FIELDS.some(f => Object.prototype.hasOwnProperty.call(a, f)));
         if (reviewed) return no('An assumption is marked reviewed by a human, not an agent; leave reviewed_by and reviewed_at out.');
+        const prose = (Array.isArray(doc.checks) ? doc.checks : []).find(c => checkProblem(c));
+        if (prose != null) return no(`Check "${prose}": ${checkProblem(prose)} A check is a shell command run in the registry folder that exits 0 when the decision holds. Write the command, or "TODO <what it must prove>" when none exists yet.`);
       }
     }
     return { ok: true };
+  }
+
+  // A decision check is a shell command run in the registry folder; its exit code is the verdict. Null when
+  // it can run (a TODO placeholder is left alone), else why not. A leading label such as "Model:" or
+  // "ACS policy:" marks a description of what to verify, which the shell would only fail to run.
+  function checkProblem(cmd) {
+    const c = String(cmd == null ? '' : cmd).trim();
+    if (!c) return 'The check is empty.';
+    if (/^TODO/.test(c)) return null;
+    if (/^[A-Z][A-Za-z]*( [A-Za-z]+)?:\s/.test(c)) return 'It reads as a description, not a command.';
+    return null;
   }
 
   // Which of the registry paths that changed on disk during an agent turn did designc not write or
@@ -69,6 +82,6 @@ const Policy = (() => {
     });
   }
 
-  return { WRITE_PATHS, WRITE_TOOLS, verdict, writeVerdict, unapprovedChanges };
+  return { WRITE_PATHS, WRITE_TOOLS, verdict, writeVerdict, checkProblem, unapprovedChanges };
 })();
 if (typeof module !== 'undefined') module.exports = Policy;

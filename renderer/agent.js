@@ -9,13 +9,14 @@ Rules:
 - Use tools to look before you answer. Cite evidence as model line numbers ("line 53") or file:line for code.
 - You cannot change anything directly. Tools marked as needing approval show the user a card; nothing happens unless they approve. Never say you changed something unless a tool result says "Applied" or "Created".
 - Prefer one precise proposal over several vague ones. Keep answers short and concrete.
+- A decision check is a shell command run in the registry folder that exits 0 when the decision holds (for example ./checks/playtest-clean.sh or p check -tc tcOptimistic); designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" and say what script is needed.
 - The lint rules: DC001 duplicate processing, DC002 lost update, DC003 compound availability, DC004 retry duplicates side effects, DC005 single point of failure, DC006 trust boundary. Design properties are listed in the model.`;
 const ROLES = {
   architect: { label: 'Architect', system: 'S1', allow: READ_TOOLS, ask: ['propose_model_edit', 'mint_decision'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
   grill: { label: 'Grill-me', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: ['mint_decision'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it.',
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
@@ -119,6 +120,8 @@ const WRITERS = {
     };
   },
   mint_decision: a => {
+    const prose = (a.checks || []).find(c => Policy.checkProblem(c));
+    if (prose != null) return { error: `Check "${prose}": ${Policy.checkProblem(prose)} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" when none exists yet.` };
     const business = a.kind === 'business';
     if (business) a = { ...a, statement: `PROPOSED: ${String(a.statement).replace(/^PROPOSED:\s*/i, '')}` };
     const id = Core.slugId(a.statement, A.decisions.map(d => d.id));
@@ -232,7 +235,8 @@ async function send(text) {
 }
 // ---------------------------------------------------------------- ACP agents
 const ACP_RULES = `[designc] You are connected to designc, a system design IDE, through the Agent Client Protocol. The workspace is a design registry; the design model (Structurizr DSL) is the source of truth and code is generated from it.
-Use the "designc" MCP tools to read the model, findings, gate, decisions, code map and telemetry. Change the model or create decisions/proposals with the designc tools that need approval, or by writing files inside the registry; every change is shown to the user as a diff to approve. The codebase is read-only here. Do not bind decisions: that is a human action.`;
+Use the "designc" MCP tools to read the model, findings, gate, decisions, code map and telemetry. Change the model or create decisions/proposals with the designc tools that need approval, or by writing files inside the registry; every change is shown to the user as a diff to approve. The codebase is read-only here. Do not bind decisions: that is a human action.
+A decision check is a shell command run in the registry folder that exits 0 when the decision holds; designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>".`;
 async function sendAcp(text) {
   const c = chat(), key = AG.agent;
   c.items.push({ kind: 'user', text }); AG.busy = true; renderAgent();
