@@ -220,7 +220,11 @@
     }
     if (empty) return { text: src };
     const line = `${ind}${u}${u}${q(key)} ${q(value)}\n`;
-    if (node.props) return { text: splice(src, lineStart(src, node.props.close.s), lineStart(src, node.props.close.s), line) };
+    if (node.props) {
+      const { open, close } = node.props;   // a one-line block `properties { ... }` takes the entry inline
+      if (!src.slice(open.e, close.s).includes('\n')) return { text: splice(src, close.s, close.s, `${src[close.s - 1] === ' ' ? '' : ' '}${q(key)} ${q(value)} `) };
+      return { text: splice(src, lineStart(src, close.s), lineStart(src, close.s), line) };
+    }
     const block = `${ind}${u}properties {\n${line}${ind}${u}}\n`;
     if (node.open) { let at = src.indexOf('\n', node.open.e); at = at < 0 ? node.open.e : at + 1; return { text: splice(src, at, at, block) }; }
     return { text: splice(src, node.headerEnd, node.headerEnd, ` {\n${block}${ind}}`) };

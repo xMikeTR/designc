@@ -120,3 +120,14 @@ test('identFor avoids keywords and collisions', () => {
   assert.equal(D.identFor('model', new Set()), 'model2');
   assert.equal(D.identFor('3rd party', new Set()), 'e3rdParty');
 });
+
+test('a property added to a one-line properties block goes inside it', () => {
+  const src = 'workspace "W" {\n  model {\n    a = softwareSystem "A"\n    b = softwareSystem "B"\n    a -> b "Calls" {\n      properties { "d.interaction" "sync" }\n    }\n  }\n}\n';
+  const rel = Core.parse(src).rels[0];
+  let t = D.setProperty(src, { kind: 'relationship', ref: { line: rel.line, src: 'a', dst: 'b' } }, 'd.tool.effect', 'read').text;
+  let m = ok(t);
+  assert.equal(m.rels[0].props['d.tool.effect'], 'read'); assert.equal(m.rels[0].props['d.interaction'], 'sync');
+  t = D.setProperty(t, { kind: 'relationship', ref: { line: rel.line, src: 'a', dst: 'b' } }, 'd.tool.effect', 'write').text;
+  m = ok(t); assert.equal(m.rels[0].props['d.tool.effect'], 'write');
+  assert.equal((t.match(/d\.tool\.effect/g) || []).length, 1);
+});
