@@ -70,6 +70,18 @@ test('handoverPlan: evals are copied and their hashes recorded by eval id', () =
   assert.deepEqual(yaml.load(Core.handoverPlan(inputs()).files[0].text).evals, {});
 });
 
+test('handoverPlan: scenarios are copied and listed by id, so the build receives what done means', () => {
+  const text = 'id: QAS-1\ntitle: Repo never written\nattribute: integrity\nfitness:\n  - "TODO policy test"\n';
+  const p = Core.handoverPlan(inputs({ scenarios: [{ path: 'scenarios/QAS-1.yaml', text }] }));
+  const copy = p.files.find(f => f.path === `handovers/${p.id}/scenarios/QAS-1.yaml`);
+  assert.equal(copy && copy.text, text);
+  const doc = yaml.load(p.files[0].text);
+  assert.deepEqual(doc.scenarios, ['QAS-1']);
+  assert.ok(doc.files.some(f => f.path === 'scenarios/QAS-1.yaml'));
+  assert.notEqual(Core.handoverPlan(inputs({ scenarios: [{ path: 'scenarios/QAS-1.yaml', text: text + 'x: 1\n' }] })).id.slice(9), p.id.slice(9));
+  assert.deepEqual(yaml.load(Core.handoverPlan(inputs()).files[0].text).scenarios, []);
+});
+
 test('no agent role may write evals/', () => {
   for (const role of Object.keys(Policy.WRITE_PATHS)) {
     const v = Policy.writeVerdict(role, 'evals/EV-1.yaml', 'id: EV-1\n', t => require('js-yaml').load(t));
