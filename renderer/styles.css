@@ -343,3 +343,6 @@ h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
 .askcard input{font:inherit;padding:5px 8px;border:1px solid var(--edge);border-radius:4px;background:var(--editor,var(--bg));color:var(--fg)}
 .askcard .choices{display:grid;gap:6px}.askcard .choices .btn{text-align:left}
 .askcard .ta{display:flex;gap:8px;justify-content:flex-end}
+.panel-body[hidden]{display:none}
+.panel-body.term{overflow:hidden;padding:4px 0 0 10px;background:var(--editor)}
+.panel-body.term .xterm{height:100%}

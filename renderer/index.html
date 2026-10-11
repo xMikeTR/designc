@@ -6,6 +6,7 @@
 <title>designc</title>
 <link rel="stylesheet" href="styles.css">
 <link rel="stylesheet" href="canvas/canvas.css">
+<link rel="stylesheet" href="../node_modules/@xterm/xterm/css/xterm.css">
 </head>
 <body>
 <div class="shell" id="shell">
@@ -44,8 +45,9 @@
     </div>
     <div class="psash" id="psash"></div>
     <div class="panel" id="panel">
-      <div class="panel-tabs"><button data-panel="problems">Problems <span class="count" id="probCount"></span></button><button data-panel="output">Output</button><div class="spacer"></div><button class="iconbtn" id="panelClear" title="Clear output">Clear</button><button class="iconbtn" id="panelClose" title="Close panel" aria-label="Close panel">✕</button></div>
+      <div class="panel-tabs"><button data-panel="problems">Problems <span class="count" id="probCount"></span></button><button data-panel="output">Output</button><button data-panel="terminal">Terminal</button><div class="spacer"></div><button class="iconbtn" id="panelClear" title="Clear output">Clear</button><button class="iconbtn" id="panelClose" title="Close panel" aria-label="Close panel">✕</button></div>
       <div class="panel-body" id="panelBody"></div>
+      <div class="panel-body term" id="termBody" hidden></div>
     </div>
   </section>
   <aside class="agent" id="agent" aria-label="Agent panel">
@@ -73,10 +75,14 @@
 <script src="canvas/agentic-rules.js"></script>
 <script src="canvas/dsl-edit.js"></script>
 <script src="canvas/canvas.js"></script>
+<!-- xterm before Monaco's loader: its UMD wrapper would otherwise register through AMD define and set no globals -->
+<script src="../node_modules/@xterm/xterm/lib/xterm.js"></script>
+<script src="../node_modules/@xterm/addon-fit/lib/addon-fit.js"></script>
 <script src="../node_modules/monaco-editor/min/vs/loader.js"></script>
 <script src="app.js"></script>
 <script src="gitview.js"></script>
 <script src="setupview.js"></script>
+<script src="terminalview.js"></script>
 <script src="agent.js"></script>
 </body>
 </html>

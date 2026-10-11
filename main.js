@@ -15,7 +15,9 @@ const git = require('./git');
 const Setup = require('./renderer/setup.js');
 const Llm = require('./renderer/llm.js');
 const LlmNet = require('./llm-net.js');
+const { Terminals } = require('./terminal.js');
 
+let terminals = null;
 let win = null, root = null, watcher = null, watchTimer = null, changed = new Set();
 const running = new Map();
 const STATE_FILE = () => path.join(app.getPath('userData'), 'state.json');
@@ -49,6 +51,7 @@ async function tree(abs, depth = 0) {
 
 function setRoot(dir) {
   if (typeof hub !== 'undefined') hub.disconnectAll();
+  if (terminals) terminals.closeAll();
   root = path.resolve(dir);
   state.recent = [root, ...state.recent.filter(r => r !== root)].slice(0, 8);
   saveState(); buildMenu();
@@ -111,6 +114,7 @@ function buildMenu() {
       { label: 'Agent Panel', accelerator: 'CmdOrCtrl+Alt+I', click: send('toggle-agent') },
       { label: 'Problems', accelerator: 'CmdOrCtrl+Shift+M', click: send('panel:problems') },
       { label: 'Output', accelerator: 'CmdOrCtrl+Shift+U', click: send('panel:output') },
+      { label: 'Terminal', accelerator: 'Ctrl+`', click: send('panel:terminal') },
       { type: 'separator' },
       { role: 'resetZoom' }, { role: 'zoomIn' }, { role: 'zoomOut' },
       { type: 'separator' },
@@ -362,7 +366,10 @@ handle('acp:connect', async (key, meta) => {
 handle('acp:prompt', async (key, text) => { try { return await hub.prompt(key, text); } catch (e) { return { error: e.message }; } });
 handle('acp:cancel', key => { hub.cancel(key); return true; });
 handle('acp:disconnect', key => { hub.disconnect(key); return true; });
-app.on('before-quit', () => hub.disconnectAll());
+app.on('before-quit', () => { hub.disconnectAll(); if (terminals) terminals.closeAll(); });
+// Once node-pty has run a shell, Node's normal teardown never finishes (it hangs after 'exit' fires; process.exit and
+// app.exit hang the same way), so leave directly. Shells are already killed in before-quit and state.json is saved synchronously.
+app.on('will-quit', () => { if (terminals) process.reallyExit(0); });
 
 // ---------- AG-UI agents: remote agent services (e.g. MAF hosts via MapAGUIServer), HTTP POST + SSE ----------
 // Header values may reference environment variables as ${env:NAME}, so tokens never live in designc.json.
@@ -422,6 +429,28 @@ handle('check:run', async (runId, cmd) => {
     child.on('close', code => { running.delete(runId); resolve({ code, ms: Date.now() - t0 }); });
   });
 });
+
+// Integrated terminal. Human only: no agent tool, ACP request or MCP call reaches it. Same folder trust as checks and git.
+// The shell gets the user's full environment (not childEnv), by the user's choice, so git push finds SSH agents and
+// credential helpers. node-pty is loaded on first use so a missing native build only disables the terminal.
+handle('term:open', async (cols, rows) => {
+  if (!root) return { error: 'Open a folder first.' };
+  if (!terminals) {
+    let pty; try { pty = require('node-pty'); } catch (e) { return { error: `The terminal could not start: ${e.message}. Run npm install, which rebuilds node-pty for Electron.` }; }
+    terminals = new Terminals(pty);
+  }
+  if (!await ensureTrusted({ button: 'Trust folder and open terminal', title: 'Open a terminal in this folder?',
+    message: 'The terminal runs a shell in this folder with your own environment.',
+    detail: `Only trust ${root} if you trust whoever can edit it. The same decision lets decision checks and git run here.` })) return { cancelled: true };
+  try {
+    const id = terminals.open({ cwd: root, env: process.env, cols, rows,
+      onData: s => win && win.webContents.send('term:data', id, s), onExit: code => win && win.webContents.send('term:exit', id, code) });
+    return { id, cwd: root };
+  } catch (e) { return { error: `The shell did not start: ${e.message}` }; }
+});
+handle('term:input', (id, s) => !!terminals && terminals.input(id, s));
+handle('term:resize', (id, cols, rows) => !!terminals && terminals.resize(id, cols, rows));
+handle('term:close', id => !!terminals && terminals.close(id));
 
 // Git. Finding a repo runs nothing; every call that runs git waits for the folder to be trusted.
 const gitTrusted = () => !!root && isTrusted(state.trusted, root, state.trustAllFolders);
