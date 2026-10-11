@@ -176,7 +176,16 @@ handle('fs:remove', async rel => {
   if (!(await fsp.stat(abs)).isFile()) throw new Error(`${r} is not a file`);
   await fsp.unlink(abs); return true;
 });
-handle('fs:write', async (rel, text) => { const abs = inside(rel); await fsp.mkdir(path.dirname(abs), { recursive: true }); await fsp.writeFile(abs, text, 'utf8'); return true; });
+// A file under handovers/ is written once (flag wx): a frozen handover is never rewritten, by a re-freeze or an editor save.
+handle('fs:write', async (rel, text) => {
+  const abs = inside(rel), frozen = /^handovers\//.test(toRel(abs));
+  await fsp.mkdir(path.dirname(abs), { recursive: true });
+  try { await fsp.writeFile(abs, text, { encoding: 'utf8', flag: frozen ? 'wx' : 'w' }); } catch (e) {
+    if (e.code === 'EEXIST') throw new Error(`${toRel(abs)} is part of a frozen handover and cannot be changed`);
+    throw e;
+  }
+  return true;
+});
 // Files in one folder with their text, paths relative to `base`; each file is confined again, so a symlink inside
 // the folder cannot lead out of `base`.
 async function listDir(base, relDir, ext) {

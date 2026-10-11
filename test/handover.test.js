@@ -88,3 +88,15 @@ test('no agent role may write evals/', () => {
     assert.equal(v.ok, false, role);
   }
 });
+
+test('frozenAs: a handover never changes once frozen, so the same id or unchanged content is already frozen', () => {
+  const hs = [{ id: '20261001-aaaaaaaa' }, { id: '20261002-bbbbbbbb' }];
+  // The same id: its folder exists and freezing again would rewrite it.
+  assert.equal(Core.frozenAs('20261001-aaaaaaaa', hs), '20261001-aaaaaaaa');
+  // Same content on a later day as the newest handover: nothing changed since it.
+  assert.equal(Core.frozenAs('20261011-bbbbbbbb', hs), '20261002-bbbbbbbb');
+  // Content back to an older handover after a newer one: a real new freeze.
+  assert.equal(Core.frozenAs('20261011-aaaaaaaa', hs), null);
+  assert.equal(Core.frozenAs('20261011-cccccccc', hs), null);
+  assert.equal(Core.frozenAs('20261011-cccccccc', []), null);
+});
