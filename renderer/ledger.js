@@ -772,10 +772,21 @@ const Ledger = (() => {
     return { dimensions, problems, threshold, maxAgeDays };
   }
 
+  // Telemetry runs: Designc's own agents are tagged with these systems (ROLES[*].system in agent.js);
+  // every other run, tagged or not, comes from a coding agent or pipeline and is what the cost views show.
+  const OWN_SYSTEMS = ['S1', 'S4'];
+  const pipelineRuns = runs => runs.filter(r => !OWN_SYSTEMS.includes(r.system));
+  const runTotals = runs => ({
+    runs: runs.length,
+    tokens: runs.reduce((a, r) => a + r.tokens, 0),
+    cost: runs.reduce((a, r) => a + r.cost, 0),
+    failed: runs.filter(r => ['failed', 'error'].includes(r.outcome)).length,
+  });
+
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    PIPELINE_KINDS, PIPELINE_STREAM, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
