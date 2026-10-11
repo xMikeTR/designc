@@ -17,5 +17,5 @@
 {"kind":"escape","id":"E-0007","element":"Quotes DB","description":"Underwriter edit overwritten by a referral status update in UAT","rule":"DC002","stage":"S1-lint","sample":true,"ts":1790148141546}
 {"kind":"escape","id":"E-0008","element":"Cat Model Adapter","description":"Duplicate vendor runs billed after a timeout retry","rule":"DC004","sample":true,"ts":1790176941546}
 {"kind":"escape","id":"E-0009","element":"Referral Worker","description":"Verify failed after a clean handover: duplicate referral emails","stage":"S1-grill","sample":true,"ts":1790205741546}
-{"kind":"escape","id":"E-0010","element":"Cat Model Adapter","description":"Three reruns on T-04 although the spec named the idempotency key","stage":"S2-runtime","sample":true,"ts":1790234541546}
+{"kind":"escape","id":"E-0010","element":"Cat Model Adapter","description":"Three reruns on T-04 although the spec named the idempotency key","stage":"pipeline","sample":true,"ts":1790234541546}
 {"kind":"false_positive","code":"DC003","element":"Pricing Portal","note":"Portal call chain has a cached fallback","sample":true,"ts":1790263341546}

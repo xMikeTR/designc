@@ -61,7 +61,7 @@
       "agent_approval": "stream agents.jsonl; R agent, R role, R tool, R outcome accept|reject|cancelled, R via, o interrupt",
       "unapproved_change": "stream agents.jsonl; R agent, R role, R path, R via acp|agui"
     },
-    "caught_by": "CAUGHT_BY = ['S1-lint','S1-p','S1-grill','S2-runtime','S2-config'] — the keys of STAGES in renderer/app.js:25 must equal this list",
+    "caught_by": "CAUGHT_BY = ['S1-lint','S1-p','S1-grill','pipeline'] — the keys of STAGES in renderer/app.js:25 must equal this list",
     "append_signature": "appendEvent(root, event, { now = Date.now, uuid = crypto.randomUUID } = {}) -> { ok: true, event } | { ok: false, errors: string[] }. Order: Ledger.validate(event) (schema_version/event_id/ts may be absent) -> stamp -> file = path.join(root, 'ledger', KINDS[kind].stream) -> mkdir -p -> ONE JSON.stringify -> ONE fs.promises.appendFile(line + '\\n'). No caller-supplied path. Never reads, rewrites or truncates.",
     "ipc": "main.js: ipcMain handle 'ledger:event' (event) -> store.appendEvent(<registry root>, event). preload.js: appendLedgerEvent: (ev) => ipcRenderer.invoke('ledger:event', ev).",
     "validation_errors": "Each error is a string naming the field, e.g. \"check.exit_code: required when outcome is 'fail' (or give reason)\". validate rejects: unknown kind; missing required field; enum violation; wrong type (incl. non-numeric ts); unknown top-level field (extra data must go under payload); '_'-prefixed key; schema_version other than 1 when present; kind rule breach.",

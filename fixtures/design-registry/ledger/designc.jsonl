@@ -1,4 +1,4 @@
 {"kind":"escape","by":"build-pipeline","id":"E-1a2b3c4d","element":"Orders DB","description":"Lost update when two order edits raced","code":"DC002","caught_by":"S1-lint","source":"pipeline","schema_version":1,"event_id":"fixture-001","ts":1791111600000}
 {"kind":"escape","by":"build-pipeline","id":"E-5e6f7a8b","element":"Shop API","description":"Retry storm against the payments provider after a timeout","source":"pipeline","schema_version":1,"event_id":"fixture-002","ts":1791115200000}
 {"kind":"escape","by":"build-pipeline","id":"E-9c0d1e2f","element":"Shop API","description":"Agent edited a test to make it pass","source":"langfuse","schema_version":1,"event_id":"fixture-003","ts":1791118800000}
-{"kind":"escape_classified","by":"mike","escape":"E-9c0d1e2f","caught_by":"S2-runtime","schema_version":1,"event_id":"fixture-004","ts":1791122400000}
+{"kind":"escape_classified","by":"mike","escape":"E-9c0d1e2f","caught_by":"pipeline","schema_version":1,"event_id":"fixture-004","ts":1791122400000}

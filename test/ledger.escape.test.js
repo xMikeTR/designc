@@ -5,7 +5,7 @@ const Ledger = require('../renderer/ledger.js');
 test('legacy escape names are upcast to code and caught_by', () => {
   const lines = [
     JSON.stringify({ kind: 'escape', id: 'E-0001', description: 'd', rule: 'DC003', stage: 'S1-lint', ts: 1 }),
-    JSON.stringify({ kind: 'escape_classified', escape: 'E-0001', stage: 'S2-runtime', ts: 2 }),
+    JSON.stringify({ kind: 'escape_classified', escape: 'E-0001', stage: 'pipeline', ts: 2 }),
   ];
   const { events, errors } = Ledger.parse(lines.join('\n'), 'designc.jsonl');
   assert.deepEqual(errors, []);
@@ -13,7 +13,7 @@ test('legacy escape names are upcast to code and caught_by', () => {
   assert.equal(events[0].caught_by, 'S1-lint');
   assert.equal('rule' in events[0], false);
   assert.equal('stage' in events[0], false);
-  assert.equal(events[1].caught_by, 'S2-runtime');
+  assert.equal(events[1].caught_by, 'pipeline');
   assert.equal('stage' in events[1], false);
 });
 

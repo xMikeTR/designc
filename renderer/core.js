@@ -412,7 +412,8 @@ const Core = (() => {
     }
     return out;
   }
-  // d.code is System 2's scope guard; its handover reader refuses what is reported here.
+  // d.code is where an element's code lives in the handover (docs/path-patterns.json); what is reported here would
+  // make a handover a coding agent cannot trust.
   function codeAreaProblems(e) {
     const raw = e.props['d.code'], entries = String(raw).split(',').map(s => s.trim()), out = [];
     if (entries.every(s => !s)) out.push([`"d.code" = "${raw}": lists no paths`, 'remove d.code, or name where the element\'s code lives']);
@@ -421,7 +422,7 @@ const Core = (() => {
       const p = PP.create(s);
       if (!p.ok) out.push([`"d.code" = "${raw}": ${p.error}`, 'use repo-relative paths with *, ? and ** as a whole segment']);
     });
-    if (e.props['d.risk'] == null) out.push(['d.code needs d.risk (System 2 refuses the handover without it)', 'set d.risk: low | medium | high']);
+    if (e.props['d.risk'] == null) out.push(['d.code needs d.risk (the handover gives both or neither)', 'set d.risk: low | medium | high']);
     return out;
   }
 
@@ -649,8 +650,8 @@ const Core = (() => {
         }
         return out;
       } },
-    { code: 'DC009', title: 'Overlapping code areas', source: 'System 2 contract: Fitness.owner gives a file to the first element whose d.code matches, and the plan scope guard admits overlapping areas',
-      doc: 'Each file belongs to one element. d.code may be declared on one level per branch (a container or its components, not both), and the areas of unrelated elements must not overlap. Overlap is judged as System 2 judges it, so two wildcard segments count as overlapping.',
+    { code: 'DC009', title: 'Overlapping code areas', source: 'Handover contract: each file belongs to one element\'s d.code (docs/path-patterns.json)',
+      doc: 'Each file belongs to one element. d.code may be declared on one level per branch (a container or its components, not both), and the areas of unrelated elements must not overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping.',
       fn(m) {
         const out = [], areas = [];
         for (const e of m.elements.values()) {
@@ -666,7 +667,7 @@ const Core = (() => {
             if (m.isAncestor(a.e.id, e.id) || m.isAncestor(e.id, a.e.id)) continue;
             const hit = pats.flatMap(p => a.pats.filter(q => PP.mayOverlap(p, q)).map(q => [p, q]))[0];
             if (hit) out.push(D('DC009', 'error', `code area "${hit[0]}" may overlap "${hit[1]}" of "${a.e.name}"`, m.locEl(e),
-              { hint: 'make the areas disjoint: System 2 gives a shared file to whichever element it reads first', related: [m.locEl(a.e)] }));
+              { hint: 'make the areas disjoint: a file in both areas has no single owner', related: [m.locEl(a.e)] }));
           }
           areas.push({ e, pats });
         }
@@ -1272,7 +1273,7 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   // ---------- forecast ----------
   // What a handover is likely to cost, priced by the elements it changes against the previous handover's model
   // (`before` null means the first handover: everything counts as added). `history` is
-  // Map(element name -> [{handover, tokens, cost}]) from Ledger.elementHistory, passed in as plain data so
+  // Map(element id or name -> [{handover, tokens, cost}]) from Ledger.elementHistory, passed in as plain data so
   // Core does not depend on Ledger. An element with at least `minSamples` handovers of history is measured:
   // the median is the expected figure and the nearest-rank p90 the high end. Otherwise it is "no basis" and
   // adds nothing, and `coverage` says how many changed elements were priced. Containers and components only.
@@ -1283,14 +1284,27 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     for (const e of diff.elements.filter(x => x.change === 'added')) mark(e.name, 'added');
     for (const e of diff.elements.filter(x => x.change === 'changed')) mark(e.name, 'changed');
     for (const r of diff.rels) for (const n of r.ends || []) mark(n, 'relationship');
-    const hasHistory = history instanceof Map ? history : new Map(Object.entries(history || {}));
+    // History keys are elements.json ids or names. Each is resolved against `after`; keys that reach the same
+    // element are merged per handover. A key that resolves to no single element (an ambiguous name) is dropped.
+    const raw = history instanceof Map ? history : new Map(Object.entries(history || {}));
+    const hasHistory = new Map();
+    for (const [k, rowsFor] of raw) {
+      const el = resolveElement(after, k);
+      if (!el) continue;
+      const byHandover = hasHistory.get(el.id) || new Map();
+      for (const r of rowsFor) {
+        const cur = byHandover.get(r.handover);
+        byHandover.set(r.handover, cur ? { ...cur, tokens: cur.tokens + r.tokens, cost: cur.cost + r.cost } : { ...r });
+      }
+      hasHistory.set(el.id, byHandover);
+    }
     const rows = [];
     for (const [name, why] of priced) {
       const same = [...after.elements.values()].filter(x => x.name === name && (x.kind === 'container' || x.kind === 'component'));
       if (!same.length) continue;
-      // Spend is recorded under the element's name, so a name two elements share cannot be told apart: no basis.
+      // The changed set is judged by name, so a name two elements share cannot be told apart: no basis.
       const ambiguous = same.length > 1;
-      const h = ambiguous ? [] : hasHistory.get(name) || [];
+      const h = ambiguous ? [] : [...(hasHistory.get(same[0].id) || new Map()).values()];
       const row = { name, kind: same[0].kind, why, samples: h.length, status: 'no basis', expected: null, high: null };
       if (ambiguous) row.ambiguous = true;
       if (h.length >= minSamples) {
@@ -1354,15 +1368,29 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
 
   // ---------- drift: designed vs as-built ----------
   const key = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
+  // An element a pipeline names: its elements.json id (System/Container/Component, as `m.label` and handoverElements write it) first, then a
+  // name or d.aka that exactly one element carries. Null when unknown or ambiguous.
+  function resolveElement(m, ref) {
+    if (ref == null || ref === '') return null;
+    const text = String(ref);
+    const all = [...m.elements.values()];
+    const path = e => { const parts = []; for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) parts.unshift(c.name); return parts.join('/'); };
+    const byId = all.filter(e => path(e) === text);
+    if (byId.length === 1) return byId[0];
+    const k = key(text);
+    if (!k) return null;
+    const named = all.filter(e => [e.name, ...(get(e, 'd.aka') || [])].some(n => key(n) === k));
+    return named.length === 1 ? named[0] : null;
+  }
+
   function drift(m, ledger) {
-    const idx = new Map();
-    for (const e of m.elements.values()) { if (e.kind === 'person') continue; [e.name, ...(get(e, 'd.aka') || [])].forEach(n => { if (!idx.has(key(n))) idx.set(key(n), e); }); }
+    const find = ref => { const e = resolveElement(m, ref); return e && e.kind !== 'person' ? e : null; };
     const built = ledger.filter(e => e.kind === 'asbuilt_edge');
     if (!built.length) return null;
     const unknownEls = new Set(), undeclared = [], seen = new Set(), mapped = new Set();
     const designed = new Set(m.rels.filter(r => m.elements.get(r.src).kind !== 'person').map(r => r.src + '>' + r.dst));
     for (const b of built) {
-      const s = idx.get(key(b.from)), d = idx.get(key(b.to));
+      const s = find(b.from), d = find(b.to);
       if (!s) unknownEls.add(b.from); if (!d) unknownEls.add(b.to);
       if (!s || !d) continue;
       mapped.add(s.id); mapped.add(d.id); seen.add(s.id + '>' + d.id);
@@ -1418,9 +1446,9 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
         const p = PP.create(s);
         if (!p.ok) continue;
         const a = { id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length };
-        // An exact path matches one file of that name only (System 2's meaning); say so when it names a folder.
+        // An exact path matches one file of that name only (the path pattern contract); say so when it names a folder.
         const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(p.value + '/')).length;
-        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; System 2 matches it as a single file. Did you mean ${p.value}/**?`;
+        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; an exact path matches a single file. Did you mean ${p.value}/**?`;
         areas.push(a);
       }
     }
@@ -1669,6 +1697,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

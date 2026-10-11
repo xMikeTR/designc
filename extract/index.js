@@ -19,7 +19,7 @@ const MAX_FILES = 20000, MAX_LISTED = 100000;
 const FILE_RE = /\.(csproj|fsproj|cs|fs|js|jsx|ts|tsx|mjs|cjs|json)$/i;
 
 // `out` holds the source files the scanners read; `all` names every file walked (never read), because
-// System 2 confines writes to any file, so d.code areas are judged against all of them.
+// a coding agent may write any file, so d.code areas are judged against all of them.
 async function walk(dir, out, all, depth = 0) {
   if (depth > 12 || out.length > MAX_FILES) return out;
   let entries = [];
