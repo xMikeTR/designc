@@ -38,7 +38,7 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
   }
 }
 const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
-const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['S2-runtime', 'S2 runtime'], ['S2-config', 'S2 configurator']];
+const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
   const stageKeys = STAGES.map(([k]) => k).sort().join(',');
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
