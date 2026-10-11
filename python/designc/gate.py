@@ -70,8 +70,9 @@ def scenario_report(model, scenarios, ledger):
     return rows
 
 
-def _business_evidence(dec, hosts, clauses):
+def _business_evidence(dec, hosts, owners, clauses):
     def say(text): clauses.append({'kind': 'evidence', 'text': text, 'decision': dec['id']})
+    if not dec.get('evidence') and dec.get('promoted_by') in owners: return
     if not dec.get('evidence'): return say(f"{dec['id']} is a business decision without evidence")
     u = urlparse(str(dec['evidence']))
     if u.scheme != 'https' or not u.hostname: return say(f"{dec['id']}: evidence must be an https URL")
@@ -105,7 +106,7 @@ def _assumption_clauses(dec, today, clauses):
         if day < today: clauses.append({'kind': 'assumption', 'text': f"{dec['id']}: assumption \"{a['text'].strip()[:60]}\" was due for review on {day}"})
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=()):
     clauses = []
     if model.errors:
         clauses.append({'kind': 'parse', 'text': f'{len(model.errors)} model error(s) must be fixed first'})
@@ -136,7 +137,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             clauses.append({'kind': 'decision', 'text': f"{dec['id']} is {dec.get('status') or 'minted'}, not bound"}); continue
         business = kind == 'business'
         _assumption_clauses(dec, today, clauses)
-        if business: _business_evidence(dec, list(evidence_hosts), clauses)
+        if business: _business_evidence(dec, list(evidence_hosts), list(business_owners), clauses)
         elif dec.get('effect') == 'accept' and not any(i in bound_business for i in (dec.get('relies_on') or [])):
             clauses.append({'kind': 'decision', 'text': f"{dec['id']} accepts a risk without a bound business decision"})
         if not business and not accept_without_check(dec):
