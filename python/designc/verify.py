@@ -1,4 +1,4 @@
-"""Ledger integrity, rules V1 to V8. Mirrors Ledger.verify in renderer/ledger.js, message by message."""
+"""Ledger integrity, rules V1 to V9. Mirrors Ledger.verify in renderer/ledger.js, message by message."""
 import json
 import os
 
@@ -29,6 +29,8 @@ def verify(files, handovers=(), decisions=(), handover_evals=None):
             if not isinstance(obj, dict): err('V4', f'{at} not a JSON object'); continue
             if 'schema_version' in obj and 'envelope_version' in obj: err('V4', f'{at} both schema_version and envelope_version'); continue
             if 'envelope_version' in obj: continue
+            if name == SCHEMA['pipeline_stream'] and isinstance(obj.get('kind'), str) and obj['kind'] not in SCHEMA['pipeline_kinds']:
+                err('V9', f"{at} {obj['kind']} is not a kind a pipeline writes (docs/pipeline-contract.md)")
             if 'schema_version' not in obj: e = {**obj, 'event_id': f'legacy:{name}:{i + 1}'}
             else:
                 if obj['schema_version'] != SCHEMA['schema_version']: err('V4', f"{at} unknown schema_version {obj['schema_version']}"); continue

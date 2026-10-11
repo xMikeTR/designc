@@ -1,4 +1,4 @@
-// Ledger.verify: the trail checks V1 to V8, one fixture per rule.
+// Ledger.verify: the trail checks V1 to V9, one fixture per rule.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Ledger = require('../renderer/ledger.js');
@@ -121,4 +121,31 @@ test('V8: a pipeline eval after the latest handover must run the eval file the h
   assert.deepEqual(rules(run([gate(), handover(), evalEv({ eval: 'EV-9' })], opts)).e, [], 'an eval the handover did not freeze');
   assert.deepEqual(rules(run([gate(), handover(), evalEv()], { handovers: ['H-1'], decisions: [] })).e, [], 'no recorded hashes');
   assert.equal(run([gate(), handover(), evalEv(), evalEv()], opts).errors.length, 1, 'said once per eval file');
+});
+
+test('V9: pipeline.jsonl holds only kinds a pipeline writes', () => {
+  const resolved = ev('needs_decision_resolved', { id: 'ND-1' });
+  const r = run([ev('needs_decision', { id: 'ND-1', question: 'q?', status: 'open' }), resolved], undefined, 'ledger/pipeline.jsonl');
+  assert.deepEqual(rules(r), { e: ['V9'], w: [] });
+  assert.equal(r.errors[0].msg, 'pipeline.jsonl:2 needs_decision_resolved is not a kind a pipeline writes (docs/pipeline-contract.md)');
+});
+
+test('V9: every pipeline-writable kind is allowed in pipeline.jsonl, and in its home stream', () => {
+  const all = [
+    ev('task', { task: 'T-1', status: 'passed' }),
+    ev('check', { decision: 'D-1', check: 'c', outcome: 'pass', source: 'pipeline' }),
+    ev('needs_decision', { id: 'ND-1', question: 'q?', status: 'open' }),
+    ev('asbuilt_edge', { from: 'A', to: 'B' }),
+    ev('escape', { id: 'E-1', element: 'A', description: 'd' }),
+    ev('false_positive', { code: 'DC003', element: 'A' }),
+    ev('handover_closed', { handover: 'H-1', outcome: 'delivered' }),
+  ];
+  assert.deepEqual(rules(run(all, undefined, 'ledger/pipeline.jsonl')), { e: [], w: [] });
+  assert.deepEqual(rules(run([all[1]], undefined, 'ledger/checks.jsonl')), { e: [], w: [] });
+  assert.deepEqual(rules(run([all[6]], undefined, 'ledger/designc.jsonl')), { e: [], w: [] });
+});
+
+test('V9 does not judge other files', () => {
+  const humanOnly = [ev('needs_decision_resolved', { id: 'ND-1' }), ev('escape_classified', { escape: 'E-1', caught_by: 'S1-lint' })];
+  assert.deepEqual(rules(run(humanOnly, undefined, 'ledger/designc.jsonl')), { e: [], w: [] });
 });
