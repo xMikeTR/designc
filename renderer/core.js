@@ -1271,7 +1271,7 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   // ---------- forecast ----------
   // What a handover is likely to cost, priced by the elements it changes against the previous handover's model
   // (`before` null means the first handover: everything counts as added). `history` is
-  // Map(element name -> [{handover, tokens, cost}]) from Ledger.elementHistory, passed in as plain data so
+  // Map(element id or name -> [{handover, tokens, cost}]) from Ledger.elementHistory, passed in as plain data so
   // Core does not depend on Ledger. An element with at least `minSamples` handovers of history is measured:
   // the median is the expected figure and the nearest-rank p90 the high end. Otherwise it is "no basis" and
   // adds nothing, and `coverage` says how many changed elements were priced. Containers and components only.
@@ -1282,14 +1282,27 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     for (const e of diff.elements.filter(x => x.change === 'added')) mark(e.name, 'added');
     for (const e of diff.elements.filter(x => x.change === 'changed')) mark(e.name, 'changed');
     for (const r of diff.rels) for (const n of r.ends || []) mark(n, 'relationship');
-    const hasHistory = history instanceof Map ? history : new Map(Object.entries(history || {}));
+    // History keys are elements.json ids or names. Each is resolved against `after`; keys that reach the same
+    // element are merged per handover. A key that resolves to no single element (an ambiguous name) is dropped.
+    const raw = history instanceof Map ? history : new Map(Object.entries(history || {}));
+    const hasHistory = new Map();
+    for (const [k, rowsFor] of raw) {
+      const el = resolveElement(after, k);
+      if (!el) continue;
+      const byHandover = hasHistory.get(el.id) || new Map();
+      for (const r of rowsFor) {
+        const cur = byHandover.get(r.handover);
+        byHandover.set(r.handover, cur ? { ...cur, tokens: cur.tokens + r.tokens, cost: cur.cost + r.cost } : { ...r });
+      }
+      hasHistory.set(el.id, byHandover);
+    }
     const rows = [];
     for (const [name, why] of priced) {
       const same = [...after.elements.values()].filter(x => x.name === name && (x.kind === 'container' || x.kind === 'component'));
       if (!same.length) continue;
-      // Spend is recorded under the element's name, so a name two elements share cannot be told apart: no basis.
+      // The changed set is judged by name, so a name two elements share cannot be told apart: no basis.
       const ambiguous = same.length > 1;
-      const h = ambiguous ? [] : hasHistory.get(name) || [];
+      const h = ambiguous ? [] : [...(hasHistory.get(same[0].id) || new Map()).values()];
       const row = { name, kind: same[0].kind, why, samples: h.length, status: 'no basis', expected: null, high: null };
       if (ambiguous) row.ambiguous = true;
       if (h.length >= minSamples) {
