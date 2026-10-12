@@ -21,6 +21,7 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 | `escape` | `id`, `description` | A defect that got past the design; a person classifies it later |
 | `false_positive` | `code` | A lint finding the pipeline judged wrong; counts against the rule |
 | `handover_closed` | `handover`, `outcome` | Ends spend counting for that handover (`delivered` or `abandoned`) |
+| `item_gate` | `item`, `gate`, `outcome`, `source`, `commit` (`dirty` false) | Evidence for a work item's `gate` entry in `done_when`. Counts only when `outcome` is pass, the tree was clean, and `commit` is the commit the item is declared done at |
 
 `ledger verify` rule V9: `pipeline.jsonl` may hold only these kinds. Other files are not judged, so a pipeline kind may also sit in its home stream.
 
@@ -30,7 +31,7 @@ Every element a pipeline names (`task.element`, `needs_decision.element`, `asbui
 
 ## Kinds only a person writes
 
-These record a human judgement made in designc. A pipeline must not write them, and designc does not accept them as pipeline input: `needs_decision_resolved`, `escape_classified`, `decision_promoted`, `handover` (the freeze), `extraction`. The envelope cannot prove who wrote a line, so this is a rule for writers, enforced for `pipeline.jsonl` by V9.
+These record a human judgement made in designc. A pipeline must not write them, and designc does not accept them as pipeline input: `needs_decision_resolved`, `escape_classified`, `decision_promoted`, `handover` (the freeze), `extraction`, `item_pulled` and `item_done` (a person starts and finishes a work item; an agent's claim that it is done is never evidence, and designc checks the commit is reachable from the main branch). The envelope cannot prove who wrote a line, so this is a rule for writers, enforced for `pipeline.jsonl` by V9.
 
 `caught_by` on an escape names a stage: `S1-lint`, `S1-p`, `S1-grill` (designc's own) or `pipeline` (anything downstream of the handover). It is set by a person with `escape_classified`.
 

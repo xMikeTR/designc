@@ -45,6 +45,8 @@ if (typeof Ledger !== 'undefined') {
   if (stageKeys !== caughtBy) throw new Error(`STAGES keys must equal Ledger.CAUGHT_BY: [${stageKeys}] vs [${caughtBy}]`);
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals'];
+// Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -55,6 +57,7 @@ const A = {
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
   modelText: '', model: null, diags: [], gate: null,
   decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], evals: [], yamlErrors: [],
+  work: null, workErrors: [],   // work/*.yaml (renderer/workview.js); its problems never reach the gate
   ledgerRaw: [], ledger: [], ledgerErrors: [], ledgerFiles: [],
   output: '', running: false, collapsed: new Set(), suiteOpen: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
@@ -142,7 +145,7 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels();
+  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork();
 }
 // factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
 // binding pins exactly what was read. Not a gate input.
@@ -566,7 +569,7 @@ async function closeTab(id) {
     if (!confirm(`${id} has unsaved changes. Close it and lose them?`)) return;
   }
   A.tabs = A.tabs.filter(t => t !== id);
-  if (b) { b.model.dispose(); A.buffers.delete(id); if (id === A.cfg.model) { await loadModel(); recompile(); } else if (REG_DIRS.some(d => id.startsWith(d + '/'))) { await loadRegistry(); recompile(); } }
+  if (b) { b.model.dispose(); A.buffers.delete(id); if (id === A.cfg.model) { await loadModel(); recompile(); } else if (isRegPath(id)) { await loadRegistry(); recompile(); } }
   if (id === 'special:canvas' && A.canvasApi) { A.canvasApi.destroy(); A.canvasApi = null; }
   activate(A.active === id ? A.tabs[A.tabs.length - 1] || null : A.active);
   renderAll();
@@ -585,7 +588,7 @@ function onBufferChange(path) {
   const dirty = b.model.getValue() !== b.disk;
   if (dirty !== b.dirty) { b.dirty = dirty; renderTabs(); }
   if (path === A.cfg.model) { A.modelText = b.model.getValue(); recompileSoon(); }
-  else if (REG_DIRS.some(d => path.startsWith(d + '/'))) registrySoon();
+  else if (isRegPath(path)) registrySoon();
   else if (path === 'designc.json') settingsSoon();
 }
 async function onDiskChanged(paths) {
@@ -598,7 +601,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work')) await loadRegistry();
   if (any('ledger')) await loadLedger();
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -1003,6 +1006,7 @@ function setActivity(a) {
   if (a === 'canvas' && A.sidebarOpen && A.root) openSpecial('special:canvas');
   if (a === 'deployment' && A.sidebarOpen && A.root) openSpecial('special:deployment');
   if (a === 'topology' && A.sidebarOpen && A.root) openSpecial('special:topology');
+  if (a === 'work' && A.sidebarOpen && A.root) openSpecial('special:work');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -1024,17 +1028,17 @@ function renderBadges() {
   const dc = A.drift ? A.drift.undeclared.length + A.drift.unknownEls.length : 0;
   const b4 = $('#badge-codemap'); b4.textContent = dc; b4.className = 'badge' + (dc ? ' on' : '');
 }
-function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
   const on = $('#tabs .tab.active'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1065,7 +1069,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology' };
+  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open Folder</button><button class="btn block" data-a="sample">Open Sample Registry</button>`; return; }
@@ -1076,6 +1080,7 @@ function renderSidebar() {
   else if (A.activity === 'scm') body.innerHTML = gitSidebar();
   else if (A.activity === 'deployment') body.innerHTML = deploymentSidebar();
   else if (A.activity === 'topology') body.innerHTML = topologySidebar();
+  else if (A.activity === 'work') body.innerHTML = workSidebar();
   else body.innerHTML = improveSidebar();
   if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
   if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
@@ -1246,7 +1251,7 @@ function improveSidebar() {
 function renderPanel() {
   const live = A.diags.filter(d => !d.suppressed);
   const qual = A.root ? qualityNow() : { findings: [], problems: [] };
-  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + qual.findings.length + qual.problems.length;
+  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + A.workErrors.length + qual.findings.length + qual.problems.length;
   $('#probCount').textContent = A.root ? total : '';
   document.querySelectorAll('[data-panel]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.panel === A.panel)));
   $('#panelClear').style.display = A.panel === 'output' ? '' : 'none';
@@ -1260,7 +1265,7 @@ function renderPanel() {
     ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0] }))];
   if (mrows.length) groups.push([A.cfg.model, mrows]);
   const byPath = new Map();
-  for (const e of [...A.yamlErrors, ...A.ledgerErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
+  for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
   const seenP = new Set();
   for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
   groups.push(...byPath);
@@ -1707,7 +1712,7 @@ function renderCmSide() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {

@@ -6,3 +6,7 @@ SESSION_HANDOFF.md
 .claude/current-plan-scope.json
 __pycache__/
 *.egg-info/
+test-results/
+playwright-report/
+.claude/e2e-pass
+.claude/e2e-fail

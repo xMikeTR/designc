@@ -1,0 +1,5 @@
+id: QT-1
+title: A broker can request a quote
+source: ""
+version: 1
+elements: [Quotes API]

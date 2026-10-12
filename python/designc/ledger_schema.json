@@ -31,7 +31,8 @@
     "asbuilt_edge",
     "escape",
     "false_positive",
-    "handover_closed"
+    "handover_closed",
+    "item_gate"
   ],
   "rules": [
     "fail_needs_evidence",
@@ -441,6 +442,69 @@
         ]
       },
       "types": {},
+      "rules": []
+    },
+    "item_done": {
+      "stream": "designc.jsonl",
+      "required": [
+        "item",
+        "commit",
+        "evidence"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "item": "string",
+        "commit": "string|null",
+        "evidence": "array"
+      },
+      "rules": []
+    },
+    "item_gate": {
+      "stream": "checks.jsonl",
+      "required": [
+        "item",
+        "gate",
+        "outcome",
+        "source",
+        "commit",
+        "dirty"
+      ],
+      "optional": [
+        "ms",
+        "exit_code",
+        "reason"
+      ],
+      "enums": {
+        "outcome": [
+          "pass",
+          "fail"
+        ],
+        "source": [
+          "local",
+          "pipeline"
+        ]
+      },
+      "types": {
+        "item": "string",
+        "gate": "string",
+        "commit": "string|null",
+        "dirty": "boolean"
+      },
+      "rules": [
+        "fail_needs_evidence"
+      ]
+    },
+    "item_pulled": {
+      "stream": "designc.jsonl",
+      "required": [
+        "item"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "item": "string"
+      },
       "rules": []
     },
     "needs_decision": {

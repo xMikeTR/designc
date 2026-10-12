@@ -428,15 +428,45 @@ handle('check:run', async (runId, cmd) => {
   if (!await ensureTrusted({ button: 'Trust folder and run', title: 'Run commands from this folder?',
     message: `Decision checks are shell commands written in this repository.`,
     detail: `Only trust ${root} if you trust whoever can edit its decisions.\n\nFirst command:\n${cmd}` })) return { code: null, cancelled: true };
+  return runShell(runId, cmd, root);
+});
+function runShell(runId, cmd, cwd) {
   const t0 = Date.now();
   return new Promise(resolve => {
-    const child = spawn(cmd, { cwd: root, shell: true, env: childEnv(process.env, readSettings().inheritEnv || []) });
+    const child = spawn(cmd, { cwd, shell: true, env: childEnv(process.env, readSettings().inheritEnv || []) });
     running.set(runId, child);
     const out = chunk => win && win.webContents.send('check:output', runId, chunk.toString());
     child.stdout.on('data', out); child.stderr.on('data', out);
     child.on('error', err => { out(`\n${err.message}\n`); });
     child.on('close', code => { running.delete(runId); resolve({ code, ms: Date.now() - t0 }); });
   });
+}
+
+// Work items (renderer/work.js). A work item's repo is the path in the item, else designc.json `codebase`. designc
+// reads its git state and runs the item's gate commands there; it never writes to it itself. Same folder trust as
+// checks and git; the renderer cannot pass flags or a branch, only a path from a file a person wrote.
+function workRepo(rel) {
+  const p = rel || readSettings().codebase;
+  if (!p) throw new Error('This work item has no repo and designc.json has no codebase. Set repo in the work item or codebase in designc.json.');
+  const d = codebaseDir(p);
+  if (!fs.existsSync(d)) throw new Error(`${p} does not exist. Check repo in the work item or codebase in designc.json.`);
+  return d;
+}
+handle('work:head', async rel => {
+  if (!gitTrusted()) return NOT_TRUSTED;
+  try { return await git.head(workRepo(rel)); } catch (e) { return { error: e.message }; }
+});
+handle('work:onMain', async (rel, commit) => {
+  if (!gitTrusted()) return NOT_TRUSTED;
+  const branch = String((readSettings().work || {}).mainBranch || 'main');
+  try { return { ...await git.isAncestor(workRepo(rel), commit, branch), branch }; } catch (e) { return { error: e.message }; }
+});
+handle('work:run', async (runId, rel, cmd) => {
+  let dir; try { dir = workRepo(rel); } catch (e) { return { error: e.message }; }
+  if (!await ensureTrusted({ button: 'Trust folder and run', title: 'Run a gate command in this repo?',
+    message: 'A work item gate is a shell command written in this registry, run in the work item\'s repo.',
+    detail: `Only trust ${root} if you trust whoever can edit its work items.\n\nRuns in ${dir}:\n${cmd}` })) return { code: null, cancelled: true };
+  return runShell(runId, cmd, dir);
 });
 
 // Integrated terminal. Human only: no agent tool, ACP request or MCP call reaches it. Same folder trust as checks and git.

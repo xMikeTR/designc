@@ -199,3 +199,29 @@ test('two branches that each appended to the ledger merge without a conflict', a
   g(top, 'merge', '-q', '--no-edit', 'b');
   assert.deepEqual(fs.readFileSync(path.join(reg, 'ledger/designc.jsonl'), 'utf8').split('\n').filter(Boolean).sort(), ['from-b', 'from-main', 'one']);
 });
+
+test('head gives the commit, branch and whether tracked files are dirty', async () => {
+  const { top } = repo();
+  const h = await git.head(top);
+  assert.equal(h.commit, g(top, 'rev-parse', 'HEAD')); assert.equal(h.branch, 'main'); assert.equal(h.dirty, false);
+  put(top, 'other/x.txt', 'changed\n');
+  assert.equal((await git.head(top)).dirty, true);
+  assert.ok((await git.head(fs.mkdtempSync(path.join(os.tmpdir(), 'no-git-')))).error);
+});
+
+test('isAncestor says whether a commit is reachable from a branch, and refuses what it cannot judge', async () => {
+  const { top } = repo();
+  const onMain = g(top, 'rev-parse', 'HEAD');
+  g(top, 'switch', '-q', '-c', 'feature');
+  put(top, 'other/f.txt', 'f\n'); g(top, 'add', '-A'); g(top, 'commit', '-q', '-m', 'feature work');
+  const onFeature = g(top, 'rev-parse', 'HEAD');
+  assert.deepEqual(await git.isAncestor(top, onMain, 'main'), { onMain: true, commit: onMain });
+  assert.deepEqual(await git.isAncestor(top, onFeature, 'main'), { onMain: false, commit: onFeature });
+  assert.equal((await git.isAncestor(top, onFeature.slice(0, 9), 'main')).commit, onFeature, 'a short hash is resolved');
+  g(top, 'switch', '-q', 'main'); g(top, 'merge', '-q', '--ff-only', 'feature');
+  assert.equal((await git.isAncestor(top, onFeature, 'main')).onMain, true);
+  assert.ok((await git.isAncestor(top, 'a'.repeat(40), 'main')).error, 'unknown commit');
+  assert.ok((await git.isAncestor(top, onMain, 'nope')).error, 'unknown branch');
+  assert.ok((await git.isAncestor(top, onMain, '--all')).error, 'a flag is not a branch');
+  assert.ok((await git.isAncestor(top, 'HEAD; rm -rf', 'main')).error);
+});
