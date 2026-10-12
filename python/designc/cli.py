@@ -12,7 +12,7 @@ import time
 from . import factory, ledger, record, work
 from .dsl import parse
 from .evals import score_eval
-from .gate import eval_hash, eval_problems, eval_report, gate
+from .gate import eval_hash, eval_problems, eval_report, gate, scoped_gate
 from .registry import load_handover_evals, load_handover_ids, load_ledger, load_registry, load_settings, load_yaml_dir
 from .rules import check, fingerprint
 from .verify import read_ledger_files, verify
@@ -29,7 +29,7 @@ def state(root):
     model = parse(src)
     diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4)
     reg = load_registry(root)
-    g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [])
+    g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12))
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 
@@ -69,6 +69,7 @@ def main(argv):
     c.add_argument('--no-record', action='store_true', help='never record a gate event')
     c.add_argument('--by', help='who ran this (default: DESIGNC_BY, then the OS user)')
     c.add_argument('--source', help='local or pipeline (default: pipeline when CI is detected, else local)')
+    c.add_argument('--item', help='judge the gate for one work item (work/<id>.yaml): only clauses that touch its elements. Records nothing')
     v = sub.add_parser('verify-ledger', help='check the ledger trail: gates before handovers, checks before promotions, valid lines')
     v.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
     v.add_argument('--json', action='store_true', help='print the result as JSON')
@@ -95,6 +96,19 @@ def main(argv):
     try: s = state(root)
     except SystemExit as e:
         print(e, file=sys.stderr); return 2
+    if args.item is not None:
+        items = load_yaml_dir(root, 'work', [])
+        it = next((i for i in items if str(i.get('id')) == args.item), None)
+        if it is None or not work.is_repo(it):
+            print(f'designc: no repo work item {args.item} in work/. Check the id; an item with a target has no scope.', file=sys.stderr); return 2
+        reg = load_registry(root)
+        s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], str(it.get('requirement')), reg['decisions'])}
+        r = report_of(s)
+        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside']}, ensure_ascii=False, indent=2))
+        else:
+            print(f"Gate for work item {args.item} ({s['gate']['outside']} clause{'' if s['gate']['outside'] == 1 else 's'} outside its elements not counted)")
+            print(render(r))
+        return 0 if r['gate']['ready'] else 1
     r = report_of(s)
     note = sys.stderr if args.json else sys.stdout
     print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else render(r))
@@ -170,13 +184,14 @@ def work_cmd(root, as_json):
     errors = []
     items = load_yaml_dir(root, 'work', errors)
     reg = load_registry(root)
-    r = work.report(items, [d['id'] for d in reg['requirements']], load_ledger(root), errors)
+    r = work.report(items, reg['requirements'], load_ledger(root), errors)
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         for row in r['items']:
             print(f"{row['id']}  {row['state']}")
             for m in row['problems']: print(f'  error    {m}')
             for c in row['conflicts']: print(f"  conflict {c['with']}: {c['detail']}")
+        for u in r['uncovered']: print(f"warning  requirement {u['requirement']} lists {u['element']} but no work item covers it. Add it to an item or make a new item.")
         for e in r['errors']: print(f"{e['path']}  error    {e['msg']}")
         n = sum(len(x['problems']) for x in r['items']) + len(r['errors'])
         print('No work items.' if not r['items'] and not r['errors'] else (f'{len(r["items"])} work item{"" if len(r["items"]) == 1 else "s"}' + (f', {n} problem{"" if n == 1 else "s"}.' if n else ', no problems.')))

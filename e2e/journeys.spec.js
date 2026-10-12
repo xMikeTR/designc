@@ -134,3 +134,51 @@ test('user can track a work item @critical', async () => {
   await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.commit])).toEqual([['W-quote', commit]]);
 });
+
+test('a frozen work item says when the design moved under it', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.mkdirSync(path.join(reg, 'work'));
+  fs.writeFileSync(path.join(reg, 'work', 'W-api.yaml'),
+    'id: W-api\ntitle: Quotes API\nrequirement: QT-1\nelements: [Quotes API]\ndone_when:\n  - gate: "true"\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const item = page.locator('[data-workitem="W-api"]');
+  await expect(item.getByText('Gate for this item: ready.', { exact: false })).toBeVisible();
+  await item.getByRole('button', { name: 'Freeze item' }).click();
+  await expect(item.getByText('Design unchanged for this item since it was frozen.')).toBeVisible();
+  const ids = fs.readdirSync(path.join(reg, 'handovers'));
+  expect(ids).toHaveLength(1);
+  expect(readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'handover').map(e => e.item)).toEqual(['W-api']);
+
+  // The model changes under the frozen item: it says so and offers Freeze again.
+  const model = path.join(reg, 'model', 'workspace.dsl');
+  fs.writeFileSync(model, fs.readFileSync(model, 'utf8').replace('"ASP.NET Core"', '"ASP.NET Core 9"'));
+  await expect(item.getByText('The design moved since this item was frozen', { exact: false })).toBeVisible({ timeout: 15000 });
+  await expect(item.getByText('Quotes API changed since the design was frozen.')).toBeVisible();
+  await expect(item.getByRole('button', { name: 'Freeze again' })).toBeVisible();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_recheck').map(e => e.stale)).toEqual([false, true]);
+});
+
+test('the work digest names what needs a person and what failed', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.mkdirSync(path.join(reg, 'work'));
+  fs.writeFileSync(path.join(reg, 'work', 'W-api.yaml'),
+    'id: W-api\ntitle: Quotes API\nrequirement: QT-1\nelements: [Quotes API]\ndone_when:\n  - gate: "true"\n');
+  const ev = (ts, kind, o) => JSON.stringify({ schema_version: 1, event_id: `e${ts}`, ts, kind, by: 'pipeline', ...o });
+  fs.mkdirSync(path.join(reg, 'ledger'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), [
+    ev(2, 'item_awaiting_human', { item: 'W-api', reason: 'Review the schema change' }),
+    ev(1, 'item_gate', { item: 'W-api', gate: 'true', outcome: 'fail', source: 'pipeline', commit: 'a'.repeat(40), dirty: false, exit_code: 1 }),
+  ].join('\n') + '\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(page.getByText('Needs a decision (1)')).toBeVisible();
+  await expect(page.getByText('W-api is waiting for a person: Review the schema change')).toBeVisible();
+  await expect(page.getByText('Failed a gate (0)')).toBeVisible();
+  await page.locator('[data-workitem="W-api"]').getByRole('button', { name: 'Start' }).click();
+  await expect(page.getByText('Needs a decision (0)')).toBeVisible();
+  await expect(page.getByText('Failed a gate (1)')).toBeVisible();
+  await expect(page.getByText('W-api: gate "true" failed at aaaaaaa')).toBeVisible();
+});

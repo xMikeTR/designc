@@ -38,13 +38,14 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
   }
 }
 const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
+const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap' };
 const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
   const stageKeys = STAGES.map(([k]) => k).sort().join(',');
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
   if (stageKeys !== caughtBy) throw new Error(`STAGES keys must equal Ledger.CAUGHT_BY: [${stageKeys}] vs [${caughtBy}]`);
 }
-const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals'];
+const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
 const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/');
 
@@ -56,8 +57,8 @@ const A = {
   tabs: [], active: null,    // tab ids: file paths or 'special:build' / 'special:improve'
   activity: 'explorer', sidebarOpen: true, panel: 'problems', panelOpen: true, sheetOpen: true,
   modelText: '', model: null, diags: [], gate: null,
-  decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], evals: [], yamlErrors: [],
-  work: null, workErrors: [],   // work/*.yaml (renderer/workview.js); its problems never reach the gate
+  decisions: [], requirements: [], proposals: [], handovers: [], scenarios: [], evals: [], acceptance: [], tokens: null, yamlErrors: [],
+  work: null, workErrors: [], workWarnings: [],   // work/*.yaml (renderer/workview.js); its problems never reach the gate
   ledgerRaw: [], ledger: [], ledgerErrors: [], ledgerFiles: [],
   output: '', running: false, collapsed: new Set(), suiteOpen: new Set(),
   grill: { busy: false, questions: [], error: null }, drafting: false,
@@ -139,7 +140,8 @@ async function loadYamlDir(dir, keepText = false) {
 }
 async function loadRegistry() {
   A.yamlErrors = [];
-  [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals')));
+  [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
+  A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
   const hv = ((Array.isArray(A.tree) ? A.tree : []).find(n => n.dir && n.name === 'handovers')) || { children: [] };
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
@@ -206,6 +208,8 @@ function factoryTasksHtml() {
 // factory/taxonomy.yaml: the failure modes escapes are classified against. Not a gate input (the CLI never reads it),
 // so a parse error is shown in Improve rather than blocking the gate.
 const TAXONOMY = 'factory/taxonomy.yaml';
+const TOKENS = 'design-tokens/tokens.json';
+const TOKENS_STARTER = JSON.stringify({ font: { size: { body: { $value: '16px', $type: 'dimension' }, small: { $value: '12px', $type: 'dimension' } } }, color: { text: { $value: '#1a1a1a', $type: 'color' } } }, null, 2) + '\n';
 async function loadTaxonomy() {
   A.taxonomy = null; A.taxonomyError = null;
   const t = await readText(TAXONOMY); if (t == null) return;
@@ -279,7 +283,7 @@ function failureModesHtml() {
     ${fm.modes.length ? `<div class="tw2"><table class="t"><tr><th>Mode</th><th>Name</th><th>Triage</th><th class="num">Escapes</th><th style="width:30%"></th></tr>${fm.modes.map(m => `<tr title="${esc(m.description)}"><td><span class="id">${esc(m.id)}</span></td><td>${esc(m.name)}${m.description ? `<div style="color:var(--fg3);font-size:11.5px">${esc(m.description)}</div>` : ''}</td><td>${m.triage ? esc(TRIAGE_LABEL[m.triage]) : '<span style="color:var(--fg3)">Not triaged</span>'}</td><td class="num">${m.count}</td><td><div class="bartrack"><div class="barfill" style="width:${(m.count / max) * 100}%"></div></div></td></tr>`).join('')}</table></div>` : `<div class="note">${exists ? 'The taxonomy lists no failure modes yet.' : 'No taxonomy yet. Create one from what you see in the traces, then classify escapes against it.'}</div>`}</div>`;
 }
 // The ledger is append-only: classification and resolution are later events, folded in here.
-function deriveLedger() { A.ledger = Ledger.derive(A.ledgerRaw); }
+function deriveLedger() { A.ledger = Ledger.derive(A.ledgerRaw); if (typeof refreshDigest === 'function') refreshDigest(); }
 // The only call of host.appendLedgerEvent (test/ledger-guard.test.js, LS-05): every writer goes
 // through recordEvent, never a raw literal.
 // OWN_APPENDS remembers when the app last appended to each ledger file, so a change to the ledger
@@ -330,7 +334,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -689,6 +693,18 @@ async function newScenario() {
   const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
   await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
 }
+async function newAcceptance() {
+  const ui = [...A.model.elements.values()].filter(e => e.tags.has('UI'));
+  const pick = ui.length ? await askChoice('Which UI element does this criterion cover?', ui.map(e => ({ label: A.model.label(e.id), value: e.id }))) : null;
+  if (ui.length && !pick) return;
+  const el = pick ? A.model.elements.get(pick) : null;
+  const elPath = e => { const parts = []; for (let c = e; c; c = c.parent ? A.model.elements.get(c.parent) : null) parts.unshift(c.name); return parts.join('/'); };
+  const req = A.requirements.find(r => el && (r.elements || []).includes(el.name));
+  const id = (await askText('Acceptance criterion id', 'AC-')) || ''; if (!id.trim() || id.trim() === 'AC-') return;
+  const cases = ['ready', 'loading', 'empty', 'error'].map(st => `  - state: ${st}\n    given: TODO\n    then: TODO\n`).join('');
+  const text = `id: ${id.trim()}\nrequirement: ${req ? req.id : 'TODO'}\nelement: ${el ? yamlStr(elPath(el)) : 'TODO'}   # elements.json id, e.g. System/Container/Component\nstates: [ready, loading, empty, error]   # add forbidden behind a sign-in\nlocators:\n  heading: { role: heading, name: TODO }\n# ux:                       # optional: keyboard, focus and breakpoint checks in the generated spec\n#   keyboard: true\n#   focus_order: [heading]   # locator names in tab order\n#   breakpoints: [375, 768]\ncases:\n${cases}`;
+  await createAndOpen(`acceptance/${id.trim()}.yaml`, text, 3);
+}
 async function runFitness() {
   if (A.running) { toast('Checks are already running.'); return; }
   const targets = A.scenarios.filter(s => (s.fitness || []).some(c => c && !/^TODO/.test(c)));
@@ -763,9 +779,11 @@ async function editYaml(path, fn) {
   const b = A.buffers.get(path);
   const text = b ? b.model.getValue() : await host.read(path);
   const next = fn(text);
+  if (next == null) return null;
   if (b) { b.model.pushEditOperations([], [{ range: b.model.getFullModelRange(), text: next }], () => null); await save(path); }
   else await host.write(path, next);
   await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+  return true;
 }
 function setField(text, key, value) {
   const re = new RegExp(`^${key}:.*$`, 'm');
@@ -851,13 +869,16 @@ async function computeForecast(modelText) {
     history: Ledger.elementHistory(A.ledgerRaw, { window: fc.window || 10 }), minSamples: fc.minSamples || 3 });
   return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
 }
-async function freezeHandover() {
+// `item` is a work item: freeze only what it touches, against the gate scoped to its elements (ROADMAP slice 24).
+async function freezeHandover(item) {
   if (A.freezing) return; // a second click while the first freeze is still writing
   A.freezing = true;
-  try { await freezeOnce(); } finally { A.freezing = false; }
+  try { await freezeOnce(item); } finally { A.freezing = false; }
 }
-async function freezeOnce() {
-  if (!A.gate || !A.gate.ready) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
+async function freezeOnce(item) {
+  const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: item.requirement, decisions: A.decisions }) : null;
+  if (item && scoped && !scoped.ready) { toast(`${item.id} is not ready: ${plural(scoped.clauses.length, 'blocking item')} touch its elements. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
+  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
   let st = await host.gitStatus();
   if (st.repo && !st.trusted) {
@@ -867,30 +888,47 @@ async function freezeOnce() {
   if (st.repo && st.error) { toast(`Cannot read git status: ${st.error}`, 'error'); return; }
   const dirty = st.repo ? Core.dirtyInputs(st.files || [], A.cfg) : [];
   if (dirty.length) { toast(`Commit before freezing: ${dirty.slice(0, 3).join(', ')}${dirty.length > 3 ? ` and ${dirty.length - 3} more` : ''} ${dirty.length === 1 ? 'has' : 'have'} uncommitted changes. A handover must name a commit.`, 'warning', [{ label: 'Open source control', run: () => setActivity('scm') }]); return; }
-  const boundIds = new Set(A.decisions.filter(d => d.status === 'bound').map(d => d.id));
+  const inScope = new Set(item ? item.elements || [] : []);
+  const touches = names => !item || (names || []).some(n => inScope.has(n));
+  const boundIds = new Set(A.decisions.filter(d => d.status === 'bound' && touches(d.binds)).map(d => d.id));
   const read = async (dir, exts) => (await host.list(dir, exts)).map(f => ({ path: f.path, text: f.text }));
+  const acKeep = a => { if (!item) return true; const el = Core.resolveElement(A.model, a.element); return a.requirement === item.requirement && !!el && touches([el.name]); };
+  const only = (files, loaded, keep) => { const ok = new Set(loaded.filter(keep).map(x => x._path)); return files.filter(f => ok.has(f.path)); };
   const decisions = [];
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
   const modelText = (await host.read(A.cfg.model)) || '';
-  const { frozen } = await computeForecast(modelText);
-  const plan = Core.handoverPlan({
-    date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
-    model: { path: A.cfg.model, text: modelText },
-    requirements: await read('requirements', ['.yaml', '.yml']),
-    decisions,
-    behaviour: await read('behaviour', ['.p']),
-    vocabulary: await read('vocabulary', ['.yaml', '.yml']),
-    evals: await read('evals', ['.yaml', '.yml']),
-    scenarios: await read('scenarios', ['.yaml', '.yml']),
-  });
+  const { frozen } = item ? { frozen: null } : await computeForecast(modelText);
+  const reqs = await read('requirements', ['.yaml', '.yml']), evs = await read('evals', ['.yaml', '.yml']), scs = await read('scenarios', ['.yaml', '.yml']), acs = await read('acceptance', ['.yaml', '.yml']);
+  let plan;
+  try {
+    plan = Core.handoverPlan({
+      date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
+      item: item ? { id: item.id, requirement: item.requirement, elements: item.elements || [] } : null,
+      model: { path: A.cfg.model, text: modelText },
+      requirements: item ? only(reqs, A.requirements, r => r.id === item.requirement) : reqs,
+      decisions,
+      behaviour: await read('behaviour', ['.p']),
+      vocabulary: await read('vocabulary', ['.yaml', '.yml']),
+      evals: item ? only(evs, A.evals, e => touches([e.agent])) : evs,
+      scenarios: item ? only(scs, A.scenarios, s => touches([s.artifact])) : scs,
+      specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null }),
+      acceptance: item ? only(acs, A.acceptance, acKeep) : acs,
+      tokens: A.tokens != null ? { path: TOKENS, text: A.tokens } : null,
+    });
+  } catch (e) { toast(String(e.message || e), 'error'); return; }
   const already = Core.frozenAs(plan.id, A.handovers);
   if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
   const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
-  if (!confirm(`Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`)) return;
+  const ask = item
+    ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.`
+    : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`;
+  if (!confirm(ask)) return;
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
-  const git = await recordGate('local', st.repo ? { commit: st.head || null, dirty: false } : null);
-  await recordEvent('handover', { handover: plan.id, revision: rev, commit: git ? git.commit : null, dirty: false });
+  // An item handover follows the gate scoped to that item; recording the whole model's gate would say nothing about it.
+  const gitNow = st.repo ? { commit: st.head || null, dirty: false } : null;
+  const git = item ? gitNow : await recordGate('local', gitNow);
+  await recordEvent('handover', { handover: plan.id, revision: rev, commit: git ? git.commit : null, dirty: false, ...(item ? { item: item.id } : {}) });
   A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
   toast(`Handover ${plan.id} frozen at r-${rev}.`);
   if (G.state.repo && G.state.trusted) { // pre-fill the commit: staged, message written, review in Source control
@@ -1098,7 +1136,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', tokens: 'tokens', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
@@ -1109,6 +1147,9 @@ function gateOrder(clauses) {
 function clauseHelp(c) {
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return 'A business decision is agreed by whoever owns the business. If that is someone else, link to where they agreed it: a ticket, an issue or meeting notes. If it is you, say so and your bind is the record.';
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return 'Keeping a risk is a business call, not a technical one. Point this decision at the business decision that agreed the risk, or draft one and get it agreed.';
+  if (c.kind === 'acceptance' && / is a UI element with no acceptance criterion$/.test(c.text)) return 'A UI element needs a criterion with one case per state: ready, loading, empty and error (and forbidden behind a sign-in). Use New criterion in the Acceptance section.';
+  if (c.kind === 'tokens') return 'Edit design-tokens/tokens.json: raise the text size, or set ux.minTextSize in designc.json to a lower minimum if that is intended.';
+  if (c.kind === 'acceptance' && /: no case for state /.test(c.text)) return 'Add a case for that state to the criterion file: what the user sees (given, then).';
   return '';
 }
 function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S+) is not allowed/.exec(c.text); return m ? m[1] : null; }
@@ -1122,6 +1163,8 @@ function clauseActions(c) {
   if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
+  if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
+  if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
   if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
   return '';
@@ -1203,6 +1246,7 @@ function designSidebar() {
   };
   const rated = rows.some(r => r.importance || r.difficulty);
   const scn = (rated ? Core.utilityTree(rows).map(g => `<div class="hint"><b>${esc(g.attribute || 'no attribute')}</b></div>${g.scenarios.map(scnItem).join('')}`) : rows.map(scnItem)).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
+  const acc = A.acceptance.map(a => `<div class="item" data-open="${esc(a._path)}"><div class="l1"><span class="id">${esc(a.id)}</span><span class="tag">${esc(a.requirement || '')}</span></div><div class="l2">${esc(a.element || '')} · ${(a.cases || []).length} case${(a.cases || []).length === 1 ? '' : 's'}</div></div>`).join('') || '<div class="hint">No acceptance criteria. A UI element needs one case per state.</div>';
   const evr = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
   const evs = evr.map(r => {
     const dot = r.status === 'passing' ? 'pass' : r.status === 'failing' || r.status === 'invalid' ? 'fail' : '';
@@ -1223,6 +1267,8 @@ function designSidebar() {
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button><button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
+    + section('acceptance', `Acceptance (${A.acceptance.length})`, acc, `<button title="New criterion" data-a="newacc">+</button>`)
+    + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + section('grill', 'Grill-me', grillBody);
 }
@@ -1234,6 +1280,16 @@ function buildSidebar() {
   const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
   return section('bsum', 'Summary', summary + '<button class="btn block" data-a="builddash">Open Build dashboard</button>') + section('needs', `Waiting on a decision (${needs.length})`, nd);
+}
+function escapeMetricsHtml(L) {
+  const ui = A.model ? [...A.model.elements.values()].filter(e => e.tags && e.tags.has('UI')).map(e => e.name) : [];
+  const m = Ledger.escapeMetrics(L, { uiElements: ui, items: A.work ? A.work.filter(w => (A.acceptance || []).some(c => c.requirement === w.requirement)).map(w => w.id) : null });
+  if (!m.escapes && !m.acceptance.done && !m.tamper) return '';
+  const max = Math.max(1, ...Object.values(m.byOrigin), m.unclassified);
+  const bar = (l, n, un) => `<div class="barrow"><span>${esc(l)}</span><div class="bartrack"><div class="barfill ${un ? 'un' : ''}" style="width:${(n / max) * 100}%"></div></div><span class="c">${n}</span></div>`;
+  const fp = m.acceptance.done ? `${m.acceptance.firstPass} of ${m.acceptance.done}` : 'n/a';
+  return `<div class="grid2"><div class="block"><h3>Escapes by origin</h3><div class="bars">${Ledger.ORIGINS.map(o => bar(ORIGIN_LABEL[o], m.byOrigin[o])).join('')}${bar('Not classified', m.unclassified, true)}</div><div class="note">Origin says where the escape came from; the stage above says what should have caught it.</div></div>
+    <div class="block"><h3>UI and acceptance</h3><div class="stats"><div class="stat"><div class="v">${m.uiEscapes} of ${m.escapes}</div><div class="l">Escapes on UI elements</div></div><div class="stat"><div class="v">${m.uiEscapeRate == null ? 'n/a' : m.uiEscapeRate.toFixed(2)}</div><div class="l">UI escapes per done item</div></div><div class="stat"><div class="v">${fp}</div><div class="l">Done items with no acceptance failure</div></div><div class="stat"><div class="v">${m.tamper}</div><div class="l">Unapproved changes to acceptance files</div></div></div></div></div>`;
 }
 function improveSidebar() {
   const escapes = A.ledger.filter(e => e.kind === 'escape'), un = escapes.filter(e => !e.caught_by);
@@ -1251,7 +1307,7 @@ function improveSidebar() {
 function renderPanel() {
   const live = A.diags.filter(d => !d.suppressed);
   const qual = A.root ? qualityNow() : { findings: [], problems: [] };
-  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + A.workErrors.length + qual.findings.length + qual.problems.length;
+  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + A.workErrors.length + A.workWarnings.length + qual.findings.length + qual.problems.length;
   $('#probCount').textContent = A.root ? total : '';
   document.querySelectorAll('[data-panel]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.panel === A.panel)));
   $('#panelClear').style.display = A.panel === 'output' ? '' : 'none';
@@ -1266,6 +1322,7 @@ function renderPanel() {
   if (mrows.length) groups.push([A.cfg.model, mrows]);
   const byPath = new Map();
   for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
+  for (const w of A.workWarnings) { if (!byPath.has(w.path)) byPath.set(w.path, []); byPath.get(w.path).push({ sev: 'warning', msg: w.msg, code: 'work', line: 1 }); }
   const seenP = new Set();
   for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
   groups.push(...byPath);
@@ -1510,8 +1567,9 @@ function codemapSidebar() {
     const byName = n => { const e = [...A.asbuilt.elements.values()].find(x => x.name === n); return e ? `data-cmsel="${esc(e.id)}"` : ''; };
     const body = (d.undeclared.length ? `<div class="hint" style="padding-bottom:2px"><b>In code, not in the design</b></div>` + d.undeclared.map(u => row(`${esc(u.from)} → ${esc(u.to)}`, 'dependency', `data-cmsel="${esc(A.asbuilt.relById.get(u.builtRel).src)}"`)).join('') + d.unknownEls.map(n => row(esc(n), 'element', byName(n))).join('') : d.unknownEls.map(n => row(esc(n), 'element in code only', byName(n))).join(''))
       + (d.unrealised.length || d.missingEls.length ? `<div class="hint" style="padding-bottom:2px"><b>Designed, not found in code</b></div>` + d.unrealised.map(u => row(`${esc(u.from)} → ${esc(u.to)}`, 'dependency', `data-cmsel="${esc(u.src)}"`)).join('') + d.missingEls.map(n => row(esc(n), 'element', '')).join('') : '')
+      + ((d.uiUntagged || []).length ? `<div class="hint" style="padding-bottom:2px"><b>Single-page app not tagged UI</b></div>` + d.uiUntagged.map(n => row(esc(n), 'add the UI tag so acceptance criteria apply', '')).join('') : '')
       || '<div class="hint">The code matches the design.</div>';
-    h += section('drift', `Drift (${d.undeclared.length + d.unknownEls.length + d.unrealised.length + d.missingEls.length})`, body);
+    h += section('drift', `Drift (${d.undeclared.length + d.unknownEls.length + d.unrealised.length + d.missingEls.length + (d.uiUntagged || []).length})`, body);
   } else if (A.asbuilt) h += section('drift', 'Drift', `<div class="hint">Drift appears once ${esc(A.cfg.model)} has elements to compare against.</div>`);
   if (A.cdrift && cmHasComponents()) h += section('cdrift', 'Components', cmDriftBody());
   if (f) h += codeAreasSection();
@@ -1883,6 +1941,8 @@ function buildDash() {
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
   h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
   h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}}</div></td><td>${esc(n.question)}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span></td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
+  const acFail = [...L.filter(e => e.kind === 'ui_acceptance_failed').reduce((m, e) => m.set(`${e.task}\0${e.ac}`, e), new Map()).values()];
+  if (acFail.length) h += `<div class="block"><h3>UI acceptance failures</h3><div class="tw2"><table class="t"><tr><th>Criterion</th><th>Element</th><th>Task</th><th>Commit</th></tr>${acFail.map(f => `<tr><td><span class="id">${esc(f.ac)}</span></td><td>${esc(elementLabel(f.element))}</td><td>${esc(f.task)}</td><td><span class="code">${esc(String(f.commit).slice(0, 7))}</span>${f.trace_id ? ` · trace ${esc(f.trace_id)}` : ''}</td></tr>`).join('')}</table></div><div class="note">Reported by the pipeline. The spec is generated from the criterion, so fix the code, not the spec.</div></div>`;
   const byEl = new Map(); for (const t of tasks) { const k = elementLabel(t.element) || 'unassigned'; if (!byEl.has(k)) byEl.set(k, []); byEl.get(k).push(t); }
   const names = new Set(A.model ? [...A.model.elements.values()].map(e => e.name) : []);
   h += `<div class="block"><h3>Tasks by element</h3><div class="tw2"><table class="t"><tr><th>Element</th><th class="num">Tasks</th><th class="num">Passed</th><th class="num">Failed</th><th class="num">Reruns</th><th class="num">Tokens</th><th class="num">Tokens per pass</th></tr>${[...byEl].map(([el, ts]) => { const p = ts.filter(t => t.status === 'passed').length, tk = ts.reduce((a, t) => a + Ledger.totalTokens(t), 0); return `<tr><td>${esc(el)}${names.has(el) || el === 'unassigned' ? '' : ' <span class="tag open">not in design</span>'}</td><td class="num">${ts.length}</td><td class="num">${p}</td><td class="num">${ts.filter(t => t.status === 'failed').length}</td><td class="num">${ts.reduce((a, t) => a + (t.reruns || 0), 0)}</td><td class="num">${fmtN(tk)}</td><td class="num">${p ? fmtN(tk / p) : 'n/a'}</td></tr>`; }).join('')}</table></div></div>`;
@@ -1908,7 +1968,8 @@ function improveDash() {
   h += `<div class="block"><h3>Rule health</h3><div class="tw2"><table class="t"><tr><th>Rule</th><th class="num">Firing</th><th class="num">Suppressed</th><th class="num">Escapes</th><th class="num">False +</th></tr>${Core.RULES.map(r => { const f = A.diags.filter(d => d.code === r.code); return `<tr><td><span class="code">${r.code}</span> ${esc(r.title)}<div style="color:var(--fg3);font-size:11.5px">${esc(r.source)}</div></td><td class="num">${f.filter(d => !d.suppressed).length}</td><td class="num">${f.filter(d => d.suppressed).length}</td><td class="num">${escapes.filter(e => e.code === r.code).length}</td><td class="num">${fps.filter(e => e.code === r.code).length}</td></tr>`; }).join('')}</table></div></div></div>`;
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
-  if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
+  if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
+  h += escapeMetricsHtml(L);
   h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
@@ -2037,6 +2098,8 @@ document.addEventListener('click', async e => {
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();
+  if (a === 'newacc') return newAcceptance();
+  if (a === 'newtokens') return createAndOpen(TOKENS, TOKENS_STARTER, 1);
   if (a === 'runfit') return runFitness();
   if (a === 'neweval') return newEval();
   if (a === 'runevals') return runEvals();
@@ -2061,6 +2124,10 @@ document.addEventListener('click', async e => {
 document.addEventListener('change', async e => {
   const d = e.target.dataset;
   if (d.classify) await recordEvent('escape_classified', { escape: d.classify, caught_by: e.target.value || null });
+  if (d.origin) {
+    const esc0 = A.ledger.find(x => x.kind === 'escape' && x.id === d.origin);
+    await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
+  }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });

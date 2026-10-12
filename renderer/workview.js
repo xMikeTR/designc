@@ -2,7 +2,8 @@
    Work items are files in work/ (renderer/work.js holds the rules). This file loads them, draws the Work view
    and runs Start, Run gates and Done. Done is refused unless designc can check the evidence itself: an agent's
    claim is never evidence. Every HTML string passes file content through esc(). */
-const WK = { refused: {}, busy: false };
+const WK = { refused: {}, busy: false, recheck: {}, models: {}, modelRef: null, rechecking: false,
+  digest: null, onMain: {}, sig: null, digesting: false };
 
 const WORK_TEMPLATE = id => `id: ${id}
 title: ""
@@ -19,7 +20,7 @@ done_when:
 `;
 
 async function loadWork() {
-  A.work = []; A.workErrors = [];
+  A.work = []; A.workErrors = []; A.workWarnings = [];
   let files = [];
   try { files = await host.list('work', ['.yaml', '.yml']); } catch { files = []; }
   for (const f of files) {
@@ -37,11 +38,106 @@ async function loadWork() {
     if (seen.has(it.id)) A.workErrors.push({ path: it._path, line: 1, msg: `${it.id}: duplicate work item id` });
     seen.add(it.id);
   }
+  for (const u of Work.coverage(A.work, A.requirements)) {
+    const r = A.requirements.find(x => x.id === u.requirement);
+    A.workWarnings.push({ ...u, path: r && r._path || `requirements/${u.requirement}.yaml`, msg: `Requirement ${u.requirement} lists ${u.element} but no work item covers it. Add it to an item or make a new item.` });
+  }
+  refreshDigest();
 }
 
 const workStates = () => Work.states(A.work || [], A.ledger || []);
 const workRel = it => it.repo || (Work.isRepo(it) ? null : '.');
 const entryText = e => { const k = Work.KINDS.find(x => e && e[x] !== undefined); return k ? `${k}: ${e[k]}` : '(empty entry)'; };
+
+const workFrozen = () => Work.frozenBy(A.ledger || []);
+// designc.json work.wip: how many items may be active at once (default 3). The freeze horizon is that plus two.
+const workWip = () => { const n = Number((A.cfg.work || {}).wip); return Number.isInteger(n) && n >= 0 ? n : 3; };
+function horizonNote() {
+  const h = Work.horizon(A.work || [], workStates(), workFrozen(), workWip());
+  return `<div class="hint"${h.over ? ' style="color:var(--warn)"' : ''}>${h.frozen} frozen and not done. The freeze horizon is the WIP limit plus two (${h.limit}). ${h.over ? 'You are past it: finish or re-plan before freezing more, because frozen designs go stale.' : 'Freeze small; the rest of the design can wait.'}</div>`;
+}
+
+// ---------------------------------------------------------------- digest (ROADMAP slice 26)
+const lastLookKey = () => `designc.lastLook:${A.root ? (A.root.root || A.root.name) : ''}`;
+function lastLook() { try { return Number(localStorage.getItem(lastLookKey())) || 0; } catch { return 0; } }
+function markLooked() { try { localStorage.setItem(lastLookKey(), String(Date.now())); } catch { /* no storage: the digest keeps everything */ } }
+
+// Recomputes the four buckets, checks "on main" for the commits claimed done, and notifies when the first two
+// buckets (needs a decision, failed a gate) hold something new. The first computation only sets the baseline.
+async function refreshDigest() {
+  if (WK.digesting || !A.work || !A.ledger) return;
+  WK.digesting = true;
+  try {
+    const st = workStates();
+    for (const it of A.work.filter(i => st[i.id] === 'done' && Work.isRepo(i))) {
+      const dn = A.ledger.filter(e => e.kind === 'item_done' && e.item === it.id).pop();
+      if (!dn || !dn.commit || WK.onMain[dn.commit] === true) continue;
+      try { const r = await host.workOnMain(workRel(it), dn.commit); WK.onMain[dn.commit] = r && !r.error ? r.onMain : null; } catch { WK.onMain[dn.commit] = null; }
+    }
+    const d = Work.digest({ items: A.work, states: st, events: A.ledger, onMain: WK.onMain, wip: workWip(), lastLook: lastLook() });
+    const sig = Work.digestSignature(d), changed = WK.sig !== null && sig !== WK.sig;
+    const had = WK.digest && JSON.stringify(WK.digest) !== JSON.stringify(d);
+    WK.digest = d;
+    if (changed && (d.needs.length || d.failed.length)) {
+      try { new Notification('designc', { body: `${plural(d.needs.length, 'item')} need a decision, ${plural(d.failed.length, 'item')} failed a gate.` }); } catch { /* no notifications here */ }
+    }
+    WK.sig = sig;
+    if (had !== false && A.active === 'special:work') renderAll({ keepEditor: true });
+  } finally { WK.digesting = false; }
+}
+
+function digestHtml() {
+  const d = WK.digest;
+  if (!d) return '';
+  const row = (inner) => `<li>${inner}</li>`;
+  const open = it => it ? ` <button class="lnk" data-file="work/${esc(it)}.yaml">Open ${esc(it)}</button>` : '';
+  const needs = d.needs.map(n => row(`${esc(n.text)}${n.element ? ` <span class="desc">on ${esc(n.element)}</span>` : ''} <span class="desc">${esc(when(n.ts))}</span>${n.kind === 'needs_decision' ? ' <button class="btn" data-work="gate">Record decision</button>' : open(n.item)}`)).join('');
+  const failed = d.failed.map(f => row(`${esc(f.text)}${open(f.item)}`)).join('');
+  const done = d.done.map(x => row(`${esc(x.item)}${x.commit ? ` <span class="desc">at ${esc(String(x.commit).slice(0, 7))}</span>` : ''}${open(x.item)}`)).join('');
+  const waiting = d.waiting.map(w => row(`${esc(w.text)}${open(w.item)}`)).join('');
+  const sec = (title, body, hint) => `<div class="note"><b>${esc(title)}</b>${body ? `<ul>${body}</ul>` : `<div class="desc">${esc(hint)}</div>`}</div>`;
+  return `<div class="block"><h3>Digest<span class="spacer"></span><button class="btn" data-work="seen" title="Done since last look starts again from now">Mark as seen</button></h3>
+    ${sec(`Needs a decision (${d.needs.length})`, needs, 'Nothing waits for you.')}
+    ${sec(`Failed a gate (${d.failed.length})`, failed, 'No gate is failing and no claimed done is unproven.')}
+    ${sec(`Done since last look (${d.done.length})`, done, 'Nothing finished since you last looked.')}
+    ${sec(`Waiting (${d.waiting.length})`, waiting, `Nothing is held back. ${d.wip.active} active, WIP limit ${d.wip.limit}.`)}</div>`;
+}
+
+// Has the design moved under each frozen item (ROADMAP slice 25)? Runs after render, re-renders once when a
+// result changed, and records `item_recheck` only when the answer for that handover differs from the last one.
+const recheckKey = (it, frozen) => `${frozen[it.id].handover}|${JSON.stringify([it.elements, it.requirement])}|${A.decisions.map(d => d.id + d.status).join()}`;
+async function refreshRecheck() {
+  if (WK.rechecking || !A.work || !A.model) return;
+  if (WK.modelRef !== A.model) { WK.modelRef = A.model; WK.recheck = {}; }
+  const frozen = workFrozen(), st = workStates();
+  const todo = A.work.filter(i => Work.isRepo(i) && frozen[i.id] && st[i.id] !== 'done' && (WK.recheck[i.id] || {}).key !== recheckKey(i, frozen));
+  if (!todo.length) return;
+  WK.rechecking = true;
+  try {
+    for (const it of todo) {
+      const key = recheckKey(it, frozen);
+      const h = A.handovers.find(x => x.id === frozen[it.id].handover);
+      if (!h || !h.model || !Array.isArray(h.in_scope)) { WK.recheck[it.id] = { unknown: true, key }; continue; }
+      if (!WK.models[h.id]) { const t = await host.read(`handovers/${h.id}/${h.model}`); WK.models[h.id] = t ? Core.parse(t) : null; }
+      if (!WK.models[h.id]) { WK.recheck[it.id] = { unknown: true, key }; continue; }
+      const r = Core.workRecheck({ item: it, frozen: { model: WK.models[h.id], inScope: h.in_scope, requirement: (h.requirements || [])[0] || null },
+        model: A.model, decisions: A.decisions, requirements: A.requirements });
+      WK.recheck[it.id] = { ...r, handover: h.id, key };
+      const text = JSON.stringify(r.reasons.map(x => x.text));
+      const last = (A.ledger || []).filter(e => e.kind === 'item_recheck' && e.item === it.id).pop();
+      if (!last || last.handover !== h.id || last.stale !== r.stale || JSON.stringify(last.reasons) !== text) {
+        await recordEvent('item_recheck', { item: it.id, handover: h.id, stale: r.stale, reasons: r.reasons.map(x => x.text) });
+      }
+    }
+  } finally { WK.rechecking = false; }
+  renderAll({ keepEditor: true });
+}
+
+// The gate as this item sees it, or null when the item cannot be judged yet (no gate, not a repo item, problems in its file).
+function itemGate(it) {
+  if (!A.gate || !A.model || !Work.isRepo(it)) return null;
+  return Core.scopedGate(A.gate, { model: A.model, elements: it.elements || [], requirement: it.requirement, decisions: A.decisions });
+}
 
 function workSidebar() {
   if (!A.work) return '<div class="hint">Loading work items…</div>';
@@ -49,7 +145,29 @@ function workSidebar() {
   const rows = A.work.map(i => `<div class="item" data-file="${esc(i._path)}"><div class="l1"><span class="id">${esc(i.id)}</span><span class="tag">${esc(st[i.id])}</span></div><div class="l2">${esc(i.title || (i.target ? `${Object.keys(i.target)[0] || 'target'}` : i.requirement) || '')}</div></div>`).join('');
   return section('work', `Work items (${A.work.length})`, rows || '<div class="hint">No work items yet. New item writes work/&lt;id&gt;.yaml.</div>',
     '<button title="New work item" data-work="new">+</button>') +
+    horizonNote() +
     `<div class="hint">${n('backlog')} backlog · ${n('active')} active · ${n('done')} done. Done is accepted only when the commit is on main and every gate passed at it.</div>`;
+}
+
+// Elements this item names that its requirement does not list.
+function outOfScope(it) {
+  const r = Work.isRepo(it) && (A.requirements || []).find(x => x.id === it.requirement);
+  return r ? (it.elements || []).filter(el => !(r.elements || []).includes(el)) : [];
+}
+
+function scopeBlockHtml() {
+  const w = A.workWarnings || [];
+  if (!w.length) return '';
+  const rows = w.map(u => `<li>${esc(u.element)} <span class="desc">of ${esc(u.requirement)}, in no item</span> <button class="btn" data-work="additem" data-req="${esc(u.requirement)}" data-el="${esc(u.element)}">Add to item</button> <button class="btn" data-work="newfor" data-req="${esc(u.requirement)}" data-el="${esc(u.element)}">New item</button></li>`).join('');
+  return `<div class="block"><h3>Not covered by any item (${w.length})</h3><div class="note">These requirement elements have no work item. Nothing will build them until one does.</div><ul>${rows}</ul></div>`;
+}
+
+function recheckHtml(it, froze) {
+  const r = froze && WK.recheck[it.id];
+  if (!r) return '';
+  if (r.unknown) return '<div class="note">Cannot re-check: the handover this item was frozen as has no model copy or scope record.</div>';
+  if (!r.stale) return '<div class="note">Design unchanged for this item since it was frozen.</div>';
+  return `<div class="note" style="color:var(--warn)"><b>The design moved since this item was frozen (${plural(r.reasons.length, 'reason')}).</b><ul>${r.reasons.map(x => `<li>${esc(x.text)}</li>`).join('')}</ul>Review the change, then Freeze again.</div>`;
 }
 
 function workItemHtml(it, st, active) {
@@ -67,13 +185,22 @@ function workItemHtml(it, st, active) {
     return `<li>${esc(text)}${note}</li>`;
   }).join('');
   const what = it.target ? `${esc(Object.keys(it.target)[0] || '')} ${esc(Object.values(it.target)[0] || '')}` : `${esc(it.requirement || '')} · ${esc((it.elements || []).join(', '))}`;
+  const sg = !problems.length ? itemGate(it) : null;
+  const froze = workFrozen()[it.id];
   const btn = [`<button class="btn" data-file="${esc(it._path)}">Open file</button>`];
+  if (sg && state !== 'done') btn.unshift(`<button class="btn" data-work="freeze" data-id="${esc(it.id)}" ${sg.ready ? '' : 'disabled title="Clear the blocking items below first"'}>${froze ? 'Freeze again' : 'Freeze item'}</button>`);
   if (state === 'backlog') btn.unshift(`<button class="btn primary" data-work="start" data-id="${esc(it.id)}" ${problems.length ? 'disabled title="Fix the problems in the file first"' : ''}>Start</button>`);
   if (state === 'active') btn.unshift(`<button class="btn" data-work="gates" data-id="${esc(it.id)}" ${WK.busy ? 'disabled' : ''}>Run gates</button>`, `<button class="btn primary" data-work="done" data-id="${esc(it.id)}">Done</button>`);
   return `<div class="block" data-workitem="${esc(it.id)}"><h3><span class="id">${esc(it.id)}</span> ${esc(it.title || '')}<span class="spacer"></span><span class="tag">${esc(state)}</span></h3>
     <div class="note">${what}${it.repo ? ` · repo ${esc(it.repo)}` : ''}</div>
     ${dw ? `<ul>${dw}</ul>` : ''}
     ${problems.map(m => `<div class="note" style="color:var(--err)">${esc(m)}</div>`).join('')}
+    ${outOfScope(it).map(el => `<div class="note"><button class="btn" data-work="addreq" data-id="${esc(it.id)}" data-el="${esc(el)}">Add ${esc(el)} to ${esc(it.requirement)}</button></div>`).join('')}
+    ${recheckHtml(it, froze)}
+    ${froze ? `<div class="note">Frozen as <button class="lnk" data-file="handovers/${esc(froze.handover)}/handover.yaml">${esc(froze.handover)}</button> at ${esc(froze.revision)}.</div>` : ''}
+    ${sg && state !== 'done' ? (sg.ready
+      ? `<div class="note">Gate for this item: ready.${sg.outside ? ` ${plural(sg.outside, 'blocking clause')} elsewhere in the design ${sg.outside === 1 ? 'does' : 'do'} not touch it.` : ''}</div>`
+      : `<div class="note" style="color:var(--warn)"><b>Gate for this item: ${plural(sg.clauses.length, 'blocking clause')}.</b><ul>${sg.clauses.slice(0, 6).map(c => `<li>${esc(c.text)}</li>`).join('')}</ul>${sg.clauses.length > 6 ? `and ${sg.clauses.length - 6} more. ` : ''}<button class="btn" data-work="gate">Show gate</button></div>`) : ''}
     ${clashes.map(c => `<div class="note" style="color:var(--warn)">Conflicts with ${esc(c.with)}: ${esc(c.detail)}</div>`).join('')}
     ${deps.map(d => `<div class="note" style="color:var(--warn)">Depends on ${esc(d)}, which is not done.</div>`).join('')}
     ${refused.length ? `<div class="note" style="color:var(--err)"><b>Not done yet:</b><ul>${refused.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` : ''}
@@ -92,15 +219,37 @@ function renderWork() {
   };
   el.innerHTML = `<div class="dash"><div class="block"><h3>Work<span class="spacer"></span><button class="btn primary" data-work="new">New item</button></h3>
     <div class="note">One file per request in <code>work/</code>. Start pulls an item into active work and warns about clashes. Done is accepted only when the commit is on <code>${esc((A.cfg.work || {}).mainBranch || 'main')}</code> and every gate passed at that commit: what an agent says is never evidence.</div></div>
-    ${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
+    ${digestHtml()}${scopeBlockHtml()}${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
+  refreshRecheck();
+  refreshDigest();
 }
 
-async function workNew() {
-  const title = await askText('What is this work? (a short title)'); if (title == null) return;
+async function workNew(prefill) {
+  const title = await askText('What is this work? (a short title)', prefill ? `Build ${prefill.elements.join(', ')}` : ''); if (title == null) return;
   const id = Core.slugId(`W ${title}`.trim(), new Set((A.work || []).map(i => i.id)));
-  const text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`);
+  let text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`);
+  if (prefill) text = text.replace('requirement: TODO', `requirement: ${prefill.requirement}`).replace('elements: []', `elements: ${JSON.stringify(prefill.elements)}`);
   await host.write(`work/${id}.yaml`, text); A.tree = await host.tree();
   await openFile(`work/${id}.yaml`); await loadWork(); renderAll({ keepEditor: true });
+}
+
+// Human only, like binding: it edits a requirement, which the gate reads.
+async function workAddToRequirement(id, el) {
+  const it = (A.work || []).find(i => i.id === id), r = it && (A.requirements || []).find(x => x.id === it.requirement);
+  if (!r || !r._path) return;
+  if (!confirm(`Add ${el} to requirement ${r.id}?\n\nThis changes ${r._path}. If the requirement now means something different, bump its version yourself so decisions promoted against it are checked again.`)) return;
+  const done = await editYaml(r._path, t => Work.addToList(t, 'elements', el));
+  if (done === null) toast(`Could not edit the elements list in ${r._path}. Add ${el} by hand.`, 'warning');
+}
+
+async function workAddToItem(req, el) {
+  const st = workStates();
+  const open = (A.work || []).filter(i => Work.isRepo(i) && i.requirement === req && st[i.id] !== 'done');
+  if (!open.length) return toast(`Every item of ${req} is done. Make a new item for ${el}.`, 'warning');
+  const id = open.length === 1 ? open[0].id : await askChoice(`Which item should change ${el}?`, open.map(i => ({ label: `${i.id}${i.title ? `: ${trunc(i.title, 50)}` : ''}`, value: i.id })));
+  const it = open.find(i => i.id === id); if (!it) return;
+  const done = await editYaml(it._path, t => Work.addToList(t, 'elements', el));
+  if (done === null) toast(`Could not edit the elements list in ${it._path}. Add ${el} by hand.`, 'warning');
 }
 
 async function workStart(id) {
@@ -184,4 +333,10 @@ document.addEventListener('click', e => {
   else if (t.dataset.work === 'start') workStart(id);
   else if (t.dataset.work === 'gates') workRunGates(id);
   else if (t.dataset.work === 'done') workDone(id);
+  else if (t.dataset.work === 'freeze') { const it = (A.work || []).find(i => i.id === id); if (it) freezeHandover(it); }
+  else if (t.dataset.work === 'gate') setActivity('design');
+  else if (t.dataset.work === 'seen') { markLooked(); WK.digest = null; refreshDigest(); }
+  else if (t.dataset.work === 'addreq') workAddToRequirement(id, t.dataset.el);
+  else if (t.dataset.work === 'additem') workAddToItem(t.dataset.req, t.dataset.el);
+  else if (t.dataset.work === 'newfor') workNew({ requirement: t.dataset.req, elements: [t.dataset.el] });
 });

@@ -17,6 +17,7 @@ function build() {
     schema_version: Ledger.SCHEMA_VERSION,
     envelope_optional: Ledger.ENVELOPE_OPTIONAL,
     caught_by: Ledger.CAUGHT_BY,
+    origins: Ledger.ORIGINS,
     pipeline_stream: Ledger.PIPELINE_STREAM,
     pipeline_kinds: Ledger.PIPELINE_KINDS,
     rules: Ledger.RULE_IDS,

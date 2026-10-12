@@ -15,8 +15,8 @@ const ROLES = {
   architect: { label: 'Architect', system: 'S1', allow: READ_TOOLS, ask: ['propose_model_edit', 'mint_decision'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
-  grill: { label: 'Grill-me', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: ['mint_decision'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write.',
+  grill: { label: 'Grill-me', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: ['mint_decision', 'mint_acceptance'],
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
@@ -46,6 +46,7 @@ const TOOLS = {
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
   mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
+  mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) } }, ['requirement', 'element', 'cases']) },
   mint_proposal: { d: 'Propose a change to Design or Build (status minted), citing evidence.', p: obj({ kind: { type: 'string', enum: ['lint rule', 'P property', 'grill-me question', 'gate clause', 'eval case', 'routing'] }, statement: { type: 'string' }, evidence: { type: 'string' }, check: { type: 'string' } }, ['kind', 'statement', 'evidence', 'check']) },
 };
 const toolSpecs = role => Object.entries(TOOLS).filter(([n]) => verdict(role, n) !== 'deny').map(([name, t]) => ({ type: 'function', function: { name, description: t.d, parameters: t.p } }));
@@ -140,6 +141,29 @@ drafted_by: ide-agent
 `;
     return { title: `Mint decision ${id}`, detail: a.statement, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`decisions/${id}.yaml`, Date.now()); await host.write(`decisions/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created decisions/${id}.yaml as minted. Binding it is up to the user.`; } };
+  },
+  mint_acceptance: a => {
+    const el = Core.resolveElement(A.model, a.element);
+    if (!el) return { error: `Element "${a.element}" is not in the model. Use its elements.json id (System/Container/Component) as read_model shows it.` };
+    if (!A.requirements.some(r => r.id === a.requirement)) return { error: `Requirement ${a.requirement} is not in the registry. Ask the person which requirement this belongs to.` };
+    const STATES = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+    const cases = Array.isArray(a.cases) ? a.cases : [];
+    const bad = cases.find(c => !c || !STATES.includes(c.state) || !c.given || !c.then);
+    if (bad || !cases.length) return { error: `Each case needs a state (${STATES.join(', ')}), given and then.` };
+    const states = Array.isArray(a.states) && a.states.length ? a.states : [...new Set(cases.map(c => c.state))];
+    const label = A.model.label(el.id);
+    const id = Core.slugId(`${a.requirement} ${el.name}`, A.acceptance.map(x => x.id));
+    const text = `id: ${id}
+requirement: ${yamlStr(a.requirement)}
+element: ${yamlStr(label)}
+${a.decision ? `decision: ${yamlStr(a.decision)}\n` : ''}states: ${yamlList(states)}
+locators: {}
+cases:
+${cases.map(c => `  - state: ${c.state}\n    given: ${yamlStr(c.given)}\n${c.when ? `    when: ${yamlStr(c.when)}\n` : ''}    then: ${yamlStr(c.then)}`).join('\n')}
+drafted_by: ide-agent
+`;
+    return { title: `Mint acceptance criterion ${id}`, detail: `${label}: ${states.join(', ')}`, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
+      apply: async () => { AG.approved.set(`acceptance/${id}.yaml`, Date.now()); await host.write(`acceptance/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created acceptance/${id}.yaml. A person names the locators and reviews the cases.`; } };
   },
   mint_proposal: a => {
     const id = Core.slugId(a.statement, A.proposals.map(x => x.id));

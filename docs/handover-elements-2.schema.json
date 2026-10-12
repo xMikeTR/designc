@@ -1,0 +1,106 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.elements/2",
+  "title": "Handover elements",
+  "description": "elements.json in a frozen item handover (a work item's, ROADMAP slice 24). Same as designc.handover.elements/1, plus in_scope on every element: true for the elements the work item changes. A whole-model handover keeps /1.",
+  "type": "object",
+  "required": [
+    "schema",
+    "elements",
+    "relationships",
+    "events",
+    "reserved"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "schema": {
+      "const": "designc.handover.elements/2"
+    },
+    "elements": {
+      "description": "Every element of the model, in model order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "kind",
+          "in_scope"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Hierarchical: the names from the software system down, joined by '/' (System/Container/Component). A person is its name."
+          },
+          "name": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "person",
+              "softwareSystem",
+              "container",
+              "component"
+            ]
+          },
+          "code": {
+            "description": "d.code: where this element's code lives, as normalised repo path patterns (docs/path-patterns.json). Present only when declared.",
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1
+          },
+          "risk": {
+            "description": "d.risk: how risky a change here is. Present only when declared, and always present when code is (designc refuses d.code without d.risk, DC000).",
+            "enum": [
+              "low",
+              "medium",
+              "high"
+            ]
+          },
+          "in_scope": {
+            "type": "boolean",
+            "description": "True for an element the work item changes. The agent works only these; it asks (needs_decision with element) before touching any other."
+          }
+        }
+      }
+    },
+    "relationships": {
+      "description": "Model relationships by element id, one per ordered pair.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "events": {
+      "description": "Event names announced in behaviour/*.p (`announce <Name>`), by file path then first appearance, each once.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "reserved": {
+      "description": "Repo path patterns no code change may touch: the generated acceptance specs (ROADMAP slices 30 and 31). A coding agent never writes here; the pipeline records acceptance results per criterion at a commit.",
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "minItems": 1
+    }
+  }
+}
