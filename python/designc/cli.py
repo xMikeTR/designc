@@ -9,11 +9,11 @@ import subprocess
 import sys
 import time
 
-from . import factory, ledger, record
+from . import factory, ledger, record, work
 from .dsl import parse
 from .evals import score_eval
 from .gate import eval_hash, eval_problems, eval_report, gate
-from .registry import load_handover_evals, load_handover_ids, load_ledger, load_registry, load_settings
+from .registry import load_handover_evals, load_handover_ids, load_ledger, load_registry, load_settings, load_yaml_dir
 from .rules import check, fingerprint
 from .verify import read_ledger_files, verify
 
@@ -81,7 +81,11 @@ def main(argv):
     r.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
     r.add_argument('--by', help='who recorded this, for events that name nobody (default: DESIGNC_BY, then the OS user)')
     r.add_argument('--json', action='store_true', help='print the result as JSON')
+    w = sub.add_parser('work', help='list work items in work/: state, file problems and clashes with active items')
+    w.add_argument('registry', nargs='?', default='.', help='registry folder (default: current directory)')
+    w.add_argument('--json', action='store_true', help='print the result as JSON')
     args = ap.parse_args(argv)
+    if args.cmd == 'work': return work_cmd(os.path.abspath(args.registry), args.json)
     if args.cmd == 'record': return record_cmd(os.path.abspath(args.registry), args.by, args.json)
     if args.cmd == 'eval': return eval_cmd(os.path.abspath(args.registry), args.id, args.source, args.by)
     if args.cmd == 'verify-ledger': return verify_ledger(os.path.abspath(args.registry), args.json)
@@ -157,6 +161,26 @@ def record_cmd(root, by, as_json):
         for e in r['errors']: print(f"line {e['line']}: {e['msg']}", file=sys.stderr)
         print('designc: nothing was recorded. Fix the lines above and send the whole batch again.', file=sys.stderr)
     return 0 if r['ok'] else 1
+
+
+def work_cmd(root, as_json):
+    """Exit 0 when every work item file is sound, 1 when one has a problem, 2 when the folder cannot be read."""
+    if not os.path.isdir(root):
+        print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    errors = []
+    items = load_yaml_dir(root, 'work', errors)
+    reg = load_registry(root)
+    r = work.report(items, [d['id'] for d in reg['requirements']], load_ledger(root), errors)
+    if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
+    else:
+        for row in r['items']:
+            print(f"{row['id']}  {row['state']}")
+            for m in row['problems']: print(f'  error    {m}')
+            for c in row['conflicts']: print(f"  conflict {c['with']}: {c['detail']}")
+        for e in r['errors']: print(f"{e['path']}  error    {e['msg']}")
+        n = sum(len(x['problems']) for x in r['items']) + len(r['errors'])
+        print('No work items.' if not r['items'] and not r['errors'] else (f'{len(r["items"])} work item{"" if len(r["items"]) == 1 else "s"}' + (f', {n} problem{"" if n == 1 else "s"}.' if n else ', no problems.')))
+    return 1 if any(x['problems'] for x in r['items']) or r['errors'] else 0
 
 
 def verify_ledger(root, as_json):

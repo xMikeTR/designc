@@ -178,4 +178,32 @@ function addLedgerUnion(root) {
   } catch (e) { return { error: e.message }; }
 }
 
-module.exports = { findRepo, status, refs, log, show, stage, unstage, commit, branch, switchTo, fetch, pull, push, publish, hasLedgerUnion, addLedgerUnion, run, within, HASH };
+// Where a work item's repo is: its HEAD commit, branch and whether tracked files have uncommitted changes. Runs in the
+// whole repo (a work item's repo is the codebase, not the registry), read-only.
+async function head(dir) {
+  const c = await run(dir, ['rev-parse', 'HEAD']);
+  if (c.error) return { error: c.error };
+  const b = await run(dir, ['rev-parse', '--abbrev-ref', 'HEAD']);
+  const s = await run(dir, ['status', '--porcelain', '--untracked-files=no']);
+  if (s.error) return { error: s.error };
+  const branch = b.out ? b.out.trim() : null;
+  return { commit: c.out.trim(), branch: branch === 'HEAD' ? null : branch, dirty: s.out.trim() !== '' };
+}
+
+// Is the commit reachable from the local branch? A fixed argument array: the commit must be a hash (or a
+// short one git resolves to a commit) and the branch a plain branch name, so nothing here can be a flag.
+// No fetch: a branch behind its remote can wrongly say no, and the caller says so.
+async function isAncestor(dir, commit, branch) {
+  if (!/^[0-9a-f]{7,64}$/.test(String(commit))) return { error: `${commit} is not a commit hash.` };
+  if (!/^[A-Za-z0-9_][A-Za-z0-9._\/-]*$/.test(String(branch))) return { error: `${branch} is not a branch name.` };
+  const full = await run(dir, ['rev-parse', '--verify', '--quiet', `${commit}^{commit}`]);
+  if (full.error || !HASH.test((full.out || '').trim())) return { error: `Commit ${String(commit).slice(0, 7)} is not in this repo.` };
+  const tip = await run(dir, ['rev-parse', '--verify', '--quiet', `refs/heads/${branch}^{commit}`]);
+  if (tip.error) return { error: `Branch ${branch} does not exist in this repo.` };
+  const c = full.out.trim();
+  // Both ends exist, so a failure of is-ancestor means "not an ancestor".
+  const r = await run(dir, ['merge-base', '--is-ancestor', c, `refs/heads/${branch}`]);
+  return { onMain: !r.error, commit: c };
+}
+
+module.exports = { head, isAncestor, findRepo, status, refs, log, show, stage, unstage, commit, branch, switchTo, fetch, pull, push, publish, hasLedgerUnion, addLedgerUnion, run, within, HASH };

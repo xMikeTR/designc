@@ -42,6 +42,9 @@ const Ledger = (() => {
     false_positive: 'pipeline.jsonl',
     handover: 'designc.jsonl',
     handover_closed: 'designc.jsonl',
+    item_pulled: 'designc.jsonl',
+    item_gate: 'checks.jsonl',
+    item_done: 'designc.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -57,7 +60,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -143,6 +146,25 @@ const Ledger = (() => {
       required: ['handover', 'outcome'],
       optional: [],
       enums: { outcome: ['delivered', 'abandoned'] },
+    },
+    item_pulled: {
+      required: ['item'],
+      optional: [],
+      enums: {},
+      types: { item: 'string' },
+    },
+    item_gate: {
+      required: ['item', 'gate', 'outcome', 'source', 'commit', 'dirty'],
+      optional: ['ms', 'exit_code', 'reason'],
+      enums: { outcome: ['pass', 'fail'], source: ['local', 'pipeline'] },
+      types: { item: 'string', gate: 'string', commit: 'string|null', dirty: 'boolean' },
+      rules: ['fail_needs_evidence'],
+    },
+    item_done: {
+      required: ['item', 'commit', 'evidence'],
+      optional: [],
+      enums: {},
+      types: { item: 'string', commit: 'string|null', evidence: 'array' },
     },
     gate: {
       required: ['source', 'revision', 'ready', 'verdict', 'clauses', 'findings'],

@@ -110,6 +110,13 @@ this marking is a reading of how the files are written and checked.
 | Blast radius | What an element's failure reaches, in mode `unavailable` or `misbehaves`: down, degraded, unknown |
 | Shared fate | Elements that fail together because of nesting or placement |
 | Deployment model | `deploymentEnvironment`, deployment nodes and instances: where containers run |
+| Acceptance criterion | A file in `acceptance/`: what one UI element must do, bound to a requirement and optionally a decision. Planned (ROADMAP slices 27 to 34) |
+| Case | One given/when/then entry in an acceptance criterion, for one state. Not "scenario", which is a quality attribute scenario |
+| State | `ready`, `loading`, `empty`, `error` or `forbidden`: a condition of a UI element every criterion must cover |
+| Locator | A declared role and accessible name a case may refer to; the only way a generated spec finds an element |
+| Origin | Where an escape's fault lies: `spec_gap`, `design_error`, `translation_error`, `gate_gap`. Beside caught-by, not instead of it |
+| WIP limit | The number of work items active or awaiting a person at once |
+| Digest | The Work view's four buckets: needs decision, failed a gate, done, waiting |
 
 ## Forbidden Synonyms
 
@@ -131,6 +138,13 @@ this marking is a reading of how the files are written and checked.
 | Persona, mode, agent type | Role | |
 | Permission (for the policy answer) | Verdict | "Permission" is the ACP agent's own request |
 | Ready-check, DoR | Gate | |
+
+## Slice 22
+
+| Term | Definition |
+|------|-----------|
+| Work item | A file in `work/`: one requirement plus a subset of its elements (repo), or one target (document, jira, investigation), with its `done_when`. Backlog until Start, active until Done |
+| Done-when | The entries that define a work item as done: `gate`, `checklist`, `review`, `judge` (shown, never required, never alone). Not "check", which is a decision's command |
 
 ## Slices 10 to 12
 

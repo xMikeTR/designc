@@ -9,6 +9,7 @@
     "start": "electron .",
     "postinstall": "electron-builder install-app-deps",
     "test": "node --test \"test/**/*.test.js\"",
+    "e2e": "playwright test",
     "dist": "electron-builder",
     "dist:win": "electron-builder --win nsis",
     "dist:mac": "electron-builder --mac dmg",
@@ -22,6 +23,7 @@
     "node-pty": "^1.1.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.64.0",
     "electron": "^44.5.1",
     "electron-builder": "^26.15.3"
   },
