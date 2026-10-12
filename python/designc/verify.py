@@ -55,6 +55,7 @@ def verify(files, handovers=(), decisions=(), handover_evals=None):
     first_gate = gates[0]['_ts'] if gates else None
     for h in (e for e in live if e.get('kind') == 'handover'):
         if h.get('dirty') is True: err('V2', f"handover {h.get('handover')} was frozen with uncommitted gate inputs")
+        if h.get('item') is not None: continue  # a work item's handover follows the gate scoped to that item, which is not a ledger event
         if first_gate is None or h['_ts'] < first_gate: warn('V1', f"handover {h.get('handover')} predates gate recording"); continue
         g = latest(gates, lambda x: _bare(x.get('revision')) == _bare(h.get('revision')), h['_ts'])
         if not g: err('V1', f"handover {h.get('handover')} has no gate event at revision {_bare(h.get('revision'))} before it")

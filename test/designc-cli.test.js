@@ -242,6 +242,19 @@ test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree',
   same(root, 'd.code');
 });
 
+test('DC009 reserved acceptance path: JS and Python agree', { skip }, () => {
+  const dsl = `workspace { model { s = softwareSystem "S" {
+    a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" } }
+    b = container "B" { properties { "d.code" "tests/**" "d.risk" "low" } }
+    c = container "C" { properties { "d.code" "tests/acceptance/x/*.ts" "d.risk" "low" } }
+    d = container "D" { properties { "d.code" "tests/unit/**" "d.risk" "low" } }
+  } } }`;
+  const root = tmpRegistry({ 'model/workspace.dsl': dsl });
+  const hits = nodeReport(root).findings.filter(f => f.code === 'DC009' && /reserved acceptance path/.test(f.msg));
+  assert.equal(hits.length, 2);
+  same(root, 'DC009');
+});
+
 test('DC009 overlapping and nested code areas agree', { skip }, () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" }

@@ -1,0 +1,7 @@
+id: ledger-is-the-queue-source-of-truth
+status: minted
+effect: fix
+statement: "PROPOSED: the ledger is the queue's source of truth; Jira is a one-way mirror"
+rationale: "Work item state (pulled, gated, done) is derived from ledger events designc can verify. A Jira status is a claim and never evidence, so it is mirrored out and never read back."
+checks:
+  - "TODO"

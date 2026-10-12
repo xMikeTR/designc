@@ -363,6 +363,9 @@ def dc008(m, o):
     return out
 
 
+RESERVED_TEST_PATH = pathpattern.create('tests/acceptance/**')[0]
+
+
 def dc009(m, o):
     out, areas = [], []
     for e in m.elements.values():
@@ -373,6 +376,9 @@ def dc009(m, o):
             near = outer[-1]
             out.append(D('DC009', 'error', f'"{e.name}" declares d.code inside "{near.name}", which also declares it', m.loc_el(e),
                          hint='declare d.code on one level per branch: the container or its components, not both', related=[m.loc_el(x) for x in outer]))
+        taken = next((p for p in pats if pathpattern.may_overlap(p, RESERVED_TEST_PATH)), None)
+        if taken: out.append(D('DC009', 'error', f'code area "{taken}" may overlap the reserved acceptance path "{RESERVED_TEST_PATH}"', m.loc_el(e),
+                               hint='tests/acceptance/** holds the generated acceptance specs; the agent that writes code never owns them. Narrow the area to the source folder'))
         for a, apats in areas:
             if m.is_ancestor(a.id, e.id) or m.is_ancestor(e.id, a.id): continue
             hit = next(((p, q) for p in pats for q in apats if pathpattern.may_overlap(p, q)), None)

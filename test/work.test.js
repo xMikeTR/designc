@@ -117,3 +117,47 @@ test('done: a non-repo item needs no commit', () => {
   const item = { id: 'W-doc', target: { document: 'https://x' }, done_when: [{ checklist: 'Sent' }] };
   assert.deepEqual(Work.doneProblems(item, { events: [], commit: null, onMain: null, ticks: [Work.entryKey({ checklist: 'Sent' })] }), []);
 });
+
+// Slice 23: scope flags.
+test('an element the requirement does not list is flagged on the item', () => {
+  const p = Work.validate(repoItem({ elements: ['Pricing API', 'Billing API'] }), ctx);
+  assert.deepEqual(p.filter(m => /Billing API/.test(m)), ['W-quote: Billing API is not an element of requirement HRE-1. Add it to the requirement, or take it out of this item.']);
+});
+
+test('a requirement element no item covers is reported, only for requirements that have an item', () => {
+  const reqs = [{ id: 'HRE-1', elements: ['Pricing API', 'Quotes DB'] }, { id: 'HRE-2', elements: ['Portal'] }];
+  const items = [repoItem(), { id: 'W-doc', target: { document: 'x' }, done_when: [{ checklist: 'a' }] }];
+  assert.deepEqual(Work.coverage(items, reqs), [{ requirement: 'HRE-1', element: 'Quotes DB', items: ['W-quote'] }]);
+});
+
+test('addToList appends to a flow list, an empty list, a block list or a missing key', () => {
+  assert.equal(Work.addToList('id: a\nelements: [Pricing API]\nx: 1\n', 'elements', 'Quotes DB'), 'id: a\nelements: [Pricing API, Quotes DB]\nx: 1\n');
+  assert.equal(Work.addToList('elements: []\n', 'elements', 'A'), 'elements: [A]\n');
+  assert.equal(Work.addToList('elements:\n  - A\n  - B\nnext: 1\n', 'elements', 'C'), 'elements:\n  - A\n  - B\n  - C\nnext: 1\n');
+  assert.equal(Work.addToList('id: a\n', 'elements', 'A'), 'id: a\nelements: [A]\n');
+  assert.equal(Work.addToList('elements: [A]\n', 'elements', 'A'), 'elements: [A]\n');
+  assert.equal(Work.addToList('elements: ["Odd, name"]\n', 'elements', 'x: y'), 'elements: ["Odd, name", "x: y"]\n');
+});
+
+test('addToList refuses a list it cannot edit safely', () => {
+  assert.equal(Work.addToList('elements: [A,\n  B]\n', 'elements', 'C'), null);
+});
+
+// Slice 24: item handovers.
+test('frozenBy: the latest handover event naming the item', () => {
+  const events = [
+    { kind: 'handover', handover: 'h0', revision: 'r-1', _ts: 1 },
+    { kind: 'handover', handover: 'h1', revision: 'r-1', item: 'W-a', _ts: 2 },
+    { kind: 'handover', handover: 'h2', revision: 'r-2', item: 'W-a', _ts: 3 },
+    { kind: 'handover', handover: 'h3', revision: 'r-2', item: 'W-b', _ts: 4 },
+  ];
+  assert.deepEqual(Work.frozenBy(events), { 'W-a': { handover: 'h2', revision: 'r-2' }, 'W-b': { handover: 'h3', revision: 'r-2' } });
+});
+
+test('horizon: frozen items not yet done against WIP + 2', () => {
+  const items = [repoItem({ id: 'A' }), repoItem({ id: 'B' }), repoItem({ id: 'C' }), repoItem({ id: 'D' })];
+  const st = { A: 'done', B: 'active', C: 'backlog', D: 'backlog' };
+  const frozen = { A: {}, B: {}, C: {} };
+  assert.deepEqual(Work.horizon(items, st, frozen, 1), { frozen: 2, limit: 3, over: false });
+  assert.deepEqual(Work.horizon(items, st, { ...frozen, D: {} }, 0), { frozen: 3, limit: 2, over: true });
+});

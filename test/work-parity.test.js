@@ -41,12 +41,13 @@ test('the Python work report matches renderer/work.js on the same files', { skip
 
   const r = spawnSync('python3', ['-m', 'designc', 'work', root, '--json'], { cwd: PY, encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
+  assert.deepEqual(py.uncovered, Work.coverage(items, [{ id: 'HRE-1', elements: ['Pricing API'] }]), 'uncovered');
   const st = Work.states(items, events.map(e => ({ ...e, _ts: e.ts })));
   const active = items.filter(i => st[i.id] === 'active');
   assert.deepEqual(py.items.map(x => x.id), ids);
   for (const it of items) {
     const row = py.items.find(x => x.id === it.id);
-    const js = Work.validate(it, { requirements: [{ id: 'HRE-1' }], items: ids.filter(x => x !== it.id) });
+    const js = Work.validate(it, { requirements: [{ id: 'HRE-1', elements: ['Pricing API'] }], items: ids.filter(x => x !== it.id) });
     assert.deepEqual(row.problems, js, `problems for ${it.id}`);
     assert.equal(row.state, st[it.id], `state for ${it.id}`);
     assert.deepEqual(row.conflicts.map(c => [c.with, c.reason, c.detail]), Work.conflicts(it, active).map(c => [c.with, c.reason, c.detail]), `conflicts for ${it.id}`);
@@ -57,7 +58,7 @@ test('the Python work report matches renderer/work.js on the same files', { skip
 
 test('designc work exits 0 for a sound folder and 2 for a missing one', { skip }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-work-'));
-  put(root, 'requirements/HRE-1.yaml', 'id: HRE-1\ntitle: t\nversion: 1\nelements: [A]\n');
+  put(root, 'requirements/HRE-1.yaml', 'id: HRE-1\ntitle: t\nversion: 1\nelements: [Pricing API]\n');
   put(root, 'work/a.yaml', FILES.ok);
   assert.equal(spawnSync('python3', ['-m', 'designc', 'work', root], { cwd: PY, encoding: 'utf8' }).status, 0);
   assert.equal(spawnSync('python3', ['-m', 'designc', 'work', path.join(root, 'nope')], { cwd: PY, encoding: 'utf8' }).status, 2);

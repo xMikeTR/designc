@@ -47,6 +47,10 @@ def _rule(rid, ev):
         v = ev.get('caught_by')
         if 'caught_by' in ev and v is not None and v not in SCHEMA['caught_by']:
             return f"caught_by: must be null or one of {'|'.join(SCHEMA['caught_by'])}"
+    elif rid == 'origin_member':
+        v = ev.get('origin')
+        if 'origin' in ev and v is not None and v not in SCHEMA['origins']:
+            return f"origin: must be null or one of {'|'.join(SCHEMA['origins'])}"
     return None
 
 

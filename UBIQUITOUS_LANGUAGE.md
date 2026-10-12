@@ -40,6 +40,7 @@ this marking is a reading of how the files are written and checked.
 | Event | Entity | One ledger line, identified by `event_id`, with a `kind` |
 | Envelope | Value Object | The common fields of an event. Two exist: `designc_v1` (snake_case kinds) and `harness_v1` (PascalCase kinds, `sessions.jsonl`) |
 | Needs-decision | Entity | A question the pipeline could not settle. Open ones block the gate (designc kind only) |
+| Escape origin | Value | Where an escape came from: `spec_gap`, `design_error`, `translation_error`, `gate_gap`. Beside the stage that should have caught it |
 | Escape | Entity | A defect that got past the stage that should have caught it |
 | Caught-by | Value Object | The stage that should have caught an escape |
 | False positive | Entity | A recorded case of a rule firing wrongly; feeds rule health |
@@ -143,6 +144,15 @@ this marking is a reading of how the files are written and checked.
 
 | Term | Definition |
 |------|-----------|
+| Acceptance criterion | What a person sees in each state of a UI element, written before the build: `acceptance/*.yaml`, one case per required state |
+| UI-facing | An element tagged `UI`; a requirement is UI-facing when any of its elements is |
+| Design tokens | Value | `design-tokens/tokens.json`, a W3C token file copied into each handover; text size tokens have a minimum |
+| UX rule | Value | The `ux` block of an acceptance criterion: keyboard, focus order, focus return, breakpoints |
+| Required state | A state a criterion must have a case for: ready, loading, empty, error, and forbidden behind a sign-in |
+| Item handover | A handover frozen for one work item: the whole model with the item's elements marked `in_scope`, and only the requirement, decisions, scenarios and evals it touches |
+| Scoped gate | The gate seen from one work item: only clauses that touch its elements, plus model-wide ones such as parse errors |
+| Freeze horizon | Items frozen and not yet done, against WIP + 2 |
+| Digest | The Work view's four buckets: needs a decision, failed a gate, done since last look, waiting |
 | Work item | A file in `work/`: one requirement plus a subset of its elements (repo), or one target (document, jira, investigation), with its `done_when`. Backlog until Start, active until Done |
 | Done-when | The entries that define a work item as done: `gate`, `checklist`, `review`, `judge` (shown, never required, never alone). Not "check", which is a decision's command |
 

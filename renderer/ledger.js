@@ -27,6 +27,8 @@ const Ledger = (() => {
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
   const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'pipeline'];
+  // Where an escape came from, beside the stage that should have caught it (slice 33).
+  const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap'];
 
   const STREAM = {
     check: 'checks.jsonl',
@@ -45,6 +47,11 @@ const Ledger = (() => {
     item_pulled: 'designc.jsonl',
     item_gate: 'checks.jsonl',
     item_done: 'designc.jsonl',
+    item_recheck: 'designc.jsonl',
+    item_awaiting_human: 'pipeline.jsonl',
+    ui_acceptance_failed: 'pipeline.jsonl',
+    item_conflict_deferred: 'pipeline.jsonl',
+    wip_limit_changed: 'pipeline.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -60,7 +67,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -96,15 +103,15 @@ const Ledger = (() => {
     },
     escape: {
       required: ['id', 'description'],
-      optional: ['code', 'caught_by', 'source', 'traces'],
+      optional: ['code', 'caught_by', 'source', 'traces', 'origin'],
       enums: {},
-      rules: ['caught_by_member'],
+      rules: ['caught_by_member', 'origin_member'],
     },
     escape_classified: {
       required: ['escape', 'caught_by'],
-      optional: [],
+      optional: ['origin'],
       enums: {},
-      rules: ['caught_by_member'],
+      rules: ['caught_by_member', 'origin_member'],
     },
     false_positive: {
       required: ['code'],
@@ -138,9 +145,9 @@ const Ledger = (() => {
     },
     handover: {
       required: ['handover', 'revision'],
-      optional: ['commit', 'dirty'],
+      optional: ['commit', 'dirty', 'item'],
       enums: {},
-      types: { commit: 'string|null', dirty: 'boolean' },
+      types: { commit: 'string|null', dirty: 'boolean', item: 'string' },
     },
     handover_closed: {
       required: ['handover', 'outcome'],
@@ -165,6 +172,36 @@ const Ledger = (() => {
       optional: [],
       enums: {},
       types: { item: 'string', commit: 'string|null', evidence: 'array' },
+    },
+    item_awaiting_human: {
+      required: ['item'],
+      optional: ['reason'],
+      enums: {},
+      types: { item: 'string', reason: 'string' },
+    },
+    ui_acceptance_failed: {
+      required: ['ac', 'element', 'task', 'commit'],
+      optional: ['trace_id'],
+      enums: {},
+      types: { ac: 'string', element: 'string', task: 'string', commit: 'string', trace_id: 'string' },
+    },
+    item_conflict_deferred: {
+      required: ['item'],
+      optional: ['reason', 'with'],
+      enums: {},
+      types: { item: 'string', reason: 'string', with: 'string' },
+    },
+    wip_limit_changed: {
+      required: ['limit'],
+      optional: [],
+      enums: {},
+      types: { limit: 'number' },
+    },
+    item_recheck: {
+      required: ['item', 'handover', 'stale', 'reasons'],
+      optional: [],
+      enums: {},
+      types: { item: 'string', handover: 'string', stale: 'boolean', reasons: 'array' },
     },
     gate: {
       required: ['source', 'revision', 'ready', 'verdict', 'clauses', 'findings'],
@@ -266,6 +303,7 @@ const Ledger = (() => {
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
+    origin_member: ev => ('origin' in ev && ev.origin !== undefined && ev.origin !== null && !ORIGINS.includes(ev.origin) ? `origin: must be null or one of ${ORIGINS.join('|')}` : null),
   };
   // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
   const isType = (v, t) => t === 'null' ? v === null : t === 'array' ? Array.isArray(v) : t === 'object' ? isPlainObject(v) : typeof v === t;
@@ -321,6 +359,7 @@ const Ledger = (() => {
     const firstGate = gates.length ? gates[0]._ts : null;
     for (const h of live.filter(e => e.kind === 'handover')) {
       if (h.dirty === true) err('V2', `handover ${h.handover} was frozen with uncommitted gate inputs`);
+      if (h.item != null) continue; // a work item's handover follows the gate scoped to that item, which is not a ledger event
       if (firstGate === null || h._ts < firstGate) { warn('V1', `handover ${h.handover} predates gate recording`); continue; }
       const g = latest(gates, x => bareRevision(x.revision) === bareRevision(h.revision), h._ts);
       if (!g) err('V1', `handover ${h.handover} has no gate event at revision ${bareRevision(h.revision)} before it`);
@@ -507,16 +546,36 @@ const Ledger = (() => {
 
   // The ledger is append-only: classification and resolution are later events, folded in here.
   function derive(events) {
-    const classify = new Map(), resolved = new Set();
+    const classify = new Map(), origins = new Map(), resolved = new Set();
     for (const e of events) {
-      if (e.kind === 'escape_classified') classify.set(e.escape, e.caught_by);
+      if (e.kind === 'escape_classified') { classify.set(e.escape, e.caught_by); if ('origin' in e) origins.set(e.escape, e.origin); }
       if (e.kind === 'needs_decision_resolved') resolved.add(e.id);
     }
     return events.filter(e => !['escape_classified', 'needs_decision_resolved'].includes(e.kind)).map(e => {
-      if (e.kind === 'escape' && classify.has(e.id)) return { ...e, caught_by: classify.get(e.id) };
+      if (e.kind === 'escape' && (classify.has(e.id) || origins.has(e.id))) {
+        const o = { ...e };
+        if (classify.has(e.id)) o.caught_by = classify.get(e.id);
+        if (origins.has(e.id)) o.origin = origins.get(e.id);
+        return o;
+      }
       if (e.kind === 'needs_decision' && resolved.has(e.id)) return { ...e, status: 'resolved' };
       return e;
     });
+  }
+
+  // Slice 33: what the escapes say about where the factory leaks. Pure; `uiElements` is the set of element
+  // names tagged UI, `items` the work item ids that carry acceptance criteria (all done items when omitted).
+  function escapeMetrics(events, { uiElements = [], items = null } = {}) {
+    const esc = events.filter(e => e.kind === 'escape'), ui = new Set(uiElements);
+    const byOrigin = Object.fromEntries(ORIGINS.map(o => [o, 0])); let unclassified = 0;
+    for (const e of esc) { if (ORIGINS.includes(e.origin)) byOrigin[e.origin]++; else unclassified++; }
+    const done = new Set(events.filter(e => e.kind === 'item_done').map(e => e.item));
+    const judged = [...done].filter(id => !items || items.includes(id));
+    const failed = new Set(events.filter(e => e.kind === 'ui_acceptance_failed').map(e => e.task));
+    const firstPass = judged.filter(id => !failed.has(id)).length;
+    const tamper = events.filter(e => e.kind === 'unapproved_change' && /^(acceptance|tests\/acceptance)\//.test(String(e.path || ''))).length;
+    const uiEscapes = esc.filter(e => e.element && ui.has(e.element)).length;
+    return { escapes: esc.length, uiEscapes, uiEscapeRate: judged.length ? uiEscapes / judged.length : null, byOrigin, unclassified, acceptance: { done: judged.length, firstPass }, tamper };
   }
 
   function totalTokens(ev) {
@@ -808,7 +867,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

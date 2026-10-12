@@ -491,6 +491,8 @@ const Core = (() => {
     return out;
   }
 
+  // Where the generated acceptance specs live in a handover (slice 30); no element's d.code may claim it (slice 31).
+  const RESERVED_TEST_PATH = PP.create('tests/acceptance/**').value;
   const RULES = [
     { code: 'DC001', title: 'Duplicate processing', source: 'concept note (not yet incident-backed)',
       doc: 'At-least-once delivery into a receiver that is not idempotent processes some messages twice.',
@@ -663,6 +665,9 @@ const Core = (() => {
             out.push(D('DC009', 'error', `"${e.name}" declares d.code inside "${near.name}", which also declares it`, m.locEl(e),
               { hint: 'declare d.code on one level per branch: the container or its components, not both', related: outer.map(m.locEl) }));
           }
+          const taken = pats.find(p => PP.mayOverlap(p, RESERVED_TEST_PATH));
+          if (taken) out.push(D('DC009', 'error', `code area "${taken}" may overlap the reserved acceptance path "${RESERVED_TEST_PATH}"`, m.locEl(e),
+            { hint: 'tests/acceptance/** holds the generated acceptance specs; the agent that writes code never owns them. Narrow the area to the source folder' }));
           for (const a of areas) {
             if (m.isAncestor(a.e.id, e.id) || m.isAncestor(e.id, a.e.id)) continue;
             const hit = pats.flatMap(p => a.pats.filter(q => PP.mayOverlap(p, q)).map(q => [p, q]))[0];
@@ -728,7 +733,7 @@ const Core = (() => {
     return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -742,7 +747,7 @@ const Core = (() => {
     for (const f of diags) {
       if (f.suppressed || f.sev === 'note') continue;
       if (bound.some(dec => covers(dec, f))) continue;
-      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, finding: f });
+      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, finding: f, about: [...f.loc.names, ...f.related.flatMap(r => r.names || [])] });
     }
     const boundBusiness = new Set(decisions.filter(d => d.status === 'bound' && d.kind === 'business').map(d => d.id));
     for (const dec of decisions) {
@@ -783,7 +788,7 @@ const Core = (() => {
       if (!traced) clauses.push({ kind: 'requirement', text: `${req.id} is not traced to any element or decision`, requirement: req.id });
     }
     for (const nd of ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open'))
-      clauses.push({ kind: 'needs', text: `open needs-decision ${nd.id || ''}: ${nd.question}`.trim(), needs: nd });
+      clauses.push({ kind: 'needs', text: `open needs-decision ${nd.id || ''}: ${nd.question}`.trim(), needs: nd, ...(nd.element ? { about: [String(nd.element)] } : {}) });
     for (const s of scenarios) {
       if (!s || typeof s !== 'object' || !s.id || !s.artifact || !s.attribute || !s.measure) { clauses.push({ kind: 'scenario', text: `${(s && s.id) || 'a scenario'} needs artifact, attribute and measure` }); continue; }
     }
@@ -792,12 +797,137 @@ const Core = (() => {
       for (const f of ['importance', 'difficulty']) if (s[f] != null && !RATINGS.includes(s[f])) clauses.push({ kind: 'scenario', text: `${s.id}: ${f} must be high, medium or low` });
     }
     for (const r of scenarioReport({ model, scenarios: scenarios.filter(s => s && s.id && s.artifact && s.attribute && s.measure), ledger })) {
-      if (r.status === 'unresolved') clauses.push({ kind: 'scenario', text: `${r.id}: artifact "${r.artifact}" is not in the model` });
-      else if (r.analytic.status === 'not-met') clauses.push({ kind: 'scenario', text: `${r.id} is not met: availability ≈ ${r.analytic.value.toFixed(2)}% against ${r.measure.op === '<=' ? '≤' : '≥'} ${r.measure.value}%` });
-      if (r.fitness.status === 'failing') clauses.push({ kind: 'scenario', text: `${r.id}: fitness function failing` });
+      if (r.status === 'unresolved') clauses.push({ kind: 'scenario', text: `${r.id}: artifact "${r.artifact}" is not in the model`, about: [r.artifact] });
+      else if (r.analytic.status === 'not-met') clauses.push({ kind: 'scenario', text: `${r.id} is not met: availability ≈ ${r.analytic.value.toFixed(2)}% against ${r.measure.op === '<=' ? '≤' : '≥'} ${r.measure.value}%`, about: [r.artifact] });
+      if (r.fitness.status === 'failing') clauses.push({ kind: 'scenario', text: `${r.id}: fitness function failing`, about: [r.artifact] });
     }
     clauses.push(...evalClauses({ model, evals, ledger, now }));
+    clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
+    clauses.push(...tokenClauses(tokens, minTextSize));
     return { ready: clauses.length === 0, clauses };
+  }
+  // ---------- design tokens (ROADMAP slice 34) ----------
+  // design-tokens/tokens.json is a W3C design tokens file. A text size token (a token whose path has a font size
+  // or text size segment) below the minimum is a gate clause: the build must not be able to ship unreadable text.
+  // Sizes read in px or rem (1rem = 16px); a bare number is px. Nothing else is guessed.
+  const DEFAULT_MIN_TEXT = 12;
+  function tokenSizePx(v) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && 'value' in v) return tokenSizePx(typeof v.unit === 'string' ? `${v.value}${v.unit}` : v.value);
+    if (typeof v === 'number') return v;
+    const m = /^\s*(-?\d+(?:\.\d+)?)\s*(px|rem)?\s*$/.exec(String(v));
+    return m ? Number(m[1]) * (m[2] === 'rem' ? 16 : 1) : null;
+  }
+  function isTextSizePath(path) {
+    const seg = path.map(x => String(x).toLowerCase().replace(/[^a-z0-9]/g, ''));
+    return seg.some((x, i) => x === 'fontsize' || x === 'textsize' || (x === 'font' && seg[i + 1] === 'size') || (x === 'text' && seg[i + 1] === 'size'));
+  }
+  function tokenClauses(text, minTextSize = DEFAULT_MIN_TEXT) {
+    if (text == null) return [];
+    const say = t => ({ kind: 'tokens', text: `design-tokens/tokens.json: ${t}` });
+    let doc;
+    try { doc = JSON.parse(text); } catch { return [say('does not parse as JSON. Fix the file, then check again')]; }
+    if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return [say('must be a JSON object of token groups')];
+    const out = [];
+    const walk = (node, path) => {
+      if (!node || typeof node !== 'object' || Array.isArray(node)) return;
+      if ('$value' in node) {
+        if (!isTextSizePath(path)) return;
+        const px = tokenSizePx(node.$value);
+        const name = path.join('.');
+        if (px == null) out.push(say(`${name} is a text size but its value is not px or rem. Write it as "16px" or "1rem"`));
+        else if (px < minTextSize) out.push(say(`${name} is ${px}px, below the minimum text size of ${minTextSize}px. Raise it, or lower ux.minTextSize in designc.json if that is intended`));
+        return;
+      }
+      for (const [k, v] of Object.entries(node)) if (!k.startsWith('$')) walk(v, [...path, k]);
+    };
+    walk(doc, []);
+    return out;
+  }
+
+  // ---------- UI acceptance criteria ----------
+  // acceptance/*.yaml binds a requirement and a C4 element (its elements.json id) to the states a screen must
+  // handle, each with a given/when/then case. An element tagged `UI` that a requirement lists needs a
+  // criterion; every criterion needs a case for ready, loading, empty and error, and for forbidden where the
+  // element sits behind an auth boundary (a relationship into it, or into something inside it, with
+  // d.authenticated yes) or where the criterion lists forbidden itself. Nothing is guessed: the clause says
+  // which state is missing. Mirrored in python/designc/gate.py.
+  const UI_STATES = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+  // Locator contract (slice 29): a case names the locators it uses (`uses`), each declared in `locators`
+  // {name: {role, name}} with a role from this closed list; `label` is Playwright's getByLabel.
+  const LOCATOR_ROLES = ['alert', 'button', 'cell', 'checkbox', 'combobox', 'dialog', 'form', 'heading', 'img', 'label', 'link', 'list', 'listitem', 'main', 'navigation', 'option', 'radio', 'region', 'row', 'searchbox', 'status', 'switch', 'tab', 'table', 'tabpanel', 'textbox'];
+  function acceptanceClauses({ model, acceptance = [], requirements = [], decisions = [] }) {
+    const out = [];
+    const say = (text, about) => out.push({ kind: 'acceptance', text, ...(about ? { about } : {}) });
+    const inside = (m, id, root) => { for (let c = m.elements.get(id); c; c = c.parent ? m.elements.get(c.parent) : null) if (c.id === root) return true; return false; };
+    const authBoundary = el => model.rels.some(r => get(r, 'd.authenticated') === 'yes' && inside(model, r.dst, el.id));
+    const valid = [];
+    for (const a of acceptance) {
+      const id = a && a.id ? a.id : null;
+      if (!a || typeof a !== 'object' || !id || !a.requirement || !a.element || !Array.isArray(a.states) || !Array.isArray(a.cases)) {
+        say(`${id || 'an acceptance criterion'}: needs requirement, element, states and cases`); continue;
+      }
+      if (!requirements.some(r => r.id === a.requirement)) say(`${id}: requirement ${a.requirement} is not in the registry`);
+      if (a.decision && !decisions.some(d => d.id === a.decision)) say(`${id}: decision ${a.decision} is not in the registry`);
+      const el = resolveElement(model, a.element);
+      if (!el) { say(`${id}: element "${a.element}" is not in the model`, [String(a.element)]); continue; }
+      valid.push({ a, el });
+      for (const st of a.states) if (!UI_STATES.includes(st)) say(`${id}: unknown state "${st}" (use ${UI_STATES.join(', ')})`, [el.name]);
+      for (const c of a.cases) {
+        if (!c || !UI_STATES.includes(c.state)) { say(`${id}: a case names an unknown state "${c && c.state}"`, [el.name]); continue; }
+        if (!c.given || !c.then) say(`${id}: case for ${c.state} needs given and then`, [el.name]);
+      }
+      const locs = a.locators && typeof a.locators === 'object' && !Array.isArray(a.locators) ? a.locators : {};
+      if (a.locators != null && locs !== a.locators) say(`${id}: locators must map a name to a role and an accessible name`, [el.name]);
+      for (const [n, l] of Object.entries(locs)) {
+        if (!l || typeof l !== 'object' || !l.name || !String(l.name).trim()) say(`${id}: locator "${n}" needs a role and an accessible name`, [el.name]);
+        else if (!LOCATOR_ROLES.includes(l.role)) say(`${id}: locator "${n}" has role "${l.role}" (use ${LOCATOR_ROLES.join(', ')})`, [el.name]);
+      }
+      for (const c of a.cases) for (const n of c && Array.isArray(c.uses) ? c.uses : []) {
+        if (!Object.prototype.hasOwnProperty.call(locs, n)) say(`${id}: case for ${c.state} uses locator "${n}" that is not declared`, [el.name]);
+      }
+      if (a.ux != null) {
+        const u = a.ux, ux = x => say(`${id}: ux ${x}`, [el.name]);
+        if (!u || typeof u !== 'object' || Array.isArray(u)) ux('must be a mapping of keyboard, focus_order, focus_return and breakpoints');
+        else {
+          if ('keyboard' in u && typeof u.keyboard !== 'boolean') ux('keyboard must be true or false');
+          const declared = n => Object.prototype.hasOwnProperty.call(locs, n);
+          if ('focus_order' in u) {
+            if (!Array.isArray(u.focus_order) || !u.focus_order.length) ux('focus_order must list locator names in tab order');
+            else for (const n of u.focus_order) if (!declared(n)) ux(`focus_order names locator "${n}" that is not declared`);
+          }
+          if ('focus_return' in u && !declared(u.focus_return)) ux(`focus_return names locator "${u.focus_return}" that is not declared`);
+          if ('breakpoints' in u && (!Array.isArray(u.breakpoints) || !u.breakpoints.length || u.breakpoints.some(b => !Number.isInteger(b) || b < 200 || b > 4000))) ux('breakpoints must be whole pixel widths between 200 and 4000');
+        }
+      }
+      const need = ['ready', 'loading', 'empty', 'error', ...(authBoundary(el) || a.states.includes('forbidden') ? ['forbidden'] : [])];
+      for (const st of need) if (!a.cases.some(c => c && c.state === st)) say(`${id}: no case for state ${st}`, [el.name]);
+    }
+    for (const req of requirements) {
+      for (const n of req.elements || []) {
+        for (const el of model.elements.values()) {
+          if (el.name !== n || !el.tags.has('UI')) continue;
+          if (!valid.some(v => v.a.requirement === req.id && v.el.id === el.id)) say(`${req.id}: ${el.name} is a UI element with no acceptance criterion`, [el.name]);
+        }
+      }
+    }
+    return out;
+  }
+  // The gate as one work item sees it (ROADMAP slice 24): a clause counts when it touches an in-scope element.
+  // Model-wide clauses (parse, registry, duplicate ids) always count. A decision clause counts when the decision
+  // binds an in-scope element; a requirement clause when it is the item's requirement; any other clause when its
+  // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.
+  // `elements` are element names; the hierarchical label of each also matches (a needs-decision names either).
+  function scopedGate(g, { model, elements = [], requirement = null, decisions = [] }) {
+    const inScope = new Set(elements);
+    for (const e of model.elements.values()) if (inScope.has(e.name)) inScope.add(model.label(e.id));
+    const touches = names => names.some(n => inScope.has(n));
+    const clauses = g.clauses.filter(c => {
+      if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
+      if (c.kind === 'requirement') return c.requirement === requirement;
+      if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
+      return c.about ? touches(c.about) : true;
+    });
+    return { ready: clauses.length === 0, clauses, scoped: true, outside: g.clauses.length - clauses.length };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
   // Bound by one of designc.json businessOwners, the bind itself is the record, so no link is needed.
@@ -971,11 +1101,11 @@ const Core = (() => {
       seen.add(e.id);
       const problems = evalProblems(e);
       if (problems.length) clauses.push({ kind: 'eval', text: `eval ${e.id} is invalid: ${problems.join('; ')}`, evalId: e.id });
-      if (typeof e.agent === 'string' && e.agent.trim() && !names.has(e.agent)) clauses.push({ kind: 'eval', text: `eval ${e.id}: agent "${e.agent}" is not in the model`, evalId: e.id });
+      if (typeof e.agent === 'string' && e.agent.trim() && !names.has(e.agent)) clauses.push({ kind: 'eval', text: `eval ${e.id}: agent "${e.agent}" is not in the model`, evalId: e.id, about: [e.agent] });
     }
     for (const r of evalReport({ model, evals, ledger, now })) {
       if (!r.blocking || r.defInvalid) continue;
-      clauses.push({ kind: 'eval', text: `${r.agent} (${r.autonomy}) needs a passing eval: ${r.reason}`, agent: r.agent, evalId: r.evalId || null });
+      clauses.push({ kind: 'eval', text: `${r.agent} (${r.autonomy}) needs a passing eval: ${r.reason}`, agent: r.agent, evalId: r.evalId || null, about: [r.agent] });
     }
     return clauses;
   }
@@ -1078,6 +1208,37 @@ const Core = (() => {
     };
   }
 
+  // ---------- work re-check ----------
+  // Has the design moved under a frozen work item? `frozen` is what the item handover recorded: its parsed
+  // model copy, `inScope` names and requirement. Reasons: the item's own scope or requirement edited since
+  // (`scope`), an in-scope element added, removed or changed by fingerprint (`element`), a bound decision on
+  // one of them touched (`decision`), a finding introduced on one (`finding`). Names are compared, as
+  // fingerprints are by `changeImpact`; nothing outside the item's elements counts.
+  function workRecheck({ item, frozen, model, decisions = [], requirements = [], chainHops = 4 }) {
+    const reasons = [];
+    const then = new Set(frozen.inScope || []), now = new Set(item.elements || []);
+    const added = [...now].filter(n => !then.has(n)), removed = [...then].filter(n => !now.has(n));
+    if (added.length || removed.length) {
+      const parts = [added.length ? `added ${added.join(', ')}` : '', removed.length ? `removed ${removed.join(', ')}` : ''].filter(Boolean);
+      reasons.push({ kind: 'scope', text: `The item's elements changed since it was frozen: ${parts.join('; ')}.` });
+    }
+    if (frozen.requirement && item.requirement && frozen.requirement !== item.requirement) {
+      reasons.push({ kind: 'scope', text: `The item moved from requirement ${frozen.requirement} to ${item.requirement} since it was frozen.` });
+    }
+    const scope = new Set([...then, ...now]);
+    const byName = (m, n) => [...m.elements.values()].find(e => e.name === n) || null;
+    for (const n of scope) {
+      const b = byName(frozen.model, n), a = byName(model, n);
+      if (!b && !a) continue;
+      const why = b && !a ? 'removed' : !b && a ? 'added' : fingerprint(frozen.model, b.id).hash !== fingerprint(model, a.id).hash ? 'changed' : null;
+      if (why) reasons.push({ kind: 'element', text: `${n} ${why} since the design was frozen.` });
+    }
+    const imp = changeImpact(frozen.model, model, { decisions, requirements, chainHops });
+    for (const d of imp.decisions) if (scope.has(d.element)) reasons.push({ kind: 'decision', text: `${d.id} binds ${d.element}, which ${d.reason.replace(d.element + ' ', '')} since the design was frozen.` });
+    for (const f of imp.introduced) if (scope.has(f.label)) reasons.push({ kind: 'finding', text: `${f.code} appeared on ${f.label} since the design was frozen: ${f.msg}` });
+    return { stale: reasons.length > 0, reasons };
+  }
+
   // ---------- fingerprint ----------
   // What a bound decision is promoted against: the element's own definition plus every relationship
   // touching it. Covers kind, parent, name, technology, all d.* (d.suppress too) and each incident rel
@@ -1121,7 +1282,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'evals', 'behaviour', 'vocabulary', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
@@ -1141,7 +1302,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
   // d.code as normalised path patterns and d.risk where declared, relationships by id (one per pair), and the
   // events behaviour announces. A model that does not parse, or a code area that is not a pattern, is refused.
-  function handoverElements(modelText, behaviour = []) {
+  function handoverElements(modelText, behaviour = [], inScope = null) {
     const m = parse(modelText);
     if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
     const elements = [...m.elements.values()].map(e => {
@@ -1152,13 +1313,100 @@ function gateRecord({ modelText, diags, gate, source, git }) {
         return r.value;
       });
       if (e.props['d.risk'] != null) out.risk = e.props['d.risk'];
+      if (inScope) out.in_scope = inScope.includes(e.name);
       return out;
     });
     const pairs = new Map();
     for (const r of m.rels) { const from = m.label(r.src), to = m.label(r.dst); pairs.set(`${from}\0${to}`, { from, to }); }
     const events = [...new Set([...behaviour].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
       .flatMap(f => [...f.text.matchAll(/\bannounce\s+(\w+)/g)].map(x => x[1])))];
-    return { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+    return inScope
+      ? { schema: 'designc.handover.elements/2', elements, relationships: [...pairs.values()], events, reserved: [RESERVED_TEST_PATH] }
+      : { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+  }
+
+  // Spec skeletons (ROADMAP slice 30): one Playwright spec per acceptance criterion, deterministic from the
+  // criterion, written into the handover under tests/acceptance/<element>/<id>.spec.ts. `criteria` are the parsed
+  // acceptance files (with `_text`, the file as read). `inScope` (element names) selects the specs the agent's
+  // loop runs: those of the in-scope elements and of everything that depends on them (blastRadius); null for a
+  // whole-model freeze, where the loop list is null and the full suite is the loop. Pure.
+  function acceptanceSpecs({ model, criteria = [], inScope = null }) {
+    const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'element';
+    const line = s => String(s == null ? '' : s).replace(/\s+/g, ' ').trim();
+    const q = JSON.stringify;
+    const files = [], byEl = new Map();
+    for (const a of criteria) {
+      if (!a || !a.id || !Array.isArray(a.cases)) continue;
+      const el = resolveElement(model, a.element);
+      if (!el) continue;
+      const locs = a.locators && typeof a.locators === 'object' ? a.locators : {};
+      const loc = n => { const l = locs[n]; return l && l.role === 'label' ? `page.getByLabel(${q(String(l.name))})` : `page.getByRole(${q(String(l && l.role))}, { name: ${q(String(l && l.name))} })`; };
+      const seen = new Map();
+      const tests = a.cases.filter(c => c && c.state).map(c => {
+        const n = (seen.get(c.state) || 0) + 1; seen.set(c.state, n);
+        const uses = (Array.isArray(c.uses) ? c.uses : []).filter(u => Object.prototype.hasOwnProperty.call(locs, u));
+        return `  test(${q(n === 1 ? c.state : `${c.state} (${n})`)}, async ({ page }) => {
+    // given: ${line(c.given)}
+${c.when ? `    // when: ${line(c.when)}\n` : ''}    // then: ${line(c.then)}
+${uses.map(u => `    await expect(${loc(u)}).toBeVisible();`).join('\n')}${uses.length ? '\n' : ''}  });`;
+      });
+      const u = a.ux && typeof a.ux === 'object' && !Array.isArray(a.ux) ? a.ux : null;
+      const declared = n => Object.prototype.hasOwnProperty.call(locs, n);
+      if (u) {
+        // UX rules (slice 34): checked on the ready state, which every criterion must have a case for.
+        tests.push(`  test("ux: no accessibility violations", async ({ page }) => {
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(results.violations).toEqual([]);
+  });`);
+        if (u.keyboard === true) tests.push(`  test("ux: reachable by keyboard", async ({ page }) => {
+    // Tab through the page: every interactive element must take focus and show it.
+    await page.keyboard.press('Tab');
+    await expect(page.locator(':focus')).toBeVisible();
+  });`);
+        const order = (Array.isArray(u.focus_order) ? u.focus_order : []).filter(declared);
+        if (order.length) tests.push(`  test("ux: focus order", async ({ page }) => {
+${order.map(n => `    await page.keyboard.press('Tab');\n    await expect(${loc(n)}).toBeFocused();`).join('\n')}
+  });`);
+        if (u.focus_return && declared(u.focus_return)) tests.push(`  test("ux: focus returns", async ({ page }) => {
+    await ${loc(u.focus_return)}.focus();
+    await page.keyboard.press('Enter');
+    await page.keyboard.press('Escape');
+    await expect(${loc(u.focus_return)}).toBeFocused();
+  });`);
+        for (const w of Array.isArray(u.breakpoints) ? u.breakpoints.filter(Number.isInteger) : []) tests.push(`  test("ux: no horizontal scroll at ${w}px", async ({ page }) => {
+    await page.setViewportSize({ width: ${w}, height: 800 });
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth);
+    expect(overflow).toBe(false);
+  });`);
+      }
+      const label = model.label(el.id);
+      const path = `tests/acceptance/${slug(label)}/${String(a.id).replace(/[^A-Za-z0-9._-]+/g, '-')}.spec.ts`;
+      const text = `// GENERATED by designc from ${a._path || `acceptance/${a.id}.yaml`} (hash ${hash16(a._text || JSON.stringify(a))}). Do not edit: change the criterion and freeze again.
+import { test, expect } from '@playwright/test';
+${a.ux ? "import AxeBuilder from '@axe-core/playwright';\n" : ''}
+test.describe(${q(`${a.id} ${label}`)}, () => {
+  test.beforeEach(async ({ page }) => {
+    await page.goto(process.env.DESIGNC_BASE_URL ?? '/');
+  });
+
+${tests.join('\n\n')}
+});
+`;
+      files.push({ path, text });
+      if (!byEl.has(el.id)) byEl.set(el.id, []);
+      byEl.get(el.id).push(path);
+    }
+    files.sort((x, y) => (x.path < y.path ? -1 : x.path > y.path ? 1 : 0));
+    if (!inScope) return { files, loop: null };
+    const near = new Set();
+    for (const el of model.elements.values()) {
+      if (!inScope.includes(el.name)) continue;
+      near.add(el.id);
+      const r = blastRadius(model, el.id, { mode: 'misbehaves' });
+      for (const x of r.error ? [] : [...r.down, ...r.degraded, ...r.unknown]) near.add(x.id);
+    }
+    const loop = [...near].flatMap(id => byEl.get(id) || []).sort();
+    return { files, loop: [...new Set(loop)] };
   }
 
   // A frozen handover is a folder: handovers/<yyyymmdd>-<hash8>/ holding handover.yaml and verbatim copies
@@ -1166,12 +1414,12 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
   // elements.json (handoverElements) is derived from that content: listed and hashed, but not in the id.
   // Pure: the caller reads the files and writes the result.
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], forecast = null }) {
-    const content = [model, ...requirements, ...decisions, ...evals, ...scenarios, ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const id = `${String(date).replace(/-/g, '')}-${hash16(content.map(f => `${f.path}\0${f.text}`).join('\0\0')).slice(0, 8)}`;
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null }) {
+    const content = [model, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : [])].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
-    const elements = { path: 'elements.json', text: JSON.stringify(handoverElements(model.text, behaviour), null, 2) + '\n' };
-    const frozen = [...content, elements].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const elements = { path: 'elements.json', text: JSON.stringify(handoverElements(model.text, behaviour, item ? item.elements : null), null, 2) + '\n' };
+    const frozen = [...content, elements, ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const q = JSON.stringify;
     const head = `id: ${id}
@@ -1180,11 +1428,11 @@ created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
-requirements: ${q(requirements.map(idOf))}
+${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
-${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
+${acceptance.length ? `acceptance: ${q(acceptance.map(idOf))}\n` : ''}${tokens ? `tokens: ${q(tokens.path)}\n` : ''}${specs.files.length ? `specs: ${q(specs.files.map(f => f.path))}\n${specs.loop ? `loop_specs: ${q(specs.loop)}\n` : ''}` : ''}${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
 ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))] };
@@ -1438,7 +1686,9 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     const unrealised = [...designed.entries()].filter(([k, r]) => toBuilt.has(r.src) && !seen.has(k))
       .map(([, r]) => ({ from: design.elements.get(r.src).name, to: design.elements.get(r.dst).name, src: toBuilt.get(r.src), dst: toBuilt.get(r.dst), rel: r }));
     const missingEls = [...design.elements.values()].filter(e => e.kind !== 'person' && !dKids.has(e.id) && !toBuilt.has(e.id)).map(e => e.name);
-    return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls };
+    // An extracted single-page app whose design match is not tagged UI: the UI-facing rules (acceptance criteria) would skip it.
+    const uiUntagged = [...toDesign].filter(([b, d]) => /\bSPA\b/.test(String(built.elements.get(b).technology || '')) && !d.tags.has('UI')).map(([, d]) => d.name);
+    return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, uiUntagged };
   }
 
   // ---------- drift: designed vs extracted, one level down ----------
@@ -1706,6 +1956,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, scopedGate, acceptanceClauses, acceptanceSpecs, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

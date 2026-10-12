@@ -7,7 +7,7 @@ import yaml
 
 from .gate import _s
 
-REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals']
+REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance']
 ENVELOPE_OPTIONAL = {'system', 'session', 'task', 'element', 'payload'}
 
 # Required fields and enums for the ledger kinds the gate reads (renderer/ledger.js FINAL_KIND_FIELDS).
@@ -72,9 +72,17 @@ def _collate(s):
     return (s.casefold(), s.swapcase())
 
 
+def read_tokens(root):
+    """design-tokens/tokens.json as text, or None when the registry has none."""
+    try:
+        with open(os.path.join(root, 'design-tokens', 'tokens.json'), encoding='utf-8') as f: return f.read()
+    except OSError:
+        return None
+
+
 def load_registry(root):
     errors = []
-    decisions, requirements, _, _, scenarios, evals = (load_yaml_dir(root, d, errors, d == 'evals') for d in REG_DIRS)
+    decisions, requirements, _, _, scenarios, evals, acceptance = (load_yaml_dir(root, d, errors, d == 'evals') for d in REG_DIRS)
     hv = os.path.join(root, 'handovers')
     if os.path.isdir(hv):
         for n in sorted(os.listdir(hv)):
@@ -82,7 +90,7 @@ def load_registry(root):
     for d in decisions:
         d['status'] = d.get('status') or 'minted'
         d['effect'] = d.get('effect') or 'fix'
-    return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'evals': evals, 'errors': errors}
+    return {'decisions': decisions, 'requirements': requirements, 'scenarios': scenarios, 'evals': evals, 'acceptance': acceptance, 'tokens': read_tokens(root), 'errors': errors}
 
 
 def load_handover_evals(root):

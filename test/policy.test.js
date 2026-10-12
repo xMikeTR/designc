@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_proposal']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal']);
 });
 
 const yaml = require('js-yaml');
@@ -104,4 +104,13 @@ test('writeVerdict: an agent decision whose check is a description is refused, n
   assert.match(v.error, /Model: agent is read-only/);
   assert.match(v.error, /TODO/);
   assert.equal(wv('grill', 'decisions/x.yaml', 'id: x\nstatus: minted\nchecks:\n  - "./ok.sh"\n  - "TODO write the playtest script"\n').ok, true);
+});
+
+test('Grill-me may write acceptance criteria as yaml, and no other role may', () => {
+  const wv = (role, rel, text) => Policy.writeVerdict(role, rel, text, require('js-yaml').load);
+  assert.deepEqual(wv('grill', 'acceptance/AC-1.yaml', 'id: AC-1\nrequirement: R-1\n'), { ok: true });
+  assert.equal(wv('grill', 'acceptance/AC-1.md', 'x').ok, false);
+  assert.equal(wv('grill', 'acceptance/AC-1.yaml', '- a\n- b\n').ok, false);
+  assert.match(wv('architect', 'acceptance/AC-1.yaml', 'id: x\n').error, /may not write acceptance/);
+  assert.match(wv('analyst', 'acceptance/AC-1.yaml', 'id: x\n').error, /may not write acceptance/);
 });

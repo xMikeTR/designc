@@ -30,8 +30,14 @@ const Work = (() => {
       }
     }
     if (hasReq) {
-      if (!requirements.some(r => r.id === item.requirement)) out.push(`${id}: requirement ${item.requirement} does not exist in requirements/.`);
+      const req = requirements.find(r => r.id === item.requirement);
+      if (!req) out.push(`${id}: requirement ${item.requirement} does not exist in requirements/.`);
       if (!list(item.elements).length) out.push(`${id}: a repo item needs elements, the design elements it changes.`);
+      if (req) {
+        for (const el of list(item.elements)) {
+          if (!list(req.elements).includes(el)) out.push(`${id}: ${el} is not an element of requirement ${item.requirement}. Add it to the requirement, or take it out of this item.`);
+        }
+      }
     }
     for (const d of list(item.depends_on)) {
       if (!items.includes(d)) out.push(`${id}: depends_on ${d} is not a work item.`);
@@ -98,6 +104,47 @@ const Work = (() => {
     return out;
   }
 
+  // Requirement elements no work item of that requirement covers (done items count). Only requirements
+  // that already have a repo item are judged, so a registry that does not use work items stays quiet.
+  function coverage(items, requirements) {
+    const out = [];
+    for (const r of list(requirements)) {
+      const mine = list(items).filter(i => isRepo(i) && i.requirement === r.id);
+      if (!mine.length) continue;
+      for (const el of list(r.elements)) {
+        if (!mine.some(i => list(i.elements).includes(el))) out.push({ requirement: r.id, element: el, items: mine.map(i => i.id) });
+      }
+    }
+    return out;
+  }
+
+  // Adds value to the YAML list at top-level `key` in a file's text, changing no other line. Returns the
+  // text, or null when the list is written in a way that cannot be edited safely (the caller says so).
+  function addToList(text, key, value) {
+    const v = /^[A-Za-z0-9][A-Za-z0-9 _./()-]*$/.test(value) ? value : JSON.stringify(value);
+    const lines = String(text).split('\n');
+    const at = lines.findIndex(l => l.startsWith(`${key}:`));
+    if (at < 0) return String(text).replace(/\s*$/, '') + `\n${key}: [${v}]\n`;
+    const rest = lines[at].slice(key.length + 1).replace(/\s+#.*$/, '').trim();
+    if (rest.startsWith('[')) {
+      if (!rest.endsWith(']')) return null;
+      const inner = rest.slice(1, -1).trim();
+      const have = inner ? inner.split(/,(?=(?:[^"]*"[^"]*")*[^"]*$)/).map(x => x.trim().replace(/^"(.*)"$/, '$1')) : [];
+      if (have.includes(value)) return text;
+      lines[at] = `${key}: [${inner ? `${inner}, ` : ''}${v}]`;
+      return lines.join('\n');
+    }
+    if (rest === '') {
+      let end = at + 1, have = [];
+      while (end < lines.length && /^\s*-\s/.test(lines[end])) { have.push(lines[end].replace(/^\s*-\s+/, '').trim().replace(/^"(.*)"$/, '$1')); end++; }
+      if (have.includes(value)) return text;
+      const ind = end > at + 1 ? lines[end - 1].match(/^\s*/)[0] : '  ';
+      lines.splice(end, 0, `${ind}- ${v}`);
+      return lines.join('\n');
+    }
+    return null;
+  }
+
   // Everything still missing before this item may be recorded done. [] means it may.
   // events: ledger events; commit: the commit being declared done (repo items); onMain: true, false or
   // null (could not be checked); ticks: entryKey strings a person ticked.
@@ -125,6 +172,86 @@ const Work = (() => {
     return out;
   }
 
-  return { KINDS, TARGETS, isRepo, entryKey, validate, states, conflicts, doneProblems };
+  // The handover each item was last frozen into: handover events that name an item (ROADMAP slice 24).
+  function frozenBy(events) {
+    const out = {};
+    for (const e of list(events).filter(x => x.kind === 'handover' && x.item != null).sort((a, b) => (a._ts || 0) - (b._ts || 0)))
+      out[e.item] = { handover: e.handover, revision: e.revision };
+    return out;
+  }
+
+  // Frozen and not done: plan big, freeze small. The horizon is the WIP limit plus two, so a frozen design is
+  // never far ahead of what people are building and does not go stale waiting.
+  function horizon(items, st, frozen, wip) {
+    const n = list(items).filter(i => isRepo(i) && frozen[i.id] && st[i.id] !== 'done').length;
+    const limit = Number(wip) + 2;
+    return { frozen: n, limit, over: n > limit };
+  }
+
+
+  // The four buckets a person looks at (ROADMAP slice 26), from the ledger and from what designc could check.
+  // `events` is the derived ledger (a needs_decision already carries its resolved status); `onMain` maps a
+  // commit to true, false or null (could not be checked, then it is not judged); `lastLook` is epoch ms.
+  // An agent's claim is never evidence: a done item whose commit is not on main, or that names no evidence,
+  // is shown as failed rather than done.
+  function digest({ items = [], states = {}, events = [], onMain = {}, wip = 3, lastLook = 0 } = {}) {
+    const ev = list(events).slice().sort((a, b) => (a._ts || 0) - (b._ts || 0));
+    const after = (kinds, item, ts) => ev.some(e => kinds.includes(e.kind) && e.item === item && (e._ts || 0) > ts);
+    const c7 = c => String(c || '').slice(0, 7);
+    const needs = [];
+    for (const e of ev) {
+      if (e.kind === 'needs_decision' && e.status === 'open') needs.push({ kind: 'needs_decision', id: e.id, item: e.task || null, element: e.element || null, text: e.question, ts: e._ts || 0 });
+      if (e.kind === 'item_awaiting_human' && !after(['item_pulled', 'item_gate', 'item_done'], e.item, e._ts || 0)) {
+        needs.push({ kind: 'awaiting_human', id: null, item: e.item, element: null, text: `${e.item} is waiting for a person${e.reason ? `: ${e.reason}` : ''}`, ts: e._ts || 0 });
+      }
+    }
+    const failed = [];
+    for (const it of list(items)) {
+      const st = states[it.id];
+      if (st === 'active') {
+        for (const d of list(it.done_when)) {
+          if (!d || d.gate === undefined) continue;
+          const last = ev.filter(e => e.kind === 'item_gate' && e.item === it.id && e.gate === d.gate).pop();
+          if (last && last.outcome === 'fail') failed.push({ item: it.id, kind: 'gate', text: `${it.id}: gate "${d.gate}" failed${last.commit ? ` at ${c7(last.commit)}` : ''}`, ts: last._ts || 0 });
+        }
+      }
+      if (st === 'done') {
+        const dn = ev.filter(e => e.kind === 'item_done' && e.item === it.id).pop();
+        if (!dn) continue;
+        if (dn.commit && onMain[dn.commit] === false) failed.push({ item: it.id, kind: 'not_on_main', text: `${it.id}: Claimed merged, not on main (${c7(dn.commit)})`, ts: dn._ts || 0 });
+        else if (!list(dn.evidence).length) failed.push({ item: it.id, kind: 'no_evidence', text: `${it.id}: Claimed done without evidence`, ts: dn._ts || 0 });
+      }
+    }
+    // A pipeline's UI acceptance failure stands until the same task later passes a gate or is done. The task id is the item id.
+    const latestAc = new Map();
+    for (const e of ev) if (e.kind === 'ui_acceptance_failed') latestAc.set(`${e.task}\0${e.ac}`, e);
+    for (const e of latestAc.values()) {
+      const cleared = ev.some(x => x.item === e.task && (x.kind === 'item_done' || (x.kind === 'item_gate' && x.outcome === 'pass')) && (x._ts || 0) > (e._ts || 0));
+      if (!cleared) failed.push({ item: e.task, kind: 'acceptance', text: `${e.task}: acceptance ${e.ac} failed on ${e.element} at ${c7(e.commit)}`, ts: e._ts || 0 });
+    }
+    const failedItems = new Set(failed.map(f => f.item));
+    const done = ev.filter(e => e.kind === 'item_done' && (e._ts || 0) > lastLook && states[e.item] === 'done' && !failedItems.has(e.item))
+      .map(e => ({ item: e.item, commit: e.commit || null, ts: e._ts || 0 }));
+    const limitEv = ev.filter(e => e.kind === 'wip_limit_changed' && Number.isFinite(Number(e.limit))).pop();
+    const limit = limitEv ? Number(limitEv.limit) : Number(wip);
+    const active = list(items).filter(i => states[i.id] === 'active');
+    const backlog = list(items).filter(i => (states[i.id] || 'backlog') === 'backlog');
+    const waiting = [];
+    for (const it of backlog) {
+      for (const c of conflicts(it, active)) waiting.push({ item: it.id, kind: 'conflict', text: `${it.id} conflicts with ${c.with}: ${c.detail}` });
+      for (const d of list(it.depends_on).filter(x => states[x] !== 'done')) waiting.push({ item: it.id, kind: 'dependency', text: `${it.id} depends on ${d}, which is not done` });
+      const def = ev.filter(e => e.kind === 'item_conflict_deferred' && e.item === it.id).pop();
+      if (def && !after(['item_pulled'], it.id, def._ts || 0)) waiting.push({ item: it.id, kind: 'deferred', text: `${it.id} was deferred${def.reason ? `: ${def.reason}` : ''}` });
+    }
+    if (backlog.length && active.length >= limit) waiting.push({ item: null, kind: 'wip', text: `${active.length} active against a WIP limit of ${limit}: ${backlog.length} ${backlog.length === 1 ? 'item waits' : 'items wait'}` });
+    return { needs, failed, done, waiting, wip: { limit, active: active.length } };
+  }
+
+  // What a desktop notification is allowed to react to: only the first two buckets.
+  function digestSignature(d) {
+    return JSON.stringify([d.needs.map(n => [n.kind, n.id, n.item, n.ts]), d.failed.map(f => [f.item, f.kind, f.ts])]);
+  }
+
+  return { KINDS, TARGETS, isRepo, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature };
 })();
 if (typeof module !== 'undefined') module.exports = Work;
