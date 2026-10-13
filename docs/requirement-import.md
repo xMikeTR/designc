@@ -2,7 +2,7 @@
 
 designc imports a folder of exported pages as requirement stubs. It reads `.html` and `.md` files only and keeps
 no page text: a requirement file gets `id`, `title`, `source`, `version` and an empty `elements` list.
-Anything else (Word, PDF, the REST storage format) is converted to one of these two shapes first.
+Anything else (Word, PDF, Confluence pages over REST) is converted to one of these two shapes first.
 
 ## Converting Word and PDF
 
@@ -14,6 +14,21 @@ Standard library only. `.docx` is read directly (headings, lists, tables become 
 (poppler) on PATH; without it each PDF is listed as skipped with that reason. Each output file gets front matter
 `title` (document title, else first heading, else file name) and `source` (the file name). The report prints counts
 and reasons only, never page text. Then import the output folder in designc.
+
+## Fetching Confluence pages
+
+```
+CONFLUENCE_TOKEN=<personal access token> python3 scripts/fetch-confluence.py <base-url> <new-output-folder> <page-id>... [--descendants]
+```
+
+Standard library only, GET requests only. `<base-url>` is the REST root (Data Center `https://wiki.example.com`, Cloud
+`https://example.atlassian.net/wiki`); https is required, http only for localhost. The token is read from
+`CONFLUENCE_TOKEN` (Bearer); with `CONFLUENCE_USER` also set it is basic auth for a Cloud API token. `--token-env` and
+`--user-env` name other variables. A page id is the number in the page URL. `--descendants` also saves every page below
+the ones named. Each page is saved as `<id>.html` with `<title>`, the canonical link, `confluence-page-version` and
+the storage-format body, which is the HTML shape below, so the importer needs nothing more. A key such as `HRE-123` in
+the title becomes the requirement id; otherwise the id is a slug and a re-import matches by the canonical link. The report
+prints counts and HTTP status reasons only, never page text or the token.
 
 ## Markdown (the converter contract)
 
