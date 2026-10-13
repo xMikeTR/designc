@@ -33,6 +33,10 @@ A work item names the elements it changes (`in_scope`). A pipeline works only th
 
 `item_awaiting_human {item, reason?}` says an item waits for a person (open until the item is pulled, gated or done again). `item_conflict_deferred {item, reason?, with?}` says a backlog item was held back for a conflict. `wip_limit_changed {limit}` sets the WIP limit shown in the digest. designc folds these into the Work view's Digest; it never schedules. The ledger is the queue's source of truth; Jira is a one-way mirror.
 
+`item_budget {item, status, limit_tokens?, spent_tokens?, reason?}` reports an item's token budget; `status` is `within`, `exceeded` or `waiting`, and anything other than `within` needs both numbers (whole numbers, at least 0). The latest row per item wins. `exceeded` and `waiting` show under Waiting as "budget" until a `within` row or a later `item_pulled`; they never enter Needs you or Failed, so write `item_awaiting_human` as well when a person must act. designc never sets or enforces the limit.
+
+`item_judge {item, judge, score, threshold, outcome, commit, judge_version?, rubric_hash?, trace_id?}` reports one judge score for an item. `judge` is the value of the item's `judge` done_when entry, `outcome` is `pass` or `fail`, and `commit` is a string or null. designc shows the latest score on that entry and marks it stale when `commit` differs from the commit the item was declared done at. A judge is a gradient: a fail never enters Failed and never decides Done.
+
 ## Item handover
 
 A handover frozen for a work item carries `work_item`, `design_version` and `in_scope` in `handover.yaml`, and its `elements.json` uses schema `designc.handover.elements/2`: every element is present, those the item may change have `in_scope: true`. Treat the rest as context. Its `handover` ledger event carries `item`. A pipeline works the item's `in_scope` elements only (see Item scope).
@@ -53,7 +57,7 @@ Runs reported through telemetry are priced and counted as pipeline runs unless t
 
 ## Not in this contract
 
-Spend limits and budgets belong to the pipeline. designc never sets or enforces them.
+Spend limits and budgets belong to the pipeline. designc never sets or enforces them; it only shows what `item_budget` reports.
 
 ## Acceptance criteria
 

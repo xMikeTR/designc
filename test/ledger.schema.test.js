@@ -99,3 +99,32 @@ test('python/designc/ledger_schema.json is generated from this schema and up to 
   const { build, FILE } = require('./helpers/ledger-schema.js');
   assert.equal(fs.readFileSync(FILE, 'utf8'), build(), 'stale: run node test/helpers/ledger-schema.js --write');
 });
+
+// item_budget and item_judge: pipeline kinds written by System 2 (docs/pipeline-contract.md).
+test('item_budget: within needs only item and status; exceeded and waiting need both token numbers', () => {
+  const b = { kind: 'item_budget', by: 'p', item: 'W-a', status: 'within' };
+  assert.deepEqual(Ledger.validate(b), []);
+  assert.deepEqual(Ledger.validate({ ...b, limit_tokens: 1000, spent_tokens: 200, reason: 'ok' }), []);
+  assert.ok(Ledger.validate({ ...b, status: 'exceeded' }).some(e => /item_budget\.limit_tokens: required when status is not 'within'/.test(e)));
+  assert.ok(Ledger.validate({ ...b, status: 'waiting', limit_tokens: 10 }).some(e => /spent_tokens/.test(e)));
+  assert.deepEqual(Ledger.validate({ ...b, status: 'exceeded', limit_tokens: 10, spent_tokens: 12 }), []);
+  assert.ok(Ledger.validate({ ...b, status: 'over' }).length);
+  assert.ok(Ledger.validate({ ...b, limit_tokens: 1.5 }).some(e => /limit_tokens: must be a whole number/.test(e)));
+});
+
+test('item_judge: score, threshold, outcome and commit are required; commit may be null', () => {
+  const j = { kind: 'item_judge', by: 'p', item: 'W-a', judge: 'tone', score: 0.7, threshold: 0.8, outcome: 'fail', commit: null };
+  assert.deepEqual(Ledger.validate(j), []);
+  assert.deepEqual(Ledger.validate({ ...j, commit: 'b'.repeat(40), judge_version: 'v2', rubric_hash: 'abc', trace_id: 't1' }), []);
+  assert.ok(Ledger.validate({ ...j, outcome: 'maybe' }).length);
+  assert.ok(Ledger.validate({ ...j, score: '0.7' }).length);
+  const { commit, ...noCommit } = j;
+  assert.ok(Ledger.validate(noCommit).some(e => /commit/.test(e)));
+});
+
+test('item_budget and item_judge are pipeline kinds and route to pipeline.jsonl', () => {
+  for (const k of ['item_budget', 'item_judge']) {
+    assert.ok(Ledger.PIPELINE_KINDS.includes(k));
+    assert.equal(Ledger.KINDS[k].stream, 'pipeline.jsonl');
+  }
+});
