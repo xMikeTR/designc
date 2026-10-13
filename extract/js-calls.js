@@ -154,6 +154,8 @@ const CATALOGUE_TRIGGERS = {
   newrelic: { cat: 'NEW_RELIC', kind: 'sync', tech: 'New Relic agent', label: 'Sends telemetry to' },
   applicationinsights: { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK', label: 'Sends telemetry to' },
   '@microsoft/applicationinsights-web': { cat: 'APPLICATION_INSIGHTS', kind: 'sync', tech: 'App Insights SDK', label: 'Sends telemetry to' },
+  '@anthropic-ai/sdk': { cat: 'ANTHROPIC', kind: 'sync', tech: 'Anthropic SDK', label: 'Calls' },
+  openai: { cat: 'OPENAI', kind: 'sync', tech: 'OpenAI SDK', label: 'Calls' },
   pg: { cat: 'POSTGRESQL', kind: 'data', tech: 'pg' },
   mysql2: { cat: 'MYSQL', kind: 'data', tech: 'mysql2' },
   mongodb: { cat: 'MONGO_DB', kind: 'data', tech: 'MongoDB driver' },

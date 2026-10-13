@@ -392,13 +392,22 @@ async function scan(ctx) {
       for (const d of owners) addEdge(keyOf(d.name), keyOf(entry.name), trig.kind, trig.label, entry.tech, ev(s));
     }
   }
+  // PackageReference triggers: the package alone says the project talks to that system.
+  const CS_CATALOGUE_PACKAGES = [
+    { re: /^NewRelic\.Agent/i, cat: 'NEW_RELIC', label: 'Sends telemetry to', name: 'NewRelic.Agent' },
+    { re: /^Anthropic(\.SDK|\.Sdk)?$/i, cat: 'ANTHROPIC', label: 'Calls' },
+    { re: /^(OpenAI|Azure\.AI\.OpenAI|Betalgo\.OpenAI)$/i, cat: 'OPENAI', label: 'Calls' },
+  ];
   for (const p of projects) {
-    if (!p.pkgs.some(pkg => /^NewRelic\.Agent/i.test(pkg))) continue;
-    const owners = p.kind === 'library' ? ownersOf(p) : [p];
-    const entry = catalogue.NEW_RELIC;
-    const evidence = { file: rel(p.file), line: 1, text: 'PackageReference: NewRelic.Agent' };
-    const el = add(entry.name, entry.kind, entry.tech); el.evidence.push(evidence);
-    for (const d of owners) addEdge(keyOf(d.name), keyOf(entry.name), 'sync', 'Sends telemetry to', entry.tech, evidence);
+    for (const trig of CS_CATALOGUE_PACKAGES) {
+      const pkg = p.pkgs.find(x => trig.re.test(x));
+      if (!pkg) continue;
+      const owners = p.kind === 'library' ? ownersOf(p) : [p];
+      const entry = catalogue[trig.cat];
+      const evidence = { file: rel(p.file), line: 1, text: `PackageReference: ${pkg}` };
+      const el = add(entry.name, entry.kind, entry.tech); el.evidence.push(evidence);
+      for (const d of owners) addEdge(keyOf(d.name), keyOf(entry.name), 'sync', trig.label, entry.tech, evidence);
+    }
   }
 
   return {
