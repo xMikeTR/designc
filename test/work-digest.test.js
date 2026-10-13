@@ -88,3 +88,48 @@ test('a pipeline UI acceptance failure is a failed entry until the task passes a
   const later = Work.digest({ ...base, events: [fail, { kind: 'item_gate', item: 'W-ui', gate: 'g', outcome: 'pass', commit: 'c', _ts: 9 }] });
   assert.deepEqual(later.failed, []);
 });
+
+// item_budget and item_judge (pipeline kinds from System 2).
+const budget = (it, status, ts, o = {}) => ({ kind: 'item_budget', item: it, status, _ts: ts, ...(status === 'within' ? {} : { limit_tokens: 1000, spent_tokens: 1200 }), ...o });
+
+test('waiting: the latest budget row per item shows when it is waiting or exceeded', () => {
+  const d = run({ items: [item('W-a'), item('W-b')], events: [
+    budget('W-a', 'exceeded', 1, { reason: 'long loop' }), budget('W-b', 'waiting', 2), budget('W-b', 'within', 3)] });
+  const rows = d.waiting.filter(w => w.kind === 'budget');
+  assert.deepEqual(rows.map(w => w.item), ['W-a']);
+  assert.match(rows[0].text, /W-a/);
+  assert.match(rows[0].text, /1200 of 1000 tokens/);
+  assert.match(rows[0].text, /long loop/);
+});
+
+test('waiting: a later item_pulled clears a budget row; exceeded is not a needs-you entry', () => {
+  const events = [budget('W-a', 'exceeded', 1), { kind: 'item_pulled', item: 'W-a', _ts: 2 }];
+  assert.equal(run({ items: [item('W-a')], events }).waiting.filter(w => w.kind === 'budget').length, 0);
+  const d = run({ items: [item('W-a')], events: [budget('W-a', 'exceeded', 1)] });
+  assert.equal(d.needs.length, 0);
+  assert.equal(d.failed.length, 0);
+});
+
+test('digestSignature ignores budget rows, so a budget change never notifies', () => {
+  const a = run({ items: [item('W-a')], events: [] });
+  const b = run({ items: [item('W-a')], events: [budget('W-a', 'exceeded', 1)] });
+  assert.equal(Work.digestSignature(a), Work.digestSignature(b));
+});
+
+test('judgeScore: latest row for the item and judge; stale when its commit is not the done commit', () => {
+  const ev = [
+    { kind: 'item_judge', item: 'W-a', judge: 'tone', score: 0.5, threshold: 0.8, outcome: 'fail', commit: 'a'.repeat(40), _ts: 1 },
+    { kind: 'item_judge', item: 'W-a', judge: 'tone', score: 0.9, threshold: 0.8, outcome: 'pass', commit: C, _ts: 2 },
+    { kind: 'item_judge', item: 'W-a', judge: 'other', score: 0.1, threshold: 0.8, outcome: 'fail', commit: C, _ts: 3 },
+  ];
+  assert.deepEqual(Work.judgeScore(ev, 'W-a', 'tone', C), { score: 0.9, threshold: 0.8, outcome: 'pass', commit: C, stale: false });
+  assert.equal(Work.judgeScore(ev, 'W-a', 'tone', 'b'.repeat(40)).stale, true);
+  assert.equal(Work.judgeScore(ev, 'W-a', 'tone', null).stale, false);
+  assert.equal(Work.judgeScore(ev, 'W-a', 'missing', C), null);
+});
+
+test('a failed judge never enters Failed and never changes the digest buckets', () => {
+  const events = [{ kind: 'item_judge', item: 'W-a', judge: 'tone', score: 0.1, threshold: 0.8, outcome: 'fail', commit: C, _ts: 1 }];
+  const d = run({ items: [item('W-a', { done_when: [{ gate: 'dotnet test' }, { judge: 'tone' }] })], states: { 'W-a': 'active' }, events });
+  assert.equal(d.failed.length, 0);
+});

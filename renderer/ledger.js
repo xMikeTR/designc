@@ -52,6 +52,8 @@ const Ledger = (() => {
     ui_acceptance_failed: 'pipeline.jsonl',
     item_conflict_deferred: 'pipeline.jsonl',
     wip_limit_changed: 'pipeline.jsonl',
+    item_budget: 'pipeline.jsonl',
+    item_judge: 'pipeline.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -67,7 +69,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -197,6 +199,19 @@ const Ledger = (() => {
       enums: {},
       types: { limit: 'number' },
     },
+    item_budget: {
+      required: ['item', 'status'],
+      optional: ['limit_tokens', 'spent_tokens', 'reason'],
+      enums: { status: ['within', 'exceeded', 'waiting'] },
+      types: { item: 'string', status: 'string', limit_tokens: 'number', spent_tokens: 'number', reason: 'string' },
+      rules: ['budget_shape'],
+    },
+    item_judge: {
+      required: ['item', 'judge', 'score', 'threshold', 'outcome', 'commit'],
+      optional: ['judge_version', 'rubric_hash', 'trace_id'],
+      enums: { outcome: ['pass', 'fail'] },
+      types: { item: 'string', judge: 'string', score: 'number', threshold: 'number', outcome: 'string', commit: 'string|null', judge_version: 'string', rubric_hash: 'string', trace_id: 'string' },
+    },
     item_recheck: {
       required: ['item', 'handover', 'stale', 'reasons'],
       optional: [],
@@ -286,6 +301,15 @@ const Ledger = (() => {
   // Mirrored by id in python/designc/ledger.py.
   const RULES = {
     fail_needs_evidence: ev => (ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason ? "exit_code: required when outcome is 'fail' (or give reason)" : null),
+    budget_shape: ev => {
+      for (const k of ['limit_tokens', 'spent_tokens']) {
+        if (ev[k] !== undefined && !(Number.isInteger(ev[k]) && ev[k] >= 0)) return `${k}: must be a whole number of at least 0`;
+      }
+      if (ev.status !== undefined && ev.status !== 'within') {
+        for (const k of ['limit_tokens', 'spent_tokens']) if (ev[k] === undefined) return `${k}: required when status is not 'within'`;
+      }
+      return null;
+    },
     suite_run_shape: ev => {
       if (ev.trials !== undefined && !(Number.isInteger(ev.trials) && ev.trials >= 1)) return 'trials: must be a whole number of at least 1';
       if (!isPlainObject(ev.tasks)) return null;

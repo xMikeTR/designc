@@ -243,8 +243,25 @@ const Work = (() => {
       const def = ev.filter(e => e.kind === 'item_conflict_deferred' && e.item === it.id).pop();
       if (def && !after(['item_pulled'], it.id, def._ts || 0)) waiting.push({ item: it.id, kind: 'deferred', text: `${it.id} was deferred${def.reason ? `: ${def.reason}` : ''}` });
     }
+    // A pipeline's budget row: the latest per item decides; a later item_pulled clears it. Never needs-you or failed.
+    const latestBudget = new Map();
+    for (const e of ev) if (e.kind === 'item_budget') latestBudget.set(e.item, e);
+    for (const e of latestBudget.values()) {
+      if (e.status === 'within' || after(['item_pulled'], e.item, e._ts || 0)) continue;
+      const spent = e.spent_tokens !== undefined && e.limit_tokens !== undefined ? ` (${e.spent_tokens} of ${e.limit_tokens} tokens)` : '';
+      waiting.push({ item: e.item, kind: 'budget', text: `${e.item} budget ${e.status}${spent}${e.reason ? `: ${e.reason}` : ''}` });
+    }
     if (backlog.length && active.length >= limit) waiting.push({ item: null, kind: 'wip', text: `${active.length} active against a WIP limit of ${limit}: ${backlog.length} ${backlog.length === 1 ? 'item waits' : 'items wait'}` });
     return { needs, failed, done, waiting, wip: { limit, active: active.length } };
+  }
+
+  // The latest pipeline judge score for one item and judge entry. A judge is a gradient: shown, never a gate.
+  // `stale` when the score was taken at a commit other than the one the item was declared done at.
+  function judgeScore(events, item, judge, doneCommit) {
+    const e = list(events).filter(x => x.kind === 'item_judge' && x.item === item && x.judge === judge)
+      .sort((a, b) => (a._ts || 0) - (b._ts || 0)).pop();
+    if (!e) return null;
+    return { score: e.score, threshold: e.threshold, outcome: e.outcome, commit: e.commit === undefined ? null : e.commit, stale: !!doneCommit && e.commit !== doneCommit };
   }
 
   // What a desktop notification is allowed to react to: only the first two buckets.
@@ -252,6 +269,6 @@ const Work = (() => {
     return JSON.stringify([d.needs.map(n => [n.kind, n.id, n.item, n.ts]), d.failed.map(f => [f.item, f.kind, f.ts])]);
   }
 
-  return { KINDS, TARGETS, isRepo, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature };
+  return { KINDS, TARGETS, isRepo, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

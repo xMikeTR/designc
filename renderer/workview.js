@@ -170,6 +170,12 @@ function recheckHtml(it, froze) {
   return `<div class="note" style="color:var(--warn)"><b>The design moved since this item was frozen (${plural(r.reasons.length, 'reason')}).</b><ul>${r.reasons.map(x => `<li>${esc(x.text)}</li>`).join('')}</ul>Review the change, then Freeze again.</div>`;
 }
 
+function judgeNote(itemId, judge, doneCommit) {
+  const j = Work.judgeScore(A.ledger || [], itemId, String(judge), doneCommit || null);
+  if (!j) return ' <span class="desc">shown, never required</span>';
+  return ` <span class="desc">score ${esc(String(j.score))} against ${esc(String(j.threshold))}, ${esc(j.outcome)}${j.stale ? ' (taken at another commit, stale)' : ''}; shown, never required</span>`;
+}
+
 function workItemHtml(it, st, active) {
   const state = st[it.id] || 'backlog';
   const problems = A.workErrors.filter(e => e.path === it._path).map(e => e.msg);
@@ -181,7 +187,7 @@ function workItemHtml(it, st, active) {
   const dw = (Array.isArray(it.done_when) ? it.done_when : []).map(e => {
     const text = entryText(e), g = e && e.gate !== undefined ? gateLast(e.gate) : null;
     const note = g ? ` <span class="desc">last run ${esc(g.outcome)} at ${esc(String(g.commit || 'no commit').slice(0, 7))}${g.dirty ? ' (uncommitted changes, does not count)' : ''}</span>`
-      : e && e.judge !== undefined ? ' <span class="desc">shown, never required</span>' : '';
+      : e && e.judge !== undefined ? judgeNote(it.id, e.judge, done && done.commit) : '';
     return `<li>${esc(text)}${note}</li>`;
   }).join('');
   const what = it.target ? `${esc(Object.keys(it.target)[0] || '')} ${esc(Object.values(it.target)[0] || '')}` : `${esc(it.requirement || '')} · ${esc((it.elements || []).join(', '))}`;

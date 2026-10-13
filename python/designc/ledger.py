@@ -30,6 +30,13 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'budget_shape':
+        for k in ('limit_tokens', 'spent_tokens'):
+            if k in ev and not (_is_num(ev[k]) and float(ev[k]).is_integer() and ev[k] >= 0):
+                return f'{k}: must be a whole number of at least 0'
+        if 'status' in ev and ev['status'] != 'within':
+            for k in ('limit_tokens', 'spent_tokens'):
+                if k not in ev: return f"{k}: required when status is not 'within'"
     elif rid == 'suite_run_shape':
         t = ev.get('trials')
         if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'
