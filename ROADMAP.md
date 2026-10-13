@@ -4,7 +4,7 @@ Remaining work, in order. Each slice is vertical: registry format, core (JS) plu
 
 Sources: `ui-acceptance-playwright.md` and `work-intake-wip.md` (2026-10-12 briefs). Their F# types, the pull scheduler, the verify runner, the dispatcher's ledger fold and the Jira mirror belong to the System 2 workbook, not designc. designc owns the registry formats, the gate, Grill-me, the handover, the ledger kinds it reads, and the views.
 
-Last updated: 2026-10-13. Slice 36 (requirement import, parts A and B) built; part C open. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
+Last updated: 2026-10-13. Slice 36 (requirement import, parts A, B and C) built; C is a fetch script, `scripts/fetch-confluence.py`, not a reader: its output is the HTML shape the importer already reads. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
 
 ## Principles for all slices
 
@@ -69,4 +69,4 @@ Turns a folder of exported Confluence pages into `requirements/*.yaml` stubs. Pa
 
 ## Open questions
 
-- Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36B are built.
+- Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36C are built (36C untried against a real Confluence).
