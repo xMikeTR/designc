@@ -1221,6 +1221,34 @@ async function allowEvidenceHost(h) {
   await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n');
   A.cfg.evidenceHosts = cfg.evidenceHosts; recompile(); toast(`${h} is now an allowed evidence host.`);
 }
+// Since last look: the design snapshot kept per registry at the last Mark as seen (the first one is kept on sight).
+const designLookKey = () => `designc.designLook:${A.root ? (A.root.root || A.root.name) : ''}`;
+const designSnapshot = () => Look.snapshot({ gate: A.gate, diags: A.diags, decisions: A.decisions, drift: A.drift, ledger: A.ledger });
+function keepDesignLook() { try { localStorage.setItem(designLookKey(), JSON.stringify(designSnapshot())); } catch { /* no storage: every look is a first look */ } }
+function lookHtml() {
+  let prev = null;
+  try { prev = JSON.parse(localStorage.getItem(designLookKey()) || 'null'); } catch { prev = null; }
+  const d = Look.diff(prev, designSnapshot());
+  if (d.first) keepDesignLook();
+  const row = (cls, text) => `<div class="item"><div class="l1"><span class="dot ${cls}"></span><span>${text}</span></div></div>`;
+  const status = s => s ? esc(s) : 'gone';
+  const all = [
+    d.gate ? row(d.gate.to ? 'pass' : 'fail', d.gate.to ? 'The gate is now ready' : 'The gate is no longer ready') : '',
+    ...d.clauses.added.map(t => row('fail', `New blocking item: ${esc(t)}`)),
+    ...d.clauses.removed.map(t => row('pass', `Cleared: ${esc(t)}`)),
+    ...d.findings.added.map(t => row('fail', `New finding: ${esc(t)}`)),
+    ...d.findings.removed.map(t => row('pass', `Resolved: ${esc(t)}`)),
+    ...d.decisions.map(x => row('', `${esc(x.id)}: ${x.from ? esc(x.from) : 'new'} → ${status(x.to)}`)),
+    d.drift ? row('', `Drift: ${d.drift.undeclared.from} → ${d.drift.undeclared.to} in code only, ${d.drift.unrealised.from} → ${d.drift.unrealised.to} not built`) : '',
+  ].filter(Boolean);
+  const lines = all.slice(0, 8).join('') + (all.length > 8 ? `<div class="hint">and ${all.length - 8} more; the Ready gate and Problems below have the detail.</div>` : '');
+  const extraction = d.extraction && d.extraction.stale
+    ? `<div class="hint">The code map was extracted ${plural(d.extraction.days, 'day')} ago, so drift may be out of date. <button class="lnk" data-a="extract">Re-extract</button></div>` : '';
+  const body = (d.first ? '<div class="hint">First look at this design. Changes show here from now on.</div>'
+    : lines || '<div class="hint">Nothing changed since you last looked.</div>') + extraction;
+  return { count: d.count, body };
+}
+
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
@@ -1262,8 +1290,11 @@ function designSidebar() {
     ${G.error ? `<div class="hint" style="color:var(--warn)">${esc(G.error)}</div>` : ''}
     ${G.questions.map((q, i) => `<div class="q"><div class="qq">${esc(q.question)}</div><div class="why">${q.code ? `<span class="code">${esc(q.code)}</span> ` : ''}${q.element ? `<b>${esc(q.element)}</b>. ` : ''}${esc(q.why || '')}</div>
       ${q.business ? '<div class="biz">For the business: post it on the Jira issue.</div>' : ''}
-      <textarea data-ans="${i}" placeholder="Your answer">${esc(q.answer || '')}</textarea><div style="margin-top:6px"><button class="lnk" data-qdraft="${i}">Draft decision from answer</button> <button class="lnk" data-qbiz="${i}">Draft business decision</button></div></div>`).join('')}`;
-  return section('gate', 'Ready gate', gate)
+      <textarea data-ans="${i}" placeholder="Your answer">${esc(q.answer || '')}</textarea><div style="margin-top:6px"><button class="lnk" data-qdraft="${i}">Draft decision from answer</button> <button class="lnk" data-qbiz="${i}">Draft business decision</button> <button class="lnk" data-qdk="${i}" title="Grill-me researches it with you in the agent panel">I don't know</button></div></div>`).join('')}`;
+  const look = hasModel ? lookHtml() : null;
+  return (look ? section('look', `Since last look${look.count ? ` (${look.count})` : ''}`, look.body,
+      look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
+    + section('gate', 'Ready gate', gate)
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button><button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
@@ -2041,6 +2072,7 @@ document.addEventListener('click', async e => {
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
+  if (d.qdk) { const q = A.grill.questions[+d.qdk]; return dontKnow(q.question || '', q.why || ''); }
   if (d.qbiz) { const q = A.grill.questions[+d.qbiz]; return recordDecision({ kind: 'business', statement: q.suggested_decision || q.question || '', effect: 'accept', binds: [], resolves: [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
   if (d.ndans) { const n = A.ledger.find(x => x.id === d.ndans); return recordDecision({ binds: n && n.element ? [n.element] : [], resolves: [], rationale: n ? `Pipeline asked (${n.id}): ${n.question}` : '' }); }
   if (d.telesc) {
@@ -2104,6 +2136,7 @@ document.addEventListener('click', async e => {
   if (a === 'neweval') return newEval();
   if (a === 'runevals') return runEvals();
   if (a === 'grill') return grill();
+  if (a === 'lookseen') { keepDesignLook(); return renderSidebar(); }
   if (a === 'draftprops') return draftProposals();
   if (a === 'builddash') return openSpecial('special:build');
   if (a === 'improvedash') return openSpecial('special:improve');
