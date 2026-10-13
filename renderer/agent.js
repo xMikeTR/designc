@@ -11,18 +11,21 @@ Rules:
 - Prefer one precise proposal over several vague ones. Keep answers short and concrete.
 - A decision check is a shell command run in the registry folder that exits 0 when the decision holds (for example ./checks/playtest-clean.sh or p check -tc tcOptimistic); designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" and say what script is needed.
 - The lint rules: DC001 duplicate processing, DC002 lost update, DC003 compound availability, DC004 retry duplicates side effects, DC005 single point of failure, DC006 trust boundary. Design properties are listed in the model.`;
+// How a role that teaches finds sources: web search where it works, web fetch where search is blocked (as at work).
+const RESEARCH_RULE = 'To research, search the web if you can. If web search is not available or is blocked, fetch pages you know directly with web fetch (vendor documentation, standards, well-known articles and books\' sites). If you can do neither, say so and answer from your own knowledge and the model, marked as unsourced. Link only pages you actually read; never invent a link.';
+const DONT_KNOW = "I don't know.";
 const ROLES = {
   architect: { label: 'Architect', system: 'S1', allow: READ_TOOLS, ask: ['propose_model_edit', 'mint_decision'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
   grill: { label: 'Grill-me', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: ['mint_decision', 'mint_acceptance'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words.',
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
     starters: ['What should change in the factory given the recent escapes?', 'Which lint rule would have caught the most failed runs?', 'Is any rule noisy enough to reconsider?'] },
   tutor: { label: 'Tutor', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: [],
-    instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles); if you can search the web, look and link what you used, and never invent a link. End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
+    instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles). ' + RESEARCH_RULE + ' End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
     starters: ['Explain the C4 levels using my model', 'What should I learn first to design this well?', 'Explain the findings on my model as if I were new to this'] },
 };
 function roleCfg(role) {
@@ -607,7 +610,8 @@ function renderAgent() {
     if (it.card) h += `<div class="agcard"><div class="t">${esc(it.card.title)}</div>${it.card.detail ? `<div class="muted">${esc(it.card.detail)}</div>` : ''}${it.card.preview}${it.status === 'waiting' ? `<div class="acts"><button class="btn primary" data-agok data-i="${i}">Approve</button><button class="btn" data-agno data-i="${i}">Decline</button></div>` : ''}</div>`;
     if (it.result && (it.status !== 'ok' || it.acp)) h += `<div class="agres">${esc(it.result)}</div>`;
     return h + '</details>';
-  }).join('');
+  }).join('') + (AG.role === 'grill' && !AG.busy && c.items.length && c.items[c.items.length - 1].kind === 'assistant'
+    ? `<div class="agstarts"><button class="agstart" data-agstart="${esc(DONT_KNOW)}" title="Grill-me researches technical questions with you, and helps you put business ones to the right person">I don't know</button></div>` : '');
   log.scrollTop = log.scrollHeight;
   $('#agSend').style.display = AG.busy ? 'none' : ''; $('#agStop').style.display = AG.busy ? '' : 'none';
   $('#agInput').disabled = !A.root;
@@ -621,6 +625,14 @@ function askTutor(question) {
   if (AG.busy) return toast('The agent is still answering. Stop it or wait, then ask again.', 'error');
   if (AG.role !== 'tutor') setRole('tutor');
   toggleAgent(true); send(question);
+}
+// "I don't know" on a Grill-me question: in the panel it is a reply; on a sidebar question it opens Grill-me on it.
+function dontKnow(question, why) {
+  // An ACP agent can research on the web; the built-in one cannot, so it is used only when there is no ACP agent.
+  const text = `You asked me: "${question}"${why ? ` (${why})` : ''}. I don't know how to answer it.`;
+  if (grillInPanel(text)) return;
+  if (AG.role !== 'grill') setRole('grill');
+  toggleAgent(true); send(text);
 }
 // Grill-me in the panel, for when no model is set: uses the chosen ACP or AG-UI agent, or the first ACP one. False when there is none.
 function grillInPanel(text) {

@@ -15,7 +15,6 @@ Last updated: 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. S
 
 - **Build GodotAgent from handover `20261011-d78a82e7`** with a coding agent. Open: how the agent receives the handover, what it writes to the ledger, and whether GodotAgent gets its own git repo first. See `SESSION_HANDOFF.md`.
 - **F# extractor gaps** (container routes, stores, links). Start with `/grill-me` in its own session. No Go scanner.
-- **Remove merged worktrees** `app-s1` and `app-s3` and their branches (recommended, not yet confirmed).
 
 ## designc's own UI (from `ui-regression-gates.md`), first
 
