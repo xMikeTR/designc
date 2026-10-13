@@ -18,8 +18,8 @@ const ROLES = {
   architect: { label: 'Architect', system: 'S1', allow: READ_TOOLS, ask: ['propose_model_edit', 'mint_decision'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
-  grill: { label: 'Grill-me', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: ['mint_decision', 'mint_acceptance'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends.',
+  grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page'], ask: ['mint_decision', 'mint_acceptance', 'map_requirement'],
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
@@ -50,6 +50,8 @@ const TOOLS = {
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
   mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
   mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) } }, ['requirement', 'element', 'cases']) },
+  read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
+  map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
   mint_proposal: { d: 'Propose a change to Design or Build (status minted), citing evidence.', p: obj({ kind: { type: 'string', enum: ['lint rule', 'P property', 'grill-me question', 'gate clause', 'eval case', 'routing'] }, statement: { type: 'string' }, evidence: { type: 'string' }, check: { type: 'string' } }, ['kind', 'statement', 'evidence', 'check']) },
 };
 const toolSpecs = role => Object.entries(TOOLS).filter(([n]) => verdict(role, n) !== 'deny').map(([name, t]) => ({ type: 'function', function: { name, description: t.d, parameters: t.p } }));
@@ -65,6 +67,17 @@ const READERS = {
     decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, assumptions: d.assumptions || [], latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
     requirements: A.requirements.map(r => ({ id: r.id, title: r.title, elements: r.elements })),
   }),
+  read_import_page: async a => {
+    if (!A.importDir) return 'No import folder was chosen in this session. Ask the person to choose the folder again (Requirements ⇩ or Map to elements).';
+    const req = A.requirements.find(r => r.id === a.requirement_id);
+    if (!req) return `Requirement ${a.requirement_id} is not in the registry.`;
+    const r = await host.readImportFolder(A.importDir);
+    if (r.error) return r.error;
+    const plan = RequirementImport.plan(r.pages, { existing: A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source })) });
+    const item = plan.items.find(i => String(i.id).toLowerCase() === String(req.id).toLowerCase() && i.status !== 'invalid');
+    const page = item && r.pages.find(f => f.name === item.file);
+    return page ? cap(`Page ${page.name} for ${req.id} (${req.title}):\n\n${page.text}`) : `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.`;
+  },
   read_registry_file: async a => { const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
   get_code_map: () => {
     if (!A.facts) return A.cfg.codebase ? 'The codebase has not been extracted yet. Ask the user to run Extract Code Map.' : 'No codebase is configured.';
@@ -167,6 +180,25 @@ drafted_by: ide-agent
 `;
     return { title: `Mint acceptance criterion ${id}`, detail: `${label}: ${states.join(', ')}`, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`acceptance/${id}.yaml`, Date.now()); await host.write(`acceptance/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created acceptance/${id}.yaml. A person names the locators and reviews the cases.`; } };
+  },
+  map_requirement: a => {
+    const req = A.requirements.find(r => r.id === a.id);
+    if (!req || !req._path) return { error: `Requirement ${a.id} is not in the registry. Agents never create requirements; the person imports pages first.` };
+    const names = Array.isArray(a.elements) ? a.elements : [];
+    const known = new Set([...A.model.elements.values()].map(e => e.name));
+    const unknown = names.filter(n => !known.has(n));
+    if (!names.length) return { error: 'elements is empty. Name at least one element from the model.' };
+    if (unknown.length) return { error: `Not in the model: ${unknown.join(', ')}. Use element names exactly as read_model shows them.` };
+    return { title: `Map ${req.id} to elements`, detail: `${req.title || ''}`,
+      preview: `<div class="diffhead">${esc(req._path)}, elements</div>${diffHTML(`elements: ${JSON.stringify(req.elements || [])}`, `elements: ${JSON.stringify(names)}`)}`,
+      apply: async () => {
+        const text = await readText(req._path);
+        const next = text == null ? null : RequirementImport.setElements(text, names);
+        if (next == null) throw new Error(`${req._path} lists elements in a shape designc cannot edit safely. Edit it by hand.`);
+        AG.approved.set(req._path, Date.now()); await host.write(req._path, next);
+        A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+        return `Applied: ${req.id} now lists ${names.join(', ')}. The gate has ${A.gate.clauses.length} blocking items.`;
+      } };
   },
   mint_proposal: a => {
     const id = Core.slugId(a.statement, A.proposals.map(x => x.id));
@@ -640,6 +672,13 @@ function grillInPanel(text) {
   if (AG.agent === 'builtin') { const key = Object.keys(AG.acpAgents)[0]; if (!key) return false; AG.agent = key; }
   if (AG.role !== 'grill') setRole('grill');
   toggleAgent(true); send(text); return true;
+}
+// Grill-me on one imported requirement: reads its page, proposes the elements, the person approves.
+function mapRequirement(id) {
+  if (!A.importDir) { toast('Choose the folder the pages came from first (the ⇩ button in Requirements); designc does not keep that folder between sessions.', 'warning'); return; }
+  const r = A.requirements.find(x => x.id === id); if (!r) return;
+  const text = `Map requirement ${id} ("${r.title || id}") to the design elements it concerns. Read its page with read_import_page, read the model, then propose the mapping with map_requirement. This requirement only.`;
+  if (!grillInPanel(text)) toast('Map to elements needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
 function toggleAgent(force) { AG.open = force ?? !AG.open; renderAgent(); if (AG.open) setTimeout(() => $('#agInput').focus(), 50); }
 

@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement']);
 });
 
 const yaml = require('js-yaml');
@@ -113,4 +113,15 @@ test('Grill-me may write acceptance criteria as yaml, and no other role may', ()
   assert.equal(wv('grill', 'acceptance/AC-1.yaml', '- a\n- b\n').ok, false);
   assert.match(wv('architect', 'acceptance/AC-1.yaml', 'id: x\n').error, /may not write acceptance/);
   assert.match(wv('analyst', 'acceptance/AC-1.yaml', 'id: x\n').error, /may not write acceptance/);
+});
+
+test('map_requirement and read_import_page are offered to Grill-me only, and the write path list is unchanged', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'agent.js'), 'utf8');
+  const roleLine = key => src.split('\n').find(l => l.startsWith(`  ${key}: { label:`));
+  for (const k of ['architect', 'analyst', 'tutor']) {
+    assert.equal(/map_requirement|read_import_page/.test(roleLine(k)), false, k);
+  }
+  assert.match(roleLine('grill'), /ask: \[[^\]]*'map_requirement'/);
+  assert.match(roleLine('grill'), /allow: \[[^\]]*'read_import_page'/);
+  assert.equal(/requirements\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
 });
