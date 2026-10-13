@@ -19,6 +19,9 @@ Folder of exported pages (`.html`, `.md`) to `requirements/*.yaml` stubs, via th
 ## F# extractor: closed, not a gap
 Read-only extraction over the user's F# codebases (PokemonTournament, DIRPOCv2, factory-s2-workbook, F#Agent, FsharpHarness) is correct; routes and stores live in their C# projects. Only fix: `Anthropic` and `OpenAI` packages (C# and JS) now map to externals in `extract/catalogue.js` (`test/extract-llm-api.test.js`). Go scanner stays dropped; `TournamentManager`'s localhost:8090 client stays unresolved.
 
+## Requirement import, slice B (built)
+Grill-me maps one imported page to `elements[]`: `read_import_page` + `map_requirement`, Map to elements button; `RequirementImport.setElements`. `WRITE_PATHS` not widened. Not verified live (native folder dialog and agent); unit and e2e green. Next: slice C (REST storage-format reader).
+
 ## Where we got to
 - `main` at `2e7051e` pushed; LLM-API catalogue change and docs are uncommitted. Worktrees `app-s1`, `app-s3` and their branches removed.
 - `npm test` 684 pass, 0 fail; `xvfb-run -a npx playwright test` 8 passed.

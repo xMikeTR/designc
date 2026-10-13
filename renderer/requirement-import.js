@@ -151,6 +151,23 @@ const RequirementImport = (() => {
       + `version: ${ver(item.version)}\nelements: ${JSON.stringify(elements)}\n`;
   }
 
-  return { read, plan, toYaml, hash16 };
+  // The requirement file's text with only the `elements` list replaced (flow or block form); every other line is
+  // kept byte for byte, so title, source and version cannot change. null when the list is empty or not strings,
+  // or the line is in a shape that cannot be edited safely.
+  function setElements(text, names) {
+    if (!Array.isArray(names) || !names.length || names.some(n => typeof n !== 'string' || !n.trim())) return null;
+    const line = `elements: ${JSON.stringify(names)}`;
+    const lines = String(text).split('\n');
+    const at = lines.findIndex(l => l.startsWith('elements:'));
+    if (at < 0) return String(text).replace(/\s*$/, '') + `\n${line}\n`;
+    const rest = lines[at].slice('elements:'.length).replace(/\s+#.*$/, '').trim();
+    let end = at + 1;
+    if (rest === '') { while (end < lines.length && /^\s*-\s/.test(lines[end])) end++; }
+    else if (!(rest.startsWith('[') && rest.endsWith(']'))) return null;
+    lines.splice(at, end - at, line);
+    return lines.join('\n');
+  }
+
+  return { read, plan, toYaml, setElements, hash16 };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = RequirementImport;

@@ -118,3 +118,17 @@ test('plan: an id that is not safe as a file name is invalid, never written to a
   assert.equal(p.items[0].status, 'invalid');
   assert.match(p.items[0].problems[0], /file name/);
 });
+
+test('setElements changes only the elements line, in flow or block form, and keeps title, source and version', () => {
+  const flow = 'id: HRE-5\ntitle: "T"\nsource: "https://w/x"\nversion: 2\nelements: []\n';
+  assert.equal(RI.setElements(flow, ['Quotes DB', 'Rating API']), 'id: HRE-5\ntitle: "T"\nsource: "https://w/x"\nversion: 2\nelements: ["Quotes DB","Rating API"]\n');
+  const block = 'id: R\ntitle: T\nelements:\n  - Old\n  - Older\nversion: 3\n';
+  assert.equal(RI.setElements(block, ['New']), 'id: R\ntitle: T\nelements: ["New"]\nversion: 3\n');
+  assert.equal(RI.setElements('id: R\ntitle: T\n', ['A']), 'id: R\ntitle: T\nelements: ["A"]\n');
+});
+
+test('setElements refuses a shape it cannot edit safely and an empty or non-string list', () => {
+  assert.equal(RI.setElements('id: R\nelements: &x [a]\n', ['A']), null);
+  assert.equal(RI.setElements('id: R\nelements: []\n', []), null);
+  assert.equal(RI.setElements('id: R\nelements: []\n', ['A', 3]), null);
+});

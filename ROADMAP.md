@@ -4,7 +4,7 @@ Remaining work, in order. Each slice is vertical: registry format, core (JS) plu
 
 Sources: `ui-acceptance-playwright.md` and `work-intake-wip.md` (2026-10-12 briefs). Their F# types, the pull scheduler, the verify runner, the dispatcher's ledger fold and the Jira mirror belong to the System 2 workbook, not designc. designc owns the registry formats, the gate, Grill-me, the handover, the ledger kinds it reads, and the views.
 
-Last updated: 2026-10-13. Slice 36 (requirement import, part A) built; parts B and C open. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
+Last updated: 2026-10-13. Slice 36 (requirement import, parts A and B) built; part C open. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
 
 ## Principles for all slices
 
@@ -63,10 +63,10 @@ Out of scope: visual regression screenshots, cross-browser matrix, freeze-time s
 Turns a folder of exported Confluence pages into `requirements/*.yaml` stubs. Page text never enters the registry. The user's work content is confidential: design against synthetic fixtures, and reports from the work VM carry counts and reasons only.
 
 - **A. Built.** `.html` and `.md` pages with metadata, review list, new and changed handling (`docs/requirement-import.md`).
-- **B. Open.** Agent maps a page to `elements[]`: a read-only reader confined to the import folder, and a narrow writer that sets only `elements` on an existing requirement behind an approval card. This widens `Policy.WRITE_PATHS` to `requirements/`, so flag it before building. One page per agent turn.
+- **B. Built.** Grill-me maps one imported page to `elements[]`: `read_import_page` (read-only, the folder chosen this session, one page per call) and `map_requirement` (Grill-me `ask`; element names must resolve; only the `elements` line changes, behind an approval card). `Policy.WRITE_PATHS` is not widened and raw ACP writes into `requirements/` stay refused. "Map to elements" on an untraced requirement and on its gate clause; one requirement per agent turn.
 - **C. Open.** REST storage-format reader (`ac:` macros) for pages saved by the user's fetch script.
 - **Converter. Built.** `scripts/convert-pages.py`: `.docx` with the standard library on the work VM's Python; `.pdf` needs `pdftotext`, which is an install request if PDFs turn up.
 
 ## Open questions
 
-- Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36A are built.
+- Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36B are built.

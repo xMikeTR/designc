@@ -710,6 +710,7 @@ function importReview(plan, skipped) {
 }
 async function importRequirements() {
   const dir = await host.chooseImportFolder(); if (!dir) return;
+  A.importDir = dir;
   const r = await host.readImportFolder(dir);
   if (r.error) return toast(r.error, 'warning');
   if (!r.pages.length) return toast('That folder has no .html or .md files. Export the pages as HTML, or convert them first (docs/requirement-import.md).', 'warning');
@@ -1202,6 +1203,7 @@ function clauseActions(c) {
   if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
+  if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
   if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
@@ -1301,7 +1303,7 @@ function designSidebar() {
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}</div>
       <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span></div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -2126,6 +2128,7 @@ document.addEventListener('click', async e => {
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
   if (d.owner) { e.stopPropagation(); return becomeBusinessOwner(A.decisions.find(x => x.id === d.owner)); }
   if (d.addevidence) { e.stopPropagation(); return addEvidence(A.decisions.find(x => x.id === d.addevidence)); }
