@@ -4,6 +4,17 @@ designc imports a folder of exported pages as requirement stubs. It reads `.html
 no page text: a requirement file gets `id`, `title`, `source`, `version` and an empty `elements` list.
 Anything else (Word, PDF, the REST storage format) is converted to one of these two shapes first.
 
+## Converting Word and PDF
+
+```
+python3 scripts/convert-pages.py <folder-of-docx-and-pdf> <new-output-folder>
+```
+
+Standard library only. `.docx` is read directly (headings, lists, tables become markdown). `.pdf` needs `pdftotext`
+(poppler) on PATH; without it each PDF is listed as skipped with that reason. Each output file gets front matter
+`title` (document title, else first heading, else file name) and `source` (the file name). The report prints counts
+and reasons only, never page text. Then import the output folder in designc.
+
 ## Markdown (the converter contract)
 
 ```markdown

@@ -65,8 +65,8 @@ Turns a folder of exported Confluence pages into `requirements/*.yaml` stubs. Pa
 - **A. Built.** `.html` and `.md` pages with metadata, review list, new and changed handling (`docs/requirement-import.md`).
 - **B. Open.** Agent maps a page to `elements[]`: a read-only reader confined to the import folder, and a narrow writer that sets only `elements` on an existing requirement behind an approval card. This widens `Policy.WRITE_PATHS` to `requirements/`, so flag it before building. One page per agent turn.
 - **C. Open.** REST storage-format reader (`ac:` macros) for pages saved by the user's fetch script.
-- **Converter.** Word and PDF to markdown with front matter, a script outside the app; depends on what the work VM has (Node, Python, pandoc, pdftotext).
+- **Converter. Built.** `scripts/convert-pages.py`: `.docx` with the standard library on the work VM's Python; `.pdf` needs `pdftotext`, which is an install request if PDFs turn up.
 
 ## Open questions
 
-- Which tools the work VM has, for the Word and PDF converter. Slices 22 to 36A are built.
+- Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36A are built.
