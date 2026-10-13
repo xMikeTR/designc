@@ -1,22 +1,36 @@
-# Session handoff (2026-10-03)
+# Session Handoff — 2026-10-13 — "Since last look", Grill-me "I don't know", F# extractor closed
 
-## State
-- Slices 13 to 21 are done and committed. `node --test test/*.test.js` passes 377 of 377. No plan scope file is open.
-- The user will try designc on real work and report back; they will wire their own eval suite (slice 15) there.
+## What we were doing
+Closing out the 2026-10-12 briefs (all designc slices 22 to 35 done), housekeeping, then two small features from the user's reading of The Pragmatic Programmer (situational awareness) and learning to answer Grill-me. The F# extractor item was grilled and closed.
 
-## Built since slice 14
-- 15 agent evals as a gate; 16 timing and retry lint (DC007, DC008); 17 handover cost forecast.
-- 18 `d.agent.pattern` / `d.agent.patternWhy`, rule AG011 (canvas rule, not in Python).
-- 19 scenario `importance` / `difficulty`, `Core.utilityTree`, grouped Scenarios section.
-- 20 decision `assumptions` with `review_by`; overdue blocks the gate (mirrored in `gate.py`); Mark reviewed (human only); Analyst rubric.
-- 21 agent topology view (`Core.agentTopology`, `special:topology`).
-- Review of 15 to 21 found and fixed: DC008 path explosion, numeric eval ids, same-name forecast merge, sample events in spend, assumption text slicing (code points, to match Python), dangling topology edges, AG011 and topology disagreeing on what an agent is.
+## Decisions made this session
+1. **Since last look** (Design sidebar, first section): `renderer/look.js` (`Look.snapshot`, `Look.diff`), snapshot per registry in `localStorage`, kept on first sight and on Mark as seen (✓). Lists gate flip, clauses, findings, decision status, drift counts; code map older than 7 days is a note with Re-extract, not a change. At most 8 lines. Display only. No desktop notification (not asked for).
+2. **Grill-me "I don't know"** (inline, no handoff to the Tutor): technical questions are researched (`RESEARCH_RULE`: web search, else web fetch because search is blocked at work, else say unsourced; never invent a link), 2 or 3 options with a recommendation, the user chooses. The decision is the user's: rationale "Chosen by the user.", "Suggested by Grill-me: ...", and "User's view: ..." only when the user typed reasons. Business questions are never answered by research: who should answer, options, `PROPOSED:` business decision. Buttons: a reply under Grill-me's last message in the panel, and one per sidebar Grill-me question (`dontKnow`, prefers an ACP agent).
+3. The rest of both briefs belongs to System 2. Its `SESSION_HANDOFF.md` (`~/Desktop/Coding/System2/factory-s2-workbook/`) now lists what to build, stale fixtures to re-copy, and the two ledger kinds designc waits on (budget, judge score; strawmen there).
 
-## Out of scope, not started
-- Go and F# extraction (the user said to ignore it for now).
-- Wiring a real eval suite and trying the new UI on a real registry: the user does these in their own work.
-- The `finding` ledger kind and `designc hooks install`.
+## Decisions NOT yet made
+- **Ledger kinds for budget and judge score**: System 2 decides the shape, then designc adds them to `ledger.js`, `ledger_schema.json`, `PIPELINE_KINDS` and the Work digest.
+- **GodotAgent build** from handover `20261011-d78a82e7`: grill on the System 2 side.
+- **Slice 4 (factory evals out of designc)**: still parked (System 2 handoff, decisions 4 and 5 of 2026-10-11).
 
-## Notes
-- Test command: `node --test test/*.test.js`. Afterwards run `git checkout -- fixtures/fullstack/ledger/checks.jsonl sample-registry/ledger/checks.jsonl`.
-- Canvas property changes need `node test/helpers/canvas-specs.js --write`.
+## F# extractor: closed, not a gap
+Read-only extraction over the user's F# codebases (PokemonTournament, DIRPOCv2, factory-s2-workbook, F#Agent, FsharpHarness) is correct; routes and stores live in their C# projects. Only fix: `Anthropic` and `OpenAI` packages (C# and JS) now map to externals in `extract/catalogue.js` (`test/extract-llm-api.test.js`). Go scanner stays dropped; `TournamentManager`'s localhost:8090 client stays unresolved.
+
+## Where we got to
+- `main` at `2e7051e` pushed; LLM-API catalogue change and docs are uncommitted. Worktrees `app-s1`, `app-s3` and their branches removed.
+- `npm test` 684 pass, 0 fail; `xvfb-run -a npx playwright test` 8 passed.
+- Not ours, deliberately uncommitted: this file, `sample-registry/ledger/checks.jsonl`, `Evaluation Bible Design-to-Code Factory.md`, `python/build/`, the `obj/Debug` outputs.
+- The "I don't know" path is untried against a live agent: the user tries it over ACP (Claude Code).
+- Open elsewhere: GodotAgent `ledger/*.jsonl` uncommitted, stray empty files `=` and `project` there; System2 `factory-registry` 6 uncommitted ledger lines (live8, live9; both closes say `abandoned`).
+
+## What to load on restart
+- `AGENTS.md`, `ROADMAP.md`, this file.
+
+## Watch out for
+- `designc check` appends a `gate` event to the registry ledger (not with `--item`). Use `verify-ledger` or a copy to inspect read-only.
+- No commits in `~/Desktop/Coding`: the user commits there.
+- Headless runs: `--user-data-dir=<scratch>` with `trustAllFolders: true`, on a registry copy. Never touch `~/.config/designc/state.json`.
+- Keep `process.reallyExit(0)` in `will-quit`.
+- Never delete, skip or loosen the `@critical` e2e journeys.
+- `~/Downloads/APIKEY` exists: do not read or send it.
+- Forbidden synonyms: bug/defect (escape), ticket (requirement; target kind `jira`), DoR (gate).
