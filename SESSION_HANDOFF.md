@@ -13,6 +13,9 @@ Closing out the 2026-10-12 briefs (all designc slices 22 to 35 done), housekeepi
 - **GodotAgent build** from handover `20261011-d78a82e7`: grill on the System 2 side.
 - **Slice 4 (factory evals out of designc)**: still parked (System 2 handoff, decisions 4 and 5 of 2026-10-11).
 
+## Requirement import, slice A (uncommitted)
+Folder of exported pages (`.html`, `.md`) to `requirements/*.yaml` stubs, via the ⇩ button in the Requirements section. Pure core `renderer/requirement-import.js`, folder read `paths.js` `readPages`, IPC `import:choose`/`import:read`, contract `docs/requirement-import.md`. Next: slice B (agent mapping; widens write policy, flag first), slice C (REST reader), Word/PDF converter (need VM tooling facts). Work content is confidential: synthetic fixtures only, no page text in reports.
+
 ## F# extractor: closed, not a gap
 Read-only extraction over the user's F# codebases (PokemonTournament, DIRPOCv2, factory-s2-workbook, F#Agent, FsharpHarness) is correct; routes and stores live in their C# projects. Only fix: `Anthropic` and `OpenAI` packages (C# and JS) now map to externals in `extract/catalogue.js` (`test/extract-llm-api.test.js`). Go scanner stays dropped; `TournamentManager`'s localhost:8090 client stays unresolved.
 
