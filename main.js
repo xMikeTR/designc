@@ -32,7 +32,7 @@ function inside(rel) {
   return confine(root, rel);
 }
 const toRel = abs => path.relative(root, abs).split(path.sep).join('/');
-const { confine, childEnv, isTrusted, trustChoices, registryDir } = require('./paths');
+const { confine, childEnv, isTrusted, trustChoices, registryDir, readPages } = require('./paths');
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'bin', 'obj', '.idea', '.vs']);
 
 async function tree(abs, depth = 0) {
@@ -217,6 +217,18 @@ handle('codebase:choose', async () => {
   if (r.canceled || !r.filePaths[0]) return null;
   const rel = path.relative(root, r.filePaths[0]).split(path.sep).join('/');
   return rel && !path.isAbsolute(rel) ? rel : r.filePaths[0];
+});
+// Requirement import: exported pages in a folder the person chooses, read-only, never remembered, no agent tool.
+let importDir = null;
+handle('import:choose', async () => {
+  const r = await dialog.showOpenDialog(win, { title: 'Choose the folder of exported pages', properties: ['openDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  importDir = r.filePaths[0];
+  return importDir;
+});
+handle('import:read', async p => {
+  if (!importDir || path.resolve(String(p)) !== path.resolve(importDir)) return { error: 'Choose the folder first.' };
+  try { return readPages(importDir); } catch (e) { return { error: `Could not read ${importDir}: ${e.message}` }; }
 });
 handle('codebase:extract', async p => {
   const dir = codebaseDir(p);

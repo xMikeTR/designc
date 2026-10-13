@@ -42,6 +42,8 @@ contextBridge.exposeInMainWorld('host', {
   registryRead: (key, rel) => ipcRenderer.invoke('registry:read', key, rel),
   registryList: (key, dir, ext) => ipcRenderer.invoke('registry:list', key, dir, ext),
   chooseCodebase: () => ipcRenderer.invoke('codebase:choose'),
+  chooseImportFolder: () => ipcRenderer.invoke('import:choose'),
+  readImportFolder: p => ipcRenderer.invoke('import:read', p),
   extract: p => ipcRenderer.invoke('codebase:extract', p),
   readCode: (p, rel) => ipcRenderer.invoke('codebase:read', p, rel),
   telemetry: () => ipcRenderer.invoke('telemetry:fetch'),

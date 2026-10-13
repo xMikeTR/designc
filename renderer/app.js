@@ -688,6 +688,45 @@ async function newRequirement() {
   const id = (await askText('Jira key for the requirement', 'HRE-')) || ''; if (!id.trim() || id.trim() === 'HRE-') return;
   await createAndOpen(`requirements/${id.trim()}.yaml`, `id: ${id.trim()}\ntitle: TODO\nsource: ""\nversion: 1\nelements: []\n`, 2);
 }
+// Requirement import (slice 36): a folder of exported pages becomes requirements/*.yaml stubs. Only id, title,
+// source and version are written; page text never reaches the registry. A changed page needs the person's yes.
+function importReview(plan, skipped) {
+  return new Promise(resolve => {
+    const el = document.createElement('div'); el.className = 'askbox';
+    const row = i => `<div class="item"><div class="l1"><span class="id">${esc(i.id || i.file)}</span><span class="tag ${i.status === 'invalid' ? 'open' : ''}">${esc(i.status)}</span></div>`
+      + `<div class="l2">${esc(i.status === 'invalid' ? i.problems.join(' ') : `${i.title}${i.status === 'changed' ? ` (version ${i.from} to ${i.version}: bound business decisions will need re-binding)` : ''}`)}</div></div>`;
+    const s = plan.summary;
+    const sk = skipped.length ? `<div class="hint">Skipped: ${esc(skipped.map(k => `${k.name} (${k.reason})`).join(', '))}</div>` : '';
+    el.innerHTML = `<div class="askcard" style="width:620px"><label>${esc(`${s.new} new, ${s.changed} changed, ${s.unchanged} unchanged, ${s.invalid} not importable.`)}</label>`
+      + `<div style="max-height:46vh;overflow:auto">${plan.items.filter(i => i.status !== 'unchanged').map(row).join('') || '<div class="hint">Nothing to import.</div>'}</div>${sk}`
+      + `<div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button>`
+      + (s.changed ? `<button type="button" class="btn" data-go="new" ${s.new ? '' : 'disabled'}>Import ${s.new} new only</button>` : '')
+      + `<button type="button" class="btn primary" data-go="all" ${s.new + s.changed ? '' : 'disabled'}>${s.changed ? `Import ${s.new} new and update ${s.changed}` : `Import ${s.new} new`}</button></div></div>`;
+    const done = v => { el.remove(); resolve(v); };
+    el.addEventListener('click', e => { const b = e.target.closest('[data-go],[data-ask]'); if (!b || b.disabled) return; e.stopPropagation(); done(b.dataset.go || null); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(null); } });
+    document.body.appendChild(el); el.querySelector('.primary').focus();
+  });
+}
+async function importRequirements() {
+  const dir = await host.chooseImportFolder(); if (!dir) return;
+  const r = await host.readImportFolder(dir);
+  if (r.error) return toast(r.error, 'warning');
+  if (!r.pages.length) return toast('That folder has no .html or .md files. Export the pages as HTML, or convert them first (docs/requirement-import.md).', 'warning');
+  const existing = A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source }));
+  const plan = RequirementImport.plan(r.pages, { existing });
+  const choice = await importReview(plan, r.skipped || []); if (!choice) return;
+  let n = 0;
+  for (const i of plan.items) {
+    if (i.status === 'new' || (i.status === 'changed' && choice === 'all')) {
+      const prev = A.requirements.find(q => String(q.id).toLowerCase() === i.id.toLowerCase());
+      await host.write(prev && prev._path ? prev._path : `requirements/${i.id}.yaml`, RequirementImport.toYaml(i, { elements: prev && Array.isArray(prev.elements) ? prev.elements : [] }));
+      n++;
+    }
+  }
+  A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+  toast(`${plural(n, 'requirement')} written. Each is untraced until you map it to elements.`);
+}
 async function newScenario() {
   const id = (await askText('Scenario id', 'QAS-')) || ''; if (!id.trim() || id.trim() === 'QAS-') return;
   const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
@@ -1296,7 +1335,7 @@ function designSidebar() {
       look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
     + section('gate', 'Ready gate', gate)
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button><button title="Run all checks" data-a="runall">▶</button>`)
-    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="New requirement" data-a="newreq">+</button>`)
+    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
@@ -2127,6 +2166,7 @@ document.addEventListener('click', async e => {
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
   if (a === 'newreq') return newRequirement();
+  if (a === 'importreq') return importRequirements();
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();

@@ -52,6 +52,23 @@ function trustChoices(root, repoRoot, home) {
   return out;
 }
 
+// Exported pages for requirement import: .html, .htm, .md and .markdown files directly in `dir` (no recursion).
+// A symlink is skipped, as is a file over `maxBytes`; both are named in `skipped` so the review can say so.
+const PAGE_EXT = /\.(html?|md|markdown)$/i;
+function readPages(dir, { maxBytes = 2 * 1024 * 1024, maxFiles = 500 } = {}) {
+  const pages = [], skipped = [];
+  const names = fs.readdirSync(dir).filter(n => PAGE_EXT.test(n)).sort((a, b) => a.localeCompare(b));
+  for (const name of names.slice(0, maxFiles)) {
+    const abs = path.join(dir, name);
+    const st = fs.lstatSync(abs);
+    if (st.isSymbolicLink() || !st.isFile()) { skipped.push({ name, reason: 'not a regular file' }); continue; }
+    if (st.size > maxBytes) { skipped.push({ name, reason: `larger than ${Math.round(maxBytes / 1048576)} MB` }); continue; }
+    pages.push({ name, text: fs.readFileSync(abs, 'utf8') });
+  }
+  if (names.length > maxFiles) skipped.push({ name: `${names.length - maxFiles} more files`, reason: `only the first ${maxFiles} are read` });
+  return { pages, skipped };
+}
+
 // A sibling registry listed in designc.json `registries` ({key: path relative to the open folder}), read-only.
 // Only an own string entry counts, so the renderer cannot name `__proto__` or `toString`; the folder must exist.
 // Paths inside it then go through confine(dir, rel) like the open folder's.
@@ -65,4 +82,4 @@ function registryDir(root, registries, key) {
   return dir;
 }
 
-module.exports = { confine, childEnv, isTrusted, trustChoices, registryDir };
+module.exports = { confine, childEnv, isTrusted, trustChoices, registryDir, readPages };
