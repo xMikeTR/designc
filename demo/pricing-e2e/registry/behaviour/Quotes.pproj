@@ -1,0 +1,7 @@
+<Project>
+  <ProjectName>Quotes</ProjectName>
+  <InputFiles>
+    <PFile>./quotes-writes.p</PFile>
+  </InputFiles>
+  <OutputDir>./PGenerated</OutputDir>
+</Project>
