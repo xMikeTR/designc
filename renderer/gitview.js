@@ -1,13 +1,13 @@
 /* designc desktop: git UI (slice 1, read-only). Classic script, shares the renderer's global scope with app.js.
    app.js calls gitRefresh(), gitStatusButton(), gitHistorySection() and renderCompare(); everything git-shaped
    in the renderer lives here. All git output is untrusted text: it goes through esc() before innerHTML. */
-const G = { state: { repo: false }, log: [], logFor: null, compare: null, diff: null, msg: '', busy: false, askedUnion: false, branches: [] };
+const G = { state: { repo: false }, log: [], logFor: null, compare: null, diff: null, msg: '', busy: false, askedUnion: false, branches: [], stashes: [] };
 
 async function gitRefresh() {
   if (!A.root) { G.state = { repo: false }; G.log = []; G.logFor = null; return; }
   try { G.state = await host.gitStatus(); } catch { G.state = { repo: false }; }
   G.logFor = null;
-  if (G.state.trusted && !G.state.error) { const r = await host.gitRefs(); G.branches = r.branches || []; }
+  if (G.state.trusted && !G.state.error) { const r = await host.gitRefs(); G.branches = r.branches || []; const st = await host.gitStashList(); G.stashes = Array.isArray(st) ? st : []; }
   renderStatus(); renderBadges();
   if ((A.activity === 'explorer' || A.activity === 'scm') && document.activeElement !== $('#gitMsg')) renderSidebar();
 }
@@ -129,14 +129,17 @@ function gitSidebar() {
   if (s.error) return `<div class="hint">${esc(s.error)}</div>`;
   const files = s.files || [];
   const staged = files.filter(f => f.index !== '.' && f.index !== '?'), changes = files.filter(f => f.worktree !== '.');
-  const row = (f, letter, act, label) => `<div class="row" ${letter === 'D' ? '' : `data-file="${esc(f.path)}"`} title="${esc(f.path)}"><span class="lbl">${esc(f.path.split('/').pop())}</span><span class="desc">${esc(f.path.split('/').slice(0, -1).join('/'))}</span><span class="spacer"></span><button class="lnk" data-git="${act}" data-path="${esc(f.path)}" title="${label}">${act === 'stage' ? '+' : '−'}</button><span class="desc">${esc(GIT_LETTER[letter] || letter)}</span></div>`;
+  const row = (f, letter, act, label) => `<div class="row" ${letter === 'D' ? '' : `data-file="${esc(f.path)}"`} title="${esc(f.path)}"><span class="lbl">${esc(f.path.split('/').pop())}</span><span class="desc">${esc(f.path.split('/').slice(0, -1).join('/'))}</span><span class="spacer"></span><button class="lnk" data-git="${act}" data-path="${esc(f.path)}" title="${label}">${act === 'stage' ? '+' : '−'}</button>${act === 'stage' && f.worktree !== '?' ? `<button class="lnk" data-git="discard" data-path="${esc(f.path)}" title="Discard changes" aria-label="Discard changes to ${esc(f.path)}">↶</button>` : ''}<span class="desc">${esc(GIT_LETTER[letter] || letter)}</span></div>`;
   const opts = G.branches.map(b => `<option value="${esc(b.name)}" ${b.current ? 'selected' : ''}>${esc(b.name)}</option>`).join('');
   const branchBar = `<div class="hint" style="display:flex;gap:6px;align-items:center"><select data-git-switch aria-label="Branch" ${s.detached ? '' : ''}>${s.detached ? `<option selected>detached at ${esc(String(s.head || '').slice(0, 7))}</option>` : ''}${opts}</select><button class="btn" data-git="branch">New branch</button></div>
     <div class="hint" style="display:flex;gap:6px"><button class="btn" data-git="fetch" ${G.busy ? 'disabled' : ''}>Fetch</button><button class="btn" data-git="pull" ${G.busy ? 'disabled' : ''}>Pull${s.behind ? ` ↓${s.behind}` : ''}</button><button class="btn" data-git="push" ${G.busy ? 'disabled' : ''}>${s.upstream ? `Push${s.ahead ? ` ↑${s.ahead}` : ''}` : 'Publish'}</button></div>`;
   const commitBox = `<div class="hint"><textarea id="gitMsg" rows="3" style="width:100%;box-sizing:border-box" placeholder="Commit message">${esc(G.msg)}</textarea><button class="btn primary block" data-git="commit" ${staged.length && !G.busy ? '' : 'disabled'}>Commit ${staged.length ? plural(staged.length, 'file') : ''}</button></div>`;
+  const stashRows = G.stashes.map(s => `<div class="row" title="${esc(s.ref)}"><span class="lbl">${esc(s.message.replace(/^(WIP on|On) [^:]+: /, '') || s.ref)}</span><span class="spacer"></span><button class="lnk" data-git="stash-apply" data-ref="${esc(s.ref)}" title="Apply, keep the stash">Apply</button><button class="lnk" data-git="stash-drop" data-ref="${esc(s.ref)}" title="Delete this stash">Drop</button></div>`).join('');
+  const stashBox = `<div class="hint" style="display:flex;gap:6px"><button class="btn" data-git="stash" ${files.length && !G.busy ? '' : 'disabled'}>Stash changes</button><button class="btn" data-git="stash-pop" ${G.stashes.length && !G.busy ? '' : 'disabled'}>Pop latest</button></div>${stashRows || '<div class="hint">No stashes.</div>'}`;
   return section('scmbranch', 'Branch', branchBar) + section('scmmsg', 'Commit', commitBox)
-    + section('scmstaged', `Staged · ${staged.length}`, staged.map(f => row(f, f.index, 'unstage', 'Unstage')).join('') || '<div class="hint">Nothing staged.</div>', staged.length ? '' : '')
-    + section('scmchanges', `Changes · ${changes.length}`, changes.map(f => row(f, f.worktree, 'stage', 'Stage')).join('') || '<div class="hint">No changes.</div>');
+    + section('scmstaged', `Staged · ${staged.length}`, staged.map(f => row(f, f.index, 'unstage', 'Unstage')).join('') || '<div class="hint">Nothing staged.</div>', staged.length ? `<button class="lnk" data-git="unstage-all" title="Unstage all" aria-label="Unstage all">−</button>` : '')
+    + section('scmchanges', `Changes · ${changes.length}`, changes.map(f => row(f, f.worktree, 'stage', 'Stage')).join('') || '<div class="hint">No changes.</div>', changes.length ? `<button class="lnk" data-git="stage-all" title="Stage all" aria-label="Stage all">+</button>` : '')
+    + section('scmstash', `Stashes · ${G.stashes.length}`, stashBox);
 }
 
 async function gitDo(label, fn, { reload = false } = {}) {
@@ -178,6 +181,23 @@ document.addEventListener('click', async e => {
   const k = t.dataset.git;
   if (k === 'stage') return gitDo('', () => host.gitStage([t.dataset.path]));
   if (k === 'unstage') return gitDo('', () => host.gitUnstage([t.dataset.path]));
+  if (k === 'discard') {
+    if (dirtyBuffers()) return toast('Save or close your unsaved edits first: discarding changes the files on disk.', 'warning');
+    if (!confirm(`Discard your unstaged changes to ${t.dataset.path}?\n\nThey are lost: git cannot bring them back. Anything you staged stays staged.`)) return;
+    return gitDo('Discard', () => host.gitDiscard([t.dataset.path]), { reload: true });
+  }
+  if (k === 'stage-all') return gitDo('', () => host.gitStage(['.']));
+  if (k === 'unstage-all') return gitDo('', () => host.gitUnstage(['.']));
+  if (k === 'stash' || k === 'stash-pop' || k === 'stash-apply') {
+    if (dirtyBuffers()) return toast('Save or close your unsaved edits first: a stash changes the files on disk.', 'warning');
+    if (k === 'stash') { const m = await askText('Stash message (optional)', ''); if (m === null) return; return gitDo('Stash', () => host.gitStashPush(m), { reload: true }); }
+    if (k === 'stash-pop') return gitDo('Pop stash', () => host.gitStashPop(), { reload: true });
+    return gitDo('Apply stash', () => host.gitStashApply(t.dataset.ref), { reload: true });
+  }
+  if (k === 'stash-drop') {
+    if (!confirm(`Drop ${t.dataset.ref}? The changes in it are deleted and cannot be restored from the app.`)) return;
+    return gitDo('Drop stash', () => host.gitStashDrop(t.dataset.ref));
+  }
   if (k === 'commit') return gitCommitFlow();
   if (k === 'branch') { const n = ((await askText('New branch name')) || '').trim(); if (n) await gitDo(`Branch ${n}`, () => host.gitBranch(n)); return; }
   if (k === 'fetch') return gitDo('Fetch', () => host.gitFetch());

@@ -108,6 +108,67 @@ test('stage and unstage move a registry file in and out of the index; paths outs
   assert.ok((await git.stage(reg, [])).error);
 });
 
+test('stage and unstage of the registry root move every registry file and leave the rest of the repo alone', async () => {
+  const { top, reg } = repo();
+  put(top, 'reg/decisions/a.yaml', 'id: a\n'); put(top, 'reg/model/workspace.dsl', 'v3\n'); put(top, 'other/y.txt', 'y\n');
+  assert.deepEqual(await git.stage(reg, ['.']), { ok: true });
+  assert.deepEqual(await gitNames(reg), ['A.:decisions/a.yaml', 'M.:model/workspace.dsl']);
+  assert.equal(g(top, 'status', '--porcelain', '--', 'other'), '?? other/y.txt');
+  assert.deepEqual(await git.unstage(reg, ['.']), { ok: true });
+  assert.deepEqual(await gitNames(reg), ['.M:model/workspace.dsl', '??:decisions/a.yaml']);
+});
+
+test('stash saves registry changes with untracked files, lists them, and applies, pops and drops by validated ref', async () => {
+  const { top, reg } = repo();
+  assert.match((await git.stashPush(reg, 'nothing')).error, /Nothing to stash/);
+  put(top, 'reg/model/workspace.dsl', 'v3\n'); put(top, 'reg/decisions/a.yaml', 'id: a\n'); put(top, 'other/y.txt', 'y\n');
+  assert.deepEqual(await git.stashPush(reg, 'wip decisions'), { ok: true });
+  assert.deepEqual(await gitNames(reg), []);
+  assert.equal(fs.readFileSync(path.join(top, 'other/y.txt'), 'utf8'), 'y\n'); // outside the registry: untouched
+  const l = await git.stashList(reg);
+  assert.equal(l.length, 1); assert.equal(l[0].ref, 'stash@{0}'); assert.match(l[0].message, /wip decisions/);
+  assert.deepEqual(await git.stashApply(reg, 'stash@{0}'), { ok: true });
+  assert.deepEqual(await gitNames(reg), ['.M:model/workspace.dsl', '??:decisions/a.yaml']);
+  assert.equal((await git.stashList(reg)).length, 1); // apply keeps it
+  for (const bad of ['--all', 'HEAD', 'stash@{x}', 'stash@{0};ls', '', null]) { assert.ok((await git.stashDrop(reg, bad)).error, String(bad)); assert.ok((await git.stashApply(reg, bad)).error, String(bad)); }
+  assert.deepEqual(await git.stashDrop(reg, 'stash@{0}'), { ok: true });
+  assert.deepEqual(await git.stashList(reg), []);
+  assert.match((await git.stashPop(reg)).error, /No stash/);
+});
+
+test('stash pop restores the newest stash and removes it', async () => {
+  const { top, reg } = repo();
+  put(top, 'reg/a.txt', 'a'); await git.stashPush(reg, 'one');
+  assert.deepEqual(await git.stashPop(reg), { ok: true });
+  assert.deepEqual(await gitNames(reg), ['??:a.txt']);
+  assert.deepEqual(await git.stashList(reg), []);
+});
+
+test('discard restores tracked files from the index and refuses untracked files, directories and outside paths', async () => {
+  const { top, reg } = repo();
+  put(top, 'reg/model/workspace.dsl', 'edited\n'); put(top, 'reg/new.txt', 'n\n'); put(top, 'other/x.txt', 'changed\n');
+  assert.ok((await git.discard(reg, ['new.txt'])).error);                 // untracked: never deleted
+  assert.ok((await git.discard(reg, ['model'])).error);                   // a directory is not a file git lists
+  assert.ok((await git.discard(reg, ['.'])).error);
+  assert.ok((await git.discard(reg, ['../other/x.txt'])).error);
+  assert.ok((await git.discard(reg, [])).error);
+  assert.equal(fs.readFileSync(path.join(reg, 'new.txt'), 'utf8'), 'n\n');
+  assert.deepEqual(await git.discard(reg, ['model/workspace.dsl']), { ok: true });
+  assert.equal(fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8'), 'v2\n');
+  fs.rmSync(path.join(reg, 'model/workspace.dsl'));                       // a deleted file comes back
+  assert.deepEqual(await git.discard(reg, ['model/workspace.dsl']), { ok: true });
+  assert.equal(fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8'), 'v2\n');
+});
+
+test('discard keeps what is staged: only the working tree copy is restored', async () => {
+  const { top, reg } = repo();
+  put(top, 'reg/model/workspace.dsl', 'staged\n'); g(top, 'add', 'reg/model/workspace.dsl');
+  put(top, 'reg/model/workspace.dsl', 'worktree\n');
+  assert.deepEqual(await git.discard(reg, ['model/workspace.dsl']), { ok: true });
+  assert.equal(fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8'), 'staged\n');
+  assert.deepEqual(await gitNames(reg), ['M.:model/workspace.dsl']);
+});
+
 test('commit takes the message on stdin, so a message that looks like a flag is text', async () => {
   const { top, reg } = repo();
   put(top, 'reg/decisions/a.yaml', 'id: a\n'); await git.stage(reg, ['decisions/a.yaml']);

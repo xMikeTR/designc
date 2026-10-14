@@ -115,6 +115,18 @@ async function unstage(root, paths) {
   return ok(await run(root, ['rm', '--cached', '-r', '-q', '--', ...s.out])); // a repo with no commits has no HEAD to restore from
 }
 
+// Throw away working tree edits of tracked files, back to what is in the index. Only a path git itself lists as modified or
+// deleted in the working tree is accepted, so an untracked file, a directory or `.` can never be removed by this. Staged
+// work is untouched (restore without --staged). The caller confirms with the person first.
+async function discard(root, paths) {
+  const s = pathspecs(root, paths); if (s.error) return s;
+  const st = await status(root); if (st.error) return { error: st.error };
+    const dirty = new Set(st.files.filter(f => f.worktree === 'M' || f.worktree === 'D').map(f => f.path));
+  const bad = s.out.find(p => !dirty.has(p));
+  if (bad) return { error: `${bad} has no unstaged changes to discard (untracked files are never removed from here)` };
+  return ok(await run(root, ['restore', '--', ...s.out]));
+}
+
 async function commit(root, message) {
   if (typeof message !== 'string' || !message.trim()) return { error: 'Write a commit message' };
   const all = await run(root, ['diff', '--cached', '--name-only', '-z']);
@@ -163,6 +175,33 @@ async function publish(root) {
   return ok(await run(root, ['push', '-u', remotes[0], s.branch]));
 }
 
+// Stash. Only the registry's files go in (pathspec), untracked ones included (-u, never --all, so ignored files stay).
+// A stash is addressed by `stash@{n}` and nothing else, so no ref, flag or revision expression comes from the caller.
+const STASH_REF = /^stash@\{\d+\}$/;
+const stashRef = ref => (typeof ref === 'string' && STASH_REF.test(ref) ? null : { error: `${ref} is not a stash reference` });
+
+async function stashPush(root, message) {
+  const args = ['stash', 'push', '-u'];
+  if (typeof message === 'string' && message.trim()) args.push('-m', message.trim().replace(/\s+/g, ' '));
+  const r = await run(root, [...args, '--', '.']);
+  if (r.error) return { error: r.error };
+  return /No local changes to save/.test(r.out) ? { error: 'Nothing to stash: there are no changes in this folder.' } : { ok: true };
+}
+
+async function stashList(root) {
+  const r = await run(root, ['stash', 'list', '--format=%gd%x1f%gs%x1f%aI%x1e']);
+  if (r.error) return { error: r.error };
+  return r.out.split('\x1e').map(s => s.trim()).filter(Boolean).map(s => { const [ref, message, date] = s.split('\x1f'); return { ref, message, date }; });
+}
+
+async function stashApply(root, ref) { return stashRef(ref) || ok(await run(root, ['stash', 'apply', '--quiet', ref])); }
+async function stashDrop(root, ref) { return stashRef(ref) || ok(await run(root, ['stash', 'drop', '--quiet', ref])); }
+async function stashPop(root) {
+  const l = await stashList(root); if (l.error) return l;
+  if (!l.length) return { error: 'No stash to restore.' };
+  return ok(await run(root, ['stash', 'pop', '--quiet', l[0].ref]));
+}
+
 // The ledger is append-only, so two branches that both appended merge cleanly with merge=union.
 const UNION = 'ledger/*.jsonl merge=union';
 const attrFile = root => path.join(root, '.gitattributes');
@@ -206,4 +245,4 @@ async function isAncestor(dir, commit, branch) {
   return { onMain: !r.error, commit: c };
 }
 
-module.exports = { head, isAncestor, findRepo, status, refs, log, show, stage, unstage, commit, branch, switchTo, fetch, pull, push, publish, hasLedgerUnion, addLedgerUnion, run, within, HASH };
+module.exports = { head, isAncestor, findRepo, status, refs, log, show, stage, unstage, discard, commit, branch, switchTo, fetch, pull, push, publish, stashPush, stashList, stashApply, stashDrop, stashPop, hasLedgerUnion, addLedgerUnion, run, within, HASH };
