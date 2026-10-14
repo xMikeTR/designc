@@ -954,6 +954,7 @@ async function freezeOnce(item) {
       specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null }),
       acceptance: item ? only(acs, A.acceptance, acKeep) : acs,
       tokens: A.tokens != null ? { path: TOKENS, text: A.tokens } : null,
+      focus: item ? [] : [...new Set([...A.requirements.flatMap(r => r.elements || []), ...A.decisions.filter(d => boundIds.has(d.id)).flatMap(d => d.binds || [])].map(String))],
     });
   } catch (e) { toast(String(e.message || e), 'error'); return; }
   const already = Core.frozenAs(plan.id, A.handovers);

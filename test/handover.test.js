@@ -26,13 +26,13 @@ test('handoverPlan: id is yyyymmdd-hash8 and the same inputs give the same id', 
 test('handoverPlan: files land under handovers/<id>/ with a handover.yaml that lists them with hashes', () => {
   const p = Core.handoverPlan(inputs());
   const paths = p.files.map(f => f.path).sort();
-  assert.deepEqual(paths, [`handovers/${p.id}/behaviour/q.p`, `handovers/${p.id}/decisions/d1.yaml`, `handovers/${p.id}/elements.json`, `handovers/${p.id}/handover.yaml`, `handovers/${p.id}/model/workspace.dsl`, `handovers/${p.id}/requirements/HRE-1.yaml`]);
+  assert.deepEqual(paths, [`handovers/${p.id}/BUILD.md`, `handovers/${p.id}/behaviour/q.p`, `handovers/${p.id}/decisions/d1.yaml`, `handovers/${p.id}/elements.json`, `handovers/${p.id}/handover.yaml`, `handovers/${p.id}/model/workspace.dsl`, `handovers/${p.id}/requirements/HRE-1.yaml`]);
   const doc = yaml.load(p.files.find(f => f.path.endsWith('/handover.yaml')).text);
   assert.equal(doc.id, p.id);
   assert.match(doc.revision, /^r-[0-9a-f]{8}$/);
   assert.equal(doc.by, 'mike'); assert.equal(doc.created, '2026-10-02T09:30:00.000Z');
   assert.deepEqual(doc.requirements, ['HRE-1']); assert.deepEqual(doc.decisions, ['d1']);
-  assert.equal(doc.files.length, 5);
+  assert.equal(doc.files.length, 6);
   assert.ok(doc.files.every(f => /^[0-9a-f]{16}$/.test(f.hash)));
   const copy = p.files.find(f => f.path.endsWith('model/workspace.dsl'));
   assert.equal(copy.text, 'workspace {}');
@@ -48,6 +48,72 @@ test('handoverPlan: elements.json is the resolved model, named in handover.yaml 
   assert.deepEqual(JSON.parse(file.text), Core.handoverElements(model.text, behaviour));
   assert.ok(doc.files.some(f => f.path === 'elements.json' && /^[0-9a-f]{16}$/.test(f.hash)));
   assert.throws(() => Core.handoverPlan(inputs({ model: { path: 'model/workspace.dsl', text: 'workspace { model { x = container } }' } })), /handover refused/);
+});
+
+const briefModel = { path: 'model/workspace.dsl', text: `workspace { model {
+  s = softwareSystem "Pricing" {
+    db = container "Quotes DB" { properties {
+      d.code "src/Data/**, db/migrations/**"
+      d.risk high } }
+    ui = container "Portal" { properties {
+      d.code "web/**"
+      d.risk low } }
+    worker = container "Worker"
+  } } }` };
+const brief = p => p.files.find(f => f.path.endsWith('/BUILD.md'));
+
+test('handoverPlan: BUILD.md tells any coding agent what to build, where it may write and what done means', () => {
+  const p = Core.handoverPlan(inputs({ model: briefModel,
+    scenarios: [{ path: 'scenarios/S-1.yaml', text: 'id: S-1\n' }],
+    evals: [{ path: 'evals/E-1.yaml', text: 'id: E-1\n' }],
+    specs: { files: [{ path: 'tests/acceptance/portal/AC-1.spec.ts', text: '// spec' }], loop: null } }));
+  const doc = yaml.load(p.files.find(f => f.path.endsWith('/handover.yaml')).text);
+  assert.equal(doc.build, 'BUILD.md');
+  assert.ok(doc.files.some(f => f.path === 'BUILD.md' && /^[0-9a-f]{16}$/.test(f.hash)));
+  const t = brief(p).text;
+  assert.match(t, new RegExp(`^# Build brief: ${p.id}$`, 'm'));
+  assert.match(t, /Pricing\/Quotes DB.*risk high/); assert.match(t, /`src\/Data\/\*\*`/); assert.match(t, /`db\/migrations\/\*\*`/);
+  assert.match(t, /Pricing\/Portal.*risk low/);
+  assert.match(t, /may write/, 'with no focus every code area is open, not a build target');
+  assert.doesNotMatch(t, /Pricing\/Worker/, 'an element with no code area is not a build target');
+  assert.match(t, /tests\/acceptance\/\*\*/);                 // reserved
+  assert.match(t, /HRE-1/); assert.match(t, /`decisions\/d1\.yaml`/);
+  assert.match(t, /`scenarios\/S-1\.yaml`/); assert.match(t, /`evals\/E-1\.yaml`/);
+  assert.match(t, /`tests\/acceptance\/portal\/AC-1\.spec\.ts`/);
+  assert.match(t, /main/);                                         // done is judged on main, not claimed
+  assert.doesNotMatch(t, /System 2|factory-s2/i, 'the brief names no pipeline');
+});
+
+test('handoverPlan: BUILD.md is derived, so it is not in the id, and the same inputs give the same text', () => {
+  const a = Core.handoverPlan(inputs({ model: briefModel })), b = Core.handoverPlan(inputs({ model: briefModel, now: '2026-10-02T10:00:00.000Z', by: 'someone' }));
+  assert.equal(a.id, b.id);
+  assert.equal(brief(a).text, brief(b).text, 'no time or person in the brief');
+});
+
+test('handoverPlan: with a focus, BUILD.md separates what to build from context it may touch', () => {
+  const p = Core.handoverPlan(inputs({ model: briefModel, focus: ['Quotes DB', 'Worker', 'Nowhere'] }));
+  const t = brief(p).text;
+  const [build, rest] = t.split('### Context');
+  assert.match(build, /### Build these/);
+  assert.match(build, /Pricing\/Quotes DB.*risk high/);
+  assert.match(build, /Pricing\/Worker.*no code area/, 'a focus element without d.code is named, not dropped');
+  assert.doesNotMatch(build, /Pricing\/Portal/);
+  assert.match(rest, /Pricing\/Portal/);
+  assert.doesNotMatch(t, /Nowhere/, 'a name the model does not have is left out');
+  assert.equal(Core.handoverPlan(inputs({ model: briefModel, focus: ['Quotes DB'] })).id, Core.handoverPlan(inputs({ model: briefModel })).id, 'focus is derived, not in the id');
+});
+
+test("handoverPlan: an item handover's BUILD.md builds only the in-scope elements and names the work item", () => {
+  const p = Core.handoverPlan(inputs({ model: briefModel, item: { id: 'W-7', requirement: 'HRE-1', elements: ['Quotes DB'] } }));
+  const t = brief(p).text;
+  assert.match(t, /W-7/);
+  assert.match(t, /Pricing\/Quotes DB/);
+  assert.doesNotMatch(t, /Pricing\/Portal/);
+});
+
+test('handoverPlan: BUILD.md says so when no element declares a code area', () => {
+  const t = brief(Core.handoverPlan(inputs())).text;
+  assert.match(t, /No element declares a code area/);
 });
 
 test('handoverPlan: vocabulary is copied when present', () => {
