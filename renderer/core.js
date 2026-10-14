@@ -1951,6 +1951,37 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     return r;
   }
 
+  // For a new project, where no element says where its code is yet: one folder per container under its system's
+  // folder (`<system>/<container>/**`, risk medium), each added as its own properties block. A suggestion for a person
+  // to approve, never applied by itself. { text, areas: [{name, pattern, risk}] } or { error }.
+  function suggestCodeAreas(designText) {
+    const m = parse(designText);
+    if (m.errors.length) return { error: 'The model does not parse. Fix it first, then suggest code areas.' };
+    const els = [...m.elements.values()];
+    if (els.some(e => e.props['d.code'] !== undefined)) return { error: 'Some elements already say where their code is (d.code). Add the others by hand.' };
+    const containers = els.filter(e => e.kind === 'container').sort((a, b) => a.line - b.line);
+    if (!containers.length) return { error: 'The model has no container, so there is nothing to give a code area.' };
+    const slug = s => String(s).toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '') || 'container';
+    const taken = new Set();
+    const areas = containers.map(c => {
+      const sys = m.elements.get(c.parent), base = `${slug(sys ? sys.name : 'system')}/${slug(c.name)}`;
+      let dir = base; for (let k = 2; taken.has(dir); k++) dir = `${base}-${k}`;
+      taken.add(dir);
+      return { el: c, name: c.name, pattern: `${dir}/**`, risk: 'medium' };
+    });
+    let text = designText;
+    for (const a of [...areas].reverse()) {
+      const r = insertInBlock(text, a.el, ind => [`${ind}properties {`, `${ind}  "d.code" "${a.pattern}"`, `${ind}  "d.risk" "${a.risk}"`, `${ind}}`]);
+      if (r.error) return r;
+      text = r.text;
+    }
+    const out = parse(text), got = [...out.elements.values()];
+    if (out.errors.length || areas.some(a => (got.find(e => e.id === a.el.id) || { props: {} }).props['d.code'] !== a.pattern)) {
+      return { error: 'The suggested code areas could not be added cleanly. Add d.code and d.risk by hand.' };
+    }
+    return { text, areas: areas.map(({ name, pattern, risk }) => ({ name, pattern, risk })) };
+  }
+
   // Adds lines at the end of one element's block, adding ' {' ... '}' when it has none. `body(indent)` gives the
   // lines. Only the element's declaration line may change; every other original line is kept. { text } or { error }.
   function insertInBlock(designText, el, body) {
@@ -2014,6 +2045,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, scopedGate, acceptanceClauses, acceptanceSpecs, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, scopedGate, acceptanceClauses, acceptanceSpecs, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, suggestCodeAreas, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

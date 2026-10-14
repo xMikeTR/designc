@@ -1298,6 +1298,25 @@ function dispatchButton() {
   return s.error ? `<button class="btn block" disabled title="${esc(s.error)}">${esc('Dispatch')}</button>`
     : `<button class="btn block" data-a="dispatch" data-id="${esc(h.id)}" title="Types your build command for ${esc(h.id)} into the Terminal. Nothing runs until you press Enter.">${esc(s.label)} ${esc(h.id)}</button>`;
 }
+// A new project: no element says where its code goes, so a coding agent would have nowhere it may write.
+function codeAreasButton() {
+  if (!A.model || A.model.errors.length || ![...A.model.elements.values()].some(e => e.kind === 'container')) return '';
+  if ([...A.model.elements.values()].some(e => e.props['d.code'] !== undefined)) return '';
+  return `<div class="hint">No element says where its code goes (d.code), so a coding agent has nowhere it may write.</div>
+    <button class="btn block" data-a="suggestcode" title="Suggests one folder per container; you see them before anything is written">Suggest code areas</button>`;
+}
+async function suggestCodeAreas() {
+  const b = A.buffers.get(A.cfg.model);
+  if (b && b.dirty) return toast(`Save ${A.cfg.model} first. Suggesting code areas writes to the file and would overwrite your unsaved edits.`, 'error');
+  const r = Core.suggestCodeAreas(A.modelText);
+  if (r.error) return toast(r.error, 'error');
+  const names = new Set(r.areas.map(a => a.name));
+  const bound = A.decisions.filter(d => d.status === 'bound' && (d.binds || []).some(n => names.has(n))).length;
+  if (!confirm(`Add these code areas to ${A.cfg.model}?\n\n${r.areas.map(a => `${a.name}: ${a.pattern} (risk ${a.risk})`).join('\n')}\n\nEdit or remove any of them in the model afterwards; a container you will not build can lose its d.code and d.risk.` +
+    (bound ? `\n\nA code area is part of the design, so ${plural(bound, 'bound decision')} on these containers will say changed since promotion until you re-bind them (Re-bind in the gate).` : ''))) return;
+  await host.write(A.cfg.model, r.text); await loadModel(); recompile(); await openFile(A.cfg.model); renderAll();
+  toast(`Added ${plural(r.areas.length, 'code area')}. Review them in the model before you freeze.`);
+}
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
@@ -1305,7 +1324,7 @@ function designSidebar() {
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
     gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span>${clauseActions(c)}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
-    (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
+    codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}</div>
@@ -2174,6 +2193,7 @@ document.addEventListener('click', async e => {
   if (a === 'open') return host.openFolder();
   if (a === 'sample') { const i = await host.openSample(); return onFolder(i); }
   if (a === 'freeze') return freezeHandover();
+  if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
