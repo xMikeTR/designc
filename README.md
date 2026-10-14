@@ -326,6 +326,16 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 
 `llm.provider` is `openai` (default, any OpenAI-compatible gateway), `anthropic` (key in the env var named by `apiKeyEnv`, default `ANTHROPIC_API_KEY`) or `vertex` (Claude on Vertex AI using your own `gcloud auth application-default login`; set `project` and `region`).
 
+### Dispatching a handover to a coding agent
+
+A frozen handover is a folder in git with a `BUILD.md` that any coding agent can read, so the build can simply pull it. To start your own build from the app, name its command in `designc.json`:
+
+```json
+"dispatch": { "label": "Build it", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" }
+```
+
+The Design sidebar then shows **Build it <id>** for the newest handover, and a frozen work item's card shows **Build it** for its own handover. Pressing it types the command into the Terminal panel with `{handover}` (the handover folder), `{repo}` (the work item's `repo`, else `codebase`), `{registry}` and `{base}` (`work.mainBranch`, else `main`) filled in and quoted for your shell. It does not press Enter: read the line, then run it. The shell has your full environment, so the build finds its own keys. Any other `{name}` in the command is refused. Without `dispatch` there is no button.
+
 With the `openai` provider, grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
 ## Timing and retries

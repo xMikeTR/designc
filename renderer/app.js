@@ -1291,6 +1291,13 @@ function lookHtml() {
   return { count: d.count, body };
 }
 
+// Dispatch the newest whole-model handover (designc.json dispatch); item handovers are dispatched from their Work card.
+function dispatchButton() {
+  const s = dispatchSetting(), h = A.handovers.filter(x => !x.work_item).pop();
+  if (!s || !h) return '';
+  return s.error ? `<button class="btn block" disabled title="${esc(s.error)}">${esc('Dispatch')}</button>`
+    : `<button class="btn block" data-a="dispatch" data-id="${esc(h.id)}" title="Types your build command for ${esc(h.id)} into the Terminal. Nothing runs until you press Enter.">${esc(s.label)} ${esc(h.id)}</button>`;
+}
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
@@ -1298,7 +1305,7 @@ function designSidebar() {
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
     gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span>${clauseActions(c)}</div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
-    (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '');
+    (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}</div>
@@ -2167,6 +2174,7 @@ document.addEventListener('click', async e => {
   if (a === 'open') return host.openFolder();
   if (a === 'sample') { const i = await host.openSample(); return onFolder(i); }
   if (a === 'freeze') return freezeHandover();
+  if (a === 'dispatch') return dispatchHandover(d.id);
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
   if (a === 'newreq') return newRequirement();
@@ -2299,7 +2307,7 @@ require.config({ paths: { vs: '../node_modules/monaco-editor/min/vs' } });
 require(['vs/editor/editor.main'], async () => {
   setupMonaco(window.monaco);
   const info = await host.boot();
-  A.user = info.user; A.recent = info.recent;
+  A.user = info.user; A.recent = info.recent; A.platform = info.platform;
   A.model = Core.parse(''); A.diags = []; A.gate = Core.gate({ model: A.model, diags: [], decisions: [], requirements: [], ledger: [] });
   document.querySelectorAll('#activity button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.act === 'explorer')));
   if (info.root) await onFolder(info.root); else { activate(null); renderAll(); }
