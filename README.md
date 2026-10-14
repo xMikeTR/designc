@@ -373,6 +373,8 @@ Patterns are repo-relative and comma-separated: `*` and `?` match within one fol
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
 - **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
 
+**A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
+
 The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
 ## Cost forecast
