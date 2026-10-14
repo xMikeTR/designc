@@ -19,6 +19,17 @@ case "$stage" in
     git -C "$CODE" init -q -b main
     git -C "$CODE" -c user.name=demo -c user.email=demo@example.invalid add -A
     git -C "$CODE" -c user.name=demo -c user.email=demo@example.invalid commit -qm "Pricing sample baseline"
+    # Dispatch button: the app types this S2 command into its Terminal for a frozen handover; the person presses Enter.
+    python3 - "$REG/designc.json" "$S2_DIR" <<'PY'
+import json, shlex, sys
+path, s2 = sys.argv[1], sys.argv[2]
+cfg = json.load(open(path))
+cfg["dispatch"] = {"label": "Build with S2", "command":
+    "FACTORY_PROVIDER=anthropic FACTORY_REVIEWER_SAME_FAMILY=allow DOTNET_ROLL_FORWARD=Major "
+    f"dotnet run --project {shlex.quote(s2 + '/src/Factory.S2')} -- run "
+    "--handover {handover} --repo {repo} --registry {registry} --base {base}"}
+json.dump(cfg, open(path, "w"), indent=2)
+PY
     echo "Scratch copy ready in $WORK"
     ;;
   check)
@@ -26,7 +37,8 @@ case "$stage" in
     ;;
   app)
     echo "Human step. In the app: Design view, Bind D-0001 (runs its check), then Freeze handover."
-    echo "A handover folder appears under $REG/handovers/."
+    echo "A handover folder appears under $REG/handovers/. Then press Build with S2: it types the S2 run into"
+    echo "the Terminal; read it and press Enter (paid run: ANTHROPIC_API_KEY must be set in that shell)."
     cd "$APP" && npx electron . "$REG"
     ;;
   build)
