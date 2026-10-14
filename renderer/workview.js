@@ -194,6 +194,9 @@ function workItemHtml(it, st, active) {
   const sg = !problems.length ? itemGate(it) : null;
   const froze = workFrozen()[it.id];
   const btn = [`<button class="btn" data-file="${esc(it._path)}">Open file</button>`];
+  const ds = froze && state !== 'done' ? dispatchSetting() : null;
+  if (ds) btn.unshift(ds.error ? `<button class="btn" disabled title="${esc(ds.error)}">Dispatch</button>`
+    : `<button class="btn" data-work="dispatch" data-id="${esc(it.id)}" title="Types your build command for ${esc(froze.handover)} into the Terminal. Nothing runs until you press Enter.">${esc(ds.label)}</button>`);
   if (sg && state !== 'done') btn.unshift(`<button class="btn" data-work="freeze" data-id="${esc(it.id)}" ${sg.ready ? '' : 'disabled title="Clear the blocking items below first"'}>${froze ? 'Freeze again' : 'Freeze item'}</button>`);
   if (state === 'backlog') btn.unshift(`<button class="btn primary" data-work="start" data-id="${esc(it.id)}" ${problems.length ? 'disabled title="Fix the problems in the file first"' : ''}>Start</button>`);
   if (state === 'active') btn.unshift(`<button class="btn" data-work="gates" data-id="${esc(it.id)}" ${WK.busy ? 'disabled' : ''}>Run gates</button>`, `<button class="btn primary" data-work="done" data-id="${esc(it.id)}">Done</button>`);
@@ -340,6 +343,7 @@ document.addEventListener('click', e => {
   else if (t.dataset.work === 'gates') workRunGates(id);
   else if (t.dataset.work === 'done') workDone(id);
   else if (t.dataset.work === 'freeze') { const it = (A.work || []).find(i => i.id === id); if (it) freezeHandover(it); }
+  else if (t.dataset.work === 'dispatch') { const it = (A.work || []).find(i => i.id === id), f = workFrozen()[id]; if (it && f) dispatchHandover(f.handover, it); }
   else if (t.dataset.work === 'gate') setActivity('design');
   else if (t.dataset.work === 'seen') { markLooked(); WK.digest = null; refreshDigest(); }
   else if (t.dataset.work === 'addreq') workAddToRequirement(id, t.dataset.el);
