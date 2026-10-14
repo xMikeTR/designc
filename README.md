@@ -28,10 +28,13 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
 | **Code map** | What the code actually is (as built) | Extract a .NET, TS/JS or F# codebase into a C4 map with evidence, down to **types and methods**, overlaid on the design as drift, with code quality warnings. See [Code map](#code-map) |
 | **Build** | The coding pipeline | Agent runs from Langfuse plus ledger events: tokens per passing task, reruns, decision checks, needs-decision items, drift, handover cost forecast against actual |
+| **Work** | Work items for the build | Backlog and active items, New item, Start, Run gates, Freeze item (against a scoped gate), Done (needs evidence for every `done_when` entry and, for a repo item, a passing gate at a commit on main). A digest at the top says what needs you, what failed a gate, what is done since you last looked and what is waiting, including items over budget. Cards show the pipeline's judge score as a gradient that never decides Done |
 | **Source control** | Git, daily loop | Branch, fetch, pull (fast-forward only), push (never forces), stage, commit. Freezing a handover pre-fills the commit. Compare tab shows a meaning-level diff of the model |
 | **Improve** | Evals and the improvement loop | Escapes by the stage that should have caught them, rule health, proposals, agent activity, ledger integrity, agent evals, factory suite runs, failure modes, eval tasks, judge calibration, escapes in other registries |
 | **Set up** | First-run settings page | Model file, LLM provider and Langfuse; each skippable, with Test connection. Keys stay in environment variables |
 | **Agent panel** (right) | Chat with roles | Architect, Grill-me and Analyst; built-in, ACP or AG-UI agents. Every write is a diff card you approve |
+
+The Design sidebar opens with **Since last look**: what changed in the gate, findings, decisions, drift and extraction since you last marked the registry as seen (display only, never a gate input). View > Terminal (Ctrl+`) opens a shell in the registry folder after you trust the folder; it is for you, no agent reaches it.
 
 Typical flow: sketch or import the design (Canvas, Design, or "Start the design from this map" on a legacy codebase), let lint and the gate tell you what is missing, record decisions, freeze a handover for the build pipeline, then watch Build and Improve for what the pipeline did and where it escaped.
 
@@ -162,9 +165,12 @@ Ctrl+Alt+I, or the chat icon at the bottom of the activity bar. Pick a role:
 
 | Role | System | Reads | Needs your approval |
 | --- | --- | --- | --- |
+| Tutor | S1 | the model, findings and gate (read-only) | nothing: it cannot write |
 | Architect | S1 | model, findings, gate, decisions, registry files, code map, codebase search, telemetry | `propose_model_edit`, `mint_decision` |
 | Grill-me | S1 | the same, without telemetry | `mint_decision` |
 | Analyst | S4 | everything above | `mint_proposal` |
+
+The Tutor teaches system design while you design: it explains in plain words, ties the answer to your model, names sources and ends with one question. Use "Ask the tutor" on a finding. When you answer "I don't know" to Grill-me, a technical question is researched and answered with options, sources (or a statement that it is unsourced) and a recommendation, and you choose; a business question is never answered by research, Grill-me says who should answer and offers a `PROPOSED:` business decision. Grill-me can also map an imported requirement page to design elements (`map_requirement`), and draft acceptance criteria (`mint_acceptance`); both are diff cards you approve.
 
 How it stays governed:
 
@@ -269,6 +275,11 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `behaviour/*.p` | P models, one per protocol |
 | `requirements/*.yaml` | Jira keys the design answers |
 | `decisions/*.yaml` | Decisions: `minted`, then `bound` by a human, each with `checks` |
+| `requirements/*.yaml` from import | Requirement stubs made from exported pages (`.html`, `.md`) with the ⇩ button in the Requirements section: a review shows new, changed, unchanged and not importable pages, and page text is never stored. Word, PDF and Confluence converters are in `scripts/` (`convert-pages.py`, `fetch-confluence.py`); see `docs/requirement-import.md` |
+| `work/*.yaml` | Work items: a requirement with elements, or a target of `document`, `jira` or `investigation`, plus `repo`, `writes`, `depends_on` and `done_when`. Human-written (Work view, New item) |
+| `acceptance/*.yaml` | UI acceptance criteria per element: states, locators and cases. Gate input; a handover turns them into Playwright spec skeletons |
+| `design-tokens/tokens.json` | W3C design tokens, judged by the gate for text size and copied into every handover |
+| `scenarios/*.yaml` | Quality attribute scenarios with fitness functions, optional `importance` and `difficulty` |
 | `evals/*.yaml` | Agent evals: the command, results file and thresholds that judge an agent. Human-written; no agent role may write here |
 | `proposals/*.yaml` | Improve proposals, same lifecycle |
 | `handovers/*.yaml` | Frozen handovers, written by Run > Freeze Handover |
@@ -290,6 +301,8 @@ The pipeline appends lines like these; the app watches the folder and updates li
 {"schema_version":1,"by":"pipeline","kind":"asbuilt_edge","from":"ReferralWorker","to":"RatingEngine"}
 {"schema_version":1,"by":"pipeline","kind":"escape","id":"E-0008","element":"Cat Model Adapter","description":"…","code":"DC004"}
 {"schema_version":1,"by":"pipeline","kind":"false_positive","code":"DC003","element":"Pricing Portal"}
+{"schema_version":1,"by":"pipeline","kind":"item_budget","item":"W-01","status":"exceeded","limit_tokens":200000,"spent_tokens":260000}
+{"schema_version":1,"by":"pipeline","kind":"item_judge","item":"W-01","judge":"ux","score":0.82,"threshold":0.8,"outcome":"pass","commit":"e840be7"}
 {"schema_version":1,"by":"pipeline","kind":"handover_closed","handover":"20261003-ab12cd34","outcome":"delivered"}
 ```
 
@@ -394,6 +407,8 @@ python3 -m designc check /path/to/registry          # findings and gate clauses
 python3 -m designc check /path/to/registry --json   # the same as JSON
 ```
 
+`python3 -m designc check <registry> --item <id>` prints the gate scoped to one work item. `python3 -m designc work <registry>` lists work items with their state and clashes, `verify-ledger` checks the ledger trail, and `eval` runs agent evals.
+
 Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the folder could not be read. It does not do drift, diff, blast radius or code extraction; those stay in the app.
 
 ### Recording the gate
@@ -441,8 +456,11 @@ To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's 
 ## Tests and mocks
 
 ```
-node --test test/*.test.js
+npm test                          # node --test "test/**/*.test.js"
+npm run e2e                       # @critical journeys; xvfb-run -a npm run e2e without a display
 ```
+
+The end-to-end journeys (`e2e/journeys.spec.js`) drive the real app on a scratch copy of the registry. `scripts/agent-gate.sh` runs them as a Claude Code Stop hook. They are never skipped or loosened.
 
 Core logic, the extractors, the ledger, the Python CLI parity and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
 
@@ -464,6 +482,9 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `dev/mock-acp-agent.js` | Scripted ACP agent for demos and tests |
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
+| `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score; the Work view |
+| `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
+| `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |
 | `renderer/app.js` | Workbench: Monaco setup, views, panels, sheet, dashboards |
 
 Headless screenshots for docs or CI: `DESIGNC_SNAPSHOT=out/shot DESIGNC_STEPS='[]' xvfb-run npx electron . --no-sandbox /path/to/registry`.
