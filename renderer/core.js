@@ -1929,6 +1929,31 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     if ([...design.elements.values()].some(e => e.parent === el.id)) return { error: `"${el.name}" already has components in the design.` };
     const comps = [...built.elements.values()].filter(e => e.kind === 'component' && e.parent === bc.id);
     if (!comps.length) return { error: `"${bc.name}" has no as-built components.` };
+    const r = insertInBlock(designText, el, ind => {
+      const q = x => '"' + String(x == null ? '' : x).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
+      const used = new Set([...design.elements.values()].map(e => e.ident).filter(Boolean));
+      const ident = new Map();
+      for (const c of comps) {
+        const b = c.ident || 'c_' + c.name.replace(/\W+/g, '_'); let id = b;
+        for (let k = 2; used.has(id); k++) id = b + '_' + k;
+        used.add(id); ident.set(c.id, id);
+      }
+      const body = comps.map(c => `${ind}${ident.get(c.id)} = component ${q(c.name)} "" ${q(c.technology)}`);
+      for (const r of built.rels) {
+        if (!ident.has(r.src) || !ident.has(r.dst)) continue;
+        const k = r.props['d.interaction'];
+        body.push(`${ind}${ident.get(r.src)} -> ${ident.get(r.dst)} ${q(r.description)} ${q(r.technology)}` + (k ? ` { properties { "d.interaction" ${q(k)} } }` : ''));
+      }
+      return body;
+    });
+    if (r.error) return r;
+    if (parse(r.text).errors.length > design.errors.length) return { error: `The spliced design for "${el.name}" would not parse.` };
+    return r;
+  }
+
+  // Adds lines at the end of one element's block, adding ' {' ... '}' when it has none. `body(indent)` gives the
+  // lines. Only the element's declaration line may change; every other original line is kept. { text } or { error }.
+  function insertInBlock(designText, el, body) {
     const src = designText, n = src.length;
     const starts = [0]; for (let i = 0; i < n; i++) if (src[i] === '\n') starts.push(i + 1);
     const lineAt = i => { let k = 0; while (k + 1 < starts.length && starts[k + 1] <= i) k++; return k; };
@@ -1948,10 +1973,10 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     for (let i = ls; i < le;) {
       if (src[i] === '"') { i = str(i); continue; }
       const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, le));
-      if (m) { if (m[0] === 'container') { kw = i; break; } i += m[0].length; } else i++;
+      if (m) { if (m[0] === el.kind) { kw = i; break; } i += m[0].length; } else i++;
     }
-    if (kw < 0) return { error: `The declaration line of "${el.name}" has no container keyword.` };
-    let p = trivia(kw + 'container'.length), lastEnd = kw + 'container'.length;
+    if (kw < 0) return { error: `The declaration line of "${el.name}" has no ${el.kind} keyword.` };
+    let p = trivia(kw + el.kind.length), lastEnd = kw + el.kind.length;
     while (src[p] === '"') { p = str(p); lastEnd = p; p = trivia(p); }
     let close = -1;
     if (src[p] === '{') {
@@ -1970,31 +1995,14 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     const eol = src.includes('\r\n') ? '\r\n' : '\n';
     const base = /^[ \t]*/.exec(src.slice(ls, le))[0];
     const ind = base + (base.includes('\t') ? '\t' : '  ');
-    const q = x => '"' + String(x == null ? '' : x).replace(/\\/g, '\\\\').replace(/"/g, '\\"') + '"';
-    const used = new Set([...design.elements.values()].map(e => e.ident).filter(Boolean));
-    const ident = new Map();
-    for (const c of comps) {
-      const b = c.ident || 'c_' + c.name.replace(/\W+/g, '_'); let id = b;
-      for (let k = 2; used.has(id); k++) id = b + '_' + k;
-      used.add(id); ident.set(c.id, id);
-    }
-    const body = comps.map(c => `${ind}${ident.get(c.id)} = component ${q(c.name)} "" ${q(c.technology)}`);
-    for (const r of built.rels) {
-      if (!ident.has(r.src) || !ident.has(r.dst)) continue;
-      const k = r.props['d.interaction'];
-      body.push(`${ind}${ident.get(r.src)} -> ${ident.get(r.dst)} ${q(r.description)} ${q(r.technology)}` + (k ? ` { properties { "d.interaction" ${q(k)} } }` : ''));
-    }
-    let text;
+    const lines = body(ind);
     if (close >= 0) {
       const cl = lineAt(close);
-      if (!src.slice(starts[cl], close).trim()) text = src.slice(0, starts[cl]) + body.join(eol) + eol + src.slice(starts[cl]);
-      else text = src.slice(0, close).replace(/[ \t]+$/, '') + eol + body.join(eol) + eol + base + src.slice(close);
-    } else {
-      let e = src.indexOf('\n', lastEnd); if (e < 0) e = n; else if (src[e - 1] === '\r') e--;
-      text = src.slice(0, lastEnd) + ' {' + src.slice(lastEnd, e) + eol + body.join(eol) + eol + base + '}' + src.slice(e);
+      if (!src.slice(starts[cl], close).trim()) return { text: src.slice(0, starts[cl]) + lines.join(eol) + eol + src.slice(starts[cl]) };
+      return { text: src.slice(0, close).replace(/[ \t]+$/, '') + eol + lines.join(eol) + eol + base + src.slice(close) };
     }
-    if (parse(text).errors.length > design.errors.length) return { error: `The spliced design for "${el.name}" would not parse.` };
-    return { text };
+    let e = src.indexOf('\n', lastEnd); if (e < 0) e = n; else if (src[e - 1] === '\r') e--;
+    return { text: src.slice(0, lastEnd) + ' {' + src.slice(lastEnd, e) + eol + lines.join(eol) + eol + base + '}' + src.slice(e) };
   }
 
   // Extension hooks (designc-canvas): add property specs and rules without forking the compiler.
