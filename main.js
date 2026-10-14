@@ -522,9 +522,9 @@ handle('git:log', async (rel, max) => (gitTrusted() ? git.log(root, rel, max) : 
 handle('git:show', async (hash, rel) => (gitTrusted() ? git.show(root, hash, rel) : NOT_TRUSTED));
 // Writes. Same trust gate. No handler takes a flag, a ref or a remote name from the renderer except a branch name,
 // which git.js validates; none of them force anything.
-for (const [ch, fn] of [['stage', git.stage], ['unstage', git.unstage], ['commit', git.commit], ['branch', git.branch], ['switch', git.switchTo]])
+for (const [ch, fn] of [['stage', git.stage], ['unstage', git.unstage], ['discard', git.discard], ['commit', git.commit], ['branch', git.branch], ['switch', git.switchTo], ['stashPush', git.stashPush], ['stashApply', git.stashApply], ['stashDrop', git.stashDrop]])
   handle(`git:${ch}`, async arg => (gitTrusted() ? fn(root, arg) : NOT_TRUSTED));
-for (const [ch, fn] of [['fetch', git.fetch], ['pull', git.pull], ['push', git.push], ['publish', git.publish]])
+for (const [ch, fn] of [['fetch', git.fetch], ['pull', git.pull], ['push', git.push], ['publish', git.publish], ['stashList', git.stashList], ['stashPop', git.stashPop]])
   handle(`git:${ch}`, async () => (gitTrusted() ? fn(root) : NOT_TRUSTED));
 handle('git:attrs', async () => (gitTrusted() ? { union: git.hasLedgerUnion(root) } : NOT_TRUSTED));
 handle('git:addUnion', async () => (gitTrusted() ? git.addLedgerUnion(root) : NOT_TRUSTED));
