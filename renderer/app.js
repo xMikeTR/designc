@@ -639,6 +639,13 @@ assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-M
   else { await host.write(path, text); A.tree = await host.tree(); await loadRegistry(); }
   return { id, path };
 }
+// A pipeline names elements by elements.json id; a decision binds by name. Asks first, like newDecision.
+async function answerNeedsDecision(n) {
+  if (!n) return;
+  const statement = await askText(`What was decided for ${n.id}? (leave blank to fill in later)`); if (statement == null) return;
+  const el = n.element && A.model ? Core.resolveElement(A.model, String(n.element)) : null;
+  return recordDecision({ statement: statement.trim(), binds: el ? [el.name] : n.element ? [String(n.element)] : [], resolves: [], rationale: `Pipeline asked (${n.id}): ${n.question}` });
+}
 // The + on Decisions and Record decision on a problem ask first, so a stray click creates nothing.
 async function newDecision() {
   const statement = await askText('What was decided? (leave blank to fill in later)'); if (statement == null) return;
@@ -1207,7 +1214,7 @@ function clauseActions(c) {
   if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
-  if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Record decision');
+  if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Answer with a decision') + b('data-ndres', c.needs.id, 'Mark resolved', 'Closes the question without a decision, for one that is not about the design');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
   return '';
 }
@@ -2156,7 +2163,7 @@ document.addEventListener('click', async e => {
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
   if (d.qdk) { const q = A.grill.questions[+d.qdk]; return dontKnow(q.question || '', q.why || ''); }
   if (d.qbiz) { const q = A.grill.questions[+d.qbiz]; return recordDecision({ kind: 'business', statement: q.suggested_decision || q.question || '', effect: 'accept', binds: [], resolves: [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
-  if (d.ndans) { const n = A.ledger.find(x => x.id === d.ndans); return recordDecision({ binds: n && n.element ? [n.element] : [], resolves: [], rationale: n ? `Pipeline asked (${n.id}): ${n.question}` : '' }); }
+  if (d.ndans) return answerNeedsDecision(A.ledger.find(x => x.kind === 'needs_decision' && x.id === d.ndans));
   if (d.telesc) {
     const t = telAgg().tasks.get(d.telesc); if (!t) return;
     const id = Ledger.escapeId(crypto.randomUUID());

@@ -182,3 +182,29 @@ test('the work digest names what needs a person and what failed', async () => {
   await expect(page.getByText('Failed a gate (1)')).toBeVisible();
   await expect(page.getByText('W-api: gate "true" failed at aaaaaaa')).toBeVisible();
 });
+
+test('a pipeline needs-decision in the gate is answered once, or marked resolved', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.mkdirSync(path.join(reg, 'ledger'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'nd1', ts: 1, kind: 'needs_decision',
+    by: 'pipeline', id: 'ND-0001', question: 'Which retry policy?', status: 'open', element: 'Quotes/Quotes API' }) + '\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design' }).click();
+  const sidebar = page.locator('#sbBody');
+  await expect(sidebar.getByText('open needs-decision ND-0001: Which retry policy?')).toBeVisible();
+  // Answering asks first, so a stray click or Cancel writes nothing.
+  await sidebar.getByRole('button', { name: 'Answer with a decision' }).click();
+  await page.getByRole('button', { name: 'Cancel' }).click();
+  expect(fs.existsSync(path.join(reg, 'decisions')) ? fs.readdirSync(path.join(reg, 'decisions')) : []).toEqual([]);
+  // The draft binds the element by its name, not the pipeline's elements.json id.
+  await sidebar.getByRole('button', { name: 'Answer with a decision' }).click();
+  await page.locator('.askbox').getByRole('textbox').fill('Retry twice with jitter');
+  await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'decisions')) ? fs.readdirSync(path.join(reg, 'decisions')) : []).toEqual(['retry-twice-with-jitter.yaml']);
+  expect(fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8')).toMatch(/^binds: \[Quotes API\]$/m);
+  // A question that needs no decision is closed from the gate itself.
+  await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001']);
+  await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
+});
