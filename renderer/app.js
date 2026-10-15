@@ -2020,6 +2020,19 @@ function handoversBlock() {
   }).join('');
   return `<div class="block"><h3>Handovers: forecast against actual</h3><div class="note">The forecast is frozen with the handover and priced from past spend on the elements it changes; an element needs ${esc(String((A.cfg.forecast || {}).minSamples || 3))} past handovers to count. The actual is every task recorded against the handover, reruns and failures included, and is final once the handover is closed.</div><div class="tw2"><table class="t"><tr><th>Handover</th><th class="num">Forecast tokens</th><th class="num">Forecast cost</th><th>Elements priced</th><th class="num">Actual tokens</th><th class="num">Actual cost</th><th class="num">Difference</th><th>State</th><th></th></tr>${rows}</table></div></div>`;
 }
+const LIVE_RUN_TAG = { running: 'open', succeeded: 'pass', failed: 'fail', parked: 'open', cancelled: 'open' };
+const runSpan = ms => (ms == null ? '' : ms < 60000 ? `${Math.round(ms / 1000)} s` : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${(ms / 3600000).toFixed(1)} h`);
+// Build's Runs: what a pipeline said about each run (run_started, run_ended) and its handover's tasks since it started.
+function runsBlock() {
+  const runs = Ledger.liveRuns(A.ledger).slice(0, 5);
+  if (!runs.length) return '';
+  return `<div class="block" id="buildRuns"><h3>Runs</h3><div class="note">Reported by the pipeline as it works. A run with no end is shown as running; if the pipeline stopped without saying so, it stays that way.</div>${runs.map(r => {
+    const done = r.tasks.filter(t => t.status === 'passed').length;
+    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span> ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason ? `<div class="note">${esc(r.reason)}</div>` : ''}`;
+    const rows = r.tasks.map(t => `<tr><td><span class="id">${esc(t.task)}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td>${esc(t.tier || '')}</td><td class="num">${t.tokens ? fmtN(t.tokens) : ''}</td></tr>`).join('');
+    return head + (rows ? `<div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th>Tier</th><th class="num">Tokens</th></tr>${rows}</table></div>` : '<div class="note">No task reported yet.</div>');
+  }).join('')}</div>`;
+}
 async function closeHandover(id, outcome) {
   if (!confirm(`Close ${id} as ${outcome}? The actual spend becomes final and later tasks are flagged as after close.`)) return;
   await recordEvent('handover_closed', { handover: id, outcome });
@@ -2032,9 +2045,10 @@ function buildDash() {
   const totalCost = taskCosts.length ? taskCosts.reduce((a, c) => a + c, 0) : null;
   const needs = L.filter(e => e.kind === 'needs_decision');
   let h = `<div class="dash"><h1>Build</h1><p class="lede">What the coding pipeline did with the handed-over design, from <span class="code">ledger/*.jsonl</span>. The checks are the decisions' own checks, so a failure here is a design question, not only a red build.</p>`;
+  h += runsBlock();
   h += telemetryBlock();
   if (L.some(e => e.sample)) h += `<span class="samplenote">Includes sample events from ledger/pipeline.jsonl</span>`;
-  if (!L.length) return h + `<div class="block"><h3>No pipeline events yet</h3><div class="note">The pipeline appends one JSON object per line to <span class="code">ledger/*.jsonl</span>, each with a <span class="code">kind</span>: task, check, needs_decision, asbuilt_edge, escape or false_positive. This view updates as the files change.</div></div></div>`;
+  if (!L.length) return h + `<div class="block"><h3>No pipeline events yet</h3><div class="note">The pipeline appends one JSON object per line to <span class="code">ledger/*.jsonl</span>, each with a <span class="code">kind</span>: run_started, run_ended, task, check, needs_decision, asbuilt_edge, escape or false_positive. This view updates as the files change.</div></div></div>`;
   h += `<div class="stats"><div class="stat"><div class="v">${passed.length ? fmtN(tokens / passed.length) : 'n/a'}</div><div class="l">Tokens per passing task</div></div><div class="stat"><div class="v">${passed.length} of ${tasks.length}</div><div class="l">Tasks passed</div></div><div class="stat"><div class="v">${tasks.length ? (reruns / tasks.length).toFixed(1) : '0'}</div><div class="l">Reruns per task</div></div><div class="stat"><div class="v">${needs.filter(n => n.status === 'open').length}</div><div class="l">Waiting on a decision</div></div>${totalCost != null ? `<div class="stat"><div class="v">${money(totalCost)}</div><div class="l">Total task cost</div></div>` : ''}</div>`;
   h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
