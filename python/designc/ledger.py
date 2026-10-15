@@ -48,6 +48,8 @@ def _rule(rid, ev):
             if not isinstance(task, dict) or not isinstance(task.get('hash'), str) or not task['hash']: return f'tasks.{tid}: needs a hash'
             if not names(task.get('gates')) or not task['gates']: return f'tasks.{tid}: needs at least one gate grader'
             if 'gradients' in task and not names(task['gradients']): return f'tasks.{tid}: gradients must be a list of grader names'
+    elif rid == 'ended_needs_reason':
+        if 'status' in ev and ev['status'] != 'succeeded' and not ev.get('reason'): return "reason: required when status is not 'succeeded'"
     elif rid == 'aborted_needs_reason':
         if ev.get('outcome') == 'aborted' and not ev.get('reason'): return "reason: required when outcome is 'aborted'"
     elif rid == 'caught_by_member':

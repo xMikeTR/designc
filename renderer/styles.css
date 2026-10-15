@@ -191,6 +191,7 @@ pre.out{margin:0;padding:8px 12px;font:12px/1.5 var(--mono);white-space:pre-wrap
 .block{border:1px solid var(--edge);margin-bottom:20px;min-width:0}
 .block h3{margin:0;font-size:13px;padding:9px 14px;border-bottom:1px solid var(--edge);display:flex;align-items:center;gap:8px;background:var(--chrome)}
 .block .note{padding:10px 14px;color:var(--fg2)}
+.block .runhead{padding:10px 14px 4px;border-top:1px solid var(--edge)}
 .tw2{overflow-x:auto}
 table.t{border-collapse:collapse;width:100%;font-size:12.5px}
 table.t th{text-align:left;font-weight:600;color:var(--fg2);padding:6px 14px;border-bottom:1px solid var(--edge);white-space:nowrap}

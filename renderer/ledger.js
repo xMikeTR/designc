@@ -54,6 +54,8 @@ const Ledger = (() => {
     wip_limit_changed: 'pipeline.jsonl',
     item_budget: 'pipeline.jsonl',
     item_judge: 'pipeline.jsonl',
+    run_started: 'pipeline.jsonl',
+    run_ended: 'pipeline.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -69,7 +71,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -212,6 +214,21 @@ const Ledger = (() => {
       enums: { outcome: ['pass', 'fail'] },
       types: { item: 'string', judge: 'string', score: 'number', threshold: 'number', outcome: 'string', commit: 'string|null', judge_version: 'string', rubric_hash: 'string', trace_id: 'string' },
     },
+    // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own
+    // id for the attempt; the status is generic so any pipeline maps its own outcomes onto it.
+    run_started: {
+      required: ['run', 'handover'],
+      optional: [],
+      enums: {},
+      types: { run: 'string', handover: 'string' },
+    },
+    run_ended: {
+      required: ['run', 'handover', 'status'],
+      optional: ['reason'],
+      enums: { status: ['succeeded', 'failed', 'parked', 'cancelled'] },
+      types: { run: 'string', handover: 'string', status: 'string', reason: 'string' },
+      rules: ['ended_needs_reason'],
+    },
     item_recheck: {
       required: ['item', 'handover', 'stale', 'reasons'],
       optional: [],
@@ -325,6 +342,7 @@ const Ledger = (() => {
       return null;
     },
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
+    ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
     origin_member: ev => ('origin' in ev && ev.origin !== undefined && ev.origin !== null && !ORIGINS.includes(ev.origin) ? `origin: must be null or one of ${ORIGINS.join('|')}` : null),
@@ -640,6 +658,31 @@ const Ledger = (() => {
     return out;
   }
 
+  // Build's Runs: one row per pipeline run, newest first. The first run_started and the first run_ended per run
+  // win. A run's tasks are the task rows of its handover after it started (and not after it ended), latest
+  // status per task. A run with no end is `running`; `ms` runs to `now` until it ends.
+  function liveRuns(events, { now = Date.now() } = {}) {
+    const runs = new Map();
+    const row = (e) => {
+      if (!runs.has(e.run)) runs.set(e.run, { run: e.run, handover: e.handover, started: null, ended: null, status: 'running', reason: null, sample: !!e.sample });
+      return runs.get(e.run);
+    };
+    for (const e of events) {
+      if (e.kind === 'run_started') { const r = row(e); if (r.started == null && r.ended == null) { r.started = e._ts; r.handover = e.handover; } }
+      if (e.kind === 'run_ended') { const r = row(e); if (r.ended == null) { r.ended = e._ts; r.status = e.status; r.reason = e.reason || null; } }
+    }
+    return [...runs.values()].map(r => {
+      const tasks = new Map();
+      for (const e of events) {
+        if (e.kind !== 'task' || e.handover !== r.handover || r.started == null) continue;
+        if (e._ts < r.started || (r.ended != null && e._ts > r.ended)) continue;
+        tasks.set(e.task, { task: e.task, status: e.status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), at: e._ts });
+      }
+      const ms = r.started == null ? null : (r.ended != null ? r.ended : now) - r.started;
+      return { ...r, ms, tasks: [...tasks.values()] };
+    }).sort((a, b) => (b.ended != null ? b.ended : b.started) - (a.ended != null ? a.ended : a.started));
+  }
+
   // What each agent did, for the Improve view. One row per agent and role, newest activity last-seen.
   // Reads the agent_* kinds and unapproved_change; every other kind is ignored.
   function agentActivity(events) {
@@ -891,7 +934,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
