@@ -53,6 +53,7 @@
     "budget_shape",
     "usage_shape",
     "suite_run_shape",
+    "fail_needs_note",
     "hash_not_blank",
     "ended_needs_reason",
     "aborted_needs_reason",
@@ -799,6 +800,37 @@
       "types": {},
       "rules": [
         "usage_shape"
+      ]
+    },
+    "trace_review": {
+      "stream": "designc.jsonl",
+      "required": [
+        "trace_id",
+        "observation",
+        "verdict",
+        "note"
+      ],
+      "optional": [
+        "run_id",
+        "task",
+        "attempt",
+        "failure_mode"
+      ],
+      "enums": {
+        "verdict": [
+          "pass",
+          "fail"
+        ]
+      },
+      "types": {
+        "trace_id": "string",
+        "observation": "string",
+        "note": "string",
+        "attempt": "number",
+        "failure_mode": "string|null"
+      },
+      "rules": [
+        "fail_needs_note"
       ]
     },
     "ui_acceptance_failed": {

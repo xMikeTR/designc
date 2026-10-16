@@ -68,6 +68,7 @@ const Ledger = (() => {
     suite_run_finished: 'factory.jsonl',
     failure_mode_classified: 'factory.jsonl',
     factory_task_bound: 'factory.jsonl',
+    trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
@@ -312,6 +313,16 @@ const Ledger = (() => {
       types: { task_id: 'string', hash: 'string' },
       rules: ['hash_not_blank'],
     },
+    // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in
+    // telemetry). Written by the app only; the latest per observation wins. `failure_mode` names a mode in
+    // factory/taxonomy.yaml (null or absent: not assigned).
+    trace_review: {
+      required: ['trace_id', 'observation', 'verdict', 'note'],
+      optional: ['run_id', 'task', 'attempt', 'failure_mode'],
+      enums: { verdict: ['pass', 'fail'] },
+      types: { trace_id: 'string', observation: 'string', note: 'string', attempt: 'number', failure_mode: 'string|null' },
+      rules: ['fail_needs_note'],
+    },
   };
 
   const isPlainObject = v => v != null && typeof v === 'object' && !Array.isArray(v);
@@ -359,6 +370,7 @@ const Ledger = (() => {
       }
       return null;
     },
+    fail_needs_note: ev => (ev.verdict === 'fail' && typeof ev.note === 'string' && !ev.note.trim() ? "note: say what went wrong when verdict is 'fail'" : null),
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
@@ -959,6 +971,28 @@ const Ledger = (() => {
     return { modes, byEscape, unknown, unclassified, problems };
   }
 
+  // Error analysis: the latest trace_review per observation.
+  function traceReviews(events) {
+    const m = new Map();
+    for (const e of events) if (e.kind === 'trace_review') m.set(e.observation, e);
+    return m;
+  }
+
+  // The review queue over task attempts `spans` ({id, outcome, start, ...}): failed and not reviewed first, then the
+  // rest not reviewed, then reviewed; newest first in each. Counts only cover attempts in `spans`.
+  function reviewQueue(spans, events) {
+    const reviews = traceReviews(events);
+    const rows = spans.map(s => ({ ...s, review: reviews.get(s.id) || null }));
+    const rank = r => (r.review ? 2 : r.outcome === 'failed' ? 0 : 1);
+    rows.sort((a, b) => rank(a) - rank(b) || b.start - a.start);
+    const reviewed = rows.filter(r => r.review);
+    return { rows, counts: {
+      total: rows.length, failed: rows.filter(r => r.outcome === 'failed').length, reviewed: reviewed.length,
+      pass: reviewed.filter(r => r.review.verdict === 'pass').length, fail: reviewed.filter(r => r.review.verdict === 'fail').length,
+      toReview: rows.length - reviewed.length,
+    } };
+  }
+
   // Factory evals: eval tasks. `tasks` are factory/tasks/*.yaml rows `{id, title?, status?, source?, hash, ...}` with `hash` the
   // hash of the file text (computed by the caller). The file says minted, checked or retired; `bound` is never in a file:
   // it is the latest factory_task_bound for the id with the file's current hash. A bind whose hash no longer matches
@@ -1050,7 +1084,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

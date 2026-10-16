@@ -6,7 +6,7 @@ const fsp = fs.promises;
 const os = require('os');
 const { spawn } = require('child_process');
 const { extract } = require('./extract');
-const { fetchTelemetry } = require('./telemetry');
+const { fetchTelemetry, fetchTrace, traceSteps } = require('./telemetry');
 const { AcpHub } = require('./acp');
 const http = require('http');
 const crypto = require('crypto');
@@ -248,6 +248,15 @@ handle('telemetry:fetch', async () => {
   try { cfg = JSON.parse(await fsp.readFile(inside('designc.json'), 'utf8')).langfuse || null; } catch { /* no settings */ }
   if (!cfg) return { error: 'not_configured' };
   return fetchTelemetry(root, cfg);
+});
+// One task attempt, step by step, for error analysis (Improve, Review). Content is there only if the pipeline captured it.
+handle('telemetry:trace', async (traceId, spanId) => {
+  if (!root) return { error: 'no_folder' };
+  let cfg = null;
+  try { cfg = JSON.parse(await fsp.readFile(inside('designc.json'), 'utf8')).langfuse || null; } catch { /* no settings */ }
+  if (!cfg) return { error: 'not_configured' };
+  const r = await fetchTrace(root, cfg, traceId);
+  return r.error ? r : traceSteps(r.rows, String(spanId));
 });
 
 // ---------- agent panel: streaming chat with tools through the OpenAI-compatible gateway ----------

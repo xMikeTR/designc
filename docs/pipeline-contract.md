@@ -59,7 +59,7 @@ Every element a pipeline names (`task.element`, `needs_decision.element`, `asbui
 
 ## Kinds only a person writes
 
-These record a human judgement made in designc. A pipeline must not write them, and designc does not accept them as pipeline input: `needs_decision_resolved`, `escape_classified`, `decision_promoted`, `handover` (the freeze), `extraction`, `item_pulled`, `item_done` and `item_recheck` (a person starts and finishes a work item; an agent's claim that it is done is never evidence, and designc checks the commit is reachable from the main branch). The envelope cannot prove who wrote a line, so this is a rule for writers, enforced for `pipeline.jsonl` by V9.
+These record a human judgement made in designc. A pipeline must not write them, and designc does not accept them as pipeline input: `needs_decision_resolved`, `escape_classified`, `decision_promoted`, `handover` (the freeze), `extraction`, `item_pulled`, `item_done`, `item_recheck` and `trace_review` (a person reviewing a task attempt in Review; a person starts and finishes a work item; an agent's claim that it is done is never evidence, and designc checks the commit is reachable from the main branch). The envelope cannot prove who wrote a line, so this is a rule for writers, enforced for `pipeline.jsonl` by V9.
 
 A person's answer to a `needs_decision` is a `needs_decision_resolved` with `id` and any of: `payload.option` (the id of the option chosen), `payload.note` (free text for the agent that asked) and top-level `decision` (the id of the decision file that answers it). A pipeline resuming a parked run reads the latest one per `id`. With none of the three, the question was closed without an answer.
 
@@ -68,6 +68,8 @@ A person's answer to a `needs_decision` is a `needs_decision_resolved` with `id`
 ## Telemetry
 
 Runs reported through telemetry are priced and counted as pipeline runs unless their `system` tag is one of designc's own agents (`S1`, `S4`). Untagged runs are the pipeline's.
+
+Review (error analysis) lists task attempts: the outermost observation carrying the task field (`langfuse.fields.task`) that is not itself a model or tool call, with `run`, `attempt`, `element` and `passed` (1 or 0) read from the mapped fields. It reads the OpenTelemetry GenAI attributes `gen_ai.system_instructions`, `gen_ai.input.messages`, `gen_ai.output.messages`, `gen_ai.tool.call.arguments`, `gen_ai.tool.call.result` and `error.type` on the observations under an attempt, with or without Langfuse's `attributes.` prefix, falling back to the observation's input and output. Content is optional: without it a person sees which steps ran and their errors, and the view says the run did not capture content. Capture only into a Langfuse your organisation runs, since prompts and code go with it.
 
 ## Not in this contract
 

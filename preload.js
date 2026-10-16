@@ -53,6 +53,7 @@ contextBridge.exposeInMainWorld('host', {
   extract: p => ipcRenderer.invoke('codebase:extract', p),
   readCode: (p, rel) => ipcRenderer.invoke('codebase:read', p, rel),
   telemetry: () => ipcRenderer.invoke('telemetry:fetch'),
+  telemetryTrace: (traceId, spanId) => ipcRenderer.invoke('telemetry:trace', traceId, spanId),
   agentChat: (id, payload) => ipcRenderer.invoke('agent:chat', id, payload),
   agentCancel: id => ipcRenderer.invoke('agent:cancel', id),
   searchCode: (p, q, max) => ipcRenderer.invoke('codebase:search', p, q, max),
