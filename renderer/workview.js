@@ -82,6 +82,7 @@ async function refreshDigest() {
       try { new Notification('designc', { body: `${plural(d.needs.length, 'item')} need a decision, ${plural(d.failed.length, 'item')} failed a gate.` }); } catch { /* no notifications here */ }
     }
     WK.sig = sig;
+    renderBadges();
     if (had !== false && A.active === 'special:work') renderAll({ keepEditor: true });
   } finally { WK.digesting = false; }
 }
@@ -91,7 +92,7 @@ function digestHtml() {
   if (!d) return '';
   const row = (inner) => `<li>${inner}</li>`;
   const open = it => it ? ` <button class="lnk" data-file="work/${esc(it)}.yaml">Open ${esc(it)}</button>` : '';
-  const needs = d.needs.map(n => row(`${esc(n.text)}${n.element ? ` <span class="desc">on ${esc(n.element)}</span>` : ''} <span class="desc">${esc(when(n.ts))}</span>${n.kind === 'needs_decision' ? ' <button class="btn" data-work="gate">Record decision</button>' : open(n.item)}`)).join('');
+  const needs = d.needs.map(n => row(`${esc(n.text)}${n.element ? ` <span class="desc">on ${esc(n.element)}</span>` : ''} <span class="desc">${esc(when(n.ts))}</span>${n.kind === 'needs_decision' ? ` <button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button> <button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button>` : open(n.item)}`)).join('');
   const failed = d.failed.map(f => row(`${esc(f.text)}${open(f.item)}`)).join('');
   const done = d.done.map(x => row(`${esc(x.item)}${x.commit ? ` <span class="desc">at ${esc(String(x.commit).slice(0, 7))}</span>` : ''}${open(x.item)}`)).join('');
   const waiting = d.waiting.map(w => row(`${esc(w.text)}${open(w.item)}`)).join('');

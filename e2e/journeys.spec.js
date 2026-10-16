@@ -193,6 +193,14 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   await page.getByRole('button', { name: 'Design' }).click();
   const sidebar = page.locator('#sbBody');
   await expect(sidebar.getByText('open needs-decision ND-0001: Which retry policy?')).toBeVisible();
+  // Work counts it on its icon and answers it in place, like the gate.
+  await expect(page.locator('#badge-work')).toHaveText('1');
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const digest = page.locator('#special');
+  await expect(digest.getByText('Which retry policy?')).toBeVisible();
+  await expect(digest.getByRole('button', { name: 'Answer with a decision' })).toBeVisible();
+  await expect(digest.getByRole('button', { name: 'Mark resolved' })).toBeVisible();
+  await page.getByRole('button', { name: 'Design' }).click();
   // Answering asks first, so a stray click or Cancel writes nothing.
   await sidebar.getByRole('button', { name: 'Answer with a decision' }).click();
   await page.getByRole('button', { name: 'Cancel' }).click();
@@ -216,4 +224,5 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001']);
   await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
+  await expect(page.locator('#badge-work')).toHaveText('');
 });

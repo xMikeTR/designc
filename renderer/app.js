@@ -1130,6 +1130,8 @@ function renderBadges() {
   const b5 = $('#badge-scm'); b5.textContent = nf; b5.className = 'badge' + (nf ? ' on' : '');
   const dc = A.drift ? A.drift.undeclared.length + A.drift.unknownEls.length : 0;
   const b4 = $('#badge-codemap'); b4.textContent = dc; b4.className = 'badge' + (dc ? ' on' : '');
+  const wd = typeof WK !== 'undefined' && WK.digest ? WK.digest.needs.length + WK.digest.failed.length : 0;
+  const b6 = $('#badge-work'); b6.textContent = wd || ''; b6.className = 'badge' + (wd ? ' on bad' : '');
 }
 function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id.split('/').pop(); }
 function renderTabs() {
