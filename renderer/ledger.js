@@ -943,7 +943,8 @@ const Ledger = (() => {
   // registry and escape wins and null clears it. An id the taxonomy does not list is a warning (`unknown`), never counted.
   // Classifications of escapes not in `escapes` still count: their registry may just be unreachable.
   const TRIAGE = ['spec', 'fix', 'grader'];
-  function failureModes(events, { taxonomy = null, escapes = [] } = {}) {
+  // The modes of factory/taxonomy.yaml (null: no file), each with `count` 0, and what is wrong with the file.
+  function taxonomyModes(taxonomy) {
     const problems = [], modes = [], ids = new Set();
     if (taxonomy != null) {
       if (!isPlainObject(taxonomy)) problems.push('factory/taxonomy.yaml must be a mapping with a modes list');
@@ -955,9 +956,42 @@ const Ledger = (() => {
         ids.add(id);
         if (!m.name || !String(m.name).trim()) problems.push(`${id} needs a name`);
         if (m.triage != null && !TRIAGE.includes(m.triage)) problems.push(`${id}: triage must be ${TRIAGE.slice(0, -1).join(', ')} or ${TRIAGE[TRIAGE.length - 1]}`);
-        modes.push({ id, name: m.name ? String(m.name) : '', triage: TRIAGE.includes(m.triage) ? m.triage : null, description: m.description ? String(m.description) : '', count: 0, escapes: [] });
+        modes.push({ id, name: m.name ? String(m.name) : '', triage: TRIAGE.includes(m.triage) ? m.triage : null, description: m.description ? String(m.description) : '', count: 0 });
       });
     }
+    return { modes, problems };
+  }
+
+  // Adds one mode to factory/taxonomy.yaml text (null or blank: a new file) by appending lines at the end of the modes
+  // list, so every other line stays as written. The id is the next FM-NN. Refused when the name is blank, the triage is
+  // not a known one, the text does not parse, or modes is not the file's last block (the person edits the file instead).
+  function addTaxonomyMode(text, mode, parseYaml) {
+    const name = mode && mode.name != null ? String(mode.name).trim() : '';
+    if (!name) return { error: 'A failure mode needs a name.' };
+    if (mode.triage != null && !TRIAGE.includes(mode.triage)) return { error: `triage must be ${TRIAGE.join(', ')} or absent` };
+    const base = text == null || !String(text).trim() ? 'modes:\n' : String(text).replace(/\r\n/g, '\n');
+    let doc;
+    try { doc = parseYaml(base); } catch (e) { return { error: 'factory/taxonomy.yaml does not parse. Fix it, then add the mode.' }; }
+    if (!isPlainObject(doc) || (doc.modes != null && !Array.isArray(doc.modes))) return { error: 'factory/taxonomy.yaml must be a mapping with a modes list.' };
+    const lines = base.split('\n'), at = lines.findIndex(l => /^modes:\s*(#.*)?$/.test(l));
+    const later = at < 0 ? [] : lines.slice(at + 1).filter(l => /^\S/.test(l) && !/^(#|- |-$)/.test(l));
+    if (at < 0 || later.length) return { error: 'The modes list is not the last block of factory/taxonomy.yaml, so it cannot be added to safely. Edit the file instead.' };
+    const item = lines.slice(at + 1).map(l => /^(\s*)- /.exec(l)).find(Boolean), ind = item ? item[1] : '  ';
+    const n = Math.max(0, ...(doc.modes || []).map(m => { const x = /^FM-(\d+)$/.exec(isPlainObject(m) ? String(m.id) : ''); return x ? Number(x[1]) : 0; })) + 1;
+    const id = `FM-${String(n).padStart(2, '0')}`;
+    const body = [`${ind}- id: ${id}`, `${ind}  name: ${JSON.stringify(name)}`];
+    if (mode.triage) body.push(`${ind}  triage: ${mode.triage}`);
+    if (mode.description && String(mode.description).trim()) body.push(`${ind}  description: ${JSON.stringify(String(mode.description).trim())}`);
+    const out = (base.endsWith('\n') ? base : base + '\n') + body.join('\n') + '\n';
+    let back;
+    try { back = parseYaml(out); } catch (e) { back = null; }
+    const added = back && Array.isArray(back.modes) ? back.modes[back.modes.length - 1] : null;
+    if (!isPlainObject(added) || added.id !== id || added.name !== name) return { error: 'The mode could not be added to factory/taxonomy.yaml safely. Edit the file instead.' };
+    return { text: out, id };
+  }
+
+  function failureModes(events, { taxonomy = null, escapes = [] } = {}) {
+    const { modes: listed, problems } = taxonomyModes(taxonomy), modes = listed.map(m => ({ ...m, escapes: [] }));
     const latest = new Map();
     for (const e of events) if (e.kind === 'failure_mode_classified') latest.set(`${e.registry}/${e.escape}`, e);
     const byEscape = new Map(), unknown = [], byId = new Map(modes.map(m => [m.id, m]));
@@ -969,6 +1003,58 @@ const Ledger = (() => {
     }
     const unclassified = escapes.filter(x => !byEscape.has(`${x.registry}/${x.id}`)).map(x => ({ registry: x.registry, escape: x.id }));
     return { modes, byEscape, unknown, unclassified, problems };
+  }
+
+  // Error analysis: failed reviews (the latest per observation) grouped by their failure_mode against the taxonomy.
+  // `examples` are the reviews, newest first; a fail with no mode is `unassigned`, one the taxonomy lacks `unknown`.
+  function reviewModes(events, { taxonomy = null } = {}) {
+    const { modes: listed, problems } = taxonomyModes(taxonomy), modes = listed.map(m => ({ ...m, examples: [] }));
+    const byId = new Map(modes.map(m => [m.id, m])), unassigned = [], unknown = [];
+    const fails = [...traceReviews(events).values()].filter(r => r.verdict === 'fail').sort((a, b) => (b._ts || 0) - (a._ts || 0));
+    for (const r of fails) {
+      if (r.failure_mode == null || r.failure_mode === '') { unassigned.push(r); continue; }
+      const m = byId.get(r.failure_mode);
+      if (m) { m.count++; m.examples.push(r); } else unknown.push(r);
+    }
+    return { modes, unassigned, unknown, problems };
+  }
+
+  // Error analysis: an agent's proposed grouping of failed reviews ({mode} or {new_mode: {name, description?, triage?}},
+  // observations, why), checked before a person is asked. Each observation must be a latest failed review and appear
+  // once; a mode must be in the taxonomy, and a new mode's name must not repeat one. `changes` counts the reviews whose
+  // mode would change. The person's verdict and note are never part of it.
+  function reviewGrouping(events, taxonomy, groups) {
+    if (!Array.isArray(groups) || !groups.length) return { error: 'groups must be a non-empty list.' };
+    const { modes } = taxonomyModes(taxonomy), latest = traceReviews(events), seen = new Set();
+    const names = new Set(modes.map(m => m.name.trim().toLowerCase())), out = [];
+    let changes = 0;
+    for (const [i, g] of groups.entries()) {
+      const at = `group ${i + 1}`;
+      if (!isPlainObject(g)) return { error: `${at} must be an object.` };
+      if ((g.mode != null) === (g.new_mode != null)) return { error: `${at}: give either mode (an id from the taxonomy) or new_mode, not both or neither.` };
+      if (!g.why || !String(g.why).trim()) return { error: `${at}: say why these notes belong together.` };
+      let newMode = null;
+      if (g.mode != null && !modes.some(m => m.id === g.mode)) return { error: `${at}: ${g.mode} is not in factory/taxonomy.yaml (${modes.map(m => m.id).join(', ') || 'no modes yet'}). Use new_mode for a new one.` };
+      if (g.new_mode != null) {
+        const name = isPlainObject(g.new_mode) && g.new_mode.name != null ? String(g.new_mode.name).trim() : '';
+        if (!name) return { error: `${at}: new_mode needs a name.` };
+        if (names.has(name.toLowerCase())) return { error: `${at}: a mode named "${name}" already exists. Use its id as mode.` };
+        if (g.new_mode.triage != null && !TRIAGE.includes(g.new_mode.triage)) return { error: `${at}: triage must be ${TRIAGE.join(', ')} or absent.` };
+        names.add(name.toLowerCase());
+        newMode = { name, ...(g.new_mode.description ? { description: String(g.new_mode.description) } : {}), ...(g.new_mode.triage ? { triage: g.new_mode.triage } : {}) };
+      }
+      if (!Array.isArray(g.observations) || !g.observations.length) return { error: `${at}: list the observations it groups.` };
+      const reviews = [];
+      for (const o of g.observations) {
+        const r = latest.get(o);
+        if (!r || r.verdict !== 'fail') return { error: `${at}: ${o} is not a failed review. Use the observations list_reviews gives.` };
+        if (seen.has(o)) return { error: `${o} is in more than one group.` };
+        seen.add(o); reviews.push(r);
+        if (newMode || (r.failure_mode == null ? null : r.failure_mode) !== g.mode) changes++;
+      }
+      out.push({ mode: newMode ? null : g.mode, newMode: newMode || undefined, why: String(g.why).trim(), reviews });
+    }
+    return { groups: out, changes };
   }
 
   // Error analysis: the latest trace_review per observation.
@@ -1084,7 +1170,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

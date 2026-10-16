@@ -21,8 +21,8 @@ const ROLES = {
   grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page'], ask: ['mint_decision', 'mint_acceptance', 'map_requirement'],
     instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement.',
     starters: ['Grill me on this design', 'Grill me on Quotes DB only', 'What would you ask the business, not me?'] },
-  analyst: { label: 'Analyst', system: 'S4', allow: READ_TOOLS, ask: ['mint_proposal'],
-    instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can.',
+  analyst: { label: 'Analyst', system: 'S4', allow: [...READ_TOOLS, 'list_reviews'], ask: ['mint_proposal', 'group_reviews'],
+    instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can. When asked to group failure notes (error analysis): call list_reviews, read every failed note, and group them by the first thing that went wrong, reusing a mode of the taxonomy where it fits and naming a new one (a short phrase for the failure, not its cause) only where none does. A note that fits nowhere stays ungrouped. Propose the grouping with group_reviews, saying why each group belongs together; the person approves it. You never change a verdict or a note.',
     starters: ['What should change in the factory given the recent escapes?', 'Which lint rule would have caught the most failed runs?', 'Is any rule noisy enough to reconsider?'] },
   tutor: { label: 'Tutor', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: [],
     instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles). ' + RESEARCH_RULE + ' End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
@@ -52,6 +52,8 @@ const TOOLS = {
   mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) } }, ['requirement', 'element', 'cases']) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
   map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
+  list_reviews: { d: 'Error analysis: the failed reviews of pipeline task attempts (the latest per observation: task, note, failure_mode) and the failure modes of factory/taxonomy.yaml.', p: obj({}) },
+  group_reviews: { d: 'Propose failure modes for failed reviews: each group names an existing mode id or a new_mode, the observations it covers (from list_reviews) and why. New modes are added to factory/taxonomy.yaml. The user sees the grouping and approves or declines.', p: obj({ groups: { type: 'array', items: obj({ mode: { type: 'string' }, new_mode: obj({ name: { type: 'string' }, description: { type: 'string' }, triage: { type: 'string', enum: ['spec', 'fix', 'grader'] } }, ['name']), observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['observations', 'why']) } }, ['groups']) },
   mint_proposal: { d: 'Propose a change to Design or Build (status minted), citing evidence.', p: obj({ kind: { type: 'string', enum: ['lint rule', 'P property', 'grill-me question', 'gate clause', 'eval case', 'routing'] }, statement: { type: 'string' }, evidence: { type: 'string' }, check: { type: 'string' } }, ['kind', 'statement', 'evidence', 'check']) },
 };
 const toolSpecs = role => Object.entries(TOOLS).filter(([n]) => verdict(role, n) !== 'deny').map(([name, t]) => ({ type: 'function', function: { name, description: t.d, parameters: t.p } }));
@@ -60,6 +62,10 @@ const cap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length
 // ---------------------------------------------------------------- tool implementations (read)
 const numbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
 const READERS = {
+  list_reviews: () => {
+    const fails = [...Ledger.traceReviews(A.ledger).values()].filter(r => r.verdict === 'fail');
+    return cap(JSON.stringify({ modes: Ledger.taxonomyModes(A.taxonomy).modes.map(({ count, ...m }) => m), failed: fails.map(r => ({ observation: r.observation, task: r.task, run: r.run_id, attempt: r.attempt, note: r.note, failure_mode: r.failure_mode ?? null })) }));
+  },
   read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) : `No model at ${A.cfg.model} yet.`,
   get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
   get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }),
@@ -198,6 +204,31 @@ drafted_by: ide-agent
         AG.approved.set(req._path, Date.now()); await host.write(req._path, next);
         A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
         return `Applied: ${req.id} now lists ${names.join(', ')}. The gate has ${A.gate.clauses.length} blocking items.`;
+      } };
+  },
+  group_reviews: a => {
+    const g = Ledger.reviewGrouping(A.ledger, A.taxonomy, a.groups);
+    if (g.error) return { error: g.error };
+    if (!g.changes) return { error: 'Every one of these reviews already has that failure mode; nothing would change.' };
+    const label = x => x.newMode ? `New: ${x.newMode.name}${x.newMode.triage ? ` (${x.newMode.triage})` : ''}` : `${x.mode} ${(Ledger.taxonomyModes(A.taxonomy).modes.find(m => m.id === x.mode) || {}).name || ''}`;
+    const preview = g.groups.map(x => `<div class="rvgroup"><b>${esc(label(x))}</b> <span class="rvmeta">${esc(plural(x.reviews.length, 'note'))}: ${esc(x.why)}</span>${x.reviews.map(r => `<div class="rvnote">${esc(r.task || r.observation)}: ${esc(trunc(r.note, 120))}</div>`).join('')}</div>`).join('');
+    const fresh = g.groups.filter(x => x.newMode).length;
+    return { title: `Group ${plural(g.changes, 'failed review')} into failure modes`, detail: `${plural(g.groups.length, 'group')}${fresh ? `, ${plural(fresh, 'new mode')} added to ${TAXONOMY}` : ''}`, preview,
+      apply: async () => {
+        for (const x of g.groups.filter(y => y.newMode)) {
+          AG.approved.set(TAXONOMY, Date.now() + 2000);
+          x.mode = await addTaxonomyMode(x.newMode);
+          if (!x.mode) return `Stopped: ${x.newMode.name} could not be added to ${TAXONOMY}. Nothing else was recorded.`;
+        }
+        let n = 0;
+        for (const x of g.groups) for (const r of x.reviews) {
+          if ((r.failure_mode == null ? null : r.failure_mode) === x.mode) continue;
+          const fields = { trace_id: r.trace_id, observation: r.observation, verdict: r.verdict, note: r.note, failure_mode: x.mode };
+          for (const k of ['run_id', 'task', 'attempt']) if (r[k] != null) fields[k] = r[k];
+          if ((await recordEvent('trace_review', fields)).ok) n++;
+        }
+        await loadLedger(); renderAll();
+        return `Recorded ${plural(n, 'failure mode')} on failed reviews.`;
       } };
   },
   mint_proposal: a => {
@@ -653,6 +684,12 @@ function setRole(role) {
   if (AG.agent !== 'builtin' && !isAgui() && AG.conns[AG.agent]) { host.acpDisconnect(AG.agent); delete AG.conns[AG.agent]; }
 }
 // "Ask the tutor" buttons across the app: switch to the Tutor, open the panel and send the question.
+// Improve's "Ask the Analyst to group": the Analyst reads the failed notes and proposes failure modes.
+function askAnalystToGroup() {
+  if (AG.busy) return toast('The agent is still answering. Stop it or wait, then ask again.', 'error');
+  if (AG.role !== 'analyst') setRole('analyst');
+  toggleAgent(true); send('Group the failed review notes into failure modes (error analysis), reusing the taxonomy where it fits.');
+}
 function askTutor(question) {
   if (AG.busy) return toast('The agent is still answering. Stop it or wait, then ask again.', 'error');
   if (AG.role !== 'tutor') setRole('tutor');
