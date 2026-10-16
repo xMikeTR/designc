@@ -13,7 +13,7 @@ One `task` event per attempt, through the ledger append path, with these fields 
 | `tokens_in`, `tokens_out` | Tokens used (or `tokens` as one figure) |
 | `cost` | Cost of the attempt in the project currency, as you recorded it. designc adds it up and does not convert or price tokens |
 
-Write an event for every attempt, including failed ones and reruns: the forecast is meant to include what rework really costs.
+Write an event for every attempt, including failed ones and reruns: the forecast is meant to include what rework really costs. If a row carries `run`, it is a running total for that task in that run and only the latest one counts (see `docs/pipeline-contract.md`, Live progress).
 
 ## Currency
 

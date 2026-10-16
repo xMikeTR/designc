@@ -29,7 +29,9 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 
 ## Live progress
 
-Write `run_started` when a run begins and `task` rows (with `handover`) as each task changes status, not only at the end, so a person watching Build sees the run move. `run` is your own id for the attempt; a retry of the same handover is a new `run`. designc reads only these lines and never looks inside the pipeline's own files.
+Write `run_started` when a run begins and `task` rows (with `handover`) as each task changes status, not only at the end, so a person watching Build sees the run move. `run` is your own id for the attempt; a retry of the same handover is a new `run`. A run that stopped for a person (`parked`) and carries on under the same `run` writes `run_started` again: a start after the end reopens the run, and the latest `run_ended` wins. designc reads only these lines and never looks inside the pipeline's own files.
+
+A `task` row that carries `run` is a running total: its `tokens`, `tokens_in`, `tokens_out` and `cost` are what the task has spent in that run so far, and only the latest row per handover, task and run counts toward spend (Build's actuals and the cost forecast). Rows from different runs of the same handover add up. A `task` row with no `run` counts as written, so a pipeline that leaves out `run` must write each task's spend once.
 
 ## Item scope
 
