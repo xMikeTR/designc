@@ -1303,7 +1303,7 @@ function dispatchButton() {
   const s = dispatchSetting(), h = A.handovers.filter(x => !x.work_item).pop();
   if (!s || !h) return '';
   return s.error ? `<button class="btn block" disabled title="${esc(s.error)}">${esc('Dispatch')}</button>`
-    : `<button class="btn block" data-a="dispatch" data-id="${esc(h.id)}" title="Types your build command for ${esc(h.id)} into the Terminal. Nothing runs until you press Enter.">${esc(s.label)} ${esc(h.id)}</button>`;
+    : `<button class="btn block" data-a="dispatch" data-id="${esc(h.id)}" title="${esc(dispatchTitle(s, h.id))}">${esc(s.label)} ${esc(h.id)}</button>`;
 }
 // A new project: no element says where its code goes, so a coding agent would have nowhere it may write.
 function codeAreasButton() {

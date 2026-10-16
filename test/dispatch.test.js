@@ -48,8 +48,39 @@ test('command: a newline in the template is refused, so nothing runs before the 
 
 test('settings: no dispatch means no button; a malformed one is a problem, not an exception', () => {
   assert.equal(Dispatch.settings(undefined), null);
-  assert.deepEqual(Dispatch.settings({ command: 'go {handover}' }), { label: 'Dispatch', command: 'go {handover}' });
-  assert.deepEqual(Dispatch.settings({ label: 'Build with S', command: 'go' }), { label: 'Build with S', command: 'go' });
   assert.ok(Dispatch.settings({ label: 'x' }).error);
   assert.ok(Dispatch.settings('go').error);
+  assert.ok(Dispatch.settings([]).error);
+});
+
+test('settings: the single {label?, command} form is one target', () => {
+  assert.deepEqual(Dispatch.settings({ command: 'go {handover}' }),
+    { label: 'Dispatch', targets: [{ key: 'default', label: 'Dispatch', command: 'go {handover}' }] });
+  assert.deepEqual(Dispatch.settings({ label: 'Build with S', command: 'go' }),
+    { label: 'Build with S', targets: [{ key: 'default', label: 'Build with S', command: 'go' }] });
+});
+
+test('settings: a map of named targets, in file order; a label defaults to the key', () => {
+  const s = Dispatch.settings({ pipeline: { label: 'Build with my pipeline', command: 'a {handover}' }, headless: { command: 'b {repo}' } });
+  assert.deepEqual(s.targets, [
+    { key: 'pipeline', label: 'Build with my pipeline', command: 'a {handover}' },
+    { key: 'headless', label: 'headless', command: 'b {repo}' },
+  ]);
+  assert.equal(s.label, 'Dispatch', 'several targets: the button is generic and asks which');
+});
+
+test('settings: a map with one target uses that target\'s label on the button', () => {
+  assert.equal(Dispatch.settings({ only: { label: 'Build it', command: 'go' } }).label, 'Build it');
+});
+
+test('settings: an entry with enabled false is left out; none left means no button', () => {
+  const s = Dispatch.settings({ a: { command: 'go' }, b: { command: 'x', enabled: false }, draft: { enabled: false } });
+  assert.deepEqual(s.targets.map(t => t.key), ['a']);
+  assert.equal(Dispatch.settings({ b: { command: 'x', enabled: false } }), null);
+});
+
+test('settings: an empty map or a target without a command is a problem naming it', () => {
+  assert.match(Dispatch.settings({}).error, /no targets/);
+  assert.match(Dispatch.settings({ good: { command: 'go' }, bad: { label: 'x' } }).error, /dispatch\.bad/);
+  assert.match(Dispatch.settings({ bad: 'go' }).error, /dispatch\.bad/);
 });

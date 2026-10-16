@@ -80,14 +80,20 @@ async function termShow() {
 }
 
 // Dispatch: types the person's own build command (designc.json dispatch) for a frozen handover into the shell,
-// without Enter. The person reads it and presses Enter; designc runs nothing. Human only: no agent tool reaches it.
+// without Enter; with several targets it asks which first. The person reads it and presses Enter; designc runs nothing. Human only: no agent tool reaches it.
 function dispatchSetting() { return Dispatch.settings(A.cfg.dispatch); }
+function dispatchTitle(s, id) {
+  return `${s.targets.length > 1 ? 'Asks which build command, then types it' : 'Types your build command'} for ${id} into the Terminal. Nothing runs until you press Enter.`;
+}
 function dispatchAbs(p) { return !p || /^([\\/]|[A-Za-z]:[\\/])/.test(p) ? p : `${A.root.root}/${p}`; }
 async function dispatchHandover(id, item) {
   const s = dispatchSetting();
   if (!s) return;
   if (s.error) { toast(s.error, 'error'); return; }
-  const cmd = Dispatch.command(s.command, {
+  const target = s.targets.length === 1 ? s.targets[0]
+    : await askChoice(`Build ${id} with`, s.targets.map(t => ({ label: t.label, value: t })));
+  if (!target) return;
+  const cmd = Dispatch.command(target.command, {
     handover: dispatchAbs(`handovers/${id}`), registry: A.root.root,
     repo: dispatchAbs((item && item.repo) || A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
   }, A.platform);

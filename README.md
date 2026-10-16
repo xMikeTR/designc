@@ -336,6 +336,18 @@ A frozen handover is a folder in git with a `BUILD.md` that any coding agent can
 
 The Design sidebar then shows **Build it <id>** for the newest handover, and a frozen work item's card shows **Build it** for its own handover. Pressing it types the command into the Terminal panel with `{handover}` (the handover folder), `{repo}` (the work item's `repo`, else `codebase`), `{registry}` and `{base}` (`work.mainBranch`, else `main`) filled in and quoted for your shell. It does not press Enter: read the line, then run it. The shell has your full environment, so the build finds its own keys. Any other `{name}` in the command is refused. Without `dispatch` there is no button.
 
+To offer more than one build (your own pipeline, a headless coding agent, a colleague's), name each target:
+
+```json
+"dispatch": {
+  "pipeline": { "label": "Build with my pipeline", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" },
+  "headless": { "label": "Headless agent", "command": "cd {repo} && my-agent --prompt \"$(cat {handover}/BUILD.md)\"" },
+  "old":      { "command": "legacy-build {handover}", "enabled": false }
+}
+```
+
+With two or more targets the button reads **Dispatch** and asks which one before typing its line; with one it shows that target's label. A target without `label` is shown by its key, and `"enabled": false` leaves it out. A headless agent on its own gets no worktrees, scope checks or ledger rows from designc; Done on a work item still needs a passing gate at a commit on main, whatever built it.
+
 With the `openai` provider, grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
 ## Timing and retries
