@@ -15,7 +15,7 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 | Kind | Required | What designc does with it |
 | --- | --- | --- |
 | `run_started` | `run`, `handover` | Build view, Runs: the run is shown as running from now, with the latest status of each `task` row for that handover written after it |
-| `run_ended` | `run`, `handover`, `status`; `reason` unless `succeeded` | Ends the run in Runs. `status` is `succeeded`, `failed`, `parked` (stopped for a person) or `cancelled`; map your own outcomes onto these and put the detail in `reason`. Write it on every exit path you can, a crash included: a run with no end stays "running" |
+| `run_ended` | `run`, `handover`, `status`; `reason` unless `succeeded` | Ends the run in Runs. `status` is `succeeded`, `failed`, `parked` (stopped for a person) or `cancelled`; map your own outcomes onto these and put the detail in `reason`. A `parked` run is listed in the Work digest under Needs a decision, with its `reason`, until the run starts again or ends another way, so say in `reason` what the person must do. Write it on every exit path you can, a crash included: a run with no end stays "running" |
 | `task` | `task`, `status` | Build view: tasks, reruns, tokens; spend history for the cost forecast (see `docs/cost-forecast-contract.md`) |
 | `check` | `decision`, `check`, `outcome`, `source` | Latest result per decision check; `source: "pipeline"` marks it as the pipeline's own run |
 | `needs_decision` | `id`, `question`, `status` | Listed under "Waiting on a decision"; an **open** one blocks the ready gate until a person resolves it in designc |

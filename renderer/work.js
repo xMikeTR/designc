@@ -204,6 +204,10 @@ const Work = (() => {
       if (e.kind === 'item_awaiting_human' && !after(['item_pulled', 'item_gate', 'item_done'], e.item, e._ts || 0)) {
         needs.push({ kind: 'awaiting_human', id: null, item: e.item, element: null, text: `${e.item} is waiting for a person${e.reason ? `: ${e.reason}` : ''}`, ts: e._ts || 0 });
       }
+      // A pipeline run that stopped for a person (`parked`), until the run starts again or ends another way.
+      if (e.kind === 'run_ended' && e.status === 'parked' && !ev.some(x => (x.kind === 'run_started' || x.kind === 'run_ended') && x.run === e.run && (x._ts || 0) > (e._ts || 0))) {
+        needs.push({ kind: 'parked_run', id: e.run, item: null, element: null, text: `Run ${e.run} of ${e.handover} is parked${e.reason ? `: ${e.reason}` : ''}`, ts: e._ts || 0 });
+      }
     }
     const failed = [];
     for (const it of list(items)) {
