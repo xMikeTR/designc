@@ -92,12 +92,12 @@ function digestHtml() {
   if (!d) return '';
   const row = (inner) => `<li>${inner}</li>`;
   const open = it => it ? ` <button class="lnk" data-file="work/${esc(it)}.yaml">Open ${esc(it)}</button>` : '';
-  const needs = d.needs.map(n => row(`${esc(n.text)}${n.element ? ` <span class="desc">on ${esc(n.element)}</span>` : ''} <span class="desc">${esc(when(n.ts))}</span>${n.kind === 'needs_decision' ? ` <button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button> <button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button>` : n.kind === 'parked_run' ? ' <button class="lnk" data-a="builddash">Show in Build</button>' : open(n.item)}`)).join('');
+  const needs = d.needs.map(n => row(`${esc(n.text)}${n.element ? ` <span class="desc">on ${esc(n.element)}</span>` : ''} <span class="desc">${esc(when(n.ts))}</span>${n.kind === 'needs_decision' ? ` <button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button> <button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button>` : n.kind === 'parked_run' ? ` <button class="lnk" data-a="builddash">Show in Build</button>${n.handover ? ` <button class="lnk" data-hvclose="${esc(n.handover)}" data-outcome="abandoned" title="The run will not be resumed: its handover's spend becomes final">Close handover</button>` : ''}` : open(n.item)}`)).join('');
   const failed = d.failed.map(f => row(`${esc(f.text)}${open(f.item)}`)).join('');
   const done = d.done.map(x => row(`${esc(x.item)}${x.commit ? ` <span class="desc">at ${esc(String(x.commit).slice(0, 7))}</span>` : ''}${open(x.item)}`)).join('');
   const waiting = d.waiting.map(w => row(`${esc(w.text)}${open(w.item)}`)).join('');
   const sec = (title, body, hint) => `<div class="note"><b>${esc(title)}</b>${body ? `<ul>${body}</ul>` : `<div class="desc">${esc(hint)}</div>`}</div>`;
-  return `<div class="block"><h3>Digest<span class="spacer"></span><button class="btn" data-work="seen" title="Done since last look starts again from now">Mark as seen</button></h3>
+  return `<div class="block"><h3>Digest<span class="spacer"></span><button class="btn" data-work="seen" title="Clears Done since last look. What needs you stays until it is answered or closed">Mark as seen</button></h3>
     ${sec(`Needs a decision (${d.needs.length})`, needs, 'Nothing waits for you.')}
     ${sec(`Failed a gate (${d.failed.length})`, failed, 'No gate is failing and no claimed done is unproven.')}
     ${sec(`Done since last look (${d.done.length})`, done, 'Nothing finished since you last looked.')}
