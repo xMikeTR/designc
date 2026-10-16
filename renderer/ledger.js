@@ -124,8 +124,9 @@ const Ledger = (() => {
     },
     task: {
       required: ['task', 'status'],
-      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run'],
+      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run', 'usage'],
       enums: { status: ['passed', 'failed', 'blocked', 'running'] },
+      rules: ['usage_shape'],
     },
     needs_decision: {
       required: ['id', 'question', 'status'],
@@ -324,6 +325,20 @@ const Ledger = (() => {
       }
       if (ev.status !== undefined && ev.status !== 'within') {
         for (const k of ['limit_tokens', 'spent_tokens']) if (ev[k] === undefined) return `${k}: required when status is not 'within'`;
+      }
+      return null;
+    },
+    // task.usage: a running total per model the task used, [{model, tier?, turns, tokens_in, tokens_out, cost?}].
+    usage_shape: ev => {
+      if (ev.usage === undefined) return null;
+      if (!Array.isArray(ev.usage)) return 'usage: must be a list of {model, turns, tokens_in, tokens_out}';
+      for (const [i, u] of ev.usage.entries()) {
+        const at = `usage[${i}]`;
+        if (!isPlainObject(u)) return `${at}: must be an object`;
+        if (typeof u.model !== 'string' || !u.model) return `${at}.model: must be a non-empty string`;
+        if (u.tier !== undefined && typeof u.tier !== 'string') return `${at}.tier: must be a string`;
+        for (const k of ['turns', 'tokens_in', 'tokens_out']) if (!(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
+        if (u.cost !== undefined && typeof u.cost !== 'number') return `${at}.cost: must be a number`;
       }
       return null;
     },
@@ -671,6 +686,28 @@ const Ledger = (() => {
     return out;
   }
 
+  // Sums `usage` entries per tier (else model), most tokens first: [{tier, models[], turns, tokens_in, tokens_out, tokens, cost}].
+  function sumUsage(rows) {
+    const by = new Map();
+    for (const r of rows) for (const u of (Array.isArray(r.usage) ? r.usage : [])) {
+      if (!u || typeof u.model !== 'string') continue;
+      const key = u.tier || u.model;
+      const t = by.get(key) || { tier: key, models: [], turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0, cost: 0 };
+      if (!t.models.includes(u.model)) t.models.push(u.model);
+      const n = k => (Number.isFinite(u[k]) ? u[k] : 0);
+      t.turns += n('turns'); t.tokens_in += n('tokens_in'); t.tokens_out += n('tokens_out'); t.cost += n('cost');
+      t.tokens = t.tokens_in + t.tokens_out;
+      by.set(key, t);
+    }
+    return [...by.values()].sort((a, b) => b.tokens - a.tokens);
+  }
+
+  // Spend per tier across the spend rows (Ledger.spendRows), for metrics; `without` counts rows that carry no usage.
+  function usageByTier(events) {
+    const rows = spendRows(events);
+    return { tiers: sumUsage(rows), without: rows.filter(e => !Array.isArray(e.usage)).length };
+  }
+
   // Build's Runs: one row per pipeline run, newest first. A run_started while the run is open is ignored; one
   // after its end reopens it (a parked run resumed), and the latest run_ended wins. A run's tasks are the task
   // rows naming it, else (no `run`) the task rows of its handover since it started and not after it ended,
@@ -695,10 +732,10 @@ const Ledger = (() => {
         if (e.run != null ? e.run !== r.run : (e.handover !== r.handover || r.started == null || e._ts < r.started || (r.ended != null && e._ts > r.ended))) continue;
         // A task still running when its run ended did not finish: it stopped with the run.
         const status = r.ended != null && e.status === 'running' ? 'stopped' : e.status;
-        tasks.set(e.task, { task: e.task, status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), at: e._ts });
+        tasks.set(e.task, { task: e.task, status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), usage: Array.isArray(e.usage) ? e.usage : null, at: e._ts });
       }
       const ms = r.started == null ? null : (r.ended != null ? r.ended : now) - r.started;
-      return { ...r, ms, tasks: [...tasks.values()] };
+      return { ...r, ms, tasks: [...tasks.values()], usage: sumUsage([...tasks.values()]) };
     }).sort((a, b) => (b.ended != null ? b.ended : b.started) - (a.ended != null ? a.ended : a.started));
   }
 
@@ -953,7 +990,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

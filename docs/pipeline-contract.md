@@ -33,6 +33,8 @@ Write `run_started` when a run begins and `task` rows (with `handover`) as each 
 
 A `task` row that carries `run` is a running total: its `tokens`, `tokens_in`, `tokens_out` and `cost` are what the task has spent in that run so far, and only the latest row per handover, task and run counts toward spend (Build's actuals and the cost forecast). Rows from different runs of the same handover add up. A `task` row with no `run` counts as written, so a pipeline that leaves out `run` must write each task's spend once.
 
+A `task` row may also carry `usage`, the same running total split by model: `[{model, tier?, turns, tokens_in, tokens_out, cost?}]`, one entry per model the task used. `model` is a non-empty string; `turns`, `tokens_in` and `tokens_out` are whole numbers of at least 0; `tier` is your own word for the model's class (for example `frontier`), shown only. Build's Runs shows each task's split and each run's total per tier (else per model). The row's own `tokens_in`, `tokens_out` and `cost` stay the task's totals and are what spend counts.
+
 ## Item scope
 
 A work item names the elements it changes (`in_scope`). A pipeline works only those elements. Before touching any other element, ask: write a `needs_decision` with `element` set to the element and wait for a person. A change outside the item's elements that was not asked about is an escape with origin `translation_error` (the origin field arrives with ROADMAP slice 33). designc flags an item that names an element its requirement does not list, and a requirement element no item covers, so scope is settled before work starts.
