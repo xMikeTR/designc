@@ -630,6 +630,44 @@ const Ledger = (() => {
     return { by: e.by || null, ts: e._ts ?? e.ts ?? null, option: str(p.option), note: str(p.note), decision: str(e.decision) };
   }
 
+  // The needs_decision events a run's park reason names, each id matched as a whole word.
+  function parkedOn(events, reason) {
+    const text = String(reason || '');
+    const word = id => new RegExp(`(^|[^\\w-])${id.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}($|[^\\w-])`);
+    return (events || []).filter(e => e.kind === 'needs_decision' && typeof e.id === 'string' && e.id && word(e.id).test(text));
+  }
+
+  // Whether a parked run can be resumed (`events` derived): it is parked, its handover is open, and every
+  // needs-decision it waits on (named in the park reason, or an open one carrying payload.run_id) is answered
+  // in a form the pipeline accepts. `confirm` lists what a person should see before resuming anyway;
+  // `decisions` are the decision ids answers name, for the app to check they exist.
+  function resumeCheck(events, run) {
+    const ev = (events || []).slice().sort((a, b) => (a._ts || 0) - (b._ts || 0));
+    const own = ev.filter(e => (e.kind === 'run_started' || e.kind === 'run_ended') && e.run === run);
+    const last = own[own.length - 1];
+    const out = { ok: false, run, handover: last ? last.handover || null : null, blockers: [], confirm: [], answered: [], decisions: [] };
+    if (!last) { out.blockers.push(`There is no run ${run} in the ledger.`); return out; }
+    if (last.kind === 'run_started') out.blockers.push(`Run ${run} is running again.`);
+    else if (last.status !== 'parked') out.blockers.push(`Run ${run} is not parked: it ${last.status === 'succeeded' ? 'succeeded' : last.status === 'cancelled' ? 'was cancelled' : last.status}.`);
+    const closed = ev.filter(e => e.kind === 'handover_closed' && e.handover === out.handover && (e._ts || 0) > (last._ts || 0)).pop();
+    if (closed) out.blockers.push(`Handover ${out.handover} was closed (${closed.outcome}), so its runs are final.`);
+    const waits = last.kind === 'run_ended' ? parkedOn(ev, last.reason) : [];
+    for (const e of ev) if (e.kind === 'needs_decision' && e.status === 'open' && isPlainObject(e.payload) && e.payload.run_id === run && !waits.includes(e)) waits.push(e);
+    for (const nd of waits) {
+      if (nd.status !== 'resolved') { out.blockers.push(`${nd.id} is not answered yet: choose an option, answer it with a decision or mark it resolved, then resume.`); continue; }
+      const r = nd.resolution || {}, { options } = ndOptions(nd);
+      if (r.option && options.length && !options.some(o => o.id === r.option)) {
+        out.blockers.push(`${nd.id} was answered with option ${r.option}, which is not one it offered (${options.map(o => o.id).join(', ')}). The run would refuse it and park again: answer it again.`);
+        continue;
+      }
+      if (options.length && !r.option && !r.note && !r.decision) out.confirm.push(`${nd.id} was closed without choosing an option, a note or a decision, so the agent is only told to re-read the handover and decisions.`);
+      if (r.decision) out.decisions.push(r.decision);
+      out.answered.push(nd.id);
+    }
+    out.ok = !out.blockers.length;
+    return out;
+  }
+
   // The options a pipeline offered with a needs_decision (payload.options [{id, summary, consequence?}], payload.recommended).
   // An option without an id or summary is dropped; a recommendation that is not an offered option is none.
   function ndOptions(nd) {
@@ -1012,7 +1050,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

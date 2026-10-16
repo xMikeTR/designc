@@ -2089,7 +2089,7 @@ function runsBlock() {
   if (!runs.length) return '';
   return `<div class="block" id="buildRuns"><h3>Runs</h3><div class="note">Reported by the pipeline as it works. A run with no end is shown as running; if the pipeline stopped without saying so, it stays that way.</div>${runs.map(r => {
     const done = r.tasks.filter(t => t.status === 'passed').length;
-    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason ? `<div class="note">${esc(r.reason)}</div>` : ''}${runUsageNote(r.usage)}`;
+    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason || r.status === 'parked' ? `<div class="note">${esc(r.reason || '')}${r.status === 'parked' ? ` ${resumeButton(r.run)}` : ''}</div>` : ''}${runUsageNote(r.usage)}`;
     const rows = r.tasks.map(t => `<tr><td><span class="id">${esc(t.task)}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td>${t.usage && t.usage.length ? usageCell(t.usage) : esc(t.tier || '')}</td><td class="num">${t.tokens ? fmtN(t.tokens) : ''}</td></tr>`).join('');
     return head + (rows ? `<div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th>Tier</th><th class="num">Tokens</th></tr>${rows}</table></div>` : '<div class="note">No task reported yet.</div>');
   }).join('')}</div>`;
@@ -2237,6 +2237,7 @@ document.addEventListener('click', async e => {
   if (d.addevidence) { e.stopPropagation(); return addEvidence(A.decisions.find(x => x.id === d.addevidence)); }
   if (d.relyon) { e.stopPropagation(); return chooseBusinessDecision(A.decisions.find(x => x.id === d.relyon)); }
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
+  if (d.resume) { e.stopPropagation(); return resumeRun(d.resume); }
   if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
