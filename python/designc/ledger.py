@@ -37,6 +37,19 @@ def _rule(rid, ev):
         if 'status' in ev and ev['status'] != 'within':
             for k in ('limit_tokens', 'spent_tokens'):
                 if k not in ev: return f"{k}: required when status is not 'within'"
+    elif rid == 'usage_shape':
+        if 'usage' not in ev: return None
+        us = ev['usage']
+        if not isinstance(us, list): return 'usage: must be a list of {model, turns, tokens_in, tokens_out}'
+        for i, u in enumerate(us):
+            at = f'usage[{i}]'
+            if not isinstance(u, dict): return f'{at}: must be an object'
+            if not isinstance(u.get('model'), str) or not u['model']: return f'{at}.model: must be a non-empty string'
+            if 'tier' in u and not isinstance(u['tier'], str): return f'{at}.tier: must be a string'
+            for k in ('turns', 'tokens_in', 'tokens_out'):
+                v = u.get(k)
+                if not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
+            if 'cost' in u and not _is_num(u['cost']): return f'{at}.cost: must be a number'
     elif rid == 'suite_run_shape':
         t = ev.get('trials')
         if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'

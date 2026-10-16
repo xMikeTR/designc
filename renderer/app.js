@@ -2049,13 +2049,23 @@ function handoversBlock() {
 const LIVE_RUN_TAG = { running: 'open', succeeded: 'pass', failed: 'fail', parked: 'open', cancelled: 'open' };
 const runSpan = ms => (ms == null ? '' : ms < 60000 ? `${Math.round(ms / 1000)} s` : ms < 3600000 ? `${Math.round(ms / 60000)} min` : `${(ms / 3600000).toFixed(1)} h`);
 // Build's Runs: what a pipeline said about each run (run_started, run_ended) and its handover's tasks since it started.
+// A task's usage, one entry per model it used: "frontier 1 · 84k, standard 2 · 134k", the model on hover.
+function usageCell(usage) {
+  return usage.map(u => `<span title="${esc(u.model)}">${esc(`${u.tier || u.model} ${u.turns} · ${fmtN((u.tokens_in || 0) + (u.tokens_out || 0))}`)}</span>`).join(', ');
+}
+// A run's spend per tier, with its share of the run's tokens.
+function runUsageNote(usage) {
+  if (!usage || !usage.length) return '';
+  const all = usage.reduce((a, u) => a + u.tokens, 0);
+  return `<div class="note">By tier: ${usage.map(u => `<span title="${esc(u.models.join(', '))}">${esc(`${u.tier} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%)` : ''}`)}</span>`).join(', ')}</div>`;
+}
 function runsBlock() {
   const runs = Ledger.liveRuns(A.ledger).slice(0, 5);
   if (!runs.length) return '';
   return `<div class="block" id="buildRuns"><h3>Runs</h3><div class="note">Reported by the pipeline as it works. A run with no end is shown as running; if the pipeline stopped without saying so, it stays that way.</div>${runs.map(r => {
     const done = r.tasks.filter(t => t.status === 'passed').length;
-    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason ? `<div class="note">${esc(r.reason)}</div>` : ''}`;
-    const rows = r.tasks.map(t => `<tr><td><span class="id">${esc(t.task)}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td>${esc(t.tier || '')}</td><td class="num">${t.tokens ? fmtN(t.tokens) : ''}</td></tr>`).join('');
+    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason ? `<div class="note">${esc(r.reason)}</div>` : ''}${runUsageNote(r.usage)}`;
+    const rows = r.tasks.map(t => `<tr><td><span class="id">${esc(t.task)}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td>${t.usage && t.usage.length ? usageCell(t.usage) : esc(t.tier || '')}</td><td class="num">${t.tokens ? fmtN(t.tokens) : ''}</td></tr>`).join('');
     return head + (rows ? `<div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th>Tier</th><th class="num">Tokens</th></tr>${rows}</table></div>` : '<div class="note">No task reported yet.</div>');
   }).join('')}</div>`;
 }
