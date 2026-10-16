@@ -9,6 +9,31 @@ function termTheme() {
   return { background: v('--editor'), foreground: v('--fg'), cursor: v('--accent'), cursorAccent: v('--editor'), selectionBackground: v('--sel') };
 }
 
+// The clipboard keys the terminal keeps from the shell: Ctrl+Shift+C/V (Cmd+C/V on macOS). Plain Ctrl+C stays an interrupt.
+function termClipboardKey(e, platform) {
+  const k = (e.key || '').toLowerCase();
+  if (k !== 'c' && k !== 'v') return null;
+  const mac = platform === 'darwin';
+  const held = mac ? e.metaKey && !e.ctrlKey && !e.shiftKey && !e.altKey : e.ctrlKey && e.shiftKey && !e.metaKey && !e.altKey;
+  return held ? (k === 'c' ? 'copy' : 'paste') : null;
+}
+
+// Returns false so xterm does not also send the key to the shell.
+function termClipboard(e) {
+  const action = termClipboardKey(e, A.platform);
+  if (!action) return true;
+  if (e.type === 'keydown') {
+    e.preventDefault();
+    if (action === 'copy') {
+      const text = TM.term.getSelection();
+      if (text) navigator.clipboard.writeText(text).catch(() => toast('Could not copy the selection.', 'warning'));
+    } else {
+      navigator.clipboard.readText().then(t => { if (t) TM.term.paste(t); }).catch(() => toast('Could not read the clipboard.', 'warning'));
+    }
+  }
+  return false;
+}
+
 function termFit() {
   if (!TM.term || $('#termBody').hidden) return;
   try { TM.fit.fit(); } catch { /* not laid out yet */ }
@@ -36,6 +61,7 @@ async function termShow() {
     TM.fit = new FitAddon.FitAddon();
     TM.term.loadAddon(TM.fit);
     TM.term.open($('#termBody'));
+    TM.term.attachCustomKeyEventHandler(termClipboard);
     // With no shell running, Enter starts one; otherwise every keystroke goes to the shell.
     TM.term.onData(s => { if (TM.id) host.termInput(TM.id, s); else if (s === '\r') termStart(); });
     TM.term.onResize(({ cols, rows }) => { if (TM.id) host.termResize(TM.id, cols, rows); });
@@ -76,3 +102,4 @@ async function dispatchHandover(id, item) {
   TM.term.focus();
   toast('The command is in the Terminal. Read it, then press Enter to run it.');
 }
+if (typeof module !== 'undefined') module.exports = { termClipboardKey };
