@@ -98,14 +98,44 @@ async function dispatchHandover(id, item) {
     repo: dispatchAbs((item && item.repo) || A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
   }, A.platform);
   if (cmd.error) { toast(cmd.error, 'error'); return; }
+  return typeInTerminal(cmd, 'Dispatch');
+}
+// Types one command line into the Terminal's shell without Enter: the person reads it and runs it.
+async function typeInTerminal(cmd, again) {
   const fresh = !TM.id;
   showPanel('terminal');
   await termShow();
   // A shell that has just started is still printing its prompt; text typed before it is echoed twice.
   if (fresh && TM.id) for (const t0 = Date.now(); Date.now() - t0 < 3000 && !(TM.lastData && Date.now() - TM.lastData > 300);) await new Promise(r => setTimeout(r, 50));
-  if (!TM.id) { toast('No shell is running, so nothing was typed. Start one in the Terminal and press Dispatch again.', 'warning'); return; }
+  if (!TM.id) { toast(`No shell is running, so nothing was typed. Start one in the Terminal and press ${again} again.`, 'warning'); return; }
   host.termInput(TM.id, cmd);
   TM.term.focus();
   toast('The command is in the Terminal. Read it, then press Enter to run it.');
+}
+// Resume on a parked run, when a dispatch target says how to resume one.
+function resumeButton(run) {
+  const s = dispatchSetting();
+  return s && !s.error && s.targets.some(t => t.resume) ? `<button class="lnk" data-resume="${esc(run)}" title="Checks what the run waits on is answered, then types the resume command into the Terminal">Resume</button>` : '';
+}
+// Resumes a parked run with the person's own resume command, only once what it waits on is answered in a form
+// the pipeline accepts (Ledger.resumeCheck) and every decision an answer names exists. Typed, never run.
+async function resumeRun(run) {
+  const s = dispatchSetting();
+  if (s && s.error) { toast(s.error, 'error'); return; }
+  const targets = s ? s.targets.filter(t => t.resume) : [];
+  if (!targets.length) { toast('No dispatch target says how to resume a run. Add "resume" to one in designc.json, for example "my-build --handover {handover} --run-id {run}".', 'warning'); return; }
+  const chk = Ledger.resumeCheck(A.ledger, run);
+  const missing = chk.decisions.filter(id => !A.decisions.some(d => d.id === id)).map(id => `The answer names decision ${id}, which is not in decisions/: record it, or answer the question again.`);
+  const blockers = [...chk.blockers, ...missing];
+  if (blockers.length) { toast(`Not resumed. ${blockers.join(' ')}`, 'error'); return; }
+  if (chk.confirm.length && !confirm(`${chk.confirm.join('\n')}\n\nResume run ${run} anyway?`)) return;
+  const target = targets.length === 1 ? targets[0] : await askChoice(`Resume ${run} with`, targets.map(t => ({ label: t.label, value: t })));
+  if (!target) return;
+  const cmd = Dispatch.command(target.resume, {
+    handover: dispatchAbs(`handovers/${chk.handover}`), registry: A.root.root, run,
+    repo: dispatchAbs(A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
+  }, A.platform);
+  if (cmd.error) { toast(cmd.error, 'error'); return; }
+  return typeInTerminal(cmd, 'Resume');
 }
 if (typeof module !== 'undefined') module.exports = { termClipboardKey };

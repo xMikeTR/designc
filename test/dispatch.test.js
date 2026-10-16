@@ -55,16 +55,16 @@ test('settings: no dispatch means no button; a malformed one is a problem, not a
 
 test('settings: the single {label?, command} form is one target', () => {
   assert.deepEqual(Dispatch.settings({ command: 'go {handover}' }),
-    { label: 'Dispatch', targets: [{ key: 'default', label: 'Dispatch', command: 'go {handover}' }] });
+    { label: 'Dispatch', targets: [{ key: 'default', label: 'Dispatch', command: 'go {handover}', resume: null }] });
   assert.deepEqual(Dispatch.settings({ label: 'Build with S', command: 'go' }),
-    { label: 'Build with S', targets: [{ key: 'default', label: 'Build with S', command: 'go' }] });
+    { label: 'Build with S', targets: [{ key: 'default', label: 'Build with S', command: 'go', resume: null }] });
 });
 
 test('settings: a map of named targets, in file order; a label defaults to the key', () => {
   const s = Dispatch.settings({ pipeline: { label: 'Build with my pipeline', command: 'a {handover}' }, headless: { command: 'b {repo}' } });
   assert.deepEqual(s.targets, [
-    { key: 'pipeline', label: 'Build with my pipeline', command: 'a {handover}' },
-    { key: 'headless', label: 'headless', command: 'b {repo}' },
+    { key: 'pipeline', label: 'Build with my pipeline', command: 'a {handover}', resume: null },
+    { key: 'headless', label: 'headless', command: 'b {repo}', resume: null },
   ]);
   assert.equal(s.label, 'Dispatch', 'several targets: the button is generic and asks which');
 });
@@ -83,4 +83,17 @@ test('settings: an empty map or a target without a command is a problem naming i
   assert.match(Dispatch.settings({}).error, /no targets/);
   assert.match(Dispatch.settings({ good: { command: 'go' }, bad: { label: 'x' } }).error, /dispatch\.bad/);
   assert.match(Dispatch.settings({ bad: 'go' }).error, /dispatch\.bad/);
+});
+
+test('settings: a target may carry a resume command; one without has none', () => {
+  const s = Dispatch.settings({ s2: { command: 'b {handover}', resume: 'b {handover} --run-id {run}' }, other: { command: 'o' } });
+  assert.deepEqual(s.targets.map(t => [t.key, t.resume]), [['s2', 'b {handover} --run-id {run}'], ['other', null]]);
+  assert.equal(Dispatch.settings({ command: 'b', resume: 'r {run}' }).targets[0].resume, 'r {run}');
+  assert.match(Dispatch.settings({ s2: { command: 'b', resume: '  ' } }).error, /dispatch\.s2\.resume/);
+  assert.match(Dispatch.settings({ command: 'b', resume: 3 }).error, /dispatch\.resume/);
+});
+
+test('command: {run} is filled when given and missing otherwise', () => {
+  assert.equal(Dispatch.command('b --run-id {run}', { ...vars, run: '20261016-114233' }, 'linux'), "b --run-id '20261016-114233'");
+  assert.equal(Dispatch.command('b --run-id {run}', vars, 'linux').error, 'There is no value for {run}.');
 });
