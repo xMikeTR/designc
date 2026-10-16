@@ -148,3 +148,14 @@ test('needs: a parked run waits for a person until the run starts again or ends 
   assert.equal(d.needs[0].text, `Run r1 of ${H} is parked: waiting on a manual check: T-001 real-godot-headless-playtest`);
   assert.notEqual(Work.digestSignature(d), Work.digestSignature(run({})));
 });
+
+test('needs: a parked run of a handover a person or pipeline closed no longer waits', () => {
+  const H = '20261016-83975ba0';
+  const d = run({ events: [
+    { kind: 'run_started', run: 'r1', handover: H, _ts: 1 },
+    { kind: 'run_ended', run: 'r1', handover: H, status: 'parked', reason: 'ND-0002', _ts: 2 },
+    { kind: 'handover_closed', handover: H, outcome: 'abandoned', _ts: 3 },
+    { kind: 'run_ended', run: 'r2', handover: 'other', status: 'parked', reason: 'ND-0003', _ts: 4 },
+  ] });
+  assert.deepEqual(d.needs.map(n => [n.id, n.handover]), [['r2', 'other']]);
+});
