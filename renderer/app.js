@@ -643,8 +643,21 @@ assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-M
 async function answerNeedsDecision(n) {
   if (!n) return;
   const statement = await askText(`What was decided for ${n.id}? (leave blank to fill in later)`); if (statement == null) return;
+  const check = await askCheck(); if (check == null) return;
   const el = n.element && A.model ? Core.resolveElement(A.model, String(n.element)) : null;
-  return recordDecision({ statement: statement.trim(), binds: el ? [el.name] : n.element ? [String(n.element)] : [], resolves: [], rationale: `Pipeline asked (${n.id}): ${n.question}` });
+  return recordDecision({ statement: statement.trim(), binds: el ? [el.name] : n.element ? [String(n.element)] : [], resolves: [], checks: check ? [check] : [],
+    rationale: `Pipeline asked (${n.id}): ${n.question}` });
+}
+// A bound fix decision needs a passing check, so ask for the command now; blank leaves a TODO, Cancel is null.
+async function askCheck() {
+  let why = '', value = '';
+  for (;;) {
+    const c = await askText(`${why}What command proves it? It runs in ${A.root.name} and exits 0 when the decision holds. (leave blank to fill in later)`, value);
+    if (c == null || !c.trim()) return c == null ? null : '';
+    const problem = Policy.checkProblem(c);
+    if (!problem) return c.trim();
+    why = `${problem} `; value = c;
+  }
 }
 // The + on Decisions and Record decision on a problem ask first, so a stray click creates nothing.
 async function newDecision() {
@@ -991,7 +1004,11 @@ async function runChecks(list) {
   // A check written as a description is reported and not run: the shell could only fail it, and that failure would say nothing about the decision.
   const written = d => (d.checks || []).filter(c => c && !/^TODO/.test(String(c)));
   const targets = (list || A.decisions).filter(d => written(d).length);
-  if (!targets.length) { toast('No decision has a runnable check yet.', 'warning'); return; }
+  if (!targets.length) {
+    const todo = (list || A.decisions).filter(d => (d.checks || []).some(c => /^TODO/.test(String(c))));
+    toast(todo.length ? `${todo.map(d => d.id).join(', ')} only ${todo.length === 1 ? 'has' : 'have'} a TODO check. Replace it in the decision file with a command that exits 0 when the decision holds.` : 'No decision has a runnable check yet.', 'warning');
+    return;
+  }
   A.running = true; showPanel('output'); renderStatus();
   appendOutput(`\n── ${new Date().toLocaleTimeString()}  running checks for ${plural(targets.length, 'decision')} in ${A.root.name}\n`);
   let skipped = 0;
