@@ -363,6 +363,8 @@ h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
 .rvverdict{display:flex;gap:8px;align-items:flex-start;margin-top:6px}
 .rvverdict textarea{flex:1;font:inherit;resize:vertical;background:var(--chrome);color:var(--fg);border:1px solid var(--edge);border-radius:4px;padding:4px 6px}
 .rvbtns{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.rvmode{display:flex;gap:6px;align-items:center;margin-top:6px;font-size:12px;color:var(--fg2)}
+.rvmode select{font:inherit;background:var(--chrome);color:var(--fg);border:1px solid var(--edge);border-radius:4px;padding:2px 4px}
 .rvstep{border-left:3px solid var(--edge);padding:4px 10px;margin:8px 0}
 .rvstep.tool{border-left-color:var(--info)}
 .rvstep.err{border-left-color:var(--err)}

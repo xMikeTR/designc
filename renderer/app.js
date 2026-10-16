@@ -215,6 +215,18 @@ async function loadTaxonomy() {
   const t = await readText(TAXONOMY); if (t == null) return;
   try { A.taxonomy = jsyaml.load(t) || {}; } catch (e) { A.taxonomyError = `${e.reason || e.message} (line ${(e.mark && e.mark.line + 1) || 1})`; }
 }
+// Adds a failure mode to factory/taxonomy.yaml (Ledger.addTaxonomyMode: appended lines only), creating the file when
+// there is none. Returns the new id, or null after saying why. Callers: Review's "New mode…" and the Analyst's
+// approved grouping.
+async function addTaxonomyMode(mode) {
+  const b = A.buffers.get(TAXONOMY);
+  if (b && b.dirty) { toast(`${TAXONOMY} has unsaved edits. Save or revert them, then add the mode.`, 'error'); return null; }
+  const r = Ledger.addTaxonomyMode(await readText(TAXONOMY), mode, t => jsyaml.load(t));
+  if (r.error) { toast(r.error, 'error'); return null; }
+  await host.write(TAXONOMY, r.text);
+  await loadTaxonomy();
+  return r.id;
+}
 const TAXONOMY_STARTER = `# Failure modes of the Build pipeline, from reading its traces (error analysis). Each escape in a design
 # registry can be classified as one of these in Improve. triage: spec (the handover should have said),
 # fix (the factory must change) or grader (an eval must catch it).
