@@ -201,8 +201,17 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   await sidebar.getByRole('button', { name: 'Answer with a decision' }).click();
   await page.locator('.askbox').getByRole('textbox').fill('Retry twice with jitter');
   await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
+  // Then the command that proves it, so the decision can pass its check once bound; a description is asked again.
+  await expect(page.locator('.askbox')).toContainText('What command proves it');
+  await page.locator('.askbox').getByRole('textbox').fill('Model: retries are bounded');
+  await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
+  await expect(page.locator('.askbox')).toContainText('description, not a command');
+  await page.locator('.askbox').getByRole('textbox').fill('python3 checks/retry.py');
+  await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
   await expect.poll(() => fs.existsSync(path.join(reg, 'decisions')) ? fs.readdirSync(path.join(reg, 'decisions')) : []).toEqual(['retry-twice-with-jitter.yaml']);
-  expect(fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8')).toMatch(/^binds: \[Quotes API\]$/m);
+  const answered = fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8');
+  expect(answered).toMatch(/^binds: \[Quotes API\]$/m);
+  expect(answered).toMatch(/^  - "python3 checks\/retry.py"$/m);
   // A question that needs no decision is closed from the gate itself.
   await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001']);
