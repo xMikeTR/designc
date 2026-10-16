@@ -18,7 +18,7 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 | `run_ended` | `run`, `handover`, `status`; `reason` unless `succeeded` | Ends the run in Runs. `status` is `succeeded`, `failed`, `parked` (stopped for a person) or `cancelled`; map your own outcomes onto these and put the detail in `reason`. A `parked` run is listed in the Work digest under Needs a decision, with its `reason`, until the run starts again or ends another way, so say in `reason` what the person must do. Write it on every exit path you can, a crash included: a run with no end stays "running" |
 | `task` | `task`, `status` | Build view: tasks, reruns, tokens; spend history for the cost forecast (see `docs/cost-forecast-contract.md`) |
 | `check` | `decision`, `check`, `outcome`, `source` | Latest result per decision check; `source: "pipeline"` marks it as the pipeline's own run |
-| `needs_decision` | `id`, `question`, `status` | Listed under "Waiting on a decision"; an **open** one blocks the ready gate until a person resolves it in designc |
+| `needs_decision` | `id`, `question`, `status` | Listed under "Waiting on a decision"; an **open** one blocks the ready gate until a person resolves it in designc. Optional `payload.options` (`[{id, summary, consequence?}]`) and `payload.recommended` (one of the option ids) are shown with a Choose button each |
 | `asbuilt_edge` | `from`, `to` | Drift: a dependency the code has that the model does not declare (DC100) |
 | `escape` | `id`, `description` | A defect that got past the design; a person classifies it later |
 | `false_positive` | `code` | A lint finding the pipeline judged wrong; counts against the rule |
@@ -58,6 +58,8 @@ Every element a pipeline names (`task.element`, `needs_decision.element`, `asbui
 ## Kinds only a person writes
 
 These record a human judgement made in designc. A pipeline must not write them, and designc does not accept them as pipeline input: `needs_decision_resolved`, `escape_classified`, `decision_promoted`, `handover` (the freeze), `extraction`, `item_pulled`, `item_done` and `item_recheck` (a person starts and finishes a work item; an agent's claim that it is done is never evidence, and designc checks the commit is reachable from the main branch). The envelope cannot prove who wrote a line, so this is a rule for writers, enforced for `pipeline.jsonl` by V9.
+
+A person's answer to a `needs_decision` is a `needs_decision_resolved` with `id` and any of: `payload.option` (the id of the option chosen), `payload.note` (free text for the agent that asked) and top-level `decision` (the id of the decision file that answers it). A pipeline resuming a parked run reads the latest one per `id`. With none of the three, the question was closed without an answer.
 
 `caught_by` on an escape names a stage: `S1-lint`, `S1-p`, `S1-grill` (designc's own) or `pipeline` (anything downstream of the handover). It is set by a person with `escape_classified`.
 

@@ -1,6 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Work = require('../renderer/work.js');
+const Ledger = require('../renderer/ledger.js');
 
 // Slice 26: the four buckets, from the ledger and what designc can check.
 const C = '3f2a9c1d5e7b8a0c4d6e8f0a1b2c3d4e5f6a7b8c';
@@ -158,4 +159,18 @@ test('needs: a parked run of a handover a person or pipeline closed no longer wa
     { kind: 'run_ended', run: 'r2', handover: 'other', status: 'parked', reason: 'ND-0003', _ts: 4 },
   ] });
   assert.deepEqual(d.needs.map(n => [n.id, n.handover]), [['r2', 'other']]);
+});
+
+test('needs: a parked run whose needs-decision was answered says it can be resumed', () => {
+  const H = '20261016-aaaaaaaa';
+  const ev = Ledger.derive([
+    { kind: 'needs_decision', id: 'ND-0002', question: 'q', status: 'open', _ts: 1 },
+    { kind: 'run_ended', run: 'r1', handover: H, status: 'parked', reason: 'ND-0002', _ts: 2 },
+    { kind: 'needs_decision_resolved', id: 'ND-0002', _ts: 3 },
+    { kind: 'run_ended', run: 'r2', handover: H, status: 'parked', reason: 'ND-0009', _ts: 4 },
+  ]);
+  const d = Work.digest({ events: ev });
+  assert.deepEqual(d.needs.map(n => [n.id, n.answered]), [['r1', 'ND-0002'], ['r2', null]]);
+  assert.equal(d.needs[0].text, `Run r1 of ${H} is parked on ND-0002, which has been answered: resume the run, or close its handover if it will not be resumed`);
+  assert.equal(d.needs[1].text, `Run r2 of ${H} is parked: ND-0009`);
 });

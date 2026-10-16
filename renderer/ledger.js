@@ -606,10 +606,10 @@ const Ledger = (() => {
 
   // The ledger is append-only: classification and resolution are later events, folded in here.
   function derive(events) {
-    const classify = new Map(), origins = new Map(), resolved = new Set();
+    const classify = new Map(), origins = new Map(), resolved = new Map();
     for (const e of events) {
       if (e.kind === 'escape_classified') { classify.set(e.escape, e.caught_by); if ('origin' in e) origins.set(e.escape, e.origin); }
-      if (e.kind === 'needs_decision_resolved') resolved.add(e.id);
+      if (e.kind === 'needs_decision_resolved') resolved.set(e.id, resolution(e));
     }
     return events.filter(e => !['escape_classified', 'needs_decision_resolved'].includes(e.kind)).map(e => {
       if (e.kind === 'escape' && (classify.has(e.id) || origins.has(e.id))) {
@@ -618,9 +618,27 @@ const Ledger = (() => {
         if (origins.has(e.id)) o.origin = origins.get(e.id);
         return o;
       }
-      if (e.kind === 'needs_decision' && resolved.has(e.id)) return { ...e, status: 'resolved' };
+      if (e.kind === 'needs_decision' && resolved.has(e.id)) return { ...e, status: 'resolved', resolution: resolved.get(e.id) };
       return e;
     });
+  }
+
+  // A person's answer to a needs_decision: the option chosen of those offered, a note, or the decision that answers it.
+  function resolution(e) {
+    const p = isPlainObject(e.payload) ? e.payload : {};
+    const str = v => (typeof v === 'string' && v.trim() ? v : null);
+    return { by: e.by || null, ts: e._ts ?? e.ts ?? null, option: str(p.option), note: str(p.note), decision: str(e.decision) };
+  }
+
+  // The options a pipeline offered with a needs_decision (payload.options [{id, summary, consequence?}], payload.recommended).
+  // An option without an id or summary is dropped; a recommendation that is not an offered option is none.
+  function ndOptions(nd) {
+    const p = nd && isPlainObject(nd.payload) ? nd.payload : {};
+    const options = (Array.isArray(p.options) ? p.options : [])
+      .filter(o => isPlainObject(o) && typeof o.id === 'string' && o.id.trim() && typeof o.summary === 'string' && o.summary.trim())
+      .map(o => ({ id: o.id, summary: o.summary, ...(typeof o.consequence === 'string' ? { consequence: o.consequence } : {}) }));
+    const recommended = options.some(o => o.id === p.recommended) ? p.recommended : null;
+    return { options, recommended };
   }
 
   // Slice 33: what the escapes say about where the factory leaks. Pure; `uiElements` is the set of element
@@ -994,7 +1012,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
