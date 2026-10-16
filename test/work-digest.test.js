@@ -133,3 +133,18 @@ test('a failed judge never enters Failed and never changes the digest buckets', 
   const d = run({ items: [item('W-a', { done_when: [{ gate: 'dotnet test' }, { judge: 'tone' }] })], states: { 'W-a': 'active' }, events });
   assert.equal(d.failed.length, 0);
 });
+
+test('needs: a parked run waits for a person until the run starts again or ends another way', () => {
+  const H = '20261016-9de366a9';
+  const parked = (run, ts, reason) => ({ kind: 'run_ended', run, handover: H, status: 'parked', reason, _ts: ts });
+  const d = run({ events: [
+    { kind: 'run_started', run: 'r1', handover: H, _ts: 1 },
+    parked('r1', 5, 'waiting on a manual check: T-001 real-godot-headless-playtest'),
+    { kind: 'run_started', run: 'r2', handover: H, _ts: 2 }, parked('r2', 3, 'first park'), { kind: 'run_started', run: 'r2', handover: H, _ts: 4 },
+    parked('r3', 6, 'given up'), { kind: 'run_ended', run: 'r3', handover: H, status: 'cancelled', reason: 'no', _ts: 7 },
+    { kind: 'run_ended', run: 'r4', handover: H, status: 'failed', reason: 'tests', _ts: 8 },
+  ] });
+  assert.deepEqual(d.needs.map(n => [n.kind, n.id, n.ts]), [['parked_run', 'r1', 5]]);
+  assert.equal(d.needs[0].text, `Run r1 of ${H} is parked: waiting on a manual check: T-001 real-godot-headless-playtest`);
+  assert.notEqual(Work.digestSignature(d), Work.digestSignature(run({})));
+});

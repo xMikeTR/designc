@@ -1404,7 +1404,7 @@ function buildSidebar() {
   const summary = tasks.length ? `<div class="hint">${passed.length} of ${plural(tasks.length, 'task')} passed. ${passed.length ? `${fmtN(tokens / passed.length)} tokens per passing task.` : ''}</div>` : '<div class="hint">No pipeline events in ledger/*.jsonl yet.</div>';
   const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
-  return section('bsum', 'Summary', summary + '<button class="btn block" data-a="builddash">Open Build dashboard</button>') + section('needs', `Waiting on a decision (${needs.length})`, nd);
+  return section('bsum', 'Summary', summary) + section('needs', `Waiting on a decision (${needs.length})`, nd);
 }
 function escapeMetricsHtml(L) {
   const ui = A.model ? [...A.model.elements.values()].filter(e => e.tags && e.tags.has('UI')).map(e => e.name) : [];
@@ -1424,8 +1424,7 @@ function improveSidebar() {
   const sug = telSuggestions();
   const sh = sug.map(t => `<div class="item"><div class="l1"><span class="id">${esc(t.task)}</span><span class="desc">${esc(elementLabel(t.element))}</span></div><div class="l2">${esc(t.why)}</div><div class="acts"><button class="lnk" data-telesc="${esc(t.task)}">Record as escape</button></div></div>`).join('');
   return (sug.length ? section('telsug', `Suggested by telemetry (${sug.length})`, sh) : '') + section('unclass', `Unclassified escapes (${un.length})`, uh)
-    + section('props', `Proposals (${A.proposals.length})`, props + `<button class="btn block" data-a="draftprops" ${A.drafting ? 'disabled' : ''}>${A.drafting ? 'Drafting…' : 'Draft proposals from escapes'}</button>`, `<button title="New proposal" data-a="newprop">+</button>`)
-    + section('idash', 'Dashboard', '<button class="btn block" data-a="improvedash">Open Improve dashboard</button>');
+    + section('props', `Proposals (${A.proposals.length})`, props + `<button class="btn block" data-a="draftprops" ${A.drafting ? 'disabled' : ''}>${A.drafting ? 'Drafting…' : 'Draft proposals from escapes'}</button>`, `<button title="New proposal" data-a="newprop">+</button>`);
 }
 
 // ---------------------------------------------------------------- panel
