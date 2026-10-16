@@ -68,6 +68,9 @@ def _rule(rid, ev):
             if 'gradients' in task and not names(task['gradients']): return f'tasks.{tid}: gradients must be a list of grader names'
     elif rid == 'ended_needs_reason':
         if 'status' in ev and ev['status'] != 'succeeded' and not ev.get('reason'): return "reason: required when status is not 'succeeded'"
+    elif rid == 'fail_needs_note':
+        if ev.get('verdict') == 'fail' and isinstance(ev.get('note'), str) and not ev['note'].strip():
+            return "note: say what went wrong when verdict is 'fail'"
     elif rid == 'aborted_needs_reason':
         if ev.get('outcome') == 'aborted' and not ev.get('reason'): return "reason: required when outcome is 'aborted'"
     elif rid == 'caught_by_member':

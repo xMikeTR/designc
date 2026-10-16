@@ -65,7 +65,7 @@ const A = {
   selected: null, zoom: 'fit', cursor: null,
   asbuilt: null, facts: null, drift: null, extracting: false, cmSel: null, cmZoom: 'fit', showGhost: true,
   cmLevel: 'container', cmScope: null, asbuiltFull: null, cdrift: null,
-  tel: { runs: [], meta: null, error: null, loading: false }, badges: 'findings',
+  tel: { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: null, loading: false }, badges: 'findings',
   canvasApi: null, canvasLayout: null,
   regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
@@ -350,10 +350,10 @@ async function loadTelemetry() {
   A.tel.loading = true; renderStatus();
   const r = await host.telemetry();
   A.tel.loading = false;
-  if (r.error) { A.tel = { runs: [], meta: null, error: r, loading: false }; }
-  else A.tel = { runs: r.runs, meta: r.meta, error: null, loading: false };
+  if (r.error) { A.tel = { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: r, loading: false }; }
+  else A.tel = { runs: r.runs, tasks: r.tasks || { spans: [], empty: 0 }, meta: r.meta, error: null, loading: false };
   renderStatus(); renderSheet(); renderBadges();
-  if (A.active === 'special:build' || A.active === 'special:improve') renderSpecial();
+  if (['special:build', 'special:improve', 'special:review'].includes(A.active)) renderSpecial();
   if (A.activity === 'build' || A.activity === 'improve') renderSidebar();
 }
 setInterval(() => { if (A.root && A.tel.meta && A.tel.meta.source === 'langfuse' && document.visibilityState === 'visible') loadTelemetry(); }, 5 * 60 * 1000);
@@ -1158,17 +1158,17 @@ function renderBadges() {
   const wd = typeof WK !== 'undefined' && WK.digest ? WK.digest.needs.length + WK.digest.failed.length : 0;
   const b6 = $('#badge-work'); b6.textContent = wd || ''; b6.className = 'badge' + (wd ? ' on bad' : '');
 }
-function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
   const on = $('#tabs .tab.active'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1919,7 +1919,7 @@ function renderCmSide() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -2143,7 +2143,7 @@ function improveDash() {
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
-  h += escapeMetricsHtml(L);
+  h += reviewSummaryHtml() + escapeMetricsHtml(L);
   h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
