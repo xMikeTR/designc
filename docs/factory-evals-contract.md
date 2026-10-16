@@ -8,11 +8,12 @@ A factory registry is a folder with a `designc.json` and no model. It can point 
 
 | Path | Written by | Holds |
 | --- | --- | --- |
-| `factory/tasks/<id>.yaml` | Human, or the Analyst agent as `minted` | One eval task. `source.failure_mode` names the mode it came from. `status` is `minted`, `checked` or `retired` |
+| `factory/tasks/<id>.yaml` | Human, or the Analyst agent as `minted` | One eval task. `source.failure_mode` names the mode it came from; a task drafted from Review also lists `source.traces` (`[{trace_id, observation, task?}]`, the reviewed attempts) and, when designc knows the run, `input.handover` and `input.commit`. `status` is `minted`, `checked` or `retired` |
 | `factory/suites/*.yaml` | Human | Task ids and run settings. The harness owns its shape; designc does not read it |
 | `factory/rubrics/<dimension>.md` | Human | One judge prompt per dimension |
 | `factory/labels/<dimension>.yaml` | Human | Judge calibration rounds: `rounds: [{date, judge_version, precision, recall, n}]` |
-| `factory/taxonomy.yaml` | Human | `modes: [{id, name, triage (spec, fix or grader), description?}]` |
+| `factory/labels/<mode>.examples.jsonl` | Human (Export judge examples in Improve) | A judge's labelled examples for one failure mode, from Review: one JSON object per line, `{trace_id, observation, task?, run_id?, attempt?, label (fail or pass), failure_mode? (on fail), note}`. `fail` lines are reviews a person failed and put in the mode; `pass` lines are every attempt a person passed. Re-exporting replaces the file. The harness splits them for calibration and records the result as a round |
+| `factory/taxonomy.yaml` | Human (the Analyst's grouping adds modes only after a person approves) | `modes: [{id, name, triage (spec, fix or grader), description?}]` |
 | `ledger/factory.jsonl` | `designc record` and the app | The events below |
 
 `evals/` (agent evals, slice 15) is a different thing and is untouched.

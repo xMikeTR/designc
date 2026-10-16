@@ -88,7 +88,7 @@ function reviewModesHtml() {
   const r = Ledger.reviewModes(A.ledger, { taxonomy: A.taxonomy });
   if (!r.modes.some(m => m.count) && !r.unassigned.length && !r.unknown.length) return '';
   const ex = rv => `<div class="rvnote"><button class="lnk" data-act="rvgo" data-id="${esc(rv.observation)}">${esc(rv.task || rv.observation)}</button> ${esc(trunc(rv.note, 100))}</div>`;
-  const rows = r.modes.filter(m => m.count).sort((a, b) => b.count - a.count).map(m => `<tr><td><span class="id">${esc(m.id)}</span> ${esc(m.name)}${m.triage ? ` <span class="tag">${esc(m.triage)}</span>` : ''}</td><td class="num">${m.count}</td><td>${m.examples.slice(0, 3).map(ex).join('')}</td></tr>`).join('');
+  const rows = r.modes.filter(m => m.count).sort((a, b) => b.count - a.count).map(m => `<tr><td><span class="id">${esc(m.id)}</span> ${esc(m.name)}${m.triage ? ` <span class="tag">${esc(m.triage)}</span>` : ''}</td><td class="num">${m.count}</td><td>${m.examples.slice(0, 3).map(ex).join('')}<div class="acts"><button class="lnk" data-act="rvexport" data-id="${esc(m.id)}" title="Write factory/labels/${esc(m.id)}.examples.jsonl: these failed reviews as positives, every reviewed pass as a negative">Export judge examples</button> · <button class="lnk" data-act="rvtask" data-id="${esc(m.id)}" data-name="${esc(m.name)}" title="The Analyst drafts a minted eval task from these reviews; you approve it">Draft eval task</button></div></td></tr>`).join('');
   const un = r.unassigned.length ? `<tr><td style="color:var(--fg3)">Not assigned</td><td class="num">${r.unassigned.length}</td><td>${r.unassigned.slice(0, 3).map(ex).join('')}</td></tr>` : '';
   const warn = [...r.problems.map(p => `${TAXONOMY}: ${p}`), ...(A.taxonomyError ? [`${TAXONOMY} does not parse: ${A.taxonomyError}`] : []), ...(r.unknown.length ? [`${plural(r.unknown.length, 'failed review')} name a failure mode ${TAXONOMY} does not list: ${[...new Set(r.unknown.map(x => x.failure_mode))].join(', ')}`] : [])];
   return `${warn.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}<div class="tw2"><table class="t"><tr><th>Failure mode</th><th class="num">Failed</th><th>Notes</th></tr>${rows}${un}</table></div>`;
@@ -149,6 +149,17 @@ async function reviewSetMode(value) {
   renderReview();
 }
 
+// Improve: a judge's examples for one failure mode, written by the person as factory/labels/<mode>.examples.jsonl.
+async function exportJudgeExamples(id) {
+  const r = Ledger.judgeExamples(A.ledger, id), path = `factory/labels/${id}.examples.jsonl`;
+  if (!r.positives.length) return toast(`No failed reviews are in ${id} yet.`, 'error');
+  const note = r.negatives.length ? '' : ' There are no reviewed passes yet, so the judge has no negative examples: mark some passing attempts in Review first.';
+  if (!confirm(`Write ${path} with ${plural(r.positives.length, 'failed review')} as positives and ${r.negatives.length} reviewed ${r.negatives.length === 1 ? 'pass' : 'passes'} as negatives?${(await host.exists(path)) ? ' It replaces the file there now.' : ''}${note}\n\nThe notes are written as they are.`)) return;
+  await host.write(path, r.jsonl);
+  A.tree = await host.tree(); renderAll({ keepEditor: true });
+  toast(`Wrote ${path}.`);
+}
+
 // From Improve: open Review on one observation.
 function reviewGo(id) { RV.sel = id; openSpecial('special:review'); }
 
@@ -159,6 +170,8 @@ document.addEventListener('click', e => {
   if (t && t.dataset.act === 'rvopen') return openSpecial('special:review');
   if (t && t.dataset.act === 'rvgo') return reviewGo(t.dataset.id);
   if (t && t.dataset.act === 'rvgroup') return askAnalystToGroup();
+  if (t && t.dataset.act === 'rvexport') return exportJudgeExamples(t.dataset.id);
+  if (t && t.dataset.act === 'rvtask') return askAnalystForTask(t.dataset.id, t.dataset.name);
   if (!t || A.active !== 'special:review') return;
   const a = t.dataset.act;
   if (a === 'rvsel') { RV.sel = t.dataset.id; renderReview(); }

@@ -1057,6 +1057,41 @@ const Ledger = (() => {
     return { groups: out, changes };
   }
 
+  // Error analysis to evals: examples for a judge of one failure mode. Positives are the latest failed reviews in the
+  // mode, negatives the latest reviewed passes; fails in other modes are neither. `jsonl` is one line per example.
+  function judgeExamples(events, mode) {
+    const all = [...traceReviews(events).values()];
+    const positives = all.filter(r => r.verdict === 'fail' && r.failure_mode === mode), negatives = all.filter(r => r.verdict === 'pass');
+    const line = (r, label) => JSON.stringify({ trace_id: r.trace_id, observation: r.observation, ...(r.task != null ? { task: r.task } : {}), ...(r.run_id != null ? { run_id: r.run_id } : {}), ...(r.attempt != null ? { attempt: r.attempt } : {}), label, ...(label === 'fail' ? { failure_mode: mode } : {}), note: r.note || '' });
+    return { positives, negatives, jsonl: [...positives.map(r => line(r, 'fail')), ...negatives.map(r => line(r, 'pass'))].map(l => l + '\n').join('') };
+  }
+
+  // Error analysis to evals: an agent's draft of factory/tasks/<id>.yaml from failed reviews in one mode, as `minted`.
+  // `input` names the handover and commit of the first attempt's run when the ledger knows them; nothing is guessed.
+  function evalTaskDraft(events, taxonomy, a, { taken = [] } = {}) {
+    const { modes } = taxonomyModes(taxonomy), latest = traceReviews(events);
+    if (!a || !modes.some(m => m.id === a.failure_mode)) return { error: `failure_mode must be a mode of factory/taxonomy.yaml (${modes.map(m => m.id).join(', ') || 'none yet'}).` };
+    const title = a.title != null ? String(a.title).trim() : '';
+    if (!title) return { error: 'The task needs a title saying what the pipeline must get right.' };
+    if (!Array.isArray(a.observations) || !a.observations.length) return { error: 'List the failed reviews (observations) the task comes from.' };
+    const reviews = [];
+    for (const o of a.observations) {
+      const r = latest.get(o);
+      if (!r || r.verdict !== 'fail' || r.failure_mode !== a.failure_mode) return { error: `${o} is not a failed review in ${a.failure_mode}. Use list_reviews.` };
+      if (!reviews.includes(r)) reviews.push(r);
+    }
+    const base = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 48).replace(/-+$/, '') || 'task';
+    let id = base; for (let n = 2; taken.includes(id); n++) id = `${base}-${n}`;
+    const run = reviews[0].run_id, started = run != null ? events.find(e => e.kind === 'run_started' && e.run === run) : null;
+    const frozen = started ? events.filter(e => e.kind === 'handover' && e.handover === started.handover).pop() : null;
+    const q = JSON.stringify, lines = [`id: ${id}`, `title: ${q(title)}`, 'status: minted', 'source:', `  failure_mode: ${a.failure_mode}`, '  traces:',
+      ...reviews.map(r => `    - { trace_id: ${q(String(r.trace_id))}, observation: ${q(String(r.observation))}${r.task != null ? `, task: ${q(String(r.task))}` : ''} }`)];
+    if (a.why && String(a.why).trim()) lines.push(`  why: ${q(String(a.why).trim())}`);
+    if (started) lines.push('input:', `  handover: ${q(String(started.handover))}`, ...(frozen && frozen.commit ? [`  commit: ${q(String(frozen.commit))}`] : []));
+    lines.push('drafted_by: ide-agent');
+    return { id, path: `factory/tasks/${id}.yaml`, text: lines.join('\n') + '\n', reviews, input: started ? { handover: started.handover, commit: frozen ? frozen.commit || null : null } : null };
+  }
+
   // Error analysis: the latest trace_review per observation.
   function traceReviews(events) {
     const m = new Map();
@@ -1170,7 +1205,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };
