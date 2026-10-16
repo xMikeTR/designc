@@ -693,7 +693,9 @@ const Ledger = (() => {
       for (const e of events) {
         if (e.kind !== 'task') continue;
         if (e.run != null ? e.run !== r.run : (e.handover !== r.handover || r.started == null || e._ts < r.started || (r.ended != null && e._ts > r.ended))) continue;
-        tasks.set(e.task, { task: e.task, status: e.status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), at: e._ts });
+        // A task still running when its run ended did not finish: it stopped with the run.
+        const status = r.ended != null && e.status === 'running' ? 'stopped' : e.status;
+        tasks.set(e.task, { task: e.task, status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), at: e._ts });
       }
       const ms = r.started == null ? null : (r.ended != null ? r.ended : now) - r.started;
       return { ...r, ms, tasks: [...tasks.values()] };

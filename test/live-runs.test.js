@@ -56,7 +56,7 @@ test('an ended run keeps its status, reason and duration, and tasks after its en
   assert.equal(r.status, 'failed');
   assert.equal(r.reason, 'model call refused');
   assert.equal(r.ms, 300);
-  assert.deepEqual(r.tasks.map(t => t.status), ['running']);
+  assert.deepEqual(r.tasks.map(t => t.status), ['stopped']);
 });
 
 test('runs are newest first; an end with no start still shows; a repeated start is ignored and the latest end wins', () => {
@@ -103,4 +103,25 @@ test('a task row that names its run belongs to that run only, before or after a 
   assert.equal(r1.run, 'r1');
   assert.deepEqual(r1.tasks.map(t => t.task), ['T-1', 'T-2']);
   assert.deepEqual(r2.tasks.map(t => t.task), ['T-3']);
+});
+
+test('a task still running when its run ended is stopped, not running; a blocked task stays blocked', () => {
+  const [r] = Ledger.liveRuns([
+    ev('run_started', 100, { run: 'r1', handover: H }),
+    ev('task', 110, { task: 'T-1', status: 'running', run: 'r1', handover: H }),
+    ev('task', 120, { task: 'T-2', status: 'blocked', run: 'r1', handover: H }),
+    ev('task', 130, { task: 'T-3', status: 'passed', run: 'r1', handover: H }),
+    ev('run_ended', 400, { run: 'r1', handover: H, status: 'failed', reason: 'Waves failed: IOException: disk full' }),
+  ], { now: 9999 });
+  assert.deepEqual(r.tasks.map(t => [t.task, t.status]), [['T-1', 'stopped'], ['T-2', 'blocked'], ['T-3', 'passed']]);
+});
+
+test('a reopened run shows its tasks as running again', () => {
+  const [r] = Ledger.liveRuns([
+    ev('run_started', 100, { run: 'r1', handover: H }),
+    ev('task', 110, { task: 'T-1', status: 'running', run: 'r1', handover: H }),
+    ev('run_ended', 200, { run: 'r1', handover: H, status: 'parked', reason: 'waiting on ND-0001' }),
+    ev('run_started', 300, { run: 'r1', handover: H }),
+  ], { now: 400 });
+  assert.deepEqual(r.tasks.map(t => t.status), ['running']);
 });
