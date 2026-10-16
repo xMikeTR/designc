@@ -50,6 +50,11 @@ def _rule(rid, ev):
                 v = u.get(k)
                 if not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
             if 'cost' in u and not _is_num(u['cost']): return f'{at}.cost: must be a number'
+            for k in ('cache_read', 'cache_write'):
+                v = u.get(k)
+                if k in u and not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
+            if u.get('cache_read', 0) + u.get('cache_write', 0) > u['tokens_in']:
+                return f'{at}: cache_read and cache_write are part of tokens_in, so together at most tokens_in'
     elif rid == 'suite_run_shape':
         t = ev.get('trials')
         if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'

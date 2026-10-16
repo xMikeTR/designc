@@ -328,7 +328,8 @@ const Ledger = (() => {
       }
       return null;
     },
-    // task.usage: a running total per model the task used, [{model, tier?, turns, tokens_in, tokens_out, cost?}].
+    // task.usage: a running total per model the task used, [{model, tier?, turns, tokens_in, tokens_out, cost?, cache_read?, cache_write?}].
+    // The cache counts are the part of tokens_in read from or written to a prompt cache, not extra to it.
     usage_shape: ev => {
       if (ev.usage === undefined) return null;
       if (!Array.isArray(ev.usage)) return 'usage: must be a list of {model, turns, tokens_in, tokens_out}';
@@ -339,6 +340,8 @@ const Ledger = (() => {
         if (u.tier !== undefined && typeof u.tier !== 'string') return `${at}.tier: must be a string`;
         for (const k of ['turns', 'tokens_in', 'tokens_out']) if (!(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
         if (u.cost !== undefined && typeof u.cost !== 'number') return `${at}.cost: must be a number`;
+        for (const k of ['cache_read', 'cache_write']) if (u[k] !== undefined && !(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
+        if ((u.cache_read || 0) + (u.cache_write || 0) > u.tokens_in) return `${at}: cache_read and cache_write are part of tokens_in, so together at most tokens_in`;
       }
       return null;
     },
@@ -686,16 +689,17 @@ const Ledger = (() => {
     return out;
   }
 
-  // Sums `usage` entries per tier (else model), most tokens first: [{tier, models[], turns, tokens_in, tokens_out, tokens, cost}].
+  // Sums `usage` entries per tier (else model), most tokens first: [{tier, models[], turns, tokens_in, tokens_out, tokens, cost, cache_read, cache_write}].
   function sumUsage(rows) {
     const by = new Map();
     for (const r of rows) for (const u of (Array.isArray(r.usage) ? r.usage : [])) {
       if (!u || typeof u.model !== 'string') continue;
       const key = u.tier || u.model;
-      const t = by.get(key) || { tier: key, models: [], turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0, cost: 0 };
+      const t = by.get(key) || { tier: key, models: [], turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0, cost: 0, cache_read: 0, cache_write: 0 };
       if (!t.models.includes(u.model)) t.models.push(u.model);
       const n = k => (Number.isFinite(u[k]) ? u[k] : 0);
       t.turns += n('turns'); t.tokens_in += n('tokens_in'); t.tokens_out += n('tokens_out'); t.cost += n('cost');
+      t.cache_read += n('cache_read'); t.cache_write += n('cache_write');
       t.tokens = t.tokens_in + t.tokens_out;
       by.set(key, t);
     }

@@ -2052,11 +2052,12 @@ const runSpan = ms => (ms == null ? '' : ms < 60000 ? `${Math.round(ms / 1000)} 
 function usageCell(usage) {
   return usage.map(u => `<span title="${esc(u.model)}">${esc(`${u.tier || u.model} ${u.turns} · ${fmtN((u.tokens_in || 0) + (u.tokens_out || 0))}`)}</span>`).join(', ');
 }
-// A run's spend per tier, with its share of the run's tokens.
+// A run's spend per tier, with its share of the run's tokens and, when the pipeline reports it, the input read from a prompt cache.
 function runUsageNote(usage) {
   if (!usage || !usage.length) return '';
   const all = usage.reduce((a, u) => a + u.tokens, 0);
-  return `<div class="note">By tier: ${usage.map(u => `<span title="${esc(u.models.join(', '))}">${esc(`${u.tier} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%)` : ''}`)}</span>`).join(', ')}</div>`;
+  const cached = u => (u.cache_read && u.tokens_in ? `, ${Math.round(100 * u.cache_read / u.tokens_in)}% of input cached` : '');
+  return `<div class="note">By tier: ${usage.map(u => `<span title="${esc(u.models.join(', '))}">${esc(`${u.tier} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%${cached(u)})` : cached(u)}`)}</span>`).join(', ')}</div>`;
 }
 function runsBlock() {
   const runs = Ledger.liveRuns(A.ledger).slice(0, 5);
