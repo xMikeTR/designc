@@ -58,3 +58,16 @@ test('sample events are never counted as spend', () => {
   assert.equal(Ledger.handoverActuals(ev, 'H-1').tokens, 100);
   assert.equal(Ledger.handoverActuals(ev, 'H-1').tasks, 1);
 });
+
+test('a task row that names its run is a running total: the latest per handover, task and run counts, and runs add up', () => {
+  assert.deepEqual(Ledger.validate({ kind: 'task', by: 'p', task: 'T', status: 'running', handover: 'H-1', run: 'r1' }), []);
+  const ev = [
+    task({ task: 'T-1', run: 'r1', handover: 'H-1', element: 'Api', status: 'running', tokens: 100, cost: 1 }),
+    task({ task: 'T-1', run: 'r1', handover: 'H-1', element: 'Api', status: 'running', tokens: 250, cost: 2 }),
+    task({ task: 'T-1', run: 'r1', handover: 'H-1', element: 'Api', status: 'passed', tokens: 300, cost: 3 }),
+    task({ task: 'T-1', run: 'r2', handover: 'H-1', element: 'Api', status: 'passed', tokens: 40, cost: 0.5 }),
+    task({ task: 'T-1', handover: 'H-1', element: 'Api', tokens: 7 }), // no run: counted as written
+  ];
+  assert.deepEqual(Ledger.elementHistory(ev).get('Api'), [{ handover: 'H-1', tokens: 347, cost: 3.5 }]);
+  assert.deepEqual(Ledger.handoverActuals(ev, 'H-1'), { tokens: 347, cost: 3.5, tasks: 3, closed: null, afterClose: 0 });
+});

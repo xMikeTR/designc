@@ -59,7 +59,7 @@ test('an ended run keeps its status, reason and duration, and tasks after its en
   assert.deepEqual(r.tasks.map(t => t.status), ['running']);
 });
 
-test('runs are newest first; an end with no start still shows; the first start and the first end per run win', () => {
+test('runs are newest first; an end with no start still shows; a repeated start is ignored and the latest end wins', () => {
   const runs = Ledger.liveRuns([
     ev('run_started', 100, { run: 'a', handover: H }),
     ev('run_ended', 200, { run: 'a', handover: H, status: 'succeeded' }),
@@ -68,7 +68,39 @@ test('runs are newest first; an end with no start still shows; the first start a
     ev('run_started', 350, { run: 'b', handover: 'x' }),
     ev('run_ended', 400, { run: 'c', handover: H, status: 'cancelled', reason: 'stopped' }),
   ], { now: 500 });
-  assert.deepEqual(runs.map(r => [r.run, r.status]), [['c', 'cancelled'], ['b', 'running'], ['a', 'succeeded']]);
+  assert.deepEqual(runs.map(r => [r.run, r.status]), [['c', 'cancelled'], ['b', 'running'], ['a', 'failed']]);
   assert.equal(runs.find(r => r.run === 'b').handover, H);
+  assert.equal(runs.find(r => r.run === 'b').started, 300);
   assert.equal(runs.find(r => r.run === 'c').started, null);
+});
+
+test('a start after the end reopens the run (a parked run resumed), and it ends again later', () => {
+  const events = [
+    ev('run_started', 100, { run: 'r1', handover: H }),
+    ev('run_ended', 200, { run: 'r1', handover: H, status: 'parked', reason: 'waiting on ND-0001' }),
+    ev('run_started', 300, { run: 'r1', handover: H }),
+  ];
+  const [open] = Ledger.liveRuns(events, { now: 350 });
+  assert.equal(open.status, 'running');
+  assert.equal(open.reason, null);
+  assert.equal(open.ended, null);
+  assert.equal(open.started, 300);
+  const [done] = Ledger.liveRuns([...events, ev('run_ended', 400, { run: 'r1', handover: H, status: 'succeeded' })], { now: 999 });
+  assert.equal(done.status, 'succeeded');
+  assert.equal(done.ms, 100);
+});
+
+test('a task row that names its run belongs to that run only, before or after a reopen', () => {
+  const [r2, r1] = Ledger.liveRuns([
+    ev('run_started', 100, { run: 'r1', handover: H }),
+    ev('task', 110, { task: 'T-1', status: 'running', handover: H, run: 'r1' }),
+    ev('run_ended', 200, { run: 'r1', handover: H, status: 'parked', reason: 'waiting' }),
+    ev('run_started', 300, { run: 'r1', handover: H }),
+    ev('run_started', 310, { run: 'r2', handover: H }),
+    ev('task', 320, { task: 'T-2', status: 'running', handover: H, run: 'r1' }),
+    ev('task', 330, { task: 'T-3', status: 'running', handover: H, run: 'r2' }),
+  ], { now: 400 });
+  assert.equal(r1.run, 'r1');
+  assert.deepEqual(r1.tasks.map(t => t.task), ['T-1', 'T-2']);
+  assert.deepEqual(r2.tasks.map(t => t.task), ['T-3']);
 });

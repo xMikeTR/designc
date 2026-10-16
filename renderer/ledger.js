@@ -124,7 +124,7 @@ const Ledger = (() => {
     },
     task: {
       required: ['task', 'status'],
-      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover'],
+      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run'],
       enums: { status: ['passed', 'failed', 'blocked', 'running'] },
     },
     needs_decision: {
@@ -630,10 +630,23 @@ const Ledger = (() => {
   // Reruns and failures count; events with no handover or no element are left out. Returns
   // Map(element name -> [{handover, tokens, cost}]) for the last `window` handovers, oldest first
   // (a handover's place is the time of its first task). Expects events in Ledger.order.
+  // The task rows that count as spend. A row naming its `run` is a running total for that task in that run,
+  // so only the latest per handover, task and run counts; a row with no `run` counts as written.
+  function spendRows(events) {
+    const latest = new Map(), out = [];
+    for (const e of events) {
+      if (e.kind !== 'task' || e.sample) continue;
+      if (e.run == null) out.push(e);
+      else latest.set(`${e.handover}\u0000${e.task}\u0000${e.run}`, e);
+    }
+    const keep = new Set([...out, ...latest.values()]);
+    return events.filter(e => keep.has(e));
+  }
+
   function elementHistory(events, { window = 10 } = {}) {
     const byEl = new Map(), first = new Map();
-    for (const e of events) {
-      if (e.kind !== 'task' || e.sample || !e.handover || !e.element) continue;
+    for (const e of spendRows(events)) {
+      if (!e.handover || !e.element) continue;
       if (!first.has(e.handover)) first.set(e.handover, first.size);
       const rows = byEl.get(e.element) || new Map();
       const r = rows.get(e.handover) || { handover: e.handover, tokens: 0, cost: 0 };
@@ -650,17 +663,18 @@ const Ledger = (() => {
   function handoverActuals(events, id) {
     const close = events.filter(e => e.kind === 'handover_closed' && e.handover === id).pop();
     const out = { tokens: 0, cost: 0, tasks: 0, closed: close ? close.outcome : null, afterClose: 0 };
-    for (const e of events) {
-      if (e.kind !== 'task' || e.sample || e.handover !== id) continue;
+    for (const e of spendRows(events)) {
+      if (e.handover !== id) continue;
       if (close && e._ts > close._ts) { out.afterClose++; continue; }
       out.tasks++; out.tokens += totalTokens(e); out.cost += typeof e.cost === 'number' ? e.cost : 0;
     }
     return out;
   }
 
-  // Build's Runs: one row per pipeline run, newest first. The first run_started and the first run_ended per run
-  // win. A run's tasks are the task rows of its handover after it started (and not after it ended), latest
-  // status per task. A run with no end is `running`; `ms` runs to `now` until it ends.
+  // Build's Runs: one row per pipeline run, newest first. A run_started while the run is open is ignored; one
+  // after its end reopens it (a parked run resumed), and the latest run_ended wins. A run's tasks are the task
+  // rows naming it, else (no `run`) the task rows of its handover since it started and not after it ended,
+  // latest status per task. A run with no end is `running`; `ms` runs from its latest start to `now` until it ends.
   function liveRuns(events, { now = Date.now() } = {}) {
     const runs = new Map();
     const row = (e) => {
@@ -668,14 +682,17 @@ const Ledger = (() => {
       return runs.get(e.run);
     };
     for (const e of events) {
-      if (e.kind === 'run_started') { const r = row(e); if (r.started == null && r.ended == null) { r.started = e._ts; r.handover = e.handover; } }
-      if (e.kind === 'run_ended') { const r = row(e); if (r.ended == null) { r.ended = e._ts; r.status = e.status; r.reason = e.reason || null; } }
+      if (e.kind === 'run_started') {
+        const r = row(e);
+        if (r.started == null || r.ended != null) Object.assign(r, { started: e._ts, handover: e.handover, ended: null, status: 'running', reason: null });
+      }
+      if (e.kind === 'run_ended') { const r = row(e); Object.assign(r, { ended: e._ts, status: e.status, reason: e.reason || null }); }
     }
     return [...runs.values()].map(r => {
       const tasks = new Map();
       for (const e of events) {
-        if (e.kind !== 'task' || e.handover !== r.handover || r.started == null) continue;
-        if (e._ts < r.started || (r.ended != null && e._ts > r.ended)) continue;
+        if (e.kind !== 'task') continue;
+        if (e.run != null ? e.run !== r.run : (e.handover !== r.handover || r.started == null || e._ts < r.started || (r.ended != null && e._ts > r.ended))) continue;
         tasks.set(e.task, { task: e.task, status: e.status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), at: e._ts });
       }
       const ms = r.started == null ? null : (r.ended != null ? r.ended : now) - r.started;

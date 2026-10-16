@@ -783,7 +783,8 @@
         "cost",
         "model",
         "tier",
-        "handover"
+        "handover",
+        "run"
       ],
       "enums": {
         "status": [
