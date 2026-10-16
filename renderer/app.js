@@ -645,8 +645,33 @@ async function answerNeedsDecision(n) {
   const statement = await askText(`What was decided for ${n.id}? (leave blank to fill in later)`); if (statement == null) return;
   const check = await askCheck(); if (check == null) return;
   const el = n.element && A.model ? Core.resolveElement(A.model, String(n.element)) : null;
-  return recordDecision({ statement: statement.trim(), binds: el ? [el.name] : n.element ? [String(n.element)] : [], resolves: [], checks: check ? [check] : [],
+  const r = await recordDecision({ statement: statement.trim(), binds: el ? [el.name] : n.element ? [String(n.element)] : [], resolves: [], checks: check ? [check] : [],
     rationale: `Pipeline asked (${n.id}): ${n.question}` });
+  if (r && r.id) await recordEvent('needs_decision_resolved', { id: n.id, decision: r.id });
+  return r;
+}
+// The options a pipeline offered with a needs-decision, each with a Choose button (the recommended one tagged).
+function ndOptionsHtml(id) {
+  const nd = A.ledger.find(x => x.kind === 'needs_decision' && x.id === id);
+  const { options, recommended } = Ledger.ndOptions(nd);
+  return options.map(o => `<div class="l2"><button class="lnk" data-ndopt="${esc(id)}" data-opt="${esc(o.id)}">Choose ${esc(o.id)}</button> ${esc(o.summary)}${o.id === recommended ? ' <span class="tag pass">recommended</span>' : ''}${o.consequence ? ` <span class="desc">${esc(o.consequence)}</span>` : ''}</div>`).join('');
+}
+// How a resolved needs-decision was answered, for the rows that show it.
+function ndAnswerText(r) {
+  if (!r) return '';
+  return [r.option ? `chose ${r.option}` : '', r.decision ? `answered by ${r.decision}` : '', r.note ? `"${r.note}"` : '', r.by ? `by ${r.by}` : ''].filter(Boolean).join(', ') || 'resolved';
+}
+// A person picks one of the options the pipeline offered; the note travels with it to the agent that asked.
+async function chooseNdOption(id, opt) {
+  const nd = A.ledger.find(x => x.kind === 'needs_decision' && x.id === id);
+  const o = Ledger.ndOptions(nd).options.find(x => x.id === opt); if (!o) return;
+  const note = await askText(`${id}: choose ${o.id}, ${o.summary}${o.consequence ? ` (${o.consequence})` : ''}. Anything the agent should know? (optional)`); if (note == null) return;
+  await recordEvent('needs_decision_resolved', { id, payload: { option: o.id, ...(note.trim() ? { note: note.trim() } : {}) } });
+  toast(`${id}: chose ${o.id}. Resume the run to continue.`);
+}
+async function resolveNd(id) {
+  const note = await askText(`${id}: what should the agent know? It reads this when the run resumes. (optional)`); if (note == null) return;
+  await recordEvent('needs_decision_resolved', { id, ...(note.trim() ? { payload: { note: note.trim() } } : {}) });
 }
 // A bound fix decision needs a passing check, so ask for the command now; blank leaves a TODO, Cancel is null.
 async function askCheck() {
@@ -1233,7 +1258,7 @@ function clauseActions(c) {
   if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
-  if (c.kind === 'needs' && c.needs && c.needs.id) return b('data-ndans', c.needs.id, 'Answer with a decision') + b('data-ndres', c.needs.id, 'Mark resolved', 'Closes the question without a decision, for one that is not about the design');
+  if (c.kind === 'needs' && c.needs && c.needs.id) return ndOptionsHtml(c.needs.id) + b('data-ndans', c.needs.id, 'Answer with a decision') + b('data-ndres', c.needs.id, 'Mark resolved', 'Closes the question without a decision, for one that is not about the design');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
   return '';
 }
@@ -1402,7 +1427,7 @@ function buildSidebar() {
   const tokens = tasks.reduce((a, t) => a + Ledger.totalTokens(t), 0);
   const needs = A.ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open');
   const summary = tasks.length ? `<div class="hint">${passed.length} of ${plural(tasks.length, 'task')} passed. ${passed.length ? `${fmtN(tokens / passed.length)} tokens per passing task.` : ''}</div>` : '<div class="hint">No pipeline events in ledger/*.jsonl yet.</div>';
-  const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>
+  const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>${ndOptionsHtml(n.id)}
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
   return section('bsum', 'Summary', summary) + section('needs', `Waiting on a decision (${needs.length})`, nd);
 }
@@ -2089,7 +2114,7 @@ function buildDash() {
   h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
   h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
-  h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}}</div></td><td>${esc(n.question)}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span></td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
+  h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}</div></td><td>${esc(n.question)}${n.status === 'open' ? ndOptionsHtml(n.id) : ''}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span>${n.resolution ? `<div style="color:var(--fg3)">${esc(ndAnswerText(n.resolution))}</div>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
   const acFail = [...L.filter(e => e.kind === 'ui_acceptance_failed').reduce((m, e) => m.set(`${e.task}\0${e.ac}`, e), new Map()).values()];
   if (acFail.length) h += `<div class="block"><h3>UI acceptance failures</h3><div class="tw2"><table class="t"><tr><th>Criterion</th><th>Element</th><th>Task</th><th>Commit</th></tr>${acFail.map(f => `<tr><td><span class="id">${esc(f.ac)}</span></td><td>${esc(elementLabel(f.element))}</td><td>${esc(f.task)}</td><td><span class="code">${esc(String(f.commit).slice(0, 7))}</span>${f.trace_id ? ` · trace ${esc(f.trace_id)}` : ''}</td></tr>`).join('')}</table></div><div class="note">Reported by the pipeline. The spec is generated from the criterion, so fix the code, not the spec.</div></div>`;
   const byEl = new Map(); for (const t of tasks) { const k = elementLabel(t.element) || 'unassigned'; if (!byEl.has(k)) byEl.set(k, []); byEl.get(k).push(t); }
@@ -2203,7 +2228,8 @@ document.addEventListener('click', async e => {
   }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
   if ('regsRefresh' in d) return loadRegistries();
-  if (d.ndres) { await recordEvent('needs_decision_resolved', { id: d.ndres }); return; }
+  if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
+  if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
