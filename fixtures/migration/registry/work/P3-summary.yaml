@@ -1,0 +1,8 @@
+id: P3-summary
+requirement: QC-1
+elements: [Summary]
+repo: ../target
+writes: ["src/summary/**"]
+done_when:
+  - gate: npm test
+  - gate: npm run check:scope

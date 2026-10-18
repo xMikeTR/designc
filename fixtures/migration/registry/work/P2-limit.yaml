@@ -1,0 +1,8 @@
+id: P2-limit
+requirement: QC-1
+elements: [Validation]
+repo: ../target
+writes: ["src/validation/**"]
+done_when:
+  - gate: npm test
+  - gate: npm run check:scope
