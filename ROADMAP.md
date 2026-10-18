@@ -4,7 +4,7 @@ Remaining work, in order. Each slice is vertical: registry format, core (JS) plu
 
 Sources: `ui-acceptance-playwright.md` and `work-intake-wip.md` (2026-10-12 briefs). Their F# types, the pull scheduler, the verify runner, the dispatcher's ledger fold and the Jira mirror belong to the System 2 workbook, not designc. designc owns the registry formats, the gate, Grill-me, the handover, the ledger kinds it reads, and the views.
 
-Last updated: 2026-10-13. Slice 36 (requirement import, parts A, B and C) built; C is a fetch script, `scripts/fetch-confluence.py`, not a reader: its output is the HTML shape the importer already reads. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
+Last updated: 2026-10-18. Slice 37 (step 0, study) built. Before that, 2026-10-13. Slice 36 (requirement import, parts A, B and C) built; C is a fetch script, `scripts/fetch-confluence.py`, not a reader: its output is the HTML shape the importer already reads. F# extractor item closed: no gap found across the user's F# codebases; Anthropic and OpenAI packages added to the catalogue. Since last look and Grill-me "I don't know" built. Before that, 2026-10-12. Slice 34 built. Drift flag and UI escape rate added. Slice 33 built. Slice 32 built. Slice 31 built. Slice 30 built. Slice 29 built. Slice 28 built. Slice 27 built. Slice 26 built. Slice 25 built. Slice 24 built. Slice 23 built. Slice 22 built. Slice 35 built. Before that: recorded the two briefs, then the scoped-freeze grill: intake moved first, slices renumbered 22 to 35.
 
 ## Principles for all slices
 
@@ -66,6 +66,20 @@ Turns a folder of exported Confluence pages into `requirements/*.yaml` stubs. Pa
 - **B. Built.** Grill-me maps one imported page to `elements[]`: `read_import_page` (read-only, the folder chosen this session, one page per call) and `map_requirement` (Grill-me `ask`; element names must resolve; only the `elements` line changes, behind an approval card). `Policy.WRITE_PATHS` is not widened and raw ACP writes into `requirements/` stay refused. "Map to elements" on an untraced requirement and on its gate clause; one requirement per agent turn.
 - **C. Open.** REST storage-format reader (`ac:` macros) for pages saved by the user's fetch script.
 - **Converter. Built.** `scripts/convert-pages.py`: `.docx` with the standard library on the work VM's Python; `.pdf` needs `pdftotext`, which is an install request if PDFs turn up.
+
+## Step 0: study (slice 37)
+
+Built 2026-10-18. When the person does not yet know enough to decide, they study first. The agent informs; the person decides and lives with it.
+
+- A registry with `designc.json` `kind: study` is a study notebook: no model, no gate, no Freeze, no Code map. It opens on the Study activity; Set up offers "Study notebook".
+- `study/<id>.yaml` is one topic: `id, question, status (open | settled | abandoned), sources[{url, note}], findings[{pattern, why, good_or_bad, sources[n], corrects?}], questions[{text, asked, answer_in}], opinion, pocs[{question, where, result}]`. Sources and findings are append-only (a wrong finding is corrected by a later one with `corrects`). `opinion` and `status` are the person's; settling needs an opinion.
+- The Researcher role exists only in study registries and only on ACP or AG-UI agents (it needs web search): `read_study`, and `add_source`, `add_finding`, `answer_question`, each behind an approval card. `study/` is not in `WRITE_PATHS`, so a raw ACP write there is refused.
+- Exit: New decision from a study in a project registry lists settled topics of the registries in `registries` (read-only), and mints a decision whose rationale is the opinion and which carries `informed_by: [{registry, topic}]`. Display only, never a gate input.
+- Tests: `test/study.test.js`, `test/policy.test.js`, and the `@critical` journey "user can study a topic and decide from it".
+
+## Domain packs (slice 38)
+
+A team's DDD domain model as a pinned, checked input. Done: `kind: domain` registries (`domain/<key>.yaml`: aggregates with identity, value objects, events, invariants as text, `refs`); `designc.json` `domains` and `registries`; the human-only `domain_pinned` ledger event; gate clauses of kind `domain` (not pinned, edited after pin, changed in its registry, DDD problems, `d.owns` not defined by a pinned pack, two owners, P event payload mismatch), opt-in and mirrored in Python; Domain sidebar with Pin, Re-pin and guides (declare a published event in P, draft a check from an invariant); handover copies of touched packs and `domain.json`. Deferred: the "requirement term not in the pack" guide.
 
 ## Open questions
 

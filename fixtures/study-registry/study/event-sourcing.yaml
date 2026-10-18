@@ -1,0 +1,14 @@
+id: event-sourcing
+question: When is event sourcing worth it for a quoting service?
+status: settled
+sources:
+  - url: https://github.com/example/quotes/blob/4f2c9e1/src/QuoteStream.cs
+    note: Quote aggregate rebuilt from events
+findings:
+  - pattern: Each quote change is an event; state is a fold
+    why: Full history for audit, at the cost of projections to keep current
+    good_or_bad: tradeoff
+    sources: [1]
+questions: []
+opinion: Worth it only where audit of every change is a requirement; elsewhere plain rows with a history table.
+pocs: []

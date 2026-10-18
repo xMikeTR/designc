@@ -26,8 +26,23 @@ async function tool(toolCallId, title, kind, fn) {
   catch (e) { update({ sessionUpdate: 'tool_call_update', toolCallId, status: 'failed', content: [{ type: 'content', content: { type: 'text', text: e.message } }] }); return null; }
 }
 
+// MOCK_SCRIPT=study: the Researcher in a study notebook. Lists the topics, then adds a source and a finding
+// citing it to the first open one, each through designc's approval card.
+async function studyTurn() {
+  const call = async (name, args) => { const r = await mcp.call('tools/call', { name, arguments: args }); if (r.isError) throw new Error(r.content[0].text); return r.content[0].text; };
+  await say('Reading the study topics through designc. ');
+  let topic = null;
+  await tool('s1', 'designc: read_study', 'read', async () => { const list = JSON.parse(await call('read_study', {})); topic = (list.find(t => t.status === 'open') || {}).id; return `${list.length} topics`; });
+  if (!topic) { await say('There is no open topic to research.'); return 'end_turn'; }
+  await tool('s2', 'designc: add_source', 'other', () => call('add_source', { topic, url: 'https://github.com/example/compiler/blob/0123abc/src/passes.rs', note: 'Example pass manager' }));
+  await tool('s3', 'designc: add_finding', 'other', () => call('add_finding', { topic, pattern: 'Passes declare what they preserve', why: 'The manager skips recomputing analyses that are still valid', good_or_bad: 'good', sources: [1] }));
+  await say('I added one source and one finding. Read the source yourself; the opinion is yours.');
+  return 'end_turn';
+}
+
 async function turn() {
   cancelled = false;
+  if (process.env.MOCK_SCRIPT === 'study') return studyTurn();
   const plan = s => update({ sessionUpdate: 'plan', entries: [
     { content: 'Read the lint findings through designc', priority: 'high', status: s[0] },
     { content: 'Run the tests', priority: 'medium', status: s[1] },
@@ -97,3 +112,5 @@ process.stdin.on('data', async d => {
     else if (m.id != null) out({ id: m.id, error: { code: -32601, message: 'not supported' } });
   }
 });
+process.stdin.on('end', () => { if (mcp) mcp.kill(); process.exit(0); });
+process.on('SIGTERM', () => { if (mcp) mcp.kill(); process.exit(0); });

@@ -209,6 +209,24 @@
       "types": {},
       "rules": []
     },
+    "domain_pinned": {
+      "stream": "designc.jsonl",
+      "required": [
+        "pack",
+        "registry",
+        "hash"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "pack": "string",
+        "registry": "string",
+        "hash": "string"
+      },
+      "rules": [
+        "hash_not_blank"
+      ]
+    },
     "escape": {
       "stream": "designc.jsonl",
       "required": [

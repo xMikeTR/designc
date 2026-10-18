@@ -1,0 +1,39 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.domain/1",
+  "title": "Handover domain",
+  "description": "domain.json in a frozen handover (handovers/<id>/), present only when a touched element owns an aggregate a pinned domain pack defines. Written by Core.handoverPlan at freeze, listed and hashed in handover.yaml (named there as `domain:`), outside the handover id. The pack copies sit under domain/<key>.yaml. designc owns this contract; consumers conform to it. docs/handover-domain.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "packs", "owners"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.domain/1" },
+    "packs": {
+      "description": "The pack copies in this handover, ordered by key.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["key", "path", "hash"],
+        "additionalProperties": false,
+        "properties": {
+          "key": { "type": "string" },
+          "path": { "description": "Relative to the handover folder.", "type": "string" },
+          "hash": { "description": "hash16 of the copy's text.", "type": "string" }
+        }
+      }
+    },
+    "owners": {
+      "description": "Which element owns which aggregates, ordered by element id.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["element", "owns"],
+        "additionalProperties": false,
+        "properties": {
+          "element": { "description": "An id in elements.json.", "type": "string" },
+          "owns": { "description": "Aggregates as <pack>/<Aggregate>.", "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

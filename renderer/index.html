@@ -18,6 +18,7 @@
     <button data-act="topology" title="Agent topology, who calls what" aria-label="Agent topology"><svg viewBox="0 0 24 24"><circle cx="12" cy="5" r="2.5"/><circle cx="5" cy="18" r="2.5"/><circle cx="19" cy="18" r="2.5"/><path d="M11 7.3L6 15.7M13 7.3L18 15.7M7.5 18h9"/></svg></button>
     <button data-act="codemap" title="Code map, as built" aria-label="Code map"><svg viewBox="0 0 24 24"><path d="M9 4L3 6.5v13.5l6-2.5 6 2.5 6-2.5V4l-6 2.5z"/><path d="M9 4v13.5M15 6.5V20"/></svg><span class="badge" id="badge-codemap"></span></button>
     <button data-act="work" title="Work, items in progress" aria-label="Work"><svg viewBox="0 0 24 24"><rect x="4" y="4" width="16" height="16" rx="2"/><path d="M8 9h8M8 13h8M8 17h5"/></svg><span class="badge" id="badge-work"></span></button>
+    <button data-act="study" title="Study, learn before deciding" aria-label="Study"><svg viewBox="0 0 24 24"><path d="M3 6.5C6 5 9 5 12 7c3-2 6-2 9-.5V19c-3-1.5-6-1.5-9 .5-3-2-6-2-9-.5z"/><path d="M12 7v12.5"/></svg></button>
     <button data-act="build" title="Build" aria-label="Build"><svg viewBox="0 0 24 24"><path d="M4 20l7-7M9.5 11.5l3 3M13 4.5a4.5 4.5 0 0 0 5.8 5.8l-3.3 3.3-5.6-5.6z"/></svg><span class="badge" id="badge-build"></span></button>
     <button data-act="scm" title="Source control" aria-label="Source control"><svg viewBox="0 0 24 24"><circle cx="6" cy="5" r="2"/><circle cx="6" cy="19" r="2"/><circle cx="18" cy="9" r="2"/><path d="M6 7v10M18 11c0 4-6 3-12 6"/></svg><span class="badge" id="badge-scm"></span></button>
     <button data-act="improve" title="Improve" aria-label="Improve"><svg viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.7"/><path d="M20 4v4.5h-4.5"/><path d="M9 12.5l2 2 4-4.5"/></svg><span class="badge" id="badge-improve"></span></button>
@@ -52,7 +53,7 @@
     </div>
   </section>
   <aside class="agent" id="agent" aria-label="Agent panel">
-    <div class="aghead"><select id="agAgent" class="inline" aria-label="Agent"><option value="builtin">designc (gateway)</option></select><select id="agRole" class="inline" aria-label="Agent role"><option value="architect">Architect</option><option value="grill">Grill-me</option><option value="analyst">Analyst (Improve)</option><option value="tutor">Tutor</option></select><span class="agconn" id="agConn"></span><span class="spacer"></span><button class="iconbtn" id="agNew" title="New chat">New chat</button><button class="iconbtn" data-agenttoggle title="Close (Ctrl+Alt+I)" aria-label="Close agent panel">✕</button></div>
+    <div class="aghead"><select id="agAgent" class="inline" aria-label="Agent"><option value="builtin">designc (gateway)</option></select><select id="agRole" class="inline" aria-label="Agent role"><option value="architect">Architect</option><option value="grill">Grill-me</option><option value="analyst">Analyst (Improve)</option><option value="tutor">Tutor</option><option value="researcher" hidden>Researcher</option></select><span class="agconn" id="agConn"></span><span class="spacer"></span><button class="iconbtn" id="agNew" title="New chat">New chat</button><button class="iconbtn" data-agenttoggle title="Close (Ctrl+Alt+I)" aria-label="Close agent panel">✕</button></div>
     <div class="aglog" id="agLog"></div>
     <div class="agin"><textarea id="agInput" rows="3" placeholder="Ask about the design, the code or the runs. Enter to send, Shift+Enter for a new line."></textarea>
       <div class="agbar"><span class="muted">Selection in the editor is included.</span><span class="spacer"></span><button class="btn" id="agStop" style="display:none">Stop</button><button class="btn primary" id="agSend">Send</button></div></div>
@@ -62,6 +63,7 @@
 <div class="toasts" id="toasts"></div>
 <script src="../node_modules/js-yaml/dist/js-yaml.min.js"></script>
 <script src="pathpattern.js"></script>
+<script src="domain.js"></script>
 <script src="core.js"></script>
 <script src="ledger.js"></script>
 <script src="policy.js"></script>
@@ -73,6 +75,7 @@
 <script src="codelevel.js"></script>
 <script src="quality.js"></script>
 <script src="setup.js"></script>
+<script src="study.js"></script>
 <script src="canvas/vocabulary.js"></script>
 <script src="canvas/layout.js"></script>
 <script src="canvas/templates.js"></script>
@@ -88,6 +91,7 @@
 <script src="gitview.js"></script>
 <script src="workview.js"></script>
 <script src="reviewview.js"></script>
+<script src="studyview.js"></script>
 <script src="setupview.js"></script>
 <script src="terminalview.js"></script>
 <script src="agent.js"></script>

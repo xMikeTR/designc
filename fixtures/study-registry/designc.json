@@ -1,0 +1,6 @@
+{
+  "kind": "study",
+  "acpAgents": {
+    "mock": { "label": "Mock agent", "command": "node", "args": ["../../dev/mock-acp-agent.js"], "env": { "MOCK_SCRIPT": "study" } }
+  }
+}

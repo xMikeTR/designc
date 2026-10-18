@@ -29,7 +29,7 @@ async function openSetup() {
   SU.exists = t != null; SU.invalid = null; SU.current = {};
   if (t != null) { try { SU.current = JSON.parse(t) || {}; } catch (e) { SU.invalid = e.message; } }
   const c = SU.current, pick = (o, ks) => Object.fromEntries(ks.map(k => [k, (o && o[k]) || '']));
-  SU.draft = { model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
+  SU.draft = { kind: Setup.kind(c).kind, model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
   SU.skip = { llm: false, langfuse: false }; SU.results = {}; SU.errors = []; SU.busy = '';
   await setupCheckModel();
   await setupRefreshEnv();
@@ -41,7 +41,7 @@ async function setupRefreshEnv() {
   try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; }
   SU.adc = !SU.skip.llm && Llm.provider(SU.draft.llm) === 'vertex' ? await host.setupAdc().catch(e => ({ error: 'no_adc', hint: e.message })) : null;
 }
-const setupDraft = () => ({ model: SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse });
+const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse });
 
 function setupAdcHtml() {
   const a = SU.adc; if (!a) return '';
@@ -80,6 +80,12 @@ function setupSection(kind, title, about) {
     <div class="su-act"><button class="btn" data-su-test="${kind}" ${SU.skip[kind] || SU.busy ? 'disabled' : ''}>Test connection</button><div id="suRes-${kind}">${setupResultHtml(kind)}</div></div></div></div>`;
 }
 
+function setupModelHtml(modelErr) {
+  return `    <div class="block su-sec"><h3>Model</h3><div class="note">The Structurizr DSL file that holds the design.</div><div class="su-body">
+      <label class="su-row"><span>Model file</span><input data-su="model" value="${esc(SU.draft.model)}" placeholder="model/workspace.dsl" spellcheck="false"><small>${esc(modelErr ? modelErr.msg : SU.modelExists ? 'This file exists.' : 'This file does not exist yet.')}</small></label>
+      ${SU.modelExists ? '' : `<label class="su-check"><input type="checkbox" data-su-starter ${SU.starter ? 'checked' : ''}> Create it with a small starter model</label>`}
+    </div></div>`;
+}
 function renderSetup() {
   const el = $('#special');
   if (!SU.draft) { el.innerHTML = '<div class="dash"><h1>Set up this folder</h1></div>'; openSetup(); return; }
@@ -87,10 +93,12 @@ function renderSetup() {
   el.innerHTML = `<div class="dash su"><h1>Set up this folder</h1>
     <p class="lede">These settings go in <code>designc.json</code> in ${esc(A.root ? A.root.name : 'this folder')}. Keys stay in your environment: the file holds only the names of the variables, so it is safe to commit. Skip anything you don't need yet; you can come back from Help, Open settings.</p>
     ${SU.invalid ? `<div class="su-res err">designc.json is not valid JSON (${esc(SU.invalid)}). Fix it in the editor before saving here, so nothing in it is lost. <button class="l" data-su-open>Open designc.json</button></div>` : ''}
-    <div class="block su-sec"><h3>Model</h3><div class="note">The Structurizr DSL file that holds the design.</div><div class="su-body">
-      <label class="su-row"><span>Model file</span><input data-su="model" value="${esc(SU.draft.model)}" placeholder="model/workspace.dsl" spellcheck="false"><small>${esc(modelErr ? modelErr.msg : SU.modelExists ? 'This file exists.' : 'This file does not exist yet.')}</small></label>
-      ${SU.modelExists ? '' : `<label class="su-check"><input type="checkbox" data-su-starter ${SU.starter ? 'checked' : ''}> Create it with a small starter model</label>`}
+    <div class="block su-sec"><h3>What this folder is</h3><div class="note">A design registry holds a model and its gate. A study notebook holds topics you are learning about before you decide; it has no model, and a project registry drafts decisions from its settled topics.</div><div class="su-body">
+      <label class="su-check"><input type="radio" name="suKind" data-su-kind="design" ${SU.draft.kind === 'design' ? 'checked' : ''}> Design registry</label>
+      <label class="su-check"><input type="radio" name="suKind" data-su-kind="study" ${SU.draft.kind === 'study' ? 'checked' : ''}> Study notebook</label>
+      <label class="su-check"><input type="radio" name="suKind" data-su-kind="domain" ${SU.draft.kind === 'domain' ? 'checked' : ''}> Domain pack registry</label>
     </div></div>
+    ${SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : setupModelHtml(modelErr)}
     ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
     ${setupSection('langfuse', 'Langfuse', 'Where Build reads agent runs from. designc only reads; it needs a project\'s public and secret key.')}
     <div class="su-save"><button class="btn primary" data-su-save ${SU.invalid || SU.busy ? 'disabled' : ''}>${SU.exists ? 'Save designc.json' : 'Create designc.json'}</button>
@@ -104,7 +112,7 @@ async function setupSave() {
   SU.busy = 'save'; renderSetup();
   try {
     const merged = Setup.merge(SU.current, d);
-    const createModel = !SU.modelExists && SU.starter;
+    const createModel = d.kind !== 'study' && d.kind !== 'domain' && !SU.modelExists && SU.starter;
     if (createModel) await host.write(merged.model, Setup.STARTER_MODEL);
     await host.write('designc.json', JSON.stringify(merged, null, 2) + '\n');
     SU.current = merged; SU.exists = true; SU.busy = '';
@@ -112,6 +120,7 @@ async function setupSave() {
     await reloadAll();
     await setupCheckModel();
     toast(createModel ? `Saved designc.json and created ${merged.model}` : 'Saved designc.json', 'info');
+    if (merged.kind === 'study') return setActivity('study');
     renderAll();
   } catch (e) { SU.busy = ''; toast(`Couldn't save designc.json: ${e.message}. Check the folder is writable and try again.`, 'error'); renderSetup(); }
 }
@@ -131,6 +140,7 @@ document.addEventListener('input', e => {
 document.addEventListener('change', async e => {
   const t = e.target;
   if (t.matches('[data-su-starter]')) { SU.starter = t.checked; return; }
+  if (t.matches('[data-su-kind]')) { SU.draft.kind = t.dataset.suKind; return renderSetup(); }
   if (t.matches('[data-su-skip]')) { SU.skip[t.dataset.suSkip] = t.checked; return renderSetup(); }
   if (!t.matches('[data-su]') || !SU.draft) return;
   const kind = t.dataset.su.split('.')[0];

@@ -4,6 +4,7 @@ import re
 import time
 from urllib.parse import urlparse
 
+from . import domain
 from .evals import _OPS, parse_threshold
 from .rules import fingerprint, get, hash16, interaction, num, structural
 
@@ -237,7 +238,7 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None):
     clauses = []
     if model.errors:
         clauses.append({'kind': 'parse', 'text': f'{len(model.errors)} model error(s) must be fixed first'})
@@ -326,7 +327,21 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     clauses.extend(acceptance_clauses(model, acceptance, requirements, decisions))
     clauses.extend(token_clauses(tokens, min_text_size))
     clauses.extend(eval_clauses(model, evals, ledger, time.time() * 1000 if now is None else now))
-    return {'ready': not clauses, 'clauses': clauses}
+    if domains is None: return {'ready': not clauses, 'clauses': clauses}
+    dc = domain_clauses(model, ledger, domains)
+    clauses.extend(dc['clauses'])
+    return {'ready': not clauses, 'clauses': clauses, 'notes': dc['notes']}
+
+
+def domain_owners(model):
+    owners = [{'id': e.id, 'name': e.name, 'owns': get(e, 'd.owns') or []} for e in model.elements.values()]
+    return [o for o in owners if o['owns']]
+
+
+def domain_clauses(model, ledger, domains):
+    """Domain.clauses over the model's d.owns. domains: listed, packs, sources, behaviour, load (a YAML loader)."""
+    return domain.clauses(packs=domains.get('packs') or [], listed=domains.get('listed') or [], ledger=ledger or [], sources=domains.get('sources') or {},
+                          owners=domain_owners(model), behaviour=domains.get('behaviour') or [], is_ancestor=model.is_ancestor, load=domains['load'])
 
 
 def scoped_gate(g, model, elements, requirement, decisions):

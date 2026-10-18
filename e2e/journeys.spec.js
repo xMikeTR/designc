@@ -226,3 +226,70 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
   await expect(page.locator('#badge-work')).toHaveText('');
 });
+
+test('user can study a topic and decide from it @critical', async () => {
+  test.setTimeout(120000); // two launches, one of them with an ACP agent
+  const { reg, dir } = copyRegistry('fixtures/study-project');
+  const study = path.join(dir, 'study-registry');
+  fs.cpSync(path.join(__dirname, '..', 'fixtures/study-registry'), study, { recursive: true });
+  const cfgPath = path.join(study, 'designc.json');
+  const cfg = JSON.parse(fs.readFileSync(cfgPath, 'utf8'));
+  cfg.acpAgents.mock.args = [path.join(__dirname, '..', 'dev/mock-acp-agent.js')];
+  fs.writeFileSync(cfgPath, JSON.stringify(cfg, null, 2));
+
+  // A study notebook has no model and no gate: it opens on the Study view.
+  session = await launch(study, { ready: page => page.locator('#sbBody [title="New topic"]') });
+  let { page } = session;
+  await page.locator('#special').getByRole('heading', { name: 'How do mature compilers structure their passes?' }).waitFor();
+
+  await page.locator('#sbBody [title="New topic"]').click();
+  await page.locator('.askcard input').fill('What makes a good plugin API?');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => fs.existsSync(path.join(study, 'study/what-makes-a-good-plugin-api.yaml'))).toBe(true);
+
+  // The Researcher appends a source and a finding, each only after the person approves its card.
+  await page.locator('#sbBody [data-id="pass-managers"]').click();
+  await page.getByRole('button', { name: 'Ask the Researcher' }).click();
+  const topic = () => fs.readFileSync(path.join(study, 'study/pass-managers.yaml'), 'utf8');
+  const approve = page.locator('#agent .agcard').getByRole('button', { name: 'Approve' });
+  await approve.click();
+  await expect.poll(topic).toContain('https://github.com/example/compiler/blob/0123abc/src/passes.rs');
+  await approve.click();
+  await expect.poll(topic).toContain('Passes declare what they preserve');
+  expect(topic()).toContain('status: open');
+  await session.app.close();
+
+  // The project registry drafts a decision from the settled topic, read-only from the study registry.
+  session = await launch(reg);
+  page = session.page;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('[title="New decision from a study"]').click();
+  await page.locator('.askcard').getByRole('button', { name: /^study: When is event sourcing/ }).click();
+  await page.locator('.askcard input').fill('Keep plain rows with a history table');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  const dec = path.join(reg, 'decisions/keep-plain-rows-with-a-history-table.yaml');
+  await expect.poll(() => fs.existsSync(dec)).toBe(true);
+  const text = fs.readFileSync(dec, 'utf8');
+  expect(text).toContain('status: minted');
+  expect(text).toContain('informed_by: [{"registry":"study","topic":"event-sourcing"}]');
+  expect(text).toContain('Worth it only where audit of every change is a requirement');
+  expect(fs.readFileSync(path.join(study, 'study/event-sourcing.yaml'), 'utf8')).not.toContain('keep-plain-rows');
+});
+
+test('user can pin a domain pack and see it checked @critical', async () => {
+  const { reg, dir } = copyRegistry('fixtures/domain-project');
+  fs.cpSync(path.join(__dirname, '..', 'fixtures/domain-registry'), path.join(dir, 'domain-registry'), { recursive: true });
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // Listed but not pinned: the gate says so and offers the pin; the owned aggregate is unknown until it is.
+  const sidebar = page.locator('#sbBody');
+  await expect(sidebar.getByText('pricing is listed in designc.json domains but not pinned')).toBeVisible();
+  await sidebar.locator('.clause').getByRole('button', { name: 'Pin' }).first().click();
+  // Pinning copies the pack as the registry has it and records who accepted it.
+  await expect.poll(() => fs.existsSync(path.join(reg, 'domain/pricing.yaml'))).toBe(true);
+  expect(fs.readFileSync(path.join(reg, 'domain/pricing.yaml'), 'utf8')).toBe(fs.readFileSync(path.join(dir, 'domain-registry/domain/pricing.yaml'), 'utf8'));
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'domain_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['pricing:pricing']);
+  await expect(sidebar.locator('.clause', { hasText: 'but not pinned' })).toHaveCount(0);
+  await expect(sidebar.getByText('pricing/Quote', { exact: true })).toBeVisible();
+});

@@ -9,11 +9,11 @@ import subprocess
 import sys
 import time
 
-from . import factory, ledger, record, work
+from . import domain, factory, ledger, record, work
 from .dsl import parse
 from .evals import score_eval
 from .gate import eval_hash, eval_problems, eval_report, gate, scoped_gate
-from .registry import load_handover_evals, load_handover_ids, load_ledger, load_registry, load_settings, load_yaml_dir
+from .registry import load_handover_evals, load_handover_ids, load_domains, load_ledger, load_registry, load_settings, load_yaml_dir, read_source, yaml_load, _list
 from .rules import check, fingerprint
 from .verify import read_ledger_files, verify
 
@@ -29,8 +29,28 @@ def state(root):
     model = parse(src)
     diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4)
     reg = load_registry(root)
-    g = gate(model, diags, reg['decisions'], reg['requirements'], load_ledger(root), reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12))
+    led = load_ledger(root)
+    domains = load_domains(root, cfg)
+    if domains:
+        pinned = domain.pins(led)
+        domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
+    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains)
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
+
+
+def domain_registry_cmd(root, as_json):
+    """A domain registry has packs and no model: check each domain/<key>.yaml, exit 0 clean, 1 with problems."""
+    problems = []
+    for path, text in _list(root, 'domain', ['.yaml', '.yml']):
+        key = path.split('/')[-1].rsplit('.', 1)[0]
+        r = domain.read(text, yaml_load, key)
+        if 'error' in r: problems.append(f"{path} {r['error']}")
+        else: problems.extend(f'{path}: {x}' for x in r['problems'])
+    if as_json: print(json.dumps({'ready': not problems, 'problems': problems}, ensure_ascii=False, indent=2))
+    else:
+        for x in problems: print(x)
+        print('Domain packs are valid.' if not problems else f'{len(problems)} problem{"" if len(problems) == 1 else "s"} in the domain packs.')
+    return 1 if problems else 0
 
 
 def report(root): return report_of(state(root))
@@ -42,7 +62,7 @@ def report_of(s):
         'errors': model.errors,
         'findings': [{'code': d['code'], 'sev': d['sev'], 'msg': d['msg'], 'label': d['loc']['label'], 'line': d['loc']['line'],
                       'unknown': bool(d['unknown']), 'suppressed': d['suppressed'] or None} for d in diags],
-        'gate': {'ready': g['ready'], 'clauses': [{'kind': c['kind'], 'text': c['text']} for c in g['clauses']]},
+        'gate': {'ready': g['ready'], 'clauses': [{'kind': c['kind'], 'text': c['text']} for c in g['clauses']], **({'notes': list(g['notes'])} if g.get('notes') else {})},
     }
 
 
@@ -56,6 +76,7 @@ def render(r):
     lines.append('')
     lines.append('Ready for handover.' if r['gate']['ready'] else f'Not ready: {n} clause{"" if n == 1 else "s"} block the gate.')
     for c in r['gate']['clauses']: lines.append(f"  - {c['text']}")
+    for n in r['gate'].get('notes') or []: lines.append(f'  unknown: {n}')
     return '\n'.join(lines)
 
 
@@ -93,6 +114,10 @@ def main(argv):
     if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
     if args.source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
     root = os.path.abspath(args.registry)
+    if os.path.isdir(root) and load_settings(root).get('kind') == 'study':
+        print('designc: study registry: nothing to check. Its topics are for learning; decisions are made in a project registry.')
+        return 0
+    if os.path.isdir(root) and load_settings(root).get('kind') == 'domain': return domain_registry_cmd(root, args.json)
     try: s = state(root)
     except SystemExit as e:
         print(e, file=sys.stderr); return 2

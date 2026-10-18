@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question']);
 });
 
 const yaml = require('js-yaml');
@@ -124,4 +124,20 @@ test('map_requirement and read_import_page are offered to Grill-me only, and the
   assert.match(roleLine('grill'), /ask: \[[^\]]*'map_requirement'/);
   assert.match(roleLine('grill'), /allow: \[[^\]]*'read_import_page'/);
   assert.equal(/requirements\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
+});
+
+test('the Researcher appends to study topics only through its approved tools; a raw write to study/ is refused', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '../renderer/agent.js'), 'utf8');
+  const line = src.split('\n').find(l => l.startsWith('  researcher: { label:'));
+  assert.ok(line, 'agent.js defines the researcher role');
+  assert.match(line, /ask: \['add_source', 'add_finding', 'answer_question'\]/);
+  assert.match(line, /allow: \['read_study'\]/);
+  for (const t of ['add_source', 'add_finding', 'answer_question']) assert.equal(Policy.verdict(cfg({ allow: [t], ask: [] }), t), 'ask', t);
+  assert.equal(wv('researcher', 'study/compiler-passes.yaml', 'id: compiler-passes\nstatus: settled\n').ok, false);
+  for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'study/a.yaml', 'id: a\n').ok, false, role);
+});
+
+test('no role may write domain/: a pack is pinned by a person from its registry', () => {
+  assert.equal(/domain\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
+  for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'domain/pricing.yaml', 'id: pricing\n').ok, false, role);
 });

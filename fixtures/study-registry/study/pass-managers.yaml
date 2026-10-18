@@ -1,0 +1,11 @@
+id: pass-managers
+question: How do mature compilers structure their passes?
+status: open
+sources: []
+findings: []
+questions:
+  - text: Why not one big pass?
+    asked: '2026-10-18'
+    answer_in: []
+opinion: ''
+pocs: []

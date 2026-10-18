@@ -269,3 +269,14 @@ test('DC009 overlapping and nested code areas agree', { skip }, () => {
   assert.equal(nodeReport(root).findings.filter(f => f.code === 'DC009').length, 4);
   same(root, 'DC009');
 });
+
+test('designc check on a study registry has nothing to check and exits 0', { skip }, () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-study-'));
+  try {
+    fs.writeFileSync(path.join(dir, 'designc.json'), JSON.stringify({ kind: 'study' }));
+    const r = spawnSync('python3', ['-m', 'designc', 'check', dir, '--no-record'], { cwd: PY, encoding: 'utf8' });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /study registry: nothing to check/);
+    assert.equal(fs.existsSync(path.join(dir, 'ledger')), false, 'records nothing');
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
