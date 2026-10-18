@@ -29,7 +29,8 @@ async function openSetup() {
   SU.exists = t != null; SU.invalid = null; SU.current = {};
   if (t != null) { try { SU.current = JSON.parse(t) || {}; } catch (e) { SU.invalid = e.message; } }
   const c = SU.current, pick = (o, ks) => Object.fromEntries(ks.map(k => [k, (o && o[k]) || '']));
-  SU.draft = { kind: Setup.kind(c).kind, model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']) };
+  SU.draft = { kind: Setup.kind(c).kind, model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']),
+    references: Object.entries(c.references && typeof c.references === 'object' ? c.references : {}).map(([key, r]) => ({ key, path: (r && r.path) || '' })) };
   SU.skip = { llm: false, langfuse: false }; SU.results = {}; SU.errors = []; SU.busy = '';
   await setupCheckModel();
   await setupRefreshEnv();
@@ -41,7 +42,7 @@ async function setupRefreshEnv() {
   try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; }
   SU.adc = !SU.skip.llm && Llm.provider(SU.draft.llm) === 'vertex' ? await host.setupAdc().catch(e => ({ error: 'no_adc', hint: e.message })) : null;
 }
-const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse });
+const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse, references: SU.draft.references });
 
 function setupAdcHtml() {
   const a = SU.adc; if (!a) return '';
@@ -86,6 +87,17 @@ function setupModelHtml(modelErr) {
       ${SU.modelExists ? '' : `<label class="su-check"><input type="checkbox" data-su-starter ${SU.starter ? 'checked' : ''}> Create it with a small starter model</label>`}
     </div></div>`;
 }
+// Read-only references (a legacy app to read, never write): a name and a folder per row. Saved under references in designc.json.
+function setupReferencesHtml() {
+  const errs = new Map(SU.errors.map(e => [e.field, e.msg]));
+  const rows = SU.draft.references.map((r, i) => `<div class="su-row"><span>Reference ${i + 1}</span>
+    <input data-su="references.${i}.key" value="${esc(r.key)}" placeholder="wpf" spellcheck="false" aria-label="Reference ${i + 1} name">
+    <input data-su="references.${i}.path" value="${esc(r.path)}" placeholder="../legacy-app" spellcheck="false" aria-label="Reference ${i + 1} folder">
+    <button class="btn" data-su-refpick="${i}">Choose folder</button><button class="l" data-su-refdel="${i}">Remove</button>
+    <small>${esc(errs.get(`references.${i}.key`) || errs.get(`references.${i}.path`) || '')}</small></div>`).join('');
+  return `<div class="block su-sec"><h3>Read-only references</h3><div class="note">Folders a build may read to learn what correct behaviour is, such as a legacy app being replaced. They are never written, and a handover records only the name and kind, not the path. designc does not check that the folder exists or which commit it is at.</div>
+    <div class="su-body">${rows}<div class="su-act"><button class="btn" data-su-refadd>Add a legacy reference</button></div></div></div>`;
+}
 function renderSetup() {
   const el = $('#special');
   if (!SU.draft) { el.innerHTML = '<div class="dash"><h1>Set up this folder</h1></div>'; openSetup(); return; }
@@ -99,6 +111,7 @@ function renderSetup() {
       <label class="su-check"><input type="radio" name="suKind" data-su-kind="domain" ${SU.draft.kind === 'domain' ? 'checked' : ''}> Domain pack registry</label>
     </div></div>
     ${SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : setupModelHtml(modelErr)}
+    ${SU.draft.kind === 'design' ? setupReferencesHtml() : ''}
     ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
     ${setupSection('langfuse', 'Langfuse', 'Where Build reads agent runs from. designc only reads; it needs a project\'s public and secret key.')}
     <div class="su-save"><button class="btn primary" data-su-save ${SU.invalid || SU.busy ? 'disabled' : ''}>${SU.exists ? 'Save designc.json' : 'Create designc.json'}</button>
@@ -133,8 +146,9 @@ async function setupTest(kind) {
 
 document.addEventListener('input', e => {
   const t = e.target.closest('[data-su]'); if (!t || !SU.draft) return;
-  const [kind, f] = t.dataset.su.split('.');
-  if (f) SU.draft[kind][f] = t.value; else SU.draft.model = t.value;
+  const [kind, f, g] = t.dataset.su.split('.');
+  if (kind === 'references') SU.draft.references[+f][g] = t.value;
+  else if (f) SU.draft[kind][f] = t.value; else SU.draft.model = t.value;
 });
 // Re-check variables and the model file when a field is left, updating only the status lines so focus stays put.
 document.addEventListener('change', async e => {
@@ -144,6 +158,7 @@ document.addEventListener('change', async e => {
   if (t.matches('[data-su-skip]')) { SU.skip[t.dataset.suSkip] = t.checked; return renderSetup(); }
   if (!t.matches('[data-su]') || !SU.draft) return;
   const kind = t.dataset.su.split('.')[0];
+  if (kind === 'references') return;
   if (kind === 'model') { await setupCheckModel(); return renderSetup(); }
   if (t.dataset.su === 'llm.provider') { SU.results.llm = null; await setupRefreshEnv(); return renderSetup(); }
   await setupRefreshEnv();
@@ -151,7 +166,10 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('click', e => {
   if (A.active !== 'special:setup') return;
-  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open], [data-su-adc]'); if (!t) return;
+  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open], [data-su-adc], [data-su-refadd], [data-su-refdel], [data-su-refpick]'); if (!t) return;
+  if (t.matches('[data-su-refadd]')) { SU.draft.references.push({ key: SU.draft.references.length ? '' : 'wpf', path: '' }); return renderSetup(); }
+  if (t.matches('[data-su-refdel]')) { SU.draft.references.splice(+t.dataset.suRefdel, 1); return renderSetup(); }
+  if (t.matches('[data-su-refpick]')) return host.chooseCodebase().then(p => { if (p) { SU.draft.references[+t.dataset.suRefpick].path = p; renderSetup(); } });
   if (t.matches('[data-su-adc]')) return setupRefreshEnv().then(renderSetup);
   if (t.dataset.suTest) return setupTest(t.dataset.suTest);
   if (t.matches('[data-su-save]')) return setupSave();

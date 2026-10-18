@@ -347,7 +347,7 @@ A frozen handover is a folder in git with a `BUILD.md` that any coding agent can
 "dispatch": { "label": "Build it", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" }
 ```
 
-The Design sidebar then shows **Build it <id>** for the newest handover, and a frozen work item's card shows **Build it** for its own handover. Pressing it types the command into the Terminal panel with `{handover}` (the handover folder), `{repo}` (the work item's `repo`, else `codebase`), `{registry}` and `{base}` (`work.mainBranch`, else `main`) filled in and quoted for your shell. It does not press Enter: read the line, then run it. The shell has your full environment, so the build finds its own keys. Any other `{name}` in the command is refused. Without `dispatch` there is no button.
+The Design sidebar then shows **Build it <id>** for the newest handover, and a frozen work item's card shows **Build it** for its own handover. Pressing it types the command into the Terminal panel with `{handover}` (the handover folder), `{repo}` (the work item's `repo`, else `codebase`), `{registry}` and `{base}` (`work.mainBranch`, else `main`) filled in and quoted for your shell. It does not press Enter: read the line, then run it. The shell has your full environment, so the build finds its own keys. `{legacy}` is the folder of the one read-only `legacy` reference in `designc.json` `references` (Set up, Read-only references); a command that uses it with no such reference is refused. Any other `{name}` in the command is refused. Without `dispatch` there is no button.
 
 To offer more than one build (your own pipeline, a headless coding agent, a colleague's), name each target:
 

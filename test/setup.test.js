@@ -184,3 +184,16 @@ test('a study notebook draft writes kind study and no model', () => {
   assert.deepEqual(Setup.merge({ registries: { x: '../x' } }, { kind: 'study', model: '', llm: null, langfuse: null }), { registries: { x: '../x' }, kind: 'study' });
   assert.deepEqual(Setup.merge({ kind: 'study' }, { kind: 'design', model: 'model/workspace.dsl', llm: null, langfuse: null }), { model: 'model/workspace.dsl' });
 });
+
+test('references: validate judges rows, merge sets, keeps label and removes', () => {
+  const Setup = require('../renderer/setup.js');
+  assert.deepEqual(Setup.validate({ references: [{ key: '', path: '' }] }), []);
+  assert.match(Setup.validate({ references: [{ key: '', path: '../old' }] })[0].msg, /short name/);
+  assert.match(Setup.validate({ references: [{ key: 'wpf', path: '' }] })[0].msg, /Choose the folder/);
+  assert.match(Setup.validate({ references: [{ key: 'a', path: 'x' }, { key: 'a', path: 'y' }] })[0].msg, /Two references/);
+  const cur = { model: 'm.dsl', references: { wpf: { kind: 'legacy', path: '../old', label: 'WPF app' }, gone: { kind: 'legacy', path: 'z' } } };
+  const out = Setup.merge(cur, { references: [{ key: 'wpf', path: '../old2' }] });
+  assert.deepEqual(out.references, { wpf: { kind: 'legacy', path: '../old2', label: 'WPF app' } });
+  assert.equal(Setup.merge(cur, { references: [] }).references, undefined);
+  assert.deepEqual(Setup.merge(cur, {}).references, cur.references);
+});

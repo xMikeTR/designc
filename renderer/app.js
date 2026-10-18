@@ -1048,10 +1048,13 @@ async function freezeOnce(item) {
   const modelText = (await host.read(A.cfg.model)) || '';
   const { frozen } = item ? { frozen: null } : await computeForecast(modelText);
   const reqs = await read('requirements', ['.yaml', '.yml']), evs = await read('evals', ['.yaml', '.yml']), scs = await read('scenarios', ['.yaml', '.yml']), acs = await read('acceptance', ['.yaml', '.yml']);
+  const refs = Dispatch.references(A.cfg.references);
+  if (refs && refs.error) { toast(refs.error, 'error'); return; }
   let plan;
   try {
     plan = Core.handoverPlan({
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
+      references: refs ? refs.refs : [],
       item: item ? { id: item.id, requirement: item.requirement, elements: item.elements || [] } : null,
       model: { path: A.cfg.model, text: modelText },
       requirements: item ? only(reqs, A.requirements, r => r.id === item.requirement) : reqs,
@@ -1070,9 +1073,11 @@ async function freezeOnce(item) {
   const already = Core.frozenAs(plan.id, A.handovers);
   if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
   const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
-  const ask = item
+  // Named in the confirmation, not checked: a missing folder never refuses a freeze.
+  const refNote = refs && refs.refs.length ? `\n\nRead-only references named in it (paths stay on this machine): ${refs.refs.map(r => `${r.key} (${r.kind}) at ${r.path}`).join('; ')}. designc does not check that they exist.` : '';
+  const ask = (item
     ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.`
-    : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`;
+    : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
   if (!confirm(ask)) return;
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];

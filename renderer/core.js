@@ -1427,7 +1427,7 @@ ${tests.join('\n\n')}
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [] }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -1453,7 +1453,9 @@ ${tests.join('\n\n')}
       `2. Never write ${(elements.reserved || ['tests/acceptance/**']).map(code).join(', ')}: designc generates those specs and they are how the work is judged.`,
       '3. Do not change the design. If it is wrong or incomplete, stop and say what you need decided; a design change is a new handover.',
       '4. Honour every decision below. Its checks are commands run from the registry folder.');
-    if (domain) out.push(`5. ${code('domain.json')} says which element owns which aggregate; ${code('domain/')} holds the team's domain model. Honour its aggregates, invariants and event payloads, and do not edit it.`);
+    let n = 4;
+    if (domain) out.push(`${++n}. ${code('domain.json')} says which element owns which aggregate; ${code('domain/')} holds the team's domain model. Honour its aggregates, invariants and event payloads, and do not edit it.`);
+    if (references.length) out.push(`${++n}. Read-only references: ${references.map(r => `${code(r.key)} (${r.kind})`).join(', ')}. Whoever started this build gives you where each one lives. Read them to learn what correct behaviour is; never write them, and do not copy their code into the areas above where the requirements say otherwise.`);
     out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
@@ -1499,15 +1501,17 @@ ${tests.join('\n\n')}
     const doc = { schema: 'designc.handover.domain/1', packs: copies.map((c, i) => ({ key: used[i].key, path: c.path, hash: hash16(c.text) })), owners };
     return { copies, json: { path: 'domain.json', text: JSON.stringify(doc, null, 2) + '\n' } };
   }
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [] }) {
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [] }) {
+    // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
+    const refs = references.map(r => ({ key: r.key, kind: r.kind })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null);
     const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
     const content = [model, ...(dom ? dom.copies : []), ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : [])].join('\0\0')).slice(0, 8)}`;
+    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`)].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom }) };
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs }) };
     const frozen = [...content, elements, build, ...(dom ? [dom.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
@@ -1521,7 +1525,7 @@ ${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
-${acceptance.length ? `acceptance: ${q(acceptance.map(idOf))}\n` : ''}${tokens ? `tokens: ${q(tokens.path)}\n` : ''}${specs.files.length ? `specs: ${q(specs.files.map(f => f.path))}\n${specs.loop ? `loop_specs: ${q(specs.loop)}\n` : ''}` : ''}${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
+${acceptance.length ? `acceptance: ${q(acceptance.map(idOf))}\n` : ''}${tokens ? `tokens: ${q(tokens.path)}\n` : ''}${refs.length ? `references: ${q(refs)}\n` : ''}${specs.files.length ? `specs: ${q(specs.files.map(f => f.path))}\n${specs.loop ? `loop_specs: ${q(specs.loop)}\n` : ''}` : ''}${forecast ? `forecast: ${q(forecast)}\n` : ''}files:
 ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))] };

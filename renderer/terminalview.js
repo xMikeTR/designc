@@ -86,6 +86,15 @@ function dispatchTitle(s, id) {
   return `${s.targets.length > 1 ? 'Asks which build command, then types it' : 'Types your build command'} for ${id} into the Terminal. Nothing runs until you press Enter.`;
 }
 function dispatchAbs(p) { return !p || /^([\\/]|[A-Za-z]:[\\/])/.test(p) ? p : `${A.root.root}/${p}`; }
+// The {legacy} path, only when the command uses it: absolute, from the one legacy reference in designc.json.
+function dispatchLegacy(template) {
+  if (!/\{legacy\}/.test(template)) return { value: null };
+  const r = Dispatch.references(A.cfg.references);
+  if (r && r.error) return { error: r.error };
+  const l = Dispatch.legacy(r && r.refs);
+  if (l && l.error) return { error: l.error };
+  return { value: l ? dispatchAbs(l.path) : null };
+}
 async function dispatchHandover(id, item) {
   const s = dispatchSetting();
   if (!s) return;
@@ -93,8 +102,10 @@ async function dispatchHandover(id, item) {
   const target = s.targets.length === 1 ? s.targets[0]
     : await askChoice(`Build ${id} with`, s.targets.map(t => ({ label: t.label, value: t })));
   if (!target) return;
+  const lg = dispatchLegacy(target.command);
+  if (lg.error) { toast(lg.error, 'error'); return; }
   const cmd = Dispatch.command(target.command, {
-    handover: dispatchAbs(`handovers/${id}`), registry: A.root.root,
+    handover: dispatchAbs(`handovers/${id}`), registry: A.root.root, legacy: lg.value,
     repo: dispatchAbs((item && item.repo) || A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
   }, A.platform);
   if (cmd.error) { toast(cmd.error, 'error'); return; }
@@ -131,8 +142,10 @@ async function resumeRun(run) {
   if (chk.confirm.length && !confirm(`${chk.confirm.join('\n')}\n\nResume run ${run} anyway?`)) return;
   const target = targets.length === 1 ? targets[0] : await askChoice(`Resume ${run} with`, targets.map(t => ({ label: t.label, value: t })));
   if (!target) return;
+  const lg = dispatchLegacy(target.resume);
+  if (lg.error) { toast(lg.error, 'error'); return; }
   const cmd = Dispatch.command(target.resume, {
-    handover: dispatchAbs(`handovers/${chk.handover}`), registry: A.root.root, run,
+    handover: dispatchAbs(`handovers/${chk.handover}`), registry: A.root.root, run, legacy: lg.value,
     repo: dispatchAbs(A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
   }, A.platform);
   if (cmd.error) { toast(cmd.error, 'error'); return; }

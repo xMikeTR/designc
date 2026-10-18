@@ -81,6 +81,10 @@ Built 2026-10-18. When the person does not yet know enough to decide, they study
 
 A team's DDD domain model as a pinned, checked input. Done: `kind: domain` registries (`domain/<key>.yaml`: aggregates with identity, value objects, events, invariants as text, `refs`); `designc.json` `domains` and `registries`; the human-only `domain_pinned` ledger event; gate clauses of kind `domain` (not pinned, edited after pin, changed in its registry, DDD problems, `d.owns` not defined by a pinned pack, two owners, P event payload mismatch), opt-in and mirrored in Python; Domain sidebar with Pin, Re-pin and guides (declare a published event in P, draft a check from an invariant); handover copies of touched packs and `domain.json`. Deferred: the "requirement term not in the pack" guide.
 
+## Read-only references (slice 39)
+
+A legacy app named as a read-only reference through freeze and dispatch, for migration work. Done: `designc.json` `references`, `Dispatch.references` and `legacy`, `{legacy}` in dispatch and resume, `references` in `handover.yaml` (key and kind, in the id hash) and a BUILD.md rule, the freeze confirmation naming them unchecked, a Set up section. Next: `fixtures/migration/` and the staged trial (`fixtures/migration/BUDGET.md`).
+
 ## Open questions
 
 - Whether any of the user's pages are PDF (then request `pdftotext`). Slices 22 to 36C are built (36C untried against a real Confluence).
