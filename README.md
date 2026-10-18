@@ -286,6 +286,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `asbuilt/` | The last code-map extraction: `workspace.dsl` and `facts.json` with evidence |
 | `telemetry/` | Sample Langfuse data (sample registry only) |
 | `ledger/*.jsonl` | Append-only events, one JSON object per line: `checks.jsonl`, `pipeline.jsonl`, `designc.jsonl`, `agents.jsonl` hold designc envelope v1 events; `sessions.jsonl` holds harness envelope v1 records (grill-me / MAF session and charter events, adopted as-is) |
+| `study/*.yaml` | Study topics, in a study notebook only (`designc.json` `kind: study`): a question, sources, findings, your questions, PoCs, your opinion and status |
 | `designc.json` | Settings |
 
 Everything is plain files, so git is the review and history layer: binding a decision is an edit you commit and review like any other.
@@ -325,6 +326,18 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 ```
 
 `llm.provider` is `openai` (default, any OpenAI-compatible gateway), `anthropic` (key in the env var named by `apiKeyEnv`, default `ANTHROPIC_API_KEY`) or `vertex` (Claude on Vertex AI using your own `gcloud auth application-default login`; set `project` and `region`).
+
+### Study notebooks (step 0)
+
+When you do not know enough to decide yet, study first. Set up offers **Study notebook**, which writes `"kind": "study"` (the other kinds are `design`, the default, and `factory`). A study notebook has no model, gate, Freeze or Code map; it opens on the Study view.
+
+Each topic is `study/<id>.yaml`. **Ask the Researcher** on a topic sends it to an ACP or AG-UI agent that can search the web (the built-in agent cannot); the Researcher reads the topics and proposes sources (https, a commit link for code) and findings that cite them, each shown as a card you approve or decline. It only appends: a wrong finding is corrected by a later one. Your questions, PoCs, your opinion and the status (open, settled, abandoned) are yours; settling needs an opinion.
+
+In a project registry that lists the notebook under `registries`, **New decision from a study** (◇ in the Decisions section) picks a settled topic, read-only, and mints a decision whose rationale is your opinion and which records `informed_by: [{registry, topic}]`. It is shown on the decision and never affects the gate.
+
+### Domain packs
+
+A team's domain model (aggregates, value objects, events, invariants as text) lives in its own registry: Set up offers **Domain pack registry** (`"kind": "domain"`), with one `domain/<key>.yaml` per pack. A project lists that registry under `registries` and the pack under `"domains": ["pricing"]`. The gate then says to **Pin** it: that copies the pack into `domain/<key>.yaml` and records that you accepted it. After that the gate checks that each `d.owns` entry names a pinned aggregate, that an aggregate has one owner, that the pack follows DDD rules (aggregates have an id, others are held by `{ref}` only), and that P event payloads carry the same fields as the pack's events. If the registry has moved on, the gate offers **Re-pin**. Without `domains` nothing changes. The Domain section in Design lists owned aggregates and offers guides (never gate items): ask Grill-me to declare a published event in P, or draft a check from an invariant. Freeze copies the packs the work touches into the handover with a `domain.json` saying which element owns which aggregate (`docs/handover-domain.schema.json`).
 
 ### Dispatching a handover to a coding agent
 

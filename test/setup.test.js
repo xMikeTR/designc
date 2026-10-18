@@ -171,3 +171,16 @@ test('llmReady says whether designc.json names enough to call a model, per provi
   assert.equal(Setup.llmReady({ provider: 'vertex', model: 'm' }), false);
   assert.equal(Setup.llmReady(undefined), false);
 });
+
+test('kind: design when absent, study and factory by name, anything else is design with a problem', () => {
+  assert.deepEqual(Setup.kind({}), { kind: 'design', problem: null });
+  assert.deepEqual(Setup.kind(null), { kind: 'design', problem: null });
+  assert.deepEqual(Setup.kind({ kind: 'study' }), { kind: 'study', problem: null });
+  assert.deepEqual(Setup.kind({ kind: 'factory' }), { kind: 'factory', problem: null });
+  assert.deepEqual(Setup.kind({ kind: 'notes' }), { kind: 'design', problem: 'designc.json kind is notes. Use design, study, factory or domain; it is read as design.' });
+});
+
+test('a study notebook draft writes kind study and no model', () => {
+  assert.deepEqual(Setup.merge({ registries: { x: '../x' } }, { kind: 'study', model: '', llm: null, langfuse: null }), { registries: { x: '../x' }, kind: 'study' });
+  assert.deepEqual(Setup.merge({ kind: 'study' }, { kind: 'design', model: 'model/workspace.dsl', llm: null, langfuse: null }), { model: 'model/workspace.dsl' });
+});

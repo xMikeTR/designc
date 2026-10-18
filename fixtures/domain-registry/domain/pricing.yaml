@@ -1,0 +1,22 @@
+id: pricing
+version: 3
+aggregates:
+  Quote:
+    id: QuoteId
+    fields:
+      cedant: { ref: Cedant }
+      limit: money
+      attachment: money
+      rate_on_line: { type: percent, min: 0, max: 100 }
+      status: { oneOf: [draft, quoted, bound] }
+      premium: Money
+    invariants:
+      - "attachment < limit"
+    publishes: [QuoteBound]
+  Cedant:
+    id: CedantId
+    fields: { name: { type: string, maxLength: 200 } }
+values:
+  Money: { amount: decimal, currency: { type: string, pattern: "^[A-Z]{3}$" } }
+events:
+  QuoteBound: { quote: { ref: Quote }, premium: Money }

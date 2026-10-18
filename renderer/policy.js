@@ -15,7 +15,7 @@ const Policy = (() => {
   const REVIEW_FIELDS = ['reviewed_by', 'reviewed_at'];
 
   // Tools that change the registry. Settings can deny them or leave them out, never make them silent.
-  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task'];
+  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question'];
 
   // Fail closed: a tool is usable only if the role lists it, and deny always wins.
   function verdict(cfg, tool) {

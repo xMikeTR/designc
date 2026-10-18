@@ -389,17 +389,20 @@ const hub = new AcpHub({
   ui: (channel, ...args) => (channel === 'acp:write' || channel === 'acp:permission') ? askUi(channel, ...args) : (win && win.webContents.send(channel, ...args)),
 });
 handle('acp:agents', () => Object.fromEntries(Object.entries(acpSpecs()).map(([k, v]) => [k, { label: v.label || k, command: [v.command, ...(v.args || [])].join(' ') }])));
+let acpRan = false;
 handle('acp:connect', async (key, meta) => {
   const spec = acpSpecs()[key]; if (!spec) return { error: `No ACP agent "${key}" is configured.` };
+  acpRan = true;
   try { return { info: await hub.connect(key, spec, meta) }; } catch (e) { hub.disconnect(key); return { error: e.message }; }
 });
 handle('acp:prompt', async (key, text) => { try { return await hub.prompt(key, text); } catch (e) { return { error: e.message }; } });
 handle('acp:cancel', key => { hub.cancel(key); return true; });
 handle('acp:disconnect', key => { hub.disconnect(key); return true; });
 app.on('before-quit', () => { hub.disconnectAll(); if (terminals) terminals.closeAll(); });
-// Once node-pty has run a shell, Node's normal teardown never finishes (it hangs after 'exit' fires; process.exit and
-// app.exit hang the same way), so leave directly. Shells are already killed in before-quit and state.json is saved synchronously.
-app.on('will-quit', () => { if (terminals) process.reallyExit(0); });
+// Once node-pty has run a shell, or an ACP agent has been connected, Node's normal teardown never finishes (it hangs
+// after 'exit' fires; process.exit and app.exit hang the same way), so leave directly. Shells and agents are already
+// killed in before-quit and state.json is saved synchronously.
+app.on('will-quit', () => { if (terminals || acpRan) process.reallyExit(0); });
 
 // ---------- AG-UI agents: remote agent services (e.g. MAF hosts via MapAGUIServer), HTTP POST + SSE ----------
 // Header values may reference environment variables as ${env:NAME}, so tokens never live in designc.json.

@@ -13,6 +13,8 @@ const CRITICAL = [
   'user can freeze a handover @critical',
   'user can extract the code map @critical',
   'user can track a work item @critical',
+  'user can study a topic and decide from it @critical',
+  'user can pin a domain pack and see it checked @critical',
 ];
 const specs = () => fs.readdirSync(DIR).filter(f => f.endsWith('.spec.js'))
   .map(f => ({ f, text: fs.readFileSync(path.join(DIR, f), 'utf8') }));

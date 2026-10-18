@@ -1,5 +1,6 @@
 // ===== designc core: Structurizr DSL subset -> IR -> diagnostics =====
 const Core = (() => {
+  const DM = typeof require === 'function' && typeof module === 'object' ? require('./domain.js') : Domain;
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   // ---------- tokenizer ----------
   function tokenize(src) {
@@ -733,7 +734,7 @@ const Core = (() => {
     return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, domains = null, now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -804,7 +805,19 @@ const Core = (() => {
     clauses.push(...evalClauses({ model, evals, ledger, now }));
     clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
     clauses.push(...tokenClauses(tokens, minTextSize));
-    return { ready: clauses.length === 0, clauses };
+    if (!domains) return { ready: clauses.length === 0, clauses };
+    const dc = domainClauses({ model, ledger, ...domains });
+    clauses.push(...dc.clauses);
+    return { ready: clauses.length === 0, clauses, notes: dc.notes };
+  }
+  // ---------- domain packs ----------
+  // domains: {listed, packs: [{key, path, text}], sources: {key: text|null}, behaviour: [{path, text}]}. The owners
+  // are the model's d.owns declarations; the rules are Domain.clauses.
+  function domainOwners(model) {
+    return [...model.elements.values()].map(e => ({ id: e.id, name: e.name, owns: get(e, 'd.owns') || [] })).filter(o => o.owns.length);
+  }
+  function domainClauses({ model, ledger, listed = [], packs = [], sources = {}, behaviour = [] }) {
+    return DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
   }
   // ---------- design tokens (ROADMAP slice 34) ----------
   // design-tokens/tokens.json is a W3C design tokens file. A text size token (a token whose path has a font size
@@ -1282,7 +1295,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
@@ -1414,7 +1427,7 @@ ${tests.join('\n\n')}
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -1439,7 +1452,9 @@ ${tests.join('\n\n')}
       '1. Write only inside the code areas listed above. Each file belongs to one element.',
       `2. Never write ${(elements.reserved || ['tests/acceptance/**']).map(code).join(', ')}: designc generates those specs and they are how the work is judged.`,
       '3. Do not change the design. If it is wrong or incomplete, stop and say what you need decided; a design change is a new handover.',
-      '4. Honour every decision below. Its checks are commands run from the registry folder.', '');
+      '4. Honour every decision below. Its checks are commands run from the registry folder.');
+    if (domain) out.push(`5. ${code('domain.json')} says which element owns which aggregate; ${code('domain/')} holds the team's domain model. Honour its aggregates, invariants and event payloads, and do not edit it.`);
+    out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
     const done = [];
@@ -1462,14 +1477,38 @@ ${tests.join('\n\n')}
   // hash part comes from the copied content only, so identical content gives an identical id on any day.
   // elements.json (handoverElements) is derived from that content: listed and hashed, but not in the id.
   // Pure: the caller reads the files and writes the result.
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [] }) {
-    const content = [model, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+  // The packs a handover carries: those that define an aggregate owned by a touched element (an item's scope, the
+  // focus, or every owner when there is no focus). Copies sit inside the id hash; domain.json is derived and outside it.
+  // owners[].element is the elements.json id. null when no touched element owns anything a pack defines.
+  function handoverDomain(modelText, packs, { item, focus }, elementsDoc) {
+    if (!packs || !packs.length) return null;
+    const m = parse(modelText), read_ = packs.map(p => DM.read(p.text, p.load || undefined, p.key)).filter(r => r.pack).map(r => r.pack);
+    const wanted = item ? new Set(item.elements || []) : (focus && focus.length ? new Set(focus) : null);
+    const ids = new Map(elementsDoc.elements.map(e => [e.name, e.id]));
+    const owners = [], keys = new Set();
+    for (const o of domainOwners(m)) {
+      if (wanted && !wanted.has(o.name)) continue;
+      const owns = [];
+      for (const entry of o.owns) { const q = DM.qualify(entry, read_); if (!q.error) { owns.push(q.id); keys.add(q.id.split('/')[0]); } }
+      if (owns.length && ids.has(o.name)) owners.push({ element: ids.get(o.name), owns });
+    }
+    const used = packs.filter(p => keys.has(p.key)).sort((a, b) => (a.key < b.key ? -1 : 1));
+    if (!used.length) return null;
+    const copies = used.map(p => ({ path: `domain/${p.key}.yaml`, text: p.text }));
+    owners.sort((a, b) => (a.element < b.element ? -1 : 1));
+    const doc = { schema: 'designc.handover.domain/1', packs: copies.map((c, i) => ({ key: used[i].key, path: c.path, hash: hash16(c.text) })), owners };
+    return { copies, json: { path: 'domain.json', text: JSON.stringify(doc, null, 2) + '\n' } };
+  }
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [] }) {
+    const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null);
+    const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
+    const content = [model, ...(dom ? dom.copies : []), ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : [])].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
-    const elements = { path: 'elements.json', text: JSON.stringify(handoverElements(model.text, behaviour, item ? item.elements : null), null, 2) + '\n' };
+    const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs }) };
-    const frozen = [...content, elements, build, ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom }) };
+    const frozen = [...content, elements, build, ...(dom ? [dom.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
 revision: ${modelRevision(model.text)}
@@ -1478,7 +1517,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 build: ${q(build.path)}
-${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
@@ -2045,6 +2084,6 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { parse, check, gate, scopedGate, acceptanceClauses, acceptanceSpecs, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, suggestCodeAreas, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { parse, check, gate, domainOwners, scopedGate, acceptanceClauses, acceptanceSpecs, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, rebindable, latestHandoverModel, frozenAs, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, forecast, freezeForecast, forecastSummary, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, handoverElements, handoverPlan, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, atLevel, view, containerLevelText, spliceComponents, suggestCodeAreas, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') module.exports = Core;

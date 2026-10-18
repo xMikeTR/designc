@@ -17,6 +17,7 @@ GATE_KINDS = {
     'eval': (['eval', 'agent', 'outcome', 'metrics', 'cases', 'source', 'fingerprint', 'eval_hash'], ['ms', 'exit_code', 'reason'], {'outcome': ['pass', 'fail'], 'source': ['local', 'pipeline']}),
     'needs_decision': (['id', 'question', 'status'], ['task', 'element'], {'status': ['open', 'resolved']}),
     'needs_decision_resolved': (['id'], [], {}),
+    'domain_pinned': (['pack', 'registry', 'hash'], [], {}),
 }
 
 
@@ -78,6 +79,29 @@ def read_tokens(root):
         with open(os.path.join(root, 'design-tokens', 'tokens.json'), encoding='utf-8') as f: return f.read()
     except OSError:
         return None
+
+
+def yaml_load(text): return yaml.load(text, _Loader)
+
+
+def load_domains(root, cfg):
+    """The domain packs a project pins: designc.json `domains` lists them, domain/<key>.yaml holds the copies,
+    and each pack's source registry (designc.json `registries`, by the key the ledger pin names) is read for a newer
+    version; sources maps a pack to its text, or None when that registry could not be read. None when nothing is
+    listed and nothing is copied (domain rules do not run)."""
+    listed = [str(k) for k in cfg.get('domains') or []]
+    packs = [{'key': re.sub(r'\.ya?ml$', '', p.split('/')[-1]), 'path': p, 'text': t} for p, t in _list(root, 'domain', ['.yaml', '.yml'])]
+    if not listed and not packs: return None
+    return {'listed': listed, 'packs': packs, 'behaviour': [{'path': p, 'text': t} for p, t in _list(root, 'behaviour', ['.p'])], 'load': yaml_load}
+
+
+def read_source(root, cfg, registry, key):
+    """domain/<key>.yaml in the registry a pack was pinned from, or None when it cannot be read."""
+    rel = (cfg.get('registries') or {}).get(registry) if isinstance(cfg.get('registries'), dict) else None
+    if not rel: return None
+    try:
+        with open(os.path.join(root, rel, 'domain', f'{key}.yaml'), encoding='utf-8') as f: return f.read()
+    except OSError: return None
 
 
 def load_registry(root):

@@ -27,6 +27,9 @@ const ROLES = {
   tutor: { label: 'Tutor', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: [],
     instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles). ' + RESEARCH_RULE + ' End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
     starters: ['Explain the C4 levels using my model', 'What should I learn first to design this well?', 'Explain the findings on my model as if I were new to this'] },
+  researcher: { label: 'Researcher', system: 'S1', allow: ['read_study'], ask: ['add_source', 'add_finding', 'answer_question'],
+    instructions: 'You are the Researcher in a study notebook: the person wants to learn how to approach a question before deciding anything. Read the topic with read_study. Find exemplar code (open source repositories that solve the problem well, linked at a commit so the link does not move) and good written sources. ' + RESEARCH_RULE + ' Add each source with add_source, then each finding with add_finding: the pattern, why it works or does not, good, bad or tradeoff, and the sources it rests on by number. Show the bad parts too, not only the good. To correct an earlier finding, add a new one with corrects; never rewrite. When a finding answers one of the person\'s questions, link it with answer_question. You inform; you never decide: the opinion, the questions, the PoCs and settling the topic are the person\'s. End with what the person could try themselves (a PoC) or read next.',
+    starters: ['Research this topic: find two or three exemplar repositories and what they do well and badly', 'Answer my open questions from the sources', 'What are the bad parts of the patterns found so far?'] },
 };
 function roleCfg(role) {
   const base = ROLES[role]; const o = (A.cfg.agents && A.cfg.agents[role]) || {};
@@ -55,6 +58,10 @@ const TOOLS = {
   list_reviews: { d: 'Error analysis: the failed reviews of pipeline task attempts (the latest per observation: task, note, failure_mode) and the failure modes of factory/taxonomy.yaml.', p: obj({}) },
   group_reviews: { d: 'Propose failure modes for failed reviews: each group names an existing mode id or a new_mode, the observations it covers (from list_reviews) and why. New modes are added to factory/taxonomy.yaml. The user sees the grouping and approves or declines.', p: obj({ groups: { type: 'array', items: obj({ mode: { type: 'string' }, new_mode: obj({ name: { type: 'string' }, description: { type: 'string' }, triage: { type: 'string', enum: ['spec', 'fix', 'grader'] } }, ['name']), observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['observations', 'why']) } }, ['groups']) },
   draft_eval_task: { d: 'Draft an eval task (factory/tasks/<id>.yaml, status minted) from failed reviews in one failure mode. title says what the pipeline must get right; observations come from list_reviews and must all be in failure_mode. The user sees the file and approves or declines.', p: obj({ failure_mode: { type: 'string' }, title: { type: 'string' }, observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['failure_mode', 'title', 'observations', 'why']) },
+  read_study: { d: 'Study notebook: with no id, the topics (id, question, status); with an id, that topic as YAML with its sources, findings, questions, PoCs and opinion. Sources, findings and questions are numbered from 1.', p: obj({ id: { type: 'string' } }) },
+  add_source: { d: 'Add a source to an open study topic: an https link (a commit link for code) and a short note on what it is. The user approves or declines.', p: obj({ topic: { type: 'string' }, url: { type: 'string' }, note: { type: 'string' } }, ['topic', 'url', 'note']) },
+  add_finding: { d: 'Add a finding to an open study topic: the pattern, why it works or does not, good, bad or tradeoff, and the source numbers it rests on. corrects names an earlier finding this one corrects (the earlier one is kept). The user approves or declines.', p: obj({ topic: { type: 'string' }, pattern: { type: 'string' }, why: { type: 'string' }, good_or_bad: { type: 'string', enum: ['good', 'bad', 'tradeoff'] }, sources: { type: 'array', items: { type: 'integer' } }, corrects: { type: 'integer' } }, ['topic', 'pattern', 'why', 'good_or_bad', 'sources']) },
+  answer_question: { d: 'Link findings (by number) to one of the person\'s questions (by number) in an open study topic. The question text is never changed. The user approves or declines.', p: obj({ topic: { type: 'string' }, question: { type: 'integer' }, findings: { type: 'array', items: { type: 'integer' } } }, ['topic', 'question', 'findings']) },
   mint_proposal: { d: 'Propose a change to Design or Build (status minted), citing evidence.', p: obj({ kind: { type: 'string', enum: ['lint rule', 'P property', 'grill-me question', 'gate clause', 'eval case', 'routing'] }, statement: { type: 'string' }, evidence: { type: 'string' }, check: { type: 'string' } }, ['kind', 'statement', 'evidence', 'check']) },
 };
 const toolSpecs = role => Object.entries(TOOLS).filter(([n]) => verdict(role, n) !== 'deny').map(([name, t]) => ({ type: 'function', function: { name, description: t.d, parameters: t.p } }));
@@ -63,6 +70,13 @@ const cap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length
 // ---------------------------------------------------------------- tool implementations (read)
 const numbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
 const READERS = {
+  read_study: a => {
+    const ts = A.studies || [];
+    if (A.kind !== 'study') return 'This folder is not a study registry; there are no study topics here.';
+    if (!a.id) return ts.length ? JSON.stringify(ts.map(t => ({ id: t.id, question: t.question, status: t.status }))) : 'No topics yet. The person creates them with New topic.';
+    const t = ts.find(x => x.id === a.id);
+    return t ? cap(Study.toYaml(t, jsyaml.dump)) : `No topic ${a.id}. Call read_study with no id to list them.`;
+  },
   list_reviews: () => {
     const fails = [...Ledger.traceReviews(A.ledger).values()].filter(r => r.verdict === 'fail');
     return cap(JSON.stringify({ modes: Ledger.taxonomyModes(A.taxonomy).modes.map(({ count, ...m }) => m), failed: fails.map(r => ({ observation: r.observation, task: r.task, run: r.run_id, attempt: r.attempt, note: r.note, failure_mode: r.failure_mode ?? null })) }));
@@ -123,7 +137,31 @@ const READERS = {
 
 // ---------------------------------------------------------------- tool implementations (write, after approval)
 // Each returns {preview, apply}; validation happens before the user is asked.
+// Study topics: the edit is checked by Study.* on the loaded topic, shown as a diff, and applied again to the file
+// as it is on disk at approval, so an edit the person made meanwhile is kept. study/ is in no WRITE_PATHS entry.
+function studyWriter(id, edit, title, detail) {
+  if (A.kind !== 'study') return { error: 'This folder is not a study registry. The Researcher works in a study notebook.' };
+  const t = (A.studies || []).find(x => x.id === id);
+  if (!t) return { error: `No topic ${id}. Call read_study with no id to list them.` };
+  const r = edit(t); if (r.error) return { error: r.error };
+  const before = Study.toYaml(t, jsyaml.dump), after = Study.toYaml(r.topic, jsyaml.dump);
+  return { title: title(r, t), detail,
+    preview: `<div class="diffhead">${esc(t._path)}</div>${diffHTML(before, after)}`,
+    apply: async () => {
+      const b = A.buffers.get(t._path);
+      if (b && b.dirty) throw new Error(`${t._path} has unsaved edits. Save or close it, then ask again.`);
+      const p = Study.parse((await readText(t._path)) || '', jsyaml.load);
+      if (p.error) throw new Error(`${t._path} does not parse: ${p.error}`);
+      const again = edit({ ...p.topic, _path: t._path }); if (again.error) throw new Error(again.error);
+      AG.approved.set(t._path, Date.now()); await host.write(t._path, Study.toYaml(again.topic, jsyaml.dump));
+      A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+      return `Applied to ${t._path}.${again.index ? ` It is number ${again.index}.` : ''}`;
+    } };
+}
 const WRITERS = {
+  add_source: a => studyWriter(a.topic, t => Study.addSource(t, a), (r, t) => `Add source ${r.index} to ${t.id}`, a.url),
+  add_finding: a => studyWriter(a.topic, t => Study.addFinding(t, a), (r, t) => `Add finding ${r.index} to ${t.id}`, `${a.good_or_bad}: ${a.pattern}`),
+  answer_question: a => studyWriter(a.topic, t => Study.answerQuestion(t, a), (r, t) => `Link findings to question ${a.question} of ${t.id}`, ((A.studies || []).find(t => t.id === a.topic)?.questions[a.question - 1] || {}).text || ''),
   propose_model_edit: a => {
     const count = A.modelText.split(a.find).length - 1;
     if (!a.find) return { error: 'find is empty.' };
@@ -296,11 +334,13 @@ function contextNote() {
   }
   return s;
 }
+const NEEDS_WEB = 'The Researcher needs an agent that can search the web, such as Claude Code. The built-in agent cannot.';
 async function send(text) {
   if (AG.busy || !text.trim() || !A.root) return;
   if (isAgui()) return sendAgui(text);
   if (AG.agent !== 'builtin') return sendAcp(text);
   const c = chat(), r = roleCfg(AG.role);
+  if (AG.role === 'researcher') { c.items.push({ kind: 'user', text }, { kind: 'needsweb', text }); return renderAgent(); }
   c.messages.push({ role: 'user', content: `${text}\n\n[context] ${contextNote()}` });
   c.items.push({ kind: 'user', text });
   AG.busy = true; renderAgent();
@@ -609,6 +649,8 @@ function drainAgui(n) {
   return new Promise(resolve => { AG.aguiWait = { n, resolve }; setTimeout(() => { if (AG.aguiWait) { AG.aguiWait = null; resolve(); } }, 5000); });
 }
 
+// The ACP agent the Researcher uses when none is chosen: the first one this folder's designc.json names, else the first preset.
+const webAgent = () => Object.keys((A.cfg || {}).acpAgents || {}).find(k => k in AG.acpAgents) || Object.keys(AG.acpAgents)[0];
 async function loadAcpAgents() {
   try { AG.acpAgents = await host.acpAgents(); } catch { AG.acpAgents = {}; }
   try { AG.aguiAgents = await host.aguiAgents(); } catch { AG.aguiAgents = {}; }
@@ -617,7 +659,9 @@ async function loadAcpAgents() {
     Object.entries(AG.aguiAgents).map(([k, v]) => `<option value="agui:${esc(k)}" title="${esc(v.url)}">${esc(v.label)} (AG-UI)</option>`).join('') +
     Object.entries(AG.acpAgents).map(([k, v]) => `<option value="${esc(k)}" title="${esc(v.command)}">${esc(v.label)} (ACP)</option>`).join('');
   if (AG.agent !== 'builtin' && !(AG.agent in AG.acpAgents) && !(isAgui() && AG.agent.slice(5) in AG.aguiAgents)) AG.agent = 'builtin';
-  sel.value = AG.agent;
+  // The Researcher needs web search, which the built-in loop does not have: a study notebook starts on the first ACP agent.
+  if (A.kind === 'study' && AG.agent === 'builtin' && Object.keys(AG.acpAgents).length) AG.agent = webAgent();
+  sel.value = AG.agent; renderAgent();
 }
 
 function agentError(r) {
@@ -654,6 +698,7 @@ function renderAgent() {
   $('#shell').classList.toggle('withagent', AG.open);
   document.querySelector('[data-agenttoggle]').setAttribute('aria-selected', String(AG.open));
   if (!AG.open) return;
+  roleFitsKind();
   const c = chat(), r = ROLES[AG.role];
   $('#agRole').value = AG.role; if ($('#agAgent')) $('#agAgent').value = AG.agent;
   $('#agConn').textContent = AG.agent === 'builtin' ? '' : isAgui() ? 'service' : AG.conns[AG.agent] ? 'connected' : 'not started';
@@ -666,6 +711,10 @@ function renderAgent() {
     if (it.kind === 'user') return `<div class="agmsg user">${esc(it.text)}</div>`;
     if (it.kind === 'error') return `<div class="agmsg err">${esc(it.text)}${/designc\.json/.test(it.text) ? ' <button class="lnk" data-agsettings>Open designc.json</button>' : ''}</div>`;
     if (it.kind === 'assistant') return `<div class="agmsg bot">${it.text ? md(it.text) : '<span class="muted">Thinking…</span>'}</div>`;
+    if (it.kind === 'needsweb') {
+      const key = webAgent();
+      return `<div class="agmsg err">${esc(NEEDS_WEB)} ${key ? `<button class="lnk" data-agswitch="${esc(key)}" data-i="${i}">Use ${esc(AG.acpAgents[key].label || key)}</button>` : 'Add one under acpAgents in designc.json. <button class="lnk" data-agsettings>Open designc.json</button>'}</div>`;
+    }
     if (it.kind === 'status') return `<div class="agstatus">${esc(it.text)}</div>`;
     if (it.kind === 'state') return it.json && it.json !== '{}' ? `<details class="agthought"><summary>Agent state</summary><pre class="yamlprev">${esc(it.json)}</pre></details>` : '';
     if (it.kind === 'thought') return `<details class="agthought"><summary>Thinking</summary><div>${esc(it.text)}</div></details>`;
@@ -685,6 +734,24 @@ function renderAgent() {
   log.scrollTop = log.scrollHeight;
   $('#agSend').style.display = AG.busy ? 'none' : ''; $('#agStop').style.display = AG.busy ? '' : 'none';
   $('#agInput').disabled = !A.root;
+}
+// A study notebook has one role, the Researcher, and only there; the design roles are hidden in it.
+function roleFitsKind() {
+  const study = A.kind === 'study';
+  for (const o of $('#agRole').options) o.hidden = (o.value === 'researcher') !== study;
+  if (study !== (AG.role === 'researcher')) setRole(study ? 'researcher' : 'architect');
+}
+// Ask the Researcher on a study topic page: never the built-in agent, which cannot search.
+function askResearcher(t) {
+  if (AG.busy) return toast('The agent is still answering. Stop it or wait, then ask again.', 'error');
+  if (AG.agent === 'builtin') {
+    const key = webAgent();
+    if (!key) return toast(`${NEEDS_WEB} Add one under acpAgents in designc.json.`, 'warning');
+    AG.agent = key;
+  }
+  if (AG.role !== 'researcher') setRole('researcher');
+  toggleAgent(true);
+  send(`Research study topic ${t.id}: "${t.question}". Read it with read_study first, then add sources and findings${t.questions.some(q => !(q.answer_in || []).length) ? ', and link findings to my open questions' : ''}.`);
 }
 function setRole(role) {
   AG.role = role;
@@ -719,6 +786,11 @@ function grillInPanel(text) {
   if (AG.role !== 'grill') setRole('grill');
   toggleAgent(true); send(text); return true;
 }
+// Grill-me drafts the P declaration for a pack event an owned aggregate publishes. The person approves any write.
+function askDomainEvent(aggregate, event) {
+  const text = `The pinned domain pack says ${aggregate} publishes ${event}, but no P model announces e${event}. Read domain/${aggregate.split('/')[0]}.yaml and the behaviour/ P files, then draft the P event declaration with the pack's payload fields (same field names).`;
+  if (!grillInPanel(text)) toast('Drafting a P declaration needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
 // Grill-me on one imported requirement: reads its page, proposes the elements, the person approves.
 function mapRequirement(id) {
   if (!A.importDir) { toast('Choose the folder the pages came from first (the ⇩ button in Requirements); designc does not keep that folder between sessions.', 'warning'); return; }
@@ -731,8 +803,12 @@ function toggleAgent(force) { AG.open = force ?? !AG.open; renderAgent(); if (AG
 // ---------------------------------------------------------------- events
 host.onAgentDelta((id, chunk) => { if (id === AG.reqId && AG.streamItem) { AG.streamItem.text += chunk; renderAgent(); } });
 document.addEventListener('click', e => {
-  const t = e.target.closest('[data-agenttoggle],[data-agstart],[data-agok],[data-agno],[data-perm],[data-agsettings],#agSend,#agStop,#agNew'); if (!t) return;
+  const t = e.target.closest('[data-agenttoggle],[data-agswitch],[data-agstart],[data-agok],[data-agno],[data-perm],[data-agsettings],#agSend,#agStop,#agNew'); if (!t) return;
   if (t.dataset.agenttoggle != null) return toggleAgent();
+  if (t.dataset.agswitch) {
+    const c = chat(), it = c.items[+t.dataset.i]; if (AG.busy || !it) return;
+    AG.agent = t.dataset.agswitch; return send(it.text);
+  }
   if (t.dataset.agstart) return send(t.dataset.agstart);
   const pend = () => { const it = chat().items[+t.dataset.i]; return AG.pending.find(p => p.chip === it); };
   if (t.dataset.agok != null) { const p = pend(); return p && p.resolve(true); }

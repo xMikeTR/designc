@@ -87,7 +87,7 @@ test('dirtyInputs: only files the gate reads count, ledger changes never do', ()
   assert.deepEqual(Core.dirtyInputs([f('design/other.dsl')], { model: 'design/other.dsl' }), ['design/other.dsl'], 'a configured model path counts');
   assert.deepEqual(Core.dirtyInputs([f('model/workspace.dsl')], {}), ['model/workspace.dsl'], 'default model path');
   assert.deepEqual(Core.dirtyInputs([f('decisions-notes.md')], cfg), [], 'a folder name is not a prefix match');
-  assert.deepEqual(Core.GATE_INPUTS, ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'designc.json']);
+  assert.deepEqual(Core.GATE_INPUTS, ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'designc.json']);
 });
 
 test('evals: definitions are gate inputs, results files are not', () => {

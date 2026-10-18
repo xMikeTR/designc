@@ -1,0 +1,18 @@
+{
+  "schema": "designc.handover.domain/1",
+  "packs": [
+    {
+      "key": "pricing",
+      "path": "domain/pricing.yaml",
+      "hash": "19866b24ad7cdf10"
+    }
+  ],
+  "owners": [
+    {
+      "element": "Quotes/Quotes API",
+      "owns": [
+        "pricing/Quote"
+      ]
+    }
+  ]
+}

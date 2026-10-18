@@ -68,6 +68,7 @@ const Ledger = (() => {
     suite_run_finished: 'factory.jsonl',
     failure_mode_classified: 'factory.jsonl',
     factory_task_bound: 'factory.jsonl',
+    domain_pinned: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
@@ -311,6 +312,15 @@ const Ledger = (() => {
       optional: [],
       enums: {},
       types: { task_id: 'string', hash: 'string' },
+      rules: ['hash_not_blank'],
+    },
+    // A human pins a domain pack: domain/<pack>.yaml in the project is a copy of <registry>'s pack with this hash.
+    // The latest pin per pack wins. Written by the app only; `designc record` refuses it.
+    domain_pinned: {
+      required: ['pack', 'registry', 'hash'],
+      optional: [],
+      enums: {},
+      types: { pack: 'string', registry: 'string', hash: 'string' },
       rules: ['hash_not_blank'],
     },
     // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in

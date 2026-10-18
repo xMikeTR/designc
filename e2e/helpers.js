@@ -34,7 +34,9 @@ function copyRegistry(registry, { codebase = false } = {}) {
   return { dir, reg };
 }
 
-async function launch(reg) {
+// `ready(page)` gives the locator that says the folder is loaded; by default the status bar's gate
+// (a study notebook has no model, so no gate).
+async function launch(reg, { ready = page => page.getByRole('button', { name: /^Gate: / }) } = {}) {
   const userData = scratch('designc-e2e-ud-');
   fs.writeFileSync(path.join(userData, 'state.json'), JSON.stringify({ trustAllFolders: true }));
   const app = await electron.launch({
@@ -44,8 +46,7 @@ async function launch(reg) {
   const page = await app.firstWindow();
   page.on('dialog', d => d.accept());
   await page.waitForLoadState('domcontentloaded');
-  // The registry is loaded and compiled once the status bar shows the gate.
-  await page.getByRole('button', { name: /^Gate: / }).waitFor({ timeout: 30000 });
+  await ready(page).waitFor({ timeout: 30000 });
   return { app, page };
 }
 

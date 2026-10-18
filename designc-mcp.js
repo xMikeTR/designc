@@ -45,3 +45,5 @@ process.stdin.on('data', d => {
     if (line) { try { handle(JSON.parse(line)); } catch { /* ignore malformed */ } }
   }
 });
+// The agent that launched this server is gone (or closed our stdin): nothing more can arrive, so leave.
+process.stdin.on('end', () => process.exit(0));

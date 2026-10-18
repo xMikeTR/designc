@@ -1,0 +1,5 @@
+{
+  "model": "model/workspace.dsl",
+  "registries": { "pricing": "../domain-registry" },
+  "domains": ["pricing"]
+}
