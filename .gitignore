@@ -10,3 +10,7 @@ test-results/
 playwright-report/
 .claude/e2e-pass
 .claude/e2e-fail
+
+obj/
+bin/
+python/build/
