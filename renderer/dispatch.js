@@ -4,7 +4,7 @@
    placeholders, each value quoted for the shell, and the app types the line into the Terminal without pressing Enter.
    designc never runs it: the person reads it and presses Enter. */
 const Dispatch = (() => {
-  const VARS = ['handover', 'repo', 'registry', 'base', 'run'];
+  const VARS = ['handover', 'repo', 'registry', 'base', 'run', 'legacy'];
   const LIST = VARS.map(v => `{${v}}`).join(', ');
 
   const posix = s => `'${s.replace(/'/g, "'\\''")}'`;
@@ -42,10 +42,11 @@ const Dispatch = (() => {
     if (unknown.length) return { error: `The dispatch command uses {${unknown[0]}}, which designc does not fill. Use ${LIST}.` };
     const quote = platform === 'win32' ? pwsh : posix;
     let problem = null;
-    const text = template.replace(/\{(handover|repo|registry|base|run)\}/g, (_, n) => {
+    const text = template.replace(/\{(handover|repo|registry|base|run|legacy)\}/g, (_, n) => {
       const v = vars && vars[n];
       if (v === null || v === undefined || v === '') {
-        problem = problem || (n === 'repo' ? 'The dispatch command uses {repo}, but there is no repository: set codebase in designc.json, or repo on the work item.' : `There is no value for {${n}}.`);
+        problem = problem || (n === 'repo' ? 'The dispatch command uses {repo}, but there is no repository: set codebase in designc.json, or repo on the work item.'
+          : n === 'legacy' ? 'The dispatch command uses {legacy}, but there is no legacy reference: add one under references in designc.json.' : `There is no value for {${n}}.`);
         return '';
       }
       if (/[\r\n]/.test(String(v))) { problem = problem || `The value for {${n}} spans more than one line, so it cannot be typed as one command.`; return ''; }
@@ -54,6 +55,36 @@ const Dispatch = (() => {
     return problem ? { error: problem } : text;
   }
 
-  return { VARS, settings, command };
+  // `designc.json` `references`: read-only folders the build may read and never write, such as the legacy app a
+  // migration is judged against. Each is `{kind: 'legacy', path, label?}` under a key that is a plain name. The
+  // handover records the key and kind only; the path stays on this machine and reaches the build through {legacy}.
+  const KINDS = ['legacy'];
+  function references(d) {
+    if (d === undefined || d === null) return null;
+    if (typeof d !== 'object' || Array.isArray(d)) return { error: 'designc.json references must be an object, for example {"wpf": {"kind": "legacy", "path": "../legacy-wpf"}}.' };
+    const refs = [];
+    for (const key of Object.keys(d)) {
+      const r = d[key];
+      if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,39}$/.test(key)) return { error: `designc.json references.${key}: a key is a plain name of letters, digits, dots, dashes and underscores.` };
+      if (!r || typeof r !== 'object' || Array.isArray(r)) return { error: `designc.json references.${key} must be {"kind": "legacy", "path": "..."}.` };
+      if (!KINDS.includes(r.kind)) return { error: `designc.json references.${key}.kind must be ${KINDS.join(' or ')}.` };
+      const path = typeof r.path === 'string' ? r.path.trim() : '';
+      if (!path) return { error: `designc.json references.${key} needs a path to the folder.` };
+      if (/[\r\n]/.test(path)) return { error: `designc.json references.${key}.path must be on one line.` };
+      const label = typeof r.label === 'string' && r.label.trim() ? r.label.trim() : key;
+      refs.push({ key, kind: r.kind, label, path });
+    }
+    return { refs };
+  }
+
+  // The path {legacy} stands for: the one legacy reference, `{error}` naming the keys when there are several, null when none.
+  function legacy(refs) {
+    const l = (refs || []).filter(r => r.kind === 'legacy');
+    if (!l.length) return null;
+    if (l.length > 1) return { error: `{legacy} is ambiguous: ${l.map(r => r.key).join(', ')} are all legacy references. Keep one, or give the others another kind.` };
+    return { path: l[0].path };
+  }
+
+  return { VARS, settings, command, references, legacy };
 })();
 if (typeof module !== 'undefined') module.exports = Dispatch;

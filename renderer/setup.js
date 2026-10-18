@@ -5,6 +5,7 @@
    the human typed when they press Test connection. */
 const Setup = (() => {
   const L = typeof module === 'object' && module.exports ? require('./llm.js') : Llm;
+  const D = typeof module === 'object' && module.exports ? require('./dispatch.js') : Dispatch;
   const ENV_NAME = /^[A-Z_][A-Z0-9_]*$/;
   const DEFAULTS = { apiKeyEnv: 'DESIGNC_LLM_API_KEY', publicKeyEnv: 'LANGFUSE_PUBLIC_KEY', secretKeyEnv: 'LANGFUSE_SECRET_KEY' };
   const LOCAL = new Set(['localhost', '127.0.0.1', '[::1]']);
@@ -64,6 +65,18 @@ const Setup = (() => {
       if (!m.endsWith('.dsl') || m.startsWith('/') || /^[A-Za-z]:/.test(m) || m.split(/[\\/]/).includes('..')) errs.push({ field: 'model', msg: 'Enter a .dsl path inside this folder, like model/workspace.dsl.' });
     }
     if (draft.llm && !L.provider(draft.llm)) errs.push({ field: 'llm.provider', msg: `Unknown provider ${draft.llm.provider}. Use openai, anthropic or vertex.` });
+    // Read-only references: [{key, path}] rows. A blank row is ignored; the rest are judged by the one reader of designc.json.
+    if (Array.isArray(draft.references)) {
+      const rows = draft.references.filter(r => !(blank(r.key) && blank(r.path)));
+      const seen = new Set();
+      rows.forEach((r, i) => {
+        const k = blank(r.key) ? '' : String(r.key).trim();
+        if (seen.has(k)) errs.push({ field: `references.${i}.key`, msg: `Two references are named ${k}. Give each its own name.` });
+        seen.add(k);
+        const got = D.references({ [k || '_']: { kind: 'legacy', path: blank(r.path) ? '' : String(r.path).trim() } });
+        if (got && got.error) errs.push({ field: `references.${i}.${blank(r.path) ? 'path' : 'key'}`, msg: blank(k) ? 'Give this reference a short name, like wpf.' : blank(r.path) ? 'Choose the folder, or remove this row.' : got.error });
+      });
+    }
     urlField(draft.llm, 'llm'); envField(draft.llm, 'llm', 'apiKeyEnv');
     urlField(draft.langfuse, 'langfuse'); envField(draft.langfuse, 'langfuse', 'publicKeyEnv'); envField(draft.langfuse, 'langfuse', 'secretKeyEnv');
     return errs;
@@ -91,6 +104,16 @@ const Setup = (() => {
       const sec = { ...(out[key] || {}) };
       for (const [f, v] of Object.entries(draft[key])) { if (blank(v) || (key === 'llm' && f === 'provider' && L.provider({ provider: v }) === 'openai')) delete sec[f]; else sec[f] = String(v).trim(); }
       if (Object.keys(sec).length) out[key] = sec; else delete out[key];
+    }
+    if (Array.isArray(draft.references)) {
+      const old = out.references && typeof out.references === 'object' ? out.references : {};
+      const next = {};
+      for (const r of draft.references) {
+        if (blank(r.key) || blank(r.path)) continue;
+        const k = String(r.key).trim();
+        next[k] = { ...(old[k] || {}), kind: 'legacy', path: String(r.path).trim() };
+      }
+      if (Object.keys(next).length) out.references = next; else delete out.references;
     }
     return out;
   }
