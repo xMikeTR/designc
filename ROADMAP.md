@@ -64,7 +64,7 @@ Turns a folder of exported Confluence pages into `requirements/*.yaml` stubs. Pa
 
 - **A. Built.** `.html` and `.md` pages with metadata, review list, new and changed handling (`docs/requirement-import.md`).
 - **B. Built.** Grill-me maps one imported page to `elements[]`: `read_import_page` (read-only, the folder chosen this session, one page per call) and `map_requirement` (Grill-me `ask`; element names must resolve; only the `elements` line changes, behind an approval card). `Policy.WRITE_PATHS` is not widened and raw ACP writes into `requirements/` stay refused. "Map to elements" on an untraced requirement and on its gate clause; one requirement per agent turn.
-- **C. Open.** REST storage-format reader (`ac:` macros) for pages saved by the user's fetch script.
+- **C. Built.** `scripts/fetch-confluence.py` (REST to `.html`, outside the app); its output is the HTML shape part A already reads, so no separate storage-format reader was needed.
 - **Converter. Built.** `scripts/convert-pages.py`: `.docx` with the standard library on the work VM's Python; `.pdf` needs `pdftotext`, which is an install request if PDFs turn up.
 
 ## Step 0: study (slice 37)
