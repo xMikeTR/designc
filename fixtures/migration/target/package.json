@@ -1,0 +1,10 @@
+{
+  "name": "treaty-quote-target",
+  "private": true,
+  "version": "0.0.0",
+  "scripts": {
+    "test": "node --test \"test/**/*.test.js\"",
+    "check:money": "node checks/money.js",
+    "check:scope": "node checks/scope.js"
+  }
+}

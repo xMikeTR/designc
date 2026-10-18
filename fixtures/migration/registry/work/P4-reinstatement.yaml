@@ -1,0 +1,10 @@
+id: P4-reinstatement
+requirement: QC-1
+elements: [Pricing]
+repo: ../target
+writes: ["src/pricing/**"]
+depends_on: [P1-premium]
+done_when:
+  - gate: npm test
+  - gate: npm run check:money
+  - gate: npm run check:scope

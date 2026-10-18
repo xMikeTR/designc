@@ -1,0 +1,7 @@
+id: QC-1
+title: An underwriter can price a treaty quote and see the ceded premium
+source: ""
+version: 1
+elements: [Pricing, Validation, Summary]
+# Business wording: the limit is between 100,000 and 250,000,000. Premium is limit times rate on line.
+# Behaviour is otherwise as the existing WPF calculator; the legacy is the reference for anything not written here.
