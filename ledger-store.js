@@ -1,6 +1,5 @@
 // designc desktop: main-process ledger store. The only code that appends to ledger/ for either
-// envelope (R-5) — see renderer/ledger.js for the schema and plan/ledger-schema-s1-manifest.json
-// for the full contract.
+// envelope (R-5) — see renderer/ledger.js for the schema.
 const fs = require('fs');
 const path = require('path');
 const crypto = require('crypto');
