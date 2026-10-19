@@ -1273,7 +1273,7 @@ function renderSidebar() {
   const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
-  if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open Folder</button><button class="btn block" data-a="sample">Open Sample Registry</button>`; return; }
+  if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open design folder</button><button class="btn block" data-a="sample">Try the sample project</button><button class="btn block" data-a="tour">Take the tour</button>`; return; }
   if (A.activity === 'explorer') body.innerHTML = section('files', A.root.name, treeHTML(A.tree, 0) || '<div class="hint">This folder is empty.</div>');
   else if (A.activity === 'design') body.innerHTML = designSidebar();
   else if (A.activity === 'build') body.innerHTML = buildSidebar();
@@ -1587,21 +1587,46 @@ function renderPanel() {
 function renderWelcome() {
   const w = $('#welcome');
   if (A.root) {
-    w.innerHTML = `<div class="wl"><h1>${esc(A.root.name)}<small>${esc(A.root.root)}</small></h1>
+    w.innerHTML = `<div class="wl"><h1>${esc(A.root.name)}<small>${esc(A.root.root)}</small></h1>${tourHtml()}
       <div><h2>Start</h2>${A.model && A.model.elements.size ? `<button class="l" data-file="${esc(A.cfg.model)}">Open the model (${esc(A.cfg.model)})</button>` : `<button class="l" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`}
         <button class="l" data-a="design">Show the ready gate</button><button class="l" data-a="codemapopen">Code map of ${A.cfg.codebase ? esc(String(A.cfg.codebase).split('/').pop()) : 'a codebase'}</button><button class="l" data-a="builddash">Build dashboard</button><button class="l" data-a="improvedash">Improve dashboard</button></div>
       <div><h2>Keys</h2><table><tr><td>Ctrl+S</td><td>Save</td></tr><tr><td>Ctrl+Shift+B</td><td>Run all decision checks</td></tr><tr><td>Ctrl+Shift+G</td><td>Ask grill-me</td></tr><tr><td>Ctrl+Alt+V</td><td>Toggle the C4 sheet</td></tr><tr><td>Ctrl+.</td><td>Record a decision for a problem</td></tr><tr><td>Backspace, in the Code map</td><td>Up one level</td></tr></table></div></div>`;
     return;
   }
   w.innerHTML = `<div class="wl"><h1>designc<small>System design IDE: the design is the source, code is the build output.</small></h1>
-    <div><h2>Start</h2><button class="l" data-a="open">Open Folder…</button><button class="l" data-a="sample">Open Sample Registry</button>
+    ${tourHtml()}
+    <div><h2>Start</h2><button class="l" data-a="open">Open design folder…</button>
+      <div class="whint">The folder where this system's design lives. It can sit inside your code repo (for example design/) or beside it. A new, empty folder is fine: designc offers to set it up.</div>
+      <button class="l" data-a="sample">Try the sample project</button><button class="l" data-a="tour">Take the tour</button><button class="l" data-a="guide">Read the guide</button>
       ${A.recent.length ? `<h2 style="margin-top:22px">Recent</h2>${A.recent.map(r => `<button class="l" data-recent="${esc(r)}" title="${esc(r)}">${esc(r.split(/[\\/]/).pop())} <span style="color:var(--fg3)">${esc(r)}</span></button>`).join('')}` : ''}</div>
-    <div><h2>A registry folder holds</h2><table>
-      <tr><td>model/workspace.dsl</td><td>C4 model with d.* design properties</td></tr><tr><td>behaviour/*.p</td><td>P models, one per protocol</td></tr>
+    <div><h2>What goes in that folder</h2><table>
+      <tr><td>model/workspace.dsl</td><td>The design: C4 model with d.* properties</td></tr><tr><td>behaviour/*.p</td><td>P models, one per protocol</td></tr>
       <tr><td>requirements/*.yaml</td><td>Jira keys the design answers</td></tr><tr><td>decisions/*.yaml</td><td>Decisions, each with checks</td></tr>
       <tr><td>proposals/*.yaml</td><td>Improve proposals</td></tr><tr><td>ledger/*.jsonl</td><td>Events from every system</td></tr>
-      <tr><td>designc.json</td><td>Settings and model gateway</td></tr></table></div></div>`;
+      <tr><td>designc.json</td><td>Settings and model gateway</td></tr></table>
+      <div class="whint">This folder is also called a registry in the docs and settings.</div></div></div>`;
 }
+
+// First-run tour: an inline card on the welcome page, never a modal. Progress is per browser profile.
+const TOUR = [
+  ['The idea', 'In designc the design is the source of truth and code is a build output. You describe the system, designc checks the design and says when it is ready, and only then do you hand it to a build.'],
+  ['Open your design folder', 'Pick the folder that holds the design. It can live in your code repo (for example design/). In its settings, codebase points at the repo so designc can compare the design with what is built. Not sure yet? Try the sample project.'],
+  ['The Design view', 'The model, the problems found in it and the ready gate. Work through the gate top to bottom: each line says what is missing and has a button for the next step.'],
+  ['Decisions', 'When a finding fires, record a decision. Agents can draft one, but only you bind it, and a bound decision needs a check that proves it.'],
+  ['Freeze, build, improve', 'When the gate is ready, freeze a handover. Build shows what the coding pipeline did with it, and Improve shows what escaped and why.'],
+  ['Agents propose, you decide', 'The agent panel can explain, grill your design and draft changes. Nothing is written without your approval. The full guide covers every view.']
+];
+const tourState = () => { try { return localStorage.getItem('designc.tour') || ''; } catch (e) { return ''; } };
+const tourSet = v => { try { localStorage.setItem('designc.tour', v); } catch (e) { /* private window: the tour just shows again */ } };
+function tourHtml() {
+  const n = A.tour;
+  if (n == null || n < 0) return '';
+  const [title, text] = TOUR[n];
+  return `<div class="tour"><div class="tourn">Tour · step ${n + 1} of ${TOUR.length}</div><h2>${esc(title)}</h2><p>${esc(text)}</p>
+    <div class="tourb">${n > 0 ? '<button class="btn" data-a="tour-prev">Previous</button>' : ''}${n < TOUR.length - 1 ? '<button class="btn primary" data-a="tour-next">Next</button>' : '<button class="btn primary" data-a="tour-done">Done</button><button class="btn" data-a="guide">Open the full guide</button>'}<span class="spacer"></span><button class="lnk" data-a="tour-done">Skip tour</button></div></div>`;
+}
+function startTour() { A.tour = 0; activate(null); }
+function endTour() { A.tour = null; tourSet('done'); renderWelcome(); }
 
 // ---------------------------------------------------------------- C4 sheet
 // opts.groupEdges: also return rels with a grouped (container) end, resolved to node or group rects.
@@ -1709,7 +1734,7 @@ function renderSheet() {
   const special = A.active && A.active.startsWith('special:');
   $('#editors').classList.toggle('nosheet', !A.sheetOpen || special);
   if (!A.sheetOpen || special) return;
-  if (!A.root || !m || !m.elements.size) { host_.innerHTML = `<div class="empty">${A.root ? `The sheet draws ${esc(A.cfg.model)} once it has elements.` : 'Open a registry folder to see its C4 sheet.'}</div>`; $('#titleblock').style.display = 'none'; return; }
+  if (!A.root || !m || !m.elements.size) { host_.innerHTML = `<div class="empty">${A.root ? `The sheet draws ${esc(A.cfg.model)} once it has elements.` : 'Open a design folder to see its C4 sheet.'}</div>`; $('#titleblock').style.display = 'none'; return; }
   const L = layout(m); const elSev = new Map(), elN = new Map(), relSev = new Map();
   const bump = (map, id, sev) => { if (map.get(id) !== 'error') map.set(id, sev); };
   for (const f of A.diags) {
@@ -2026,6 +2051,11 @@ document.addEventListener('click', async e => {
   const a = d.a;
   if (a === 'open') return host.openFolder();
   if (a === 'sample') { const i = await host.openSample(); return onFolder(i); }
+  if (a === 'tour') return startTour();
+  if (a === 'tour-next') { A.tour = Math.min(A.tour + 1, TOUR.length - 1); return renderWelcome(); }
+  if (a === 'tour-prev') { A.tour = Math.max(A.tour - 1, 0); return renderWelcome(); }
+  if (a === 'tour-done') return endTour();
+  if (a === 'guide') return host.openGuide();
   if (a === 'freeze') return freezeHandover();
   if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
@@ -2123,6 +2153,7 @@ drag('#psash', e => { const r = $('#workbench').getBoundingClientRect(); $('#wor
 host.onCmd(cmd => {
   if (cmd === 'save') return save();
   if (cmd === 'close-tab') return A.active && closeTab(A.active);
+  if (cmd === 'tour') return startTour();
   if (cmd === 'extract') return extractCodebase();
   if (cmd.startsWith('view:')) { const v = cmd.slice(5); if (A.activity !== v || !A.sidebarOpen) setActivity(v); return; }
   if (cmd === 'toggle-sheet') { A.sheetOpen = !A.sheetOpen; return renderSheet(); }
@@ -2168,5 +2199,6 @@ require(['vs/editor/editor.main'], async () => {
   A.user = info.user; A.recent = info.recent; A.platform = info.platform;
   A.model = Core.parse(''); A.diags = []; A.gate = Core.gate({ model: A.model, diags: [], decisions: [], requirements: [], ledger: [] });
   document.querySelectorAll('#activity button').forEach(b => b.setAttribute('aria-selected', String(b.dataset.act === 'explorer')));
+  if (!info.root && tourState() !== 'done') A.tour = 0; // first run: show the tour inline
   if (info.root) await onFolder(info.root); else { activate(null); renderAll(); }
 });

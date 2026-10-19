@@ -70,8 +70,11 @@ function setRoot(dir) {
   return { root, name: path.basename(root) };
 }
 
+// docs/guide.html is unpacked from the asar so the system browser can read it.
+function openGuide() { return shell.openPath(path.join(__dirname, 'docs', 'guide.html').replace('app.asar', 'app.asar.unpacked')); }
+
 async function openFolderDialog() {
-  const r = await dialog.showOpenDialog(win, { title: 'Open registry folder', properties: ['openDirectory', 'createDirectory'] });
+  const r = await dialog.showOpenDialog(win, { title: 'Open the design folder', properties: ['openDirectory', 'createDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const info = setRoot(r.filePaths[0]);
   win.webContents.send('folder:opened', info);
@@ -93,9 +96,9 @@ function buildMenu() {
   const template = [
     ...(isMac ? [{ role: 'appMenu' }] : []),
     { label: 'File', submenu: [
-      { label: 'Open Folder…', accelerator: 'CmdOrCtrl+O', click: () => openFolderDialog() },
+      { label: 'Open Design Folder…', accelerator: 'CmdOrCtrl+O', click: () => openFolderDialog() },
       { label: 'Open Recent', submenu: state.recent.length ? state.recent.map(r => ({ label: r, click: () => { const i = setRoot(r); win.webContents.send('folder:opened', i); } })) : [{ label: 'No recent folders', enabled: false }] },
-      { label: 'Open Sample Registry', click: () => openSample() },
+      { label: 'Open Sample Project', click: () => openSample() },
       { type: 'separator' },
       { label: 'Save', accelerator: 'CmdOrCtrl+S', click: send('save') },
       { label: 'Close Editor', accelerator: 'CmdOrCtrl+W', click: send('close-tab') },
@@ -127,6 +130,9 @@ function buildMenu() {
       { label: 'Freeze Handover', click: send('freeze') },
     ] },
     { label: 'Help', submenu: [
+      { label: 'Take the Tour', click: send('tour') },
+      { label: 'Open the Guide', click: () => openGuide() },
+      { type: 'separator' },
       { label: 'Design Properties Reference', click: send('help:props') },
       { label: 'Open Settings File (designc.json)', click: send('open-settings') },
     ] },
@@ -166,6 +172,7 @@ handle('app:boot', async () => ({ recent: state.recent, root: root ? { root, nam
 handle('folder:open', () => openFolderDialog());
 handle('folder:openPath', p => { const i = setRoot(p); return i; });
 handle('folder:sample', () => openSample());
+handle('app:guide', () => openGuide());
 handle('fs:tree', async () => (root ? tree(root) : []));
 handle('fs:read', async rel => fsp.readFile(inside(rel), 'utf8'));
 handle('fs:exists', async rel => { try { await fsp.access(inside(rel)); return true; } catch { return false; } });
