@@ -11,7 +11,7 @@ Basis: about 200k input tokens per agent turn (first real run: 1.43M in over 8 t
 | Pilot hard cap (stop and report) | 45 | 9M | 0.5M |
 | Per task cap | 15 | 3M | 0.15M |
 
-- A task that reaches its cap is reported `exceeded` and parked, not retried.
+- S2 checks the item cap only when a new run starts: an item over its cap is refused (exit 4). A run in progress is not stopped by it; per-turn caps bound spend within a run.
 - The pilot runs once. Nothing is re-run to chase a better result.
 - The full trial's cap is not set here: it comes from what the pilot costs per turn and per passing task.
 
