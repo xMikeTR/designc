@@ -14,3 +14,20 @@ Basis: about 200k input tokens per agent turn (first real run: 1.43M in over 8 t
 - A task that reaches its cap is reported `exceeded` and parked, not retried.
 - The pilot runs once. Nothing is re-run to chase a better result.
 - The full trial's cap is not set here: it comes from what the pilot costs per turn and per passing task.
+
+## Pilot status (2026-10-19): stopped at the credit limit
+
+Only P1 was attempted, twice. No budget remains, so the pilot and the full trial are not being run.
+
+| Attempt | Result | Task-row tokens (in / out) |
+| --- | --- | --- |
+| 1 | T-001 passed in 3 turns; the run failed at integration because the whole suite includes P2-P4's red tests (fixed by `integration.testCommand` in `.factory/policy.yaml`) | 80k / 12k |
+| 2 | Credit balance too low after 6 turns; T-001 unfinished | 362k / 34k |
+
+Findings that stand without the rest of the pilot:
+- The same task cost 80k and 362k+ tokens across two runs. In attempt 2 the target is Node, S2's sandbox is .NET, so the test author wrote a Jint harness in C# and looped on a refused `Directory.Build.props`.
+- Input tokens are cumulative per model call: every call resends the whole conversation, and agents re-read files they had already read. About 70% of input was cache reads.
+- The task rows probably omit plan-stage tokens (not confirmed).
+- Cost per task is therefore dominated by S2's stack and read behaviour, not by the fixture's size.
+
+A full trial (8-12 tasks, 3 runs) is not affordable on a pay-as-you-go key. Revisit after S2 can verify a Node repo.
