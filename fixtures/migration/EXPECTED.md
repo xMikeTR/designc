@@ -39,4 +39,4 @@ P4 by a passing `check:money`, with the number of reruns recorded. `BUDGET.md` h
 Copy `fixtures/migration/` out of this repo (the pilot writes commits), then in the copy: `git init` and commit `target/` as the
 base (it is the repo the pipeline works in; `check:scope` hashes `src/shared/format.js` from that commit), `git init` and commit
 `registry/` (freeze wants a clean tree), delete `.reference-solution/`, and keep `legacy-wpf/` beside them. Open `registry/` in
-designc, freeze each work item, and dispatch with a command that uses `{legacy}` for the legacy folder.
+designc, freeze each work item, and dispatch with the registry's `s2` target (`factory-s2 run ... --reference wpf={legacy}`; `factory-s2` must be on your PATH, or edit the command to `dotnet <path>/factory-s2.dll`).
