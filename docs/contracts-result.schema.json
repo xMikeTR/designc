@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.contracts.result/1",
+  "title": "Contracts result",
+  "description": "contracts/out/result.json, written by the person's own contracts command (designc.json contracts) after it reads contracts/agents.json (designc.handover.agents/1). designc reads it and shows one row per agent; it never judges the compiled files.",
+  "type": "object",
+  "required": ["schema", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.contracts.result/1" },
+    "agents": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "status"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "An agent id from agents.json." },
+          "status": { "enum": ["compiled", "needs_input", "failed"], "description": "needs_input: a person must complete something the design cannot know. failed: the compiler refused." },
+          "files": { "type": "array", "items": { "type": "string" }, "description": "Paths relative to the registry." },
+          "reasons": { "type": "array", "items": { "type": "string" }, "description": "Required unless compiled." }
+        }
+      }
+    }
+  }
+}

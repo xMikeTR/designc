@@ -1493,6 +1493,7 @@ function designSidebar() {
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
+    + contractsSection()
     + (domainsInput() || A.kind === 'domain' ? section('domain', 'Domain', domainBody()) : '')
     + section('grill', 'Grill-me', grillBody);
 }
@@ -2059,6 +2060,7 @@ document.addEventListener('click', async e => {
   if (a === 'freeze') return freezeHandover();
   if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
+  if (a === 'compilecontracts') return compileContracts();
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
   if (a === 'newdecstudy') return newDecisionFromStudy();

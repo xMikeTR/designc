@@ -3,7 +3,7 @@
 // renderer (after core.js) and required by core.js under Node. It reads what it needs from Core and adds its functions to it.
 (Core => {
   const { parse, check, gate, domainOwners, blastRadius, evalHash, fingerprint, modelRevision, resolveElement } = Core;
-  const { hash16, RESERVED_TEST_PATH, DM, PP } = Core._shared;
+  const { hash16, RESERVED_TEST_PATH, DM, PP, get, structural } = Core._shared;
   // ---------- handover ----------
   // The model resolved for whatever coding agent takes the handover (docs/handover-elements.schema.json), so
   // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
@@ -30,6 +30,30 @@
     return inScope
       ? { schema: 'designc.handover.elements/2', elements, relationships: [...pairs.values()], events, reserved: [RESERVED_TEST_PATH] }
       : { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+  }
+
+  // The agents of the model described neutrally, for whatever turns a design into an agent contract
+  // (docs/handover-agents.schema.json). It names no contract language: an agent is an element with the Agent tag or
+  // a d.agent.autonomy, its declared d.agent.* properties are copied as declared (absent stays absent), and its
+  // tool calls are the non-structural relationships it takes part in, with d.tool.effect, d.approval and
+  // d.protocol where declared. A model that does not parse is refused. Pure.
+  const AGENT_PROPS = ['autonomy', 'model', 'fallback', 'maxSteps', 'budget', 'memory', 'untrustedInput', 'privateData',
+    'externalComms', 'codeExec', 'sandbox', 'identity', 'tracing', 'eval', 'pattern', 'patternWhy'];
+  function handoverAgents(modelText) {
+    const m = parse(modelText);
+    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+    const isAgent = e => e.tags.has('Agent') || get(e, 'd.agent.autonomy') != null;
+    const agents = [...m.elements.values()].filter(isAgent).map(e => {
+      const out = { id: m.label(e.id), name: e.name };
+      for (const k of AGENT_PROPS) { const v = get(e, `d.agent.${k}`); if (v != null) out[k] = v; }
+      out.tools = m.rels.filter(r => (r.src === e.id || r.dst === e.id) && r.src !== r.dst && m.elements.has(r.src) && m.elements.has(r.dst) && !structural(m, r)).map(r => {
+        const t = { direction: r.src === e.id ? 'out' : 'in', other: m.label(r.src === e.id ? r.dst : r.src), description: r.description || '' };
+        for (const [k, key] of [['effect', 'd.tool.effect'], ['approval', 'd.approval'], ['protocol', 'd.protocol']]) { const v = get(r, key); if (v != null) t[k] = v; }
+        return t;
+      });
+      return out;
+    });
+    return { schema: 'designc.handover.agents/1', agents };
   }
 
   // Spec skeletons : one Playwright spec per acceptance criterion, deterministic from the
@@ -205,8 +229,10 @@ ${tests.join('\n\n')}
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
+    const agentsDoc = handoverAgents(model.text);
+    const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
     const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs }) };
-    const frozen = [...content, elements, build, ...(dom ? [dom.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const frozen = [...content, elements, build, ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
 revision: ${modelRevision(model.text)}
@@ -215,7 +241,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 build: ${q(build.path)}
-${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
@@ -248,5 +274,5 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
 
 
-  Object.assign(Core, { handoverElements, acceptanceSpecs, buildBrief, handoverDomain, handoverPlan, frozenAs, rebindable, latestHandoverModel });
+  Object.assign(Core, { handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverPlan, frozenAs, rebindable, latestHandoverModel });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);
