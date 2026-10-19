@@ -55,6 +55,17 @@ def _rule(rid, ev):
                 if k in u and not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
             if u.get('cache_read', 0) + u.get('cache_write', 0) > u['tokens_in']:
                 return f'{at}: cache_read and cache_write are part of tokens_in, so together at most tokens_in'
+    elif rid == 'by_role_shape':
+        if 'by_role' not in ev: return None
+        us = ev['by_role']
+        if not isinstance(us, list): return 'by_role: must be a list of {role, turns, tokens_in, tokens_out}'
+        for i, u in enumerate(us):
+            at = f'by_role[{i}]'
+            if not isinstance(u, dict): return f'{at}: must be an object'
+            if not isinstance(u.get('role'), str) or not u['role']: return f'{at}.role: must be a non-empty string'
+            for k in ('turns', 'tokens_in', 'tokens_out'):
+                v = u.get(k)
+                if not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
     elif rid == 'suite_run_shape':
         t = ev.get('trials')
         if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'

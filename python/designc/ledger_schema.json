@@ -52,6 +52,7 @@
     "fail_needs_evidence",
     "budget_shape",
     "usage_shape",
+    "by_role_shape",
     "suite_run_shape",
     "fail_needs_note",
     "hash_not_blank",
@@ -805,7 +806,8 @@
         "tier",
         "handover",
         "run",
-        "usage"
+        "usage",
+        "by_role"
       ],
       "enums": {
         "status": [
@@ -817,7 +819,8 @@
       },
       "types": {},
       "rules": [
-        "usage_shape"
+        "usage_shape",
+        "by_role_shape"
       ]
     },
     "trace_review": {
