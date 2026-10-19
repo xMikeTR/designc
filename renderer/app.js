@@ -2180,12 +2180,18 @@ function runUsageNote(usage) {
   const cached = u => (u.cache_read || u.cache_write ? `, input ${fmtN(u.tokens_in)}: cache read ${fmtN(u.cache_read)}, cache write ${fmtN(u.cache_write)}, uncached ${fmtN(u.tokens_in - u.cache_read - u.cache_write)}` : '');
   return `<div class="note">By tier: ${usage.map(u => `<span title="${esc(u.models.join(', '))}">${esc(`${u.tier} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%${cached(u)})` : cached(u)}`)}</span>`).join(', ')}</div>`;
 }
+// A run's spend per role (planner, test author...), the share of the run's tokens; the split a pipeline reports in `by_role`.
+function runRoleNote(byRole) {
+  if (!byRole || !byRole.length) return '';
+  const all = byRole.reduce((a, u) => a + u.tokens, 0);
+  return `<div class="note" data-spend-by-role>Spend by role: ${byRole.map(u => esc(`${u.role} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%)` : ''}`)).join(', ')}</div>`;
+}
 function runsBlock() {
   const runs = Ledger.liveRuns(A.ledger).slice(0, 5);
   if (!runs.length) return '';
   return `<div class="block" id="buildRuns"><h3>Runs</h3><div class="note">Reported by the pipeline as it works. A run with no end is shown as running; if the pipeline stopped without saying so, it stays that way.</div>${runs.map(r => {
     const done = r.tasks.filter(t => t.status === 'passed').length;
-    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason || r.status === 'parked' ? `<div class="note">${esc(r.reason || '')}${r.status === 'parked' ? ` ${resumeButton(r.run)}` : ''}</div>` : ''}${runUsageNote(r.usage)}`;
+    const head = `<div class="runhead"><span class="id">${esc(r.run)}</span> · handover <span class="code">${esc(r.handover)}</span> · <span class="tag ${LIVE_RUN_TAG[r.status] || 'open'}">${esc(r.status)}</span>${r.started != null ? ` · started ${esc(new Date(r.started).toLocaleString(undefined, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' }))}` : ''} ${esc(runSpan(r.ms))}${r.tasks.length ? ` · ${esc(`${done} of ${plural(r.tasks.length, 'task')} passed`)}` : ''}</div>${r.reason || r.status === 'parked' ? `<div class="note">${esc(r.reason || '')}${r.status === 'parked' ? ` ${resumeButton(r.run)}` : ''}</div>` : ''}${runUsageNote(r.usage)}${runRoleNote(r.by_role)}`;
     const rows = r.tasks.map(t => `<tr><td><span class="id">${esc(t.task)}</span> ${esc(t.title || '')}</td><td>${esc(elementLabel(t.element))}</td><td><span class="tag ${t.status === 'passed' ? 'pass' : t.status === 'failed' ? 'fail' : 'open'}">${esc(t.status)}</span></td><td>${t.usage && t.usage.length ? usageCell(t.usage) : esc(t.tier || '')}</td><td class="num">${t.tokens ? fmtN(t.tokens) : ''}</td></tr>`).join('');
     return head + (rows ? `<div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Status</th><th>Tier</th><th class="num">Tokens</th></tr>${rows}</table></div>` : '<div class="note">No task reported yet.</div>');
   }).join('')}</div>`;

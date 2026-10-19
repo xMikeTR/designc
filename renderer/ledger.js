@@ -126,9 +126,9 @@ const Ledger = (() => {
     },
     task: {
       required: ['task', 'status'],
-      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run', 'usage'],
+      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run', 'usage', 'by_role'],
       enums: { status: ['passed', 'failed', 'blocked', 'running'] },
-      rules: ['usage_shape'],
+      rules: ['usage_shape', 'by_role_shape'],
     },
     needs_decision: {
       required: ['id', 'question', 'status'],
@@ -363,6 +363,18 @@ const Ledger = (() => {
         if (u.cost !== undefined && typeof u.cost !== 'number') return `${at}.cost: must be a number`;
         for (const k of ['cache_read', 'cache_write']) if (u[k] !== undefined && !(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
         if ((u.cache_read || 0) + (u.cache_write || 0) > u.tokens_in) return `${at}: cache_read and cache_write are part of tokens_in, so together at most tokens_in`;
+      }
+      return null;
+    },
+    // task.by_role: the task's tokens by the role that spent them, [{role, turns, tokens_in, tokens_out}]. Display only.
+    by_role_shape: ev => {
+      if (ev.by_role === undefined) return null;
+      if (!Array.isArray(ev.by_role)) return 'by_role: must be a list of {role, turns, tokens_in, tokens_out}';
+      for (const [i, u] of ev.by_role.entries()) {
+        const at = `by_role[${i}]`;
+        if (!isPlainObject(u)) return `${at}: must be an object`;
+        if (typeof u.role !== 'string' || !u.role) return `${at}.role: must be a non-empty string`;
+        for (const k of ['turns', 'tokens_in', 'tokens_out']) if (!(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
       }
       return null;
     },
@@ -784,6 +796,20 @@ const Ledger = (() => {
     return [...by.values()].sort((a, b) => b.tokens - a.tokens);
   }
 
+  // Sums `by_role` entries per role, most tokens first: [{role, turns, tokens_in, tokens_out, tokens}].
+  function sumByRole(rows) {
+    const by = new Map();
+    for (const r of rows) for (const u of (Array.isArray(r.by_role) ? r.by_role : [])) {
+      if (!u || typeof u.role !== 'string') continue;
+      const t = by.get(u.role) || { role: u.role, turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0 };
+      const n = k => (Number.isFinite(u[k]) ? u[k] : 0);
+      t.turns += n('turns'); t.tokens_in += n('tokens_in'); t.tokens_out += n('tokens_out');
+      t.tokens = t.tokens_in + t.tokens_out;
+      by.set(u.role, t);
+    }
+    return [...by.values()].sort((a, b) => b.tokens - a.tokens);
+  }
+
   // Spend per tier across the spend rows (Ledger.spendRows), for metrics; `without` counts rows that carry no usage.
   function usageByTier(events) {
     const rows = spendRows(events);
@@ -814,10 +840,10 @@ const Ledger = (() => {
         if (e.run != null ? e.run !== r.run : (e.handover !== r.handover || r.started == null || e._ts < r.started || (r.ended != null && e._ts > r.ended))) continue;
         // A task still running when its run ended did not finish: it stopped with the run.
         const status = r.ended != null && e.status === 'running' ? 'stopped' : e.status;
-        tasks.set(e.task, { task: e.task, status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), usage: Array.isArray(e.usage) ? e.usage : null, at: e._ts });
+        tasks.set(e.task, { task: e.task, status, element: e.element || null, title: e.title || null, tier: e.tier || null, tokens: totalTokens(e), usage: Array.isArray(e.usage) ? e.usage : null, by_role: Array.isArray(e.by_role) ? e.by_role : null, at: e._ts });
       }
       const ms = r.started == null ? null : (r.ended != null ? r.ended : now) - r.started;
-      return { ...r, ms, tasks: [...tasks.values()], usage: sumUsage([...tasks.values()]) };
+      return { ...r, ms, tasks: [...tasks.values()], usage: sumUsage([...tasks.values()]), by_role: sumByRole([...tasks.values()]) };
     }).sort((a, b) => (b.ended != null ? b.ended : b.started) - (a.ended != null ? a.ended : a.started));
   }
 
