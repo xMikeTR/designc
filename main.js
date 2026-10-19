@@ -207,7 +207,7 @@ handle('registry:keys', async () => Object.entries(readSettings().registries || 
 handle('registry:read', async (key, rel) => fsp.readFile(confine(regDir(key), rel), 'utf8'));
 handle('registry:list', async (key, relDir, ext) => listDir(regDir(key), relDir, ext));
 // The single validated append path for both ledger envelopes (renderer/ledger.js). See
-// plan/ledger-schema-s1-manifest.json R-5 — every other write goes through here or is legacy above.
+// R-5: every other write goes through here or is legacy above.
 handle('ledger:event', async event => ledgerStore.appendEvent(root, event));
 
 // Codebase (read-only): a separate folder, usually another repo, named in designc.json as "codebase".

@@ -1,6 +1,6 @@
 /* designc desktop: ledger envelope v1. Pure, no I/O, Node built-ins only.
    Dual-load like renderer/core.js: <script src="ledger.js"> in the renderer, require('./renderer/ledger.js')
-   from ledger-store.js and tests. See plan/ledger-schema-s1-manifest.json for the full contract.
+   from ledger-store.js and tests.
    LS-01 slice: only `check` carries its final v1 spec; the other 14 designc kinds accept today's
    field names as-is (upcast adds only the envelope, no renames — later slices tighten each). */
 const Ledger = (() => {
