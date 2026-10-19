@@ -57,7 +57,7 @@ function horizonNote() {
   return `<div class="hint"${h.over ? ' style="color:var(--warn)"' : ''}>${h.frozen} frozen and not done. The freeze horizon is the WIP limit plus two (${h.limit}). ${h.over ? 'You are past it: finish or re-plan before freezing more, because frozen designs go stale.' : 'Freeze small; the rest of the design can wait.'}</div>`;
 }
 
-// ---------------------------------------------------------------- digest (ROADMAP slice 26)
+// ---------------------------------------------------------------- digest 
 const lastLookKey = () => `designc.lastLook:${A.root ? (A.root.root || A.root.name) : ''}`;
 function lastLook() { try { return Number(localStorage.getItem(lastLookKey())) || 0; } catch { return 0; } }
 function markLooked() { try { localStorage.setItem(lastLookKey(), String(Date.now())); } catch { /* no storage: the digest keeps everything */ } }
@@ -104,7 +104,7 @@ function digestHtml() {
     ${sec(`Waiting (${d.waiting.length})`, waiting, `Nothing is held back. ${d.wip.active} active, WIP limit ${d.wip.limit}.`)}</div>`;
 }
 
-// Has the design moved under each frozen item (ROADMAP slice 25)? Runs after render, re-renders once when a
+// Has the design moved under each frozen item ? Runs after render, re-renders once when a
 // result changed, and records `item_recheck` only when the answer for that handover differs from the last one.
 const recheckKey = (it, frozen) => `${frozen[it.id].handover}|${JSON.stringify([it.elements, it.requirement])}|${A.decisions.map(d => d.id + d.status).join()}`;
 async function refreshRecheck() {

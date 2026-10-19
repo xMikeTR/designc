@@ -1018,7 +1018,7 @@ async function computeForecast(modelText) {
     history: Ledger.elementHistory(A.ledgerRaw, { window: fc.window || 10 }), minSamples: fc.minSamples || 3 });
   return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
 }
-// `item` is a work item: freeze only what it touches, against the gate scoped to its elements (ROADMAP slice 24).
+// `item` is a work item: freeze only what it touches, against the gate scoped to its elements .
 async function freezeHandover(item) {
   if (A.freezing) return; // a second click while the first freeze is still writing
   A.freezing = true;

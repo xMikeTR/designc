@@ -32,7 +32,7 @@
       : { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
   }
 
-  // Spec skeletons (ROADMAP slice 30): one Playwright spec per acceptance criterion, deterministic from the
+  // Spec skeletons : one Playwright spec per acceptance criterion, deterministic from the
   // criterion, written into the handover under tests/acceptance/<element>/<id>.spec.ts. `criteria` are the parsed
   // acceptance files (with `_text`, the file as read). `inScope` (element names) selects the specs the agent's
   // loop runs: those of the in-scope elements and of everything that depends on them (blastRadius); null for a
