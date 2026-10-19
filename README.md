@@ -404,6 +404,16 @@ Patterns are repo-relative and comma-separated: `*` and `?` match within one fol
 
 The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
+## Agent contracts
+
+designc knows nothing about any contract language. For a design with agents it writes a neutral `contracts/agents.json` (`designc.handover.agents/1`), runs the command you set in `designc.json` `contracts`, and reads back `contracts/out/result.json` (`designc.contracts.result/2`, `docs/contracts-result.schema.json`). The Design sidebar's **Agent contracts** section shows one row per agent: compiled, needs input or failed, with reasons.
+
+```json
+"contracts": { "label": "Compile contracts", "command": "my-compiler --agents {agents} --out {out}", "require": false }
+```
+
+`{agents}`, `{out}` and `{registry}` are filled and quoted. At freeze, a whole-model handover copies the compiled files into `contracts/` (inside the id) and lists them in `handover.yaml`. Freeze refuses a missing or stale result, or an agent that is not compiled (agents with `suggest` autonomy are exempt). With `"require": true`, an uncompiled agent is also a gate clause. Compiling is a human action. The full design, including how a build system enforces the policy, is in `docs/agent-contracts-spec.md`; `dev/mock-contracts.js` plays a compiler for demos.
+
 ## Cost forecast
 
 Freezing a handover shows what it is likely to cost before you confirm. designc compares the model being frozen with the newest handover's model, finds the containers and components that changed (added, changed, or at either end of a changed relationship), and prices each from what past handovers spent on it, read from `task` events in the ledger that name a `handover` and an `element`. With at least 3 past handovers of history an element is measured: the median is the expected figure and the p90 the high end. With fewer it shows "no basis" and is left out, and the total says how many changed elements it covers. Removed elements are listed, not priced.
