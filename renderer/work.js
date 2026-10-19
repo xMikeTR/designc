@@ -173,7 +173,7 @@ const Work = (() => {
     return out;
   }
 
-  // The handover each item was last frozen into: handover events that name an item (ROADMAP slice 24).
+  // The handover each item was last frozen into: handover events that name an item .
   function frozenBy(events) {
     const out = {};
     for (const e of list(events).filter(x => x.kind === 'handover' && x.item != null).sort((a, b) => (a._ts || 0) - (b._ts || 0)))
@@ -190,7 +190,7 @@ const Work = (() => {
   }
 
 
-  // The four buckets a person looks at (ROADMAP slice 26), from the ledger and from what designc could check.
+  // The four buckets a person looks at , from the ledger and from what designc could check.
   // `events` is the derived ledger (a needs_decision already carries its resolved status); `onMain` maps a
   // commit to true, false or null (could not be checked, then it is not judged); `lastLook` is epoch ms.
   // An agent's claim is never evidence: a done item whose commit is not on main, or that names no evidence,

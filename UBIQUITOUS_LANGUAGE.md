@@ -111,7 +111,7 @@ this marking is a reading of how the files are written and checked.
 | Blast radius | What an element's failure reaches, in mode `unavailable` or `misbehaves`: down, degraded, unknown |
 | Shared fate | Elements that fail together because of nesting or placement |
 | Deployment model | `deploymentEnvironment`, deployment nodes and instances: where containers run |
-| Acceptance criterion | A file in `acceptance/`: what one UI element must do, bound to a requirement and optionally a decision. Planned (ROADMAP slices 27 to 34) |
+| Acceptance criterion | A file in `acceptance/`: what one UI element must do, bound to a requirement and optionally a decision. |
 | Case | One given/when/then entry in an acceptance criterion, for one state. Not "scenario", which is a quality attribute scenario |
 | State | `ready`, `loading`, `empty`, `error` or `forbidden`: a condition of a UI element every criterion must cover |
 | Locator | A declared role and accessible name a case may refer to; the only way a generated spec finds an element |

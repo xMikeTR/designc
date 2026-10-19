@@ -732,7 +732,7 @@ const Core = (() => {
   function domainClauses({ model, ledger, listed = [], packs = [], sources = {}, behaviour = [] }) {
     return DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
   }
-  // ---------- design tokens (ROADMAP slice 34) ----------
+  // ---------- design tokens  ----------
   // design-tokens/tokens.json is a W3C design tokens file. A text size token (a token whose path has a font size
   // or text size segment) below the minimum is a gate clause: the build must not be able to ship unreadable text.
   // Sizes read in px or rem (1rem = 16px); a bare number is px. Nothing else is guessed.
@@ -838,7 +838,7 @@ const Core = (() => {
     }
     return out;
   }
-  // The gate as one work item sees it (ROADMAP slice 24): a clause counts when it touches an in-scope element.
+  // The gate as one work item sees it : a clause counts when it touches an in-scope element.
   // Model-wide clauses (parse, registry, duplicate ids) always count. A decision clause counts when the decision
   // binds an in-scope element; a requirement clause when it is the item's requirement; any other clause when its
   // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.

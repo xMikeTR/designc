@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "designc.handover.elements/2",
   "title": "Handover elements",
-  "description": "elements.json in a frozen item handover (a work item's, ROADMAP slice 24). Same as designc.handover.elements/1, plus in_scope on every element: true for the elements the work item changes. A whole-model handover keeps /1.",
+  "description": "elements.json in a frozen item handover. Same as designc.handover.elements/1, plus in_scope on every element: true for the elements the work item changes. A whole-model handover keeps /1.",
   "type": "object",
   "required": [
     "schema",
@@ -95,7 +95,7 @@
       }
     },
     "reserved": {
-      "description": "Repo path patterns no code change may touch: the generated acceptance specs (ROADMAP slices 30 and 31). A coding agent never writes here; the pipeline records acceptance results per criterion at a commit.",
+      "description": "Repo path patterns no code change may touch: the generated acceptance specs . A coding agent never writes here; the pipeline records acceptance results per criterion at a commit.",
       "type": "array",
       "items": {
         "type": "string"

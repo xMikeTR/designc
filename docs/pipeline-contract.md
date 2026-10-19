@@ -41,7 +41,7 @@ A `task` row may also carry `usage`, the same running total split by model: `[{m
 
 ## Item scope
 
-A work item names the elements it changes (`in_scope`). A pipeline works only those elements. Before touching any other element, ask: write a `needs_decision` with `element` set to the element and wait for a person. A change outside the item's elements that was not asked about is an escape with origin `translation_error` (the origin field arrives with ROADMAP slice 33). designc flags an item that names an element its requirement does not list, and a requirement element no item covers, so scope is settled before work starts.
+A work item names the elements it changes (`in_scope`). A pipeline works only those elements. Before touching any other element, ask: write a `needs_decision` with `element` set to the element and wait for a person. A change outside the item's elements that was not asked about is an escape with origin `translation_error` . designc flags an item that names an element its requirement does not list, and a requirement element no item covers, so scope is settled before work starts.
 
 ## Queue state a dispatcher may write
 
