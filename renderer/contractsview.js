@@ -37,6 +37,18 @@ async function compileContracts() {
     try { raw = await host.read(Contracts.PATHS.result); } catch {}
     if (raw == null) A.contractsState = { error: `The command ${r.code === 0 ? 'finished' : `exited with ${r.code}`} but wrote no ${Contracts.PATHS.result}. Check the command writes it into {out}.` };
     else { const res = Contracts.readResult(raw, doc); A.contractsState = res.error ? { error: res.error } : { result: res }; }
+    A.contractsText = raw; recompile();
     appendOutput(A.contractsState.error ? `✗ ${A.contractsState.error}\n` : `✓ read ${Contracts.PATHS.result}\n`);
   } finally { A.running = false; renderStatus(); renderSidebar(); }
+}
+// Every compiled file path a result names, for the freeze to read (Contracts.forFreeze judges them).
+function contractFiles(resultText) {
+  try { return [...new Set(JSON.parse(resultText).agents.flatMap(a => [a.policy, ...(a.files || [])]).filter(f => typeof f === 'string'))]; } catch { return []; }
+}
+// Gate input: only when designc.json contracts has require: true (a team's choice, so a new project is never blocked).
+function contractGaps() {
+  const c = A.cfg.contracts, s = Contracts.settings(c);
+  if (!s || s.error || c.require !== true || !A.model || A.model.errors.length) return [];
+  let doc; try { doc = Core.handoverAgents(A.modelText); } catch { return []; }
+  return Contracts.gaps({ resultText: A.contractsText == null ? null : A.contractsText, agentsDoc: doc, agentsText: JSON.stringify(doc, null, 2) + '\n', hash: Core._shared.hash16 });
 }

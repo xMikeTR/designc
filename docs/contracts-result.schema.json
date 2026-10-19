@@ -1,26 +1,80 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "designc.contracts.result/1",
+  "$id": "designc.contracts.result/2",
   "title": "Contracts result",
-  "description": "contracts/out/result.json, written by the person's own contracts command (designc.json contracts) after it reads contracts/agents.json (designc.handover.agents/1). designc reads it and shows one row per agent; it never judges the compiled files.",
+  "description": "contracts/out/result.json, written by the person's own contracts command (designc.json contracts) after it reads contracts/agents.json (designc.handover.agents/1). designc reads it, shows one row per agent, and a freeze copies the files it names into the handover. result/1 (no agents_hash, no policy) is still displayed but cannot be frozen.",
   "type": "object",
-  "required": ["schema", "agents"],
+  "required": [
+    "schema",
+    "agents",
+    "agents_hash"
+  ],
   "additionalProperties": false,
   "properties": {
-    "schema": { "const": "designc.contracts.result/1" },
+    "schema": {
+      "enum": [
+        "designc.contracts.result/2",
+        "designc.contracts.result/1"
+      ]
+    },
     "agents": {
       "type": "array",
       "items": {
         "type": "object",
-        "required": ["id", "status"],
+        "required": [
+          "id",
+          "status"
+        ],
         "additionalProperties": false,
         "properties": {
-          "id": { "type": "string", "description": "An agent id from agents.json." },
-          "status": { "enum": ["compiled", "needs_input", "failed"], "description": "needs_input: a person must complete something the design cannot know. failed: the compiler refused." },
-          "files": { "type": "array", "items": { "type": "string" }, "description": "Paths relative to the registry." },
-          "reasons": { "type": "array", "items": { "type": "string" }, "description": "Required unless compiled." }
+          "id": {
+            "type": "string",
+            "description": "An agent id from agents.json."
+          },
+          "status": {
+            "enum": [
+              "compiled",
+              "needs_input",
+              "failed"
+            ],
+            "description": "needs_input: a person must complete something the design cannot know. failed: the compiler refused."
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Every file of the contract, paths under contracts/out/."
+          },
+          "reasons": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Required unless compiled."
+          },
+          "policy": {
+            "type": "string",
+            "description": "The agent's policy file (AGT YAML), under contracts/out/. Required when compiled."
+          }
         }
       }
+    },
+    "agents_hash": {
+      "type": "string",
+      "description": "hash16 of the exact text of contracts/agents.json the command was given (FNV-1a two-pass, as Core._shared.hash16)."
+    },
+    "compiler": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "version": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
     }
   }
 }
