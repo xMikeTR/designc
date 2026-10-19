@@ -1,6 +1,6 @@
 # Agent contracts: tech spec
 
-Status: proposed. Stage 1 is built (designc commit `4b18f61`): `agents.json`, the `contracts` command, `result.json`, the sidebar section. This spec covers the rest: copying compiled contracts into a handover, S2 enforcing them, and the bridge to M.
+Status: built except S2 enforcement (3.3) and the policy hash on `run_started` (3.5), both left for the work VM (the `run_started` kind is v1-locked in designc, so it needs a schema change on this side too). Built: the bridge (`m-lang/tools/designc_bridge.py`), freeze copy, gate clause, S2 reader and `FACTORY_CONTRACTS`. Stage 1 is built (designc commit `4b18f61`): `agents.json`, the `contracts` command, `result.json`, the sidebar section. This spec covers the rest: copying compiled contracts into a handover, S2 enforcing them, and the bridge to M.
 
 Principle kept: probabilistic components propose; deterministic components and humans decide. A contract is deterministic input; a person freezes it; S2 refuses to run without it.
 
