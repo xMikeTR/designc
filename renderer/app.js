@@ -160,6 +160,7 @@ async function loadRegistry() {
   A.yamlErrors = [];
   [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
   A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
+  A.contractsText = await readText(Contracts.PATHS.result);
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
   const hv = ((Array.isArray(A.tree) ? A.tree : []).find(n => n.dir && n.name === 'handovers')) || { children: [] };
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
@@ -398,7 +399,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, domains: domainsInput() });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), domains: domainsInput() });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -1050,11 +1051,21 @@ async function freezeOnce(item) {
   const reqs = await read('requirements', ['.yaml', '.yml']), evs = await read('evals', ['.yaml', '.yml']), scs = await read('scenarios', ['.yaml', '.yml']), acs = await read('acceptance', ['.yaml', '.yml']);
   const refs = Dispatch.references(A.cfg.references);
   if (refs && refs.error) { toast(refs.error, 'error'); return; }
+  // Compiled agent contracts travel with a whole-model handover when a contracts command is configured.
+  let contracts = null;
+  if (!item && Contracts.settings(A.cfg.contracts) && !Contracts.settings(A.cfg.contracts).error) {
+    const agentsDoc = Core.handoverAgents(modelText), agentsText = JSON.stringify(agentsDoc, null, 2) + '\n', cache = new Map();
+    const resultText = await readText(Contracts.PATHS.result);
+    for (const rel of agentsDoc.agents.length && resultText ? contractFiles(resultText) : []) cache.set(rel, await readText(rel));
+    const c = Contracts.forFreeze({ resultText, agentsDoc, agentsText, hash: Core._shared.hash16, read: rel => cache.has(rel) ? cache.get(rel) : null });
+    if (c.error) { toast(c.error, 'warning'); return; }
+    contracts = c.contracts || null;
+  }
   let plan;
   try {
     plan = Core.handoverPlan({
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
-      references: refs ? refs.refs : [],
+      references: refs ? refs.refs : [], contracts,
       item: item ? { id: item.id, requirement: item.requirement, elements: item.elements || [] } : null,
       model: { path: A.cfg.model, text: modelText },
       requirements: item ? only(reqs, A.requirements, r => r.id === item.requirement) : reqs,
@@ -1300,7 +1311,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
@@ -1330,6 +1341,7 @@ function clauseActions(c) {
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
   if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
+  if (c.kind === 'contracts') return b('data-a', 'compilecontracts', 'Compile contracts', 'Writes the design\'s agents and runs your contracts command');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
   if (c.kind === 'needs' && c.needs && c.needs.id) return ndOptionsHtml(c.needs.id) + b('data-ndans', c.needs.id, 'Answer with a decision') + b('data-ndres', c.needs.id, 'Mark resolved', 'Closes the question without a decision, for one that is not about the design');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');

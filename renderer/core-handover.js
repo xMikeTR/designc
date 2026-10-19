@@ -219,12 +219,14 @@ ${tests.join('\n\n')}
     const doc = { schema: 'designc.handover.domain/1', packs: copies.map((c, i) => ({ key: used[i].key, path: c.path, hash: hash16(c.text) })), owners };
     return { copies, json: { path: 'domain.json', text: JSON.stringify(doc, null, 2) + '\n' } };
   }
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [] }) {
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null }) {
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
     const refs = references.map(r => ({ key: r.key, kind: r.kind })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
     const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null);
     const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
-    const content = [model, ...(dom ? dom.copies : []), ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    // Compiled agent contracts (Contracts.forFreeze): verbatim copies, so inside the id; a different policy is a different handover.
+    const ctr = contracts ? [contracts.result, ...contracts.files] : [];
+    const content = [model, ...(dom ? dom.copies : []), ...ctr, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`)].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
@@ -241,7 +243,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
