@@ -2180,11 +2180,11 @@ function runUsageNote(usage) {
   const cached = u => (u.cache_read || u.cache_write ? `, input ${fmtN(u.tokens_in)}: cache read ${fmtN(u.cache_read)}, cache write ${fmtN(u.cache_write)}, uncached ${fmtN(u.tokens_in - u.cache_read - u.cache_write)}` : '');
   return `<div class="note">By tier: ${usage.map(u => `<span title="${esc(u.models.join(', '))}">${esc(`${u.tier} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%${cached(u)})` : cached(u)}`)}</span>`).join(', ')}</div>`;
 }
-// A run's spend per role (planner, test author...), the share of the run's tokens; the split a pipeline reports in `by_role`.
+// A run's spend per role (planner, test author...), the share of the run's tokens; the split a pipeline reports in `by_role`. "cold" counts the role's turns that missed a prompt cache they should have hit.
 function runRoleNote(byRole) {
   if (!byRole || !byRole.length) return '';
   const all = byRole.reduce((a, u) => a + u.tokens, 0);
-  return `<div class="note" data-spend-by-role>Spend by role: ${byRole.map(u => esc(`${u.role} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%)` : ''}`)).join(', ')}</div>`;
+  return `<div class="note" data-spend-by-role>Spend by role: ${byRole.map(u => esc(`${u.role} ${plural(u.turns, 'turn')} · ${fmtN(u.tokens)}${all ? ` (${Math.round(100 * u.tokens / all)}%)` : ''}${u.cold ? ` · ${u.cold} cold` : ''}`)).join(', ')}</div>`;
 }
 function runsBlock() {
   const runs = Ledger.liveRuns(A.ledger).slice(0, 5);

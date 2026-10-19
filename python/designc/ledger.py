@@ -66,6 +66,10 @@ def _rule(rid, ev):
             for k in ('turns', 'tokens_in', 'tokens_out'):
                 v = u.get(k)
                 if not (_is_num(v) and float(v).is_integer() and v >= 0): return f'{at}.{k}: must be a whole number of at least 0'
+            if 'cold' in u:
+                c = u['cold']
+                if not (_is_num(c) and float(c).is_integer() and c >= 0): return f'{at}.cold: must be a whole number of at least 0'
+                if c > u['turns']: return f'{at}.cold: cannot be more than turns'
     elif rid == 'suite_run_shape':
         t = ev.get('trials')
         if 'trials' in ev and not (_is_num(t) and float(t).is_integer() and t >= 1): return 'trials: must be a whole number of at least 1'
