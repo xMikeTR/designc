@@ -238,93 +238,6 @@ const Core = (() => {
     return m;
   }
 
-  // Everything the picker offers: each declared view, then "All of <environment>". `id` is `view:<key>` or `env:<name>`.
-  function deploymentChoices(model) {
-    const dep = model.deployment || { environments: [], views: [] };
-    const views = dep.views.map(v => ({ id: `view:${v.key || v.scope}`, label: `${v.key || v.scope} \u00b7 ${v.scope === '*' ? '*' : (model.elements.get(v.system) || { name: v.scope }).name} \u00b7 ${v.environment}`, env: dep.environments.find(e => e.name === v.environment), view: v }));
-    return [...views, ...dep.environments.map(e => ({ id: `env:${e.name}`, label: `All of ${e.name}`, env: e, view: null }))];
-  }
-
-  // What the Deployment view shows: `wanted` (from `designc.json`) is a view key first, then an environment name; a view wins a
-  // clash. With nothing wanted, the only environment. `view` is null when the whole environment is meant.
-  function deploymentView(model, wanted) {
-    const envs = (model.deployment && model.deployment.environments) || [];
-    const views = (model.deployment && model.deployment.views) || [];
-    const choices = envs.map(e => e.name);
-    if (wanted) {
-      const view = views.find(v => (v.key || v.scope) === wanted);
-      if (view) return { env: envs.find(e => e.name === view.environment), view, choices };
-      const env = envs.find(e => e.name === wanted);
-      if (env) return { env, view: null, choices };
-      const keys = views.map(v => v.key || v.scope);
-      return { error: `designc.json deployment names "${wanted}", which this model does not declare. Choose one of: ${[...keys, ...choices].join(', ') || 'none declared'}.`, choices };
-    }
-    return envs.length === 1 ? { env: envs[0], view: null, choices } : { choices };
-  }
-
-  // The software system an element belongs to (itself, for a system), or null for a person.
-  function systemOf(model, id) {
-    for (let e = model.elements.get(id); e; e = e.parent ? model.elements.get(e.parent) : null) if (e.kind === 'softwareSystem') return e;
-    return null;
-  }
-
-  // Group `[{id, name}]` by software system, sorted by system name; elements outside any system come last.
-  function bySystem(model, items) {
-    const groups = new Map();
-    for (const it of items) {
-      const sys = systemOf(model, it.id), key = sys ? sys.id : null;
-      if (!groups.has(key)) groups.set(key, { system: sys ? sys.name : null, id: key, items: [] });
-      groups.get(key).items.push(it);
-    }
-    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
-    return [...groups.values()].sort((a, b) => (a.system === null) - (b.system === null) || cmp(a.system, b.system));
-  }
-
-  // Split impact into the viewed system and the rest: [{here, groups}], an empty side left out. No system means all of it is "here".
-  function splitBySystem(model, items, systemId) {
-    const groups = bySystem(model, items);
-    if (!systemId) return groups.length ? [{ here: true, groups }] : [];
-    return [{ here: true, groups: groups.filter(g => g.id === systemId) }, { here: false, groups: groups.filter(g => g.id !== systemId) }].filter(x => x.groups.length);
-  }
-
-  // What a deployment view keeps of an environment. Scoped to a system: nodes holding its instances (and their ancestors),
-  // infrastructure nodes inside a shown node or linked to a shown instance; other systems' instances in shown nodes collapse
-  // to `shared` counts. `*` or no view keeps everything. Returns {scoped, system, nodes, rels, hidden}; each node is
-  // {node, path, insts, shared, children}, with `insts` the instance nodes shown and `children` the sub-nodes shown.
-  function deploymentScope(model, env, view) {
-    const sysId = view && view.system ? view.system : null;
-    const scoped = !!sysId;
-    const sysName = scoped ? (model.elements.get(sysId) || {}).name : null;
-    const isInst = n => n.kind === 'containerInstance' || n.kind === 'softwareSystemInstance';
-    const mine = n => { if (!n.ref) return true; const s = systemOf(model, n.ref); return !!s && s.id === sysId; };
-    const paths = new Map();
-    (function walk(nodes, prefix) { nodes.forEach(n => { const p = prefix ? `${prefix}/${n.name}` : n.name; paths.set(n, p); if (!isInst(n)) walk(n.children, p); }); })(env.nodes, '');
-    const shown = new Set(), ancestors = n => { for (let p = paths.get(n); p; p = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '') shown.add(p); };
-    const all = [...paths.keys()];
-    if (!scoped) all.forEach(n => shown.add(paths.get(n)));
-    else {
-      for (const n of all) if (isInst(n) && mine(n)) ancestors(n);
-      const shownInst = new Set(all.filter(n => isInst(n) && shown.has(paths.get(n))).map(n => paths.get(n)).filter(p => all.some(n => paths.get(n) === p && mine(n))));
-      for (const n of all) {
-        if (n.kind !== 'infrastructureNode') continue;
-        const p = paths.get(n), parent = p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : null;
-        if ((parent && shown.has(parent)) || (env.rels || []).some(r => (r.src === p && shownInst.has(r.dst)) || (r.dst === p && shownInst.has(r.src)))) ancestors(n);
-      }
-    }
-    const build = nodes => nodes.filter(n => !isInst(n) && shown.has(paths.get(n))).map(n => {
-      const insts = n.children.filter(c => isInst(c) && (!scoped || mine(c)));
-      const counts = new Map();
-      if (scoped) for (const c of n.children.filter(c => isInst(c) && !mine(c))) { const nm = systemOf(model, c.ref).name; counts.set(nm, (counts.get(nm) || 0) + 1); }
-      const shared = [...counts].map(([system, count]) => ({ system, count })).sort((a, b) => (a.system < b.system ? -1 : a.system > b.system ? 1 : 0));
-      return { node: n, path: paths.get(n), insts, shared, children: build(n.children) };
-    });
-    const instShown = new Set(all.filter(n => isInst(n) && shown.has(paths.get(n)) && (!scoped || mine(n))).map(n => paths.get(n)));
-    const end = p => shown.has(p) || instShown.has(p);
-    const nodes = build(env.nodes);
-    const rels = (env.rels || []).filter(r => !scoped || end(r.src) || end(r.dst));
-    return { scoped, system: sysName, nodes, rels, hidden: all.filter(n => !isInst(n) && !shown.has(paths.get(n))).length };
-  }
-
   function makeModel(name, els, rels, errors) {
     const m = { name, elements: els, rels, errors, relById: new Map(rels.map(r => [r.id, r])) };
     m.label = id => { const parts = []; let c = els.get(id); while (c) { parts.push(c.name); c = c.parent ? els.get(c.parent) : null; } return parts.reverse().join('/'); };
@@ -881,7 +794,7 @@ const Core = (() => {
       }
       if (!requirements.some(r => r.id === a.requirement)) say(`${id}: requirement ${a.requirement} is not in the registry`);
       if (a.decision && !decisions.some(d => d.id === a.decision)) say(`${id}: decision ${a.decision} is not in the registry`);
-      const el = resolveElement(model, a.element);
+      const el = Core.resolveElement(model, a.element);
       if (!el) { say(`${id}: element "${a.element}" is not in the model`, [String(a.element)]); continue; }
       valid.push({ a, el });
       for (const st of a.states) if (!UI_STATES.includes(st)) say(`${id}: unknown state "${st}" (use ${UI_STATES.join(', ')})`, [el.name]);
@@ -1377,143 +1290,6 @@ function gateRecord({ modelText, diags, gate, source, git }) {
     return { elements, rels, summary: { added: count(elements, 'added'), removed: count(elements, 'removed'), changed: count(elements, 'changed'), relsAdded: count(rels, 'added'), relsRemoved: count(rels, 'removed'), relsChanged: count(rels, 'changed') } };
   }
 
-  // ---------- drift: designed vs as-built ----------
-  const key = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
-  // An element a pipeline names: its elements.json id (System/Container/Component, as `m.label` and handoverElements write it) first, then a
-  // name or d.aka that exactly one element carries. Null when unknown or ambiguous.
-  function resolveElement(m, ref) {
-    if (ref == null || ref === '') return null;
-    const text = String(ref);
-    const all = [...m.elements.values()];
-    const path = e => { const parts = []; for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) parts.unshift(c.name); return parts.join('/'); };
-    const byId = all.filter(e => path(e) === text);
-    if (byId.length === 1) return byId[0];
-    const k = key(text);
-    if (!k) return null;
-    const named = all.filter(e => [e.name, ...(get(e, 'd.aka') || [])].some(n => key(n) === k));
-    return named.length === 1 ? named[0] : null;
-  }
-
-  function drift(m, ledger) {
-    const find = ref => { const e = resolveElement(m, ref); return e && e.kind !== 'person' ? e : null; };
-    const built = ledger.filter(e => e.kind === 'asbuilt_edge');
-    if (!built.length) return null;
-    const unknownEls = new Set(), undeclared = [], seen = new Set(), mapped = new Set();
-    const designed = new Set(m.rels.filter(r => m.elements.get(r.src).kind !== 'person').map(r => r.src + '>' + r.dst));
-    for (const b of built) {
-      const s = find(b.from), d = find(b.to);
-      if (!s) unknownEls.add(b.from); if (!d) unknownEls.add(b.to);
-      if (!s || !d) continue;
-      mapped.add(s.id); mapped.add(d.id); seen.add(s.id + '>' + d.id);
-      if (!designed.has(s.id + '>' + d.id)) undeclared.push({ from: s.name, to: d.name });
-    }
-    const unrealised = m.rels.filter(r => designed.has(r.src + '>' + r.dst) && mapped.has(r.src) && !seen.has(r.src + '>' + r.dst))
-      .map(r => ({ from: m.elements.get(r.src).name, to: m.elements.get(r.dst).name }));
-    return { undeclared, unrealised, unknownEls: [...unknownEls] };
-  }
-
-  // ---------- drift: designed model vs extracted as-built model ----------
-  function driftModels(design, built) {
-    const idx = new Map();
-    for (const e of design.elements.values()) {
-      if (e.kind === 'person') continue;
-      [e.name, ...(get(e, 'd.aka') || [])].forEach(n => { if (!idx.has(key(n))) idx.set(key(n), e); });
-    }
-    const hasKids = m => new Set([...m.elements.values()].filter(e => e.parent).map(e => e.parent));
-    const bKids = hasKids(built), dKids = hasKids(design);
-    const toDesign = new Map(), unknownEls = [];
-    for (const b of built.elements.values()) {
-      if (bKids.has(b.id)) continue;
-      const d = idx.get(key(b.name));
-      if (d) toDesign.set(b.id, d); else unknownEls.push(b.name);
-    }
-    const toBuilt = new Map([...toDesign].map(([b, d]) => [d.id, b]));
-    const designed = new Map(design.rels.filter(r => design.elements.get(r.src).kind !== 'person').map(r => [r.src + '>' + r.dst, r]));
-    const relStatus = new Map(), undeclared = [], seen = new Set();
-    for (const r of built.rels) {
-      const s = toDesign.get(r.src), d = toDesign.get(r.dst);
-      if (!s || !d) { relStatus.set(r.id, 'unmapped'); continue; }
-      const k = s.id + '>' + d.id; seen.add(k);
-      if (designed.has(k)) relStatus.set(r.id, 'matched');
-      else { relStatus.set(r.id, 'undeclared'); undeclared.push({ from: s.name, to: d.name, builtRel: r.id }); }
-    }
-    const unrealised = [...designed.entries()].filter(([k, r]) => toBuilt.has(r.src) && !seen.has(k))
-      .map(([, r]) => ({ from: design.elements.get(r.src).name, to: design.elements.get(r.dst).name, src: toBuilt.get(r.src), dst: toBuilt.get(r.dst), rel: r }));
-    const missingEls = [...design.elements.values()].filter(e => e.kind !== 'person' && !dKids.has(e.id) && !toBuilt.has(e.id)).map(e => e.name);
-    // An extracted single-page app whose design match is not tagged UI: the UI-facing rules (acceptance criteria) would skip it.
-    const uiUntagged = [...toDesign].filter(([b, d]) => /\bSPA\b/.test(String(built.elements.get(b).technology || '')) && !d.tags.has('UI')).map(([, d]) => d.name);
-    return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, uiUntagged };
-  }
-
-  // ---------- drift: designed vs extracted, one level down ----------
-  // Components are only judged inside a container whose design declares components ("scored"). Everywhere
-  // else they are neutral, so a container-only design never shows component warnings.
-  // d.code against every file the extraction walk listed (facts.files, repo-relative). Display only: never a finding or a
-  // gate clause, because the codebase is not a gate input. null when there is no file list (extracted before it).
-  function codeAreaDrift(model, files) {
-    if (!Array.isArray(files)) return null;
-    const areas = [];
-    for (const e of model.elements.values()) {
-      if (e.props['d.code'] == null) continue;
-      for (const s of String(e.props['d.code']).split(',')) {
-        const p = PP.create(s);
-        if (!p.ok) continue;
-        const a = { id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length };
-        // An exact path matches one file of that name only (the path pattern contract); say so when it names a folder.
-        const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(p.value + '/')).length;
-        if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; an exact path matches a single file. Did you mean ${p.value}/**?`;
-        areas.push(a);
-      }
-    }
-    const unclaimed = areas.length ? files.filter(f => !areas.some(a => PP.matches(a.pattern, f))).sort() : [];
-    return { areas, unclaimed, files: files.length };
-  }
-
-  function driftComponents(design, built) {
-    const cmap = driftModels(Core.atLevel(design, 'container'), Core.atLevel(built, 'container'));
-    const kids = (m, id) => [...m.elements.values()].filter(e => e.kind === 'component' && e.parent === id);
-    const scored = new Set(), adoptable = [], neutral = new Set(), unknownEls = [], missingEls = [];
-    const toDesign = new Map(cmap.toDesign);
-    for (const c of built.elements.values()) {
-      if (c.kind !== 'container') continue;
-      const d = cmap.toDesign.get(c.id), bk = kids(built, c.id);
-      if (!d) continue;
-      const dk = kids(design, d.id);
-      if (!dk.length) { if (bk.length) adoptable.push({ built: c.id, design: d.id }); for (const b of bk) neutral.add(b.id); continue; }
-      scored.add(c.id);
-      const idx = new Map();
-      for (const x of dk) [x.name, ...(get(x, 'd.aka') || [])].forEach(n => { if (!idx.has(key(n))) idx.set(key(n), x); });
-      for (const b of bk) { const x = idx.get(key(b.name)); if (x) toDesign.set(b.id, x); else unknownEls.push(b.name); }
-      for (const x of dk) if (![...toDesign.values()].includes(x)) missingEls.push(x.name);
-    }
-    for (const c of built.elements.values()) if (c.kind === 'component' && !toDesign.has(c.parent)) neutral.add(c.id);
-    const toBuilt = new Map([...toDesign].map(([b, d]) => [d.id, b]));
-    const mapEnd = id => {
-      const e = built.elements.get(id);
-      if (e.kind !== 'component') return toDesign.get(id) || null;
-      return scored.has(e.parent) ? toDesign.get(id) || null : toDesign.get(e.parent) || null;
-    };
-    const anc = (m, e) => { while (e && e.kind === 'component') e = m.elements.get(e.parent); return e; };
-    const designed = new Set(design.rels.map(r => r.src + '>' + r.dst));
-    const relStatus = new Map(), undeclared = [], seen = new Set();
-    for (const r of built.rels) {
-      const se = built.elements.get(r.src), de = built.elements.get(r.dst);
-      if (se.kind !== 'component' && de.kind !== 'component') continue;
-      const s = mapEnd(r.src), d = mapEnd(r.dst);
-      if (!s || !d) { relStatus.set(r.id, 'unmapped'); continue; }
-      const intra = se.kind === 'component' && de.kind === 'component' && se.parent === de.parent;
-      if (s === d || (intra && !scored.has(se.parent))) { relStatus.set(r.id, 'neutral'); continue; }
-      const direct = designed.has(s.id + '>' + d.id);
-      const ok = intra ? direct : direct || designed.has(anc(design, s).id + '>' + anc(design, d).id);
-      if (ok) { relStatus.set(r.id, 'matched'); seen.add(s.id + '>' + d.id); }
-      else { relStatus.set(r.id, 'undeclared'); undeclared.push({ from: s.name, to: d.name, builtRel: r.id }); }
-    }
-    const unrealised = design.rels.filter(r => design.elements.get(r.src).kind === 'component' && design.elements.get(r.dst).kind === 'component'
-        && toBuilt.has(r.src) && toBuilt.has(r.dst) && !seen.has(r.src + '>' + r.dst))
-      .map(r => ({ from: design.elements.get(r.src).name, to: design.elements.get(r.dst).name, src: toBuilt.get(r.src), dst: toBuilt.get(r.dst), rel: r }));
-    return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, neutral, scored, adoptable };
-  }
-
   // Extension hooks (designc-canvas): add property specs and rules without forking the compiler.
   function registerProperties(specs) {
     for (const target of ['element', 'relationship']) Object.assign(SPECS[target], (specs && specs[target]) || {});
@@ -1523,10 +1299,12 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, slugId, diffModels, deploymentView, deploymentChoices, deploymentScope, bySystem, splitBySystem, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, drift, driftModels, driftComponents, codeAreaDrift, resolveElement, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, slugId, diffModels, scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, changeImpact, workRecheck, blastRadius, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
+  require('./core-drift.js');
+  require('./core-deployment.js');
   require('./core-forecast.js');
   require('./core-handover.js');
   require('./core-levels.js');
