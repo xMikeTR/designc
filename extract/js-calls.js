@@ -7,6 +7,8 @@ const fs = require('fs');
 const path = require('path');
 const catalogue = require('./catalogue');
 
+const TEST_RE = /\.(test|spec)\.[cm]?[jt]sx?$|[\\/]__tests__[\\/]/i;
+
 const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
 
 // lowercase; collapse '//'; strip trailing '/'; every parameter form becomes '{}'
@@ -178,7 +180,7 @@ const BASE_RE = /\b(?:const|let|var)\s+(\w+)\s*=\s*(?:import\.meta\.env\.(\w+)|p
 
 async function scan(ctx, packages) {
   const { read, rel } = ctx;
-  const files = [...new Set((packages || []).flatMap(p => p.files || []))].filter(f => /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(f));
+  const files = [...new Set((packages || []).flatMap(p => p.files || []))].filter(f => /\.(ts|tsx|js|jsx|mjs|cjs)$/i.test(f) && !TEST_RE.test(f));
   const elements = new Map();
   const add = (name, kind, tech) => { const k = keyOf(name); if (!elements.has(k)) elements.set(k, { name, kind, tech, evidence: [] }); return elements.get(k); };
   const consumes = [], provides = [], edges = [], unresolved = [];

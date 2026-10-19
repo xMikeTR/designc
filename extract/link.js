@@ -11,7 +11,7 @@
 //   name (created if it doesn't exist yet), with synthetic evidence pointing at designc.json.
 function link(facts, opts = {}) {
   const { elements, consumes, provides } = facts;
-  const nameOf = k => elements.get(k).name;
+  const nameOf = k => (elements.get(k) || { name: String(k) }).name;
   const keyOf = s => String(s).toLowerCase().replace(/[^a-z0-9]/g, '');
   const edges = [];
   // pair = { from: evidence, to: evidence|null, call?: string } pins the edge end to end for the
@@ -59,7 +59,7 @@ function link(facts, opts = {}) {
       if (targetOwner == null && c.devTarget) {
         let port; try { port = new URL(c.devTarget).port; } catch { port = null; }
         if (port) {
-          const byPort = owners.filter(o => (elements.get(o).ports || []).includes(port));
+          const byPort = owners.filter(o => ((elements.get(o) || {}).ports || []).includes(port));
           if (byPort.length === 1) targetOwner = byPort[0];
         }
       }
