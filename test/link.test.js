@@ -54,3 +54,12 @@ test('ambiguous providers go to unresolved with both candidates named', () => {
   assert.match(entries[0].what, /Alpha/);
   assert.match(entries[0].what, /Beta/);
 });
+
+test('a consume whose owner is not an element goes to unresolved instead of throwing', () => {
+  const elements = new Map([[keyOf('Alpha'), { name: 'Alpha', kind: 'container', tech: 'x', evidence: [] }]]);
+  const consumes = [{ owner: keyOf('Ghost'), kind: 'http', key: '/orders/{}', evidence: { file: 'x.js', line: 1, text: 'fetch("/orders/1")' } }];
+  const provides = [{ owner: keyOf('Alpha'), kind: 'http', key: '/other', evidence: { file: 'a.cs', line: 1, text: 'MapGet' } }];
+  const { edges, unresolved } = link.link({ elements, consumes, provides });
+  assert.equal(edges.length, 0);
+  assert.equal(unresolved.length, 1);
+});
