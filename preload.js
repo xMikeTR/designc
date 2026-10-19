@@ -6,6 +6,7 @@ contextBridge.exposeInMainWorld('host', {
   openFolder: () => ipcRenderer.invoke('folder:open'),
   openPath: p => ipcRenderer.invoke('folder:openPath', p),
   openSample: () => ipcRenderer.invoke('folder:sample'),
+  openGuide: () => ipcRenderer.invoke('app:guide'),
   tree: () => ipcRenderer.invoke('fs:tree'),
   read: rel => ipcRenderer.invoke('fs:read', rel),
   exists: rel => ipcRenderer.invoke('fs:exists', rel),
