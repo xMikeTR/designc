@@ -2,5 +2,11 @@
   "model": "model/workspace.dsl",
   "codebase": "../target",
   "references": { "wpf": { "kind": "legacy", "path": "../legacy-wpf", "label": "WPF treaty quote calculator" } },
+  "dispatch": {
+    "s2": {
+      "label": "Build with S2",
+      "command": "factory-s2 run --handover {handover} --repo {repo} --registry {registry} --base {base} --reference wpf={legacy}"
+    }
+  },
   "work": { "wip": 2 }
 }
