@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.agents/1",
+  "title": "Handover agents",
+  "description": "agents.json in a frozen handover (handovers/<id>/), written only when the model has agents: the agents of the design described neutrally, for whatever turns a design into an agent contract. Written by Core.handoverAgents at freeze, listed and hashed in handover.yaml (agents:) but outside the handover id. It names no contract language. designc owns this contract; consumers conform to it. docs/handover-agents.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "agents"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.agents/1" },
+    "agents": {
+      "description": "Elements tagged Agent or declaring d.agent.autonomy, in model order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name", "tools"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "Hierarchical element id, the same as in elements.json." },
+          "name": { "type": "string" },
+          "autonomy": { "enum": ["suggest", "approve-writes", "autonomous"] },
+          "model": { "type": "string" },
+          "fallback": { "type": "string" },
+          "maxSteps": { "type": "integer" },
+          "budget": { "type": "string" },
+          "memory": { "enum": ["none", "session", "persistent"] },
+          "untrustedInput": { "enum": ["yes", "no"] },
+          "privateData": { "enum": ["yes", "no"] },
+          "externalComms": { "enum": ["yes", "no"] },
+          "codeExec": { "enum": ["yes", "no"] },
+          "sandbox": { "enum": ["yes", "no"] },
+          "identity": { "enum": ["delegated", "service", "shared"] },
+          "tracing": { "enum": ["yes", "no"] },
+          "eval": { "type": "string" },
+          "pattern": { "type": "string" },
+          "patternWhy": { "type": "string" },
+          "tools": {
+            "description": "Non-structural relationships the agent takes part in. A property appears only where the model declares it; absent means undeclared, never a default.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["direction", "other", "description"],
+              "additionalProperties": false,
+              "properties": {
+                "direction": { "enum": ["out", "in"], "description": "out: the agent calls other. in: other calls the agent." },
+                "other": { "type": "string", "description": "Hierarchical element id of the other end." },
+                "description": { "type": "string" },
+                "effect": { "enum": ["read", "write", "irreversible"] },
+                "approval": { "enum": ["none", "policy", "human"] },
+                "protocol": { "type": "string" }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}
