@@ -93,12 +93,26 @@ Tests (in m-lang): skeleton for a design agent compiles to `needs_input`; overri
 | c. Gate clause + `contracts.require` | designc | small |
 | d. Bridge script + tests | m-lang | medium |
 | e. S2 reader + `FACTORY_CONTRACTS` + wizard question | S2 | medium |
-| f. S2 enforcement through AGT + `policy_denied` event | S2 | large, needs open question 2 |
+| f. S2 enforcement through AGT (section 3a) + `policy_denied` event | S2 | large |
 
 Each step is independently shippable; a to c need no M, d no S2.
 
-## Open questions
+## Decisions taken
 
-1. Which agents does a contract govern: the agents inside the system being designed, S2's own roles, or both? This spec assumes the first, with S2's roles staying under `policies/s2`. Say if M should govern S2's roles too.
-2. AGT runtime from .NET: is there a .NET SDK or must S2 call a Python sidecar (`agt check --policy X --action Y`)? Step f depends on this; on the work VM the answer may differ.
-3. Should `goal` ever come from the design (a `d.agent.goal` property), so skeletons compile without an override? Convenient, but it moves a human statement into the model.
+1. **Decoupled, so contracts govern the design's agents only.** designc and S2 know a neutral policy file per agent, not M. Anything that writes `result.json` v2 with an AGT-format `policy` works: M through its bridge, another compiler, or a person writing YAML by hand. S2's own roles stay under `policies/s2`. If M should govern them too, that is a second bridge input, not a change to this contract.
+2. **AGT runs in-process from .NET.** NuGet `Microsoft.AgentGovernance` (4.0.0 at time of writing, net8.0; public preview companion `Microsoft.AgentGovernance.Extensions.Microsoft.Agents`) loads YAML policy and evaluates calls; no Python sidecar. See section 3a. Verify the preview package against the work VM's feed before relying on it.
+3. **`d.agent.goal` is deferred.** A goal stays a human statement in the override `.m`; revisit only if skeletons prove too noisy.
+
+## 3a. S2 enforcement through AGT (replaces step f's open question)
+
+- Policy format is AGT YAML (`apiVersion`, `version`, `name`, `default_action`, `rules[{name, condition, action allow|deny|rate_limit, priority}]`). The agt emitter of any bridge must produce this; the `policy` path in `result.json` points at it.
+- S2 builds one `GovernanceKernel` per run with `GovernanceOptions.PolicyPaths` set to the handover's frozen policy copies (the files whose hashes the reader already verified), never the registry's working copies.
+- Every tool call a governed agent makes goes through `kernel.EvaluateToolCall(agentId, tool, args)`; `Allowed = false` stops the call, the `Reason` goes to the model as the tool result, and S2 appends `policy_denied` (agent id, tool, rule, policy hash) to the ledger.
+- Where S2 hosts the agent in Microsoft Agent Framework, prefer the companion middleware (`AIAgentBuilder.WithGovernance(...)`) over hand wiring, and keep the explicit `EvaluateToolCall` path for tools S2 runs itself.
+- AGT's own audit log is an additional record, not the source of truth: the designc ledger is.
+- Risk: the packages are preview and unsigned-status is unconfirmed. Pin the version in `Directory.Packages.props` and keep the enforcement behind an interface (`IContractEnforcer`) so a change of package touches one file.
+
+## Sources
+
+- [Microsoft.AgentGovernance on NuGet](https://www.nuget.org/packages/microsoft.agentgovernance)
+- [Agent Framework + AGT, Microsoft Agent Framework blog, 14 May 2026](https://devblogs.microsoft.com/agent-framework/governance-at-the-speed-of-agents-microsoft-agent-framework-and-agent-governance-toolkit-better-together/); it points to `examples/maf-integration/06-dotnet-extension-validation/dotnet` in the AGT repo for runnable .NET code.
