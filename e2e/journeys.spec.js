@@ -288,7 +288,8 @@ test('user can pin a domain pack and see it checked @critical', async () => {
   await sidebar.locator('.clause').getByRole('button', { name: 'Pin' }).first().click();
   // Pinning copies the pack as the registry has it and records who accepted it.
   await expect.poll(() => fs.existsSync(path.join(reg, 'domain/pricing.yaml'))).toBe(true);
-  expect(fs.readFileSync(path.join(reg, 'domain/pricing.yaml'), 'utf8')).toBe(fs.readFileSync(path.join(dir, 'domain-registry/domain/pricing.yaml'), 'utf8'));
+  // The file exists before its content is fully written, so wait for the same equality rather than read once.
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'domain/pricing.yaml'), 'utf8')).toBe(fs.readFileSync(path.join(dir, 'domain-registry/domain/pricing.yaml'), 'utf8'));
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'domain_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['pricing:pricing']);
   await expect(sidebar.locator('.clause', { hasText: 'but not pinned' })).toHaveCount(0);
   await expect(sidebar.getByText('pricing/Quote', { exact: true })).toBeVisible();
