@@ -366,7 +366,7 @@ const Ledger = (() => {
       }
       return null;
     },
-    // task.by_role: the task's tokens by the role that spent them, [{role, turns, tokens_in, tokens_out}]. Display only.
+    // task.by_role: the task's tokens by the role that spent them, [{role, turns, tokens_in, tokens_out, cold?}]; `cold` is how many of its turns missed a cache they should have hit. Display only.
     by_role_shape: ev => {
       if (ev.by_role === undefined) return null;
       if (!Array.isArray(ev.by_role)) return 'by_role: must be a list of {role, turns, tokens_in, tokens_out}';
@@ -375,6 +375,10 @@ const Ledger = (() => {
         if (!isPlainObject(u)) return `${at}: must be an object`;
         if (typeof u.role !== 'string' || !u.role) return `${at}.role: must be a non-empty string`;
         for (const k of ['turns', 'tokens_in', 'tokens_out']) if (!(Number.isInteger(u[k]) && u[k] >= 0)) return `${at}.${k}: must be a whole number of at least 0`;
+        if (u.cold !== undefined) {
+          if (!(Number.isInteger(u.cold) && u.cold >= 0)) return `${at}.cold: must be a whole number of at least 0`;
+          if (u.cold > u.turns) return `${at}.cold: cannot be more than turns`;
+        }
       }
       return null;
     },
@@ -796,14 +800,14 @@ const Ledger = (() => {
     return [...by.values()].sort((a, b) => b.tokens - a.tokens);
   }
 
-  // Sums `by_role` entries per role, most tokens first: [{role, turns, tokens_in, tokens_out, tokens}].
+  // Sums `by_role` entries per role, most tokens first: [{role, turns, tokens_in, tokens_out, tokens, cold}].
   function sumByRole(rows) {
     const by = new Map();
     for (const r of rows) for (const u of (Array.isArray(r.by_role) ? r.by_role : [])) {
       if (!u || typeof u.role !== 'string') continue;
-      const t = by.get(u.role) || { role: u.role, turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0 };
+      const t = by.get(u.role) || { role: u.role, turns: 0, tokens_in: 0, tokens_out: 0, tokens: 0, cold: 0 };
       const n = k => (Number.isFinite(u[k]) ? u[k] : 0);
-      t.turns += n('turns'); t.tokens_in += n('tokens_in'); t.tokens_out += n('tokens_out');
+      t.turns += n('turns'); t.tokens_in += n('tokens_in'); t.tokens_out += n('tokens_out'); t.cold += n('cold');
       t.tokens = t.tokens_in + t.tokens_out;
       by.set(u.role, t);
     }

@@ -22,6 +22,8 @@ const bad = [
   [{ ...task, by_role: [planner, { ...author, turns: 1.5 }] }, /by_role\[1\]\.turns: must be a whole number of at least 0/],
   [{ ...task, by_role: [{ ...planner, tokens_in: -1 }] }, /by_role\[0\]\.tokens_in: must be a whole number of at least 0/],
   [{ ...task, by_role: [{ ...planner, tokens_out: undefined }] }, /by_role\[0\]\.tokens_out: must be a whole number of at least 0/],
+  [{ ...task, by_role: [{ ...planner, cold: 1.5 }] }, /by_role\[0\]\.cold: must be a whole number of at least 0/],
+  [{ ...task, by_role: [{ ...planner, cold: 2 }] }, /by_role\[0\]\.cold: cannot be more than turns/],
 ];
 
 test('by_role is optional on a task, a list of role entries with whole-number turns and tokens', () => {
@@ -51,7 +53,20 @@ test('Build Runs: each task carries its roles, and the run totals them per role'
   assert.deepEqual(run.tasks.find(t => t.task === 'T-1').by_role, [planner, author]);
   assert.equal(run.tasks.find(t => t.task === 'T-3').by_role, null);
   assert.deepEqual(run.by_role, [
-    { role: 'planner', turns: 1, tokens_in: 510, tokens_out: 60, tokens: 570 },
-    { role: 'test-author', turns: 2, tokens_in: 400, tokens_out: 40, tokens: 440 },
+    { role: 'planner', turns: 1, tokens_in: 510, tokens_out: 60, tokens: 570, cold: 0 },
+    { role: 'test-author', turns: 2, tokens_in: 400, tokens_out: 40, tokens: 440, cold: 0 },
   ]);
+});
+
+test('cold counts the turns whose prompt cache missed, optional per role, and the run sums it', () => {
+  const warm = { ...author, cold: 1 };
+  assert.deepEqual(Ledger.validate({ ...task, by_role: [planner, warm] }), []);
+  const [run] = Ledger.liveRuns([
+    ev('run_started', 100, { run: 'r1', handover: H }),
+    ev('task', 110, { task: 'T-1', status: 'passed', handover: H, run: 'r1', by_role: [warm] }),
+    ev('task', 120, { task: 'T-2', status: 'passed', handover: H, run: 'r1', by_role: [{ ...author, cold: 2 }] }),
+    ev('task', 130, { task: 'T-3', status: 'passed', handover: H, run: 'r1', by_role: [planner] }),
+  ], { now: 200 });
+  assert.equal(run.by_role.find(r => r.role === 'test-author').cold, 3);
+  assert.equal(run.by_role.find(r => r.role === 'planner').cold, 0);
 });
