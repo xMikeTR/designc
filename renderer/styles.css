@@ -80,7 +80,11 @@ button{cursor:pointer}
 .btn:disabled{opacity:.5;cursor:default}
 .verdict{padding:8px 12px 8px 20px;display:flex;gap:8px;align-items:center;font-weight:600}
 .verdict.ok{color:var(--ok)} .verdict.no{color:var(--err)}
-.clause{padding:4px 12px 4px 20px;display:flex;gap:8px;cursor:pointer;font-size:12.5px}
+.clause{padding:4px 12px 4px 20px;display:flex;flex-wrap:wrap;gap:2px 8px;cursor:pointer;font-size:12.5px}
+.clause>span:nth-child(2){flex:1 1 calc(100% - 72px);min-width:0}
+.clause .acts{flex:1 1 100%;display:flex;flex-wrap:wrap;gap:0 10px;padding-left:72px}
+.clause .acts:empty{display:none}
+.clause .acts .lnk{text-align:left}
 .clause:hover{background:var(--hover)}
 .clause .help{display:block;color:var(--fg3);font-size:11.5px;margin-top:2px}
 .clause .k{font:11px var(--mono);color:var(--fg3);min-width:64px;flex:none;padding-top:1px}
