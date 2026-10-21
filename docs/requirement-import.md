@@ -2,7 +2,7 @@
 
 designc imports a folder of exported pages as requirement stubs. It reads `.html` and `.md` files only and keeps
 no page text: a requirement file gets `id`, `title`, `source`, `version` and an empty `elements` list.
-Anything else (Word, PDF, Confluence pages over REST) is converted to one of these two shapes first.
+Anything else (Word, PDF, Confluence pages or Jira issues over REST) is converted to one of these two shapes first.
 
 ## Converting Word and PDF
 
@@ -29,6 +29,20 @@ the ones named. Each page is saved as `<id>.html` with `<title>`, the canonical 
 the storage-format body, which is the HTML shape below, so the importer needs nothing more. A key such as `HRE-123` in
 the title becomes the requirement id; otherwise the id is a slug and a re-import matches by the canonical link. The report
 prints counts and HTTP status reasons only, never page text or the token.
+
+## Fetching Jira issues
+
+```
+JIRA_TOKEN=<personal access token> python3 scripts/fetch-jira.py <base-url> <new-output-folder> [<issue-key>...] [--jql "<query>"] [--max N]
+```
+
+Standard library only, GET requests only. `<base-url>` is the site root (Data Center `https://jira.example.com`, Cloud
+`https://example.atlassian.net`); https is required, http only for localhost. Auth is the same as for Confluence, from
+`JIRA_TOKEN` and `JIRA_USER` (`--token-env`, `--user-env`). Name issues by key, or give a JQL query such as
+`project = HRE AND component = Quotes` (at most `--max`, default 500; the report says when it stopped there). Each issue
+is saved as `<KEY>.md` in the markdown shape below: `id` is the key, `title` the summary, `source` the browse URL,
+`version` the issue's `updated` time (so any edit to the issue reads as changed on re-import), then the description as
+wiki markup. The report prints counts and HTTP status reasons only, never issue text or the token.
 
 ## Markdown (the converter contract)
 

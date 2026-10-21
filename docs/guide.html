@@ -215,6 +215,27 @@ npm start</pre>
 }</pre>
 <p>Save it and look at Problems and the C4 sheet. Then go to the Design view and work the gate from the top.</p>
 
+<h3>6.6 Feed in your requirements</h3>
+<p>designc does not read Jira or Confluence itself. A small script outside the app saves your tickets or pages as files, and designc imports the folder. Only the id, title, link and version are kept in the registry; the ticket text stays in the folder you imported from.</p>
+<pre>Jira / Confluence ──script──▶ folder of .md / .html ──⇩ import──▶ requirements/*.yaml
+                                                                   │ untraced
+                                       Map to elements ◀───────────┘
+                                             │ elements listed
+                                             ▼
+                           work item (one slice) ──▶ Freeze item ──▶ handover</pre>
+<ol class="steps">
+  <li><strong>Save the tickets as files.</strong> In a terminal, with a Jira personal access token:
+    <pre>export JIRA_TOKEN=&lt;your token&gt;
+python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "project = HRE AND component = Quotes"</pre>
+    You can also name tickets one by one (<code>HRE-101 HRE-102</code>). On Jira Cloud also set <code>JIRA_USER</code> to your email and use an API token. For Confluence use <code>scripts/fetch-confluence.py</code>, and for Word or PDF <code>scripts/convert-pages.py</code>. The scripts only read, and print counts, never ticket text.</li>
+  <li><strong>Import the folder.</strong> In the Design view, Requirements section, click ⇩ and pick the folder. A review lists each page as new, changed, unchanged or not importable. Import writes one <code>requirements/&lt;key&gt;.yaml</code> per ticket.</li>
+  <li><strong>Expect the gate to go red.</strong> Each new requirement shows as "not traced to any element or decision". That is right: designc does not yet know which part of the design it is about.</li>
+  <li><strong>Map each one to elements.</strong> Click Map to elements on the requirement. Grill-me reads that ticket and proposes the elements; you approve the card. You can also type the names into the file's <code>elements</code> list yourself. Mapping needs an agent (section 7), and the ticket text goes to its model.</li>
+  <li><strong>Hand over one slice at a time.</strong> You do not need every requirement mapped before building. In the Work view, New item takes one requirement and its elements, and Freeze item checks only the gate items that touch that slice.</li>
+  <li><strong>When tickets change, fetch and import again.</strong> An edited ticket shows as changed in the review and is updated only if you choose to. Its mapped elements are kept, and a business decision bound to the old version blocks until you re-bind it.</li>
+</ol>
+<div class="tip">With many tickets, start with one module's query, map those, and freeze one work item end to end before importing the rest.</div>
+
 <h2 id="agents">7. Agents (optional)</h2>
 <p>The speech bubble at the bottom of the activity bar opens the agent panel.</p>
 <figure><img src="guide/agent-panel.png" alt="The agent panel on the right with a picker for the agent and the role, three starter questions and a message box"><figcaption>The agent panel. Top left picks the agent, top right the role.</figcaption></figure>
