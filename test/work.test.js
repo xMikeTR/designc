@@ -161,3 +161,25 @@ test('horizon: frozen items not yet done against WIP + 2', () => {
   assert.deepEqual(Work.horizon(items, st, frozen, 1), { frozen: 2, limit: 3, over: false });
   assert.deepEqual(Work.horizon(items, st, { ...frozen, D: {} }, 0), { frozen: 3, limit: 2, over: true });
 });
+
+test('an item may name several requirements; its elements must come from one of them', () => {
+  const requirements = [{ id: 'R-1', elements: ['A'] }, { id: 'R-2', elements: ['B'] }];
+  const base = { id: 'w', elements: ['A', 'B'], done_when: [{ gate: 'x' }] };
+  assert.deepEqual(Work.reqs({ requirement: 'R-1' }), ['R-1']);
+  assert.deepEqual(Work.reqs({ requirement: ['R-1', ' ', 'R-2'] }), ['R-1', 'R-2']);
+  assert.deepEqual(Work.validate({ ...base, requirement: ['R-1', 'R-2'] }, { requirements }), []);
+  assert.deepEqual(Work.validate({ ...base, requirement: ['R-1', 'R-2'], elements: ['C'] }, { requirements }),
+    ['w: C is not an element of requirements R-1, R-2. Add it to one of them, or take it out of this item.']);
+  assert.deepEqual(Work.validate({ ...base, requirement: ['R-1', 'R-9'] }, { requirements }), ['w: requirement R-9 does not exist in requirements/.']);
+  assert.match(Work.validate({ ...base, requirement: [] }, { requirements })[0], /name either a requirement/);
+  assert.deepEqual(Work.coverage([{ id: 'w', requirement: ['R-1', 'R-2'], elements: ['A'] }], requirements), [{ requirement: 'R-2', element: 'B', items: ['w'] }]);
+});
+
+test('re-check: the same requirements in another order are no change; adding one is', () => {
+  const Core = require('../renderer/core.js');
+  const m = Core.parse('workspace { model { s = softwareSystem "S" { a = container "A" } } }');
+  const item = { requirement: ['R-1', 'R-2'], elements: ['A'] };
+  assert.deepEqual(Core.workRecheck({ item, frozen: { model: m, inScope: ['A'], requirements: ['R-2', 'R-1'] }, model: m }).reasons, []);
+  assert.deepEqual(Core.workRecheck({ item, frozen: { model: m, inScope: ['A'], requirements: ['R-1'] }, model: m }).reasons.map(r => r.text),
+    ['The item moved from requirement R-1 to requirements R-1, R-2 since it was frozen.']);
+});

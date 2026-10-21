@@ -24,6 +24,9 @@ const FILES = {
   'empty': 'id: empty\nrequirement: HRE-1\nelements: [A]\ndone_when: []\n',
   'clash': 'id: clash\nrequirement: HRE-1\nelements: [Pricing API]\nwrites: ["src/Api/Quotes/*.cs"]\ndone_when:\n  - gate: x\n',
   'doc-a': 'id: doc-a\ntarget: { document: "https://c/p/1" }\ndone_when:\n  - checklist: a\n',
+  'multi': 'id: multi\nrequirement: [HRE-1, HRE-2]\nelements: [Pricing API, Quotes DB]\ndone_when:\n  - gate: x\n',
+  'multi-out': 'id: multi-out\nrequirement: [HRE-1, HRE-2]\nelements: [Mail]\ndone_when:\n  - gate: x\n',
+  'multi-missing': 'id: multi-missing\nrequirement: [HRE-1, HRE-404]\nelements: [Pricing API]\ndone_when:\n  - gate: x\n',
   'doc-b': 'id: doc-b\ntarget: { document: "https://c/p/1" }\ndone_when:\n  - checklist: a\n',
 };
 
@@ -31,6 +34,7 @@ test('the Python work report matches renderer/work.js on the same files', { skip
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-work-'));
   put(root, 'model/workspace.dsl', 'workspace { model { a = person "A" } }');
   put(root, 'requirements/HRE-1.yaml', 'id: HRE-1\ntitle: t\nversion: 1\nelements: [Pricing API]\n');
+  put(root, 'requirements/HRE-2.yaml', 'id: HRE-2\ntitle: t\nversion: 1\nelements: [Quotes DB]\n');
   for (const [name, text] of Object.entries(FILES)) put(root, `work/${name}.yaml`, text);
   const items = Object.entries(FILES).map(([name, text]) => ({ ...yaml.load(text), _path: `work/${name}.yaml` }))
     .sort((a, b) => a.id.localeCompare(b.id));
@@ -41,13 +45,14 @@ test('the Python work report matches renderer/work.js on the same files', { skip
 
   const r = spawnSync('python3', ['-m', 'designc', 'work', root, '--json'], { cwd: PY, encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
-  assert.deepEqual(py.uncovered, Work.coverage(items, [{ id: 'HRE-1', elements: ['Pricing API'] }]), 'uncovered');
+  const reqs = [{ id: 'HRE-1', elements: ['Pricing API'] }, { id: 'HRE-2', elements: ['Quotes DB'] }];
+  assert.deepEqual(py.uncovered, Work.coverage(items, reqs), 'uncovered');
   const st = Work.states(items, events.map(e => ({ ...e, _ts: e.ts })));
   const active = items.filter(i => st[i.id] === 'active');
   assert.deepEqual(py.items.map(x => x.id), ids);
   for (const it of items) {
     const row = py.items.find(x => x.id === it.id);
-    const js = Work.validate(it, { requirements: [{ id: 'HRE-1', elements: ['Pricing API'] }], items: ids.filter(x => x !== it.id) });
+    const js = Work.validate(it, { requirements: reqs, items: ids.filter(x => x !== it.id) });
     assert.deepEqual(row.problems, js, `problems for ${it.id}`);
     assert.equal(row.state, st[it.id], `state for ${it.id}`);
     assert.deepEqual(row.conflicts.map(c => [c.with, c.reason, c.detail]), Work.conflicts(it, active).map(c => [c.with, c.reason, c.detail]), `conflicts for ${it.id}`);

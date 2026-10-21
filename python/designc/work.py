@@ -20,13 +20,21 @@ def _str(v):
 def is_repo(item): return item.get('target') is None
 
 
+def reqs(item):
+    """The requirement ids an item names (Work.reqs): one id or a list of them, blanks dropped."""
+    r = item.get('requirement') if isinstance(item, dict) else None
+    vals = r if isinstance(r, list) else ([] if r is None else [r])
+    return [s for s in (_str(v).strip() for v in vals) if s]
+
+
 def validate(item, requirements, item_ids):
     """What is wrong with this item. The sentences are identical to Work.validate in work.js."""
     out = []
     if not isinstance(item, dict): return ['The work item is not a mapping.']
     iid = _str(item.get('id')) or '(no id)'
     if not item.get('id'): out.append('The work item has no id.')
-    has_req = item.get('requirement') is not None and item.get('requirement') != ''
+    ids = reqs(item)
+    has_req = len(ids) > 0
     has_target = item.get('target') is not None
     if has_req == has_target: out.append(f'{iid}: name either a requirement (with elements) or a target, not both and not neither.')
     if has_target:
@@ -35,13 +43,17 @@ def validate(item, requirements, item_ids):
         if len(keys) != 1 or keys[0] not in TARGETS or not _str(t[keys[0]] or '').strip():
             out.append(f'{iid}: target must have one of document, jira or investigation, with a value.')
     if has_req:
-        req = next((r for r in requirements if _str(r.get('id')) == _str(item['requirement'])), None)
-        if req is None: out.append(f"{iid}: requirement {_str(item['requirement'])} does not exist in requirements/.")
+        found = [next((r for r in requirements if _str(r.get('id')) == x), None) for x in ids]
+        for x, r in zip(ids, found):
+            if r is None: out.append(f'{iid}: requirement {x} does not exist in requirements/.')
         if not _list(item.get('elements')): out.append(f'{iid}: a repo item needs elements, the design elements it changes.')
-        if req is not None:
+        if all(r is not None for r in found):
+            named = [e for r in found for e in _list(r.get('elements'))]
+            which = f'requirement {ids[0]}' if len(ids) == 1 else f"requirements {', '.join(ids)}"
+            fix = 'Add it to the requirement' if len(ids) == 1 else 'Add it to one of them'
             for el in _list(item.get('elements')):
-                if el not in _list(req.get('elements')):
-                    out.append(f"{iid}: {_str(el)} is not an element of requirement {_str(item['requirement'])}. Add it to the requirement, or take it out of this item.")
+                if el not in named:
+                    out.append(f'{iid}: {_str(el)} is not an element of {which}. {fix}, or take it out of this item.')
     for d in _list(item.get('depends_on')):
         if _str(d) not in item_ids: out.append(f'{iid}: depends_on {_str(d)} is not a work item.')
     for w in _list(item.get('writes')):
@@ -102,7 +114,7 @@ def coverage(items, requirements):
     """Requirement elements no repo item of that requirement covers; only requirements that have an item."""
     out = []
     for r in requirements:
-        mine = [i for i in items if is_repo(i) and i.get('requirement') == r.get('id')]
+        mine = [i for i in items if is_repo(i) and _str(r.get('id')) in reqs(i)]
         if not mine: continue
         for el in _list(r.get('elements')):
             if not any(el in _list(i.get('elements')) for i in mine):

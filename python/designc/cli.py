@@ -127,7 +127,7 @@ def main(argv):
         if it is None or not work.is_repo(it):
             print(f'designc: no repo work item {args.item} in work/. Check the id; an item with a target has no scope.', file=sys.stderr); return 2
         reg = load_registry(root)
-        s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], str(it.get('requirement')), reg['decisions'])}
+        s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], work.reqs(it), reg['decisions'])}
         r = report_of(s)
         if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside']}, ensure_ascii=False, indent=2))
         else:

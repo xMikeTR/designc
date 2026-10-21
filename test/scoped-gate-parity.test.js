@@ -7,6 +7,7 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
+const Work = require('../renderer/work.js');
 
 const PY = path.join(__dirname, '..', 'python');
 const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
@@ -51,6 +52,26 @@ test('the Python scoped gate keeps the clauses Core.scopedGate keeps', { skip },
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-api', '--json'], { cwd: PY, encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
   assert.equal(py.item, 'W-api');
+  assert.equal(py.outside, js.outside);
+  assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
+});
+
+test('an item with several requirements keeps each one\'s requirement clause, in Python too', { skip }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
+  put(root, 'designc.json', '{}');
+  put(root, 'model/workspace.dsl', DSL);
+  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quotes API]\n');
+  put(root, 'requirements/R-2.yaml', 'id: R-2\ntitle: t\nversion: 1\nelements: [Nothing]\n');
+  put(root, 'requirements/R-3.yaml', 'id: R-3\ntitle: t\nversion: 1\nelements: [Nothing either]\n');
+  put(root, 'work/W-both.yaml', 'id: W-both\nrequirement: [R-1, R-2]\nelements: [Quotes API]\ndone_when:\n  - gate: x\n');
+  const model = Core.parse(DSL), diags = Core.check(model, {});
+  const requirements = [{ id: 'R-1', elements: ['Quotes API'] }, { id: 'R-2', elements: ['Nothing'] }, { id: 'R-3', elements: ['Nothing either'] }];
+  const g = Core.gate({ model, diags, decisions: [], requirements, ledger: [] });
+  const js = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: Work.reqs({ requirement: ['R-1', 'R-2'] }), decisions: [] });
+  assert.deepEqual(js.clauses.filter(c => c.kind === 'requirement').map(c => c.requirement), ['R-2']);
+  assert.ok(g.clauses.some(c => c.requirement === 'R-3'), 'R-3 blocks the whole gate but not this item');
+  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-both', '--json'], { cwd: PY, encoding: 'utf8' });
+  const py = JSON.parse(r.stdout);
   assert.equal(py.outside, js.outside);
   assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
 });

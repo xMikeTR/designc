@@ -346,17 +346,18 @@ def domain_clauses(model, ledger, domains):
 
 def scoped_gate(g, model, elements, requirement, decisions):
     """The gate as one work item sees it (Core.scopedGate): model-wide clauses always count, a decision clause
-    when the decision binds an in-scope element, a requirement clause when it is the item's requirement, any
+    when the decision binds an in-scope element, a requirement clause when it is one of the item's requirements (one id or a list), any
     other clause when `about` names one. A clause that names nothing counts."""
     scope = set(elements)
     for e in model.elements.values():
         if e.name in scope: scope.add(model.label(e.id))
     def touches(names): return any(n in scope for n in names)
+    wanted = requirement if isinstance(requirement, list) else [requirement]
     keep = []
     for c in g['clauses']:
         k = c['kind']
         if k in ('parse', 'registry', 'duplicate'): ok = True
-        elif k == 'requirement': ok = c.get('requirement') == requirement
+        elif k == 'requirement': ok = c.get('requirement') in wanted
         elif c.get('decision') is not None:
             d = next((x for x in decisions if x['id'] == c['decision']), None)
             ok = d is None or touches(d.get('binds') or [])

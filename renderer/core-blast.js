@@ -120,8 +120,11 @@
       const parts = [added.length ? `added ${added.join(', ')}` : '', removed.length ? `removed ${removed.join(', ')}` : ''].filter(Boolean);
       reasons.push({ kind: 'scope', text: `The item's elements changed since it was frozen: ${parts.join('; ')}.` });
     }
-    if (frozen.requirement && item.requirement && frozen.requirement !== item.requirement) {
-      reasons.push({ kind: 'scope', text: `The item moved from requirement ${frozen.requirement} to ${item.requirement} since it was frozen.` });
+    const ids = v => [].concat(v == null ? [] : v).map(String).filter(Boolean).sort();
+    const reqThen = ids(frozen.requirements || frozen.requirement), reqNow = ids(item.requirement);
+    if (reqThen.length && reqNow.length && reqThen.join() !== reqNow.join()) {
+      const one = l => l.length === 1 ? `requirement ${l[0]}` : `requirements ${l.join(', ')}`;
+      reasons.push({ kind: 'scope', text: `The item moved from ${one(reqThen)} to ${one(reqNow)} since it was frozen.` });
     }
     const scope = new Set([...then, ...now]);
     const byName = (m, n) => [...m.elements.values()].find(e => e.name === n) || null;

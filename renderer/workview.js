@@ -7,7 +7,7 @@ const WK = { refused: {}, busy: false, recheck: {}, models: {}, modelRef: null, 
 
 const WORK_TEMPLATE = id => `id: ${id}
 title: ""
-# A repo item names a requirement and the design elements it changes.
+# A repo item names a requirement (or several: [HRE-1, HRE-2]) and the design elements it changes.
 requirement: TODO
 elements: []
 # repo: ../my-repo            # defaults to designc.json codebase
@@ -121,7 +121,7 @@ async function refreshRecheck() {
       if (!h || !h.model || !Array.isArray(h.in_scope)) { WK.recheck[it.id] = { unknown: true, key }; continue; }
       if (!WK.models[h.id]) { const t = await host.read(`handovers/${h.id}/${h.model}`); WK.models[h.id] = t ? Core.parse(t) : null; }
       if (!WK.models[h.id]) { WK.recheck[it.id] = { unknown: true, key }; continue; }
-      const r = Core.workRecheck({ item: it, frozen: { model: WK.models[h.id], inScope: h.in_scope, requirement: (h.requirements || [])[0] || null },
+      const r = Core.workRecheck({ item: it, frozen: { model: WK.models[h.id], inScope: h.in_scope, requirements: h.requirements || [] },
         model: A.model, decisions: A.decisions, requirements: A.requirements });
       WK.recheck[it.id] = { ...r, handover: h.id, key };
       const text = JSON.stringify(r.reasons.map(x => x.text));
@@ -137,23 +137,26 @@ async function refreshRecheck() {
 // The gate as this item sees it, or null when the item cannot be judged yet (no gate, not a repo item, problems in its file).
 function itemGate(it) {
   if (!A.gate || !A.model || !Work.isRepo(it)) return null;
-  return Core.scopedGate(A.gate, { model: A.model, elements: it.elements || [], requirement: it.requirement, decisions: A.decisions });
+  return Core.scopedGate(A.gate, { model: A.model, elements: it.elements || [], requirement: Work.reqs(it), decisions: A.decisions });
 }
 
 function workSidebar() {
   if (!A.work) return '<div class="hint">Loading work items…</div>';
   const st = workStates(), n = s => A.work.filter(i => st[i.id] === s).length;
-  const rows = A.work.map(i => `<div class="item" data-file="${esc(i._path)}"><div class="l1"><span class="id">${esc(i.id)}</span><span class="tag">${esc(st[i.id])}</span></div><div class="l2">${esc(i.title || (i.target ? `${Object.keys(i.target)[0] || 'target'}` : i.requirement) || '')}</div></div>`).join('');
+  const rows = A.work.map(i => `<div class="item" data-file="${esc(i._path)}"><div class="l1"><span class="id">${esc(i.id)}</span><span class="tag">${esc(st[i.id])}</span></div><div class="l2">${esc(i.title || (i.target ? `${Object.keys(i.target)[0] || 'target'}` : Work.reqs(i).join(', ')) || '')}</div></div>`).join('');
   return section('work', `Work items (${A.work.length})`, rows || '<div class="hint">No work items yet. New item writes work/&lt;id&gt;.yaml.</div>',
     '<button title="New work item" data-work="new">+</button>') +
     horizonNote() +
     `<div class="hint">${n('backlog')} backlog · ${n('active')} active · ${n('done')} done. Done is accepted only when the commit is on main and every gate passed at it.</div>`;
 }
 
-// Elements this item names that its requirement does not list.
+// The requirement files an item names that exist.
+const itemReqs = it => Work.isRepo(it) ? Work.reqs(it).map(id => (A.requirements || []).find(x => x.id === id)).filter(Boolean) : [];
+
+// Elements this item names that none of its requirements lists.
 function outOfScope(it) {
-  const r = Work.isRepo(it) && (A.requirements || []).find(x => x.id === it.requirement);
-  return r ? (it.elements || []).filter(el => !(r.elements || []).includes(el)) : [];
+  const rs = itemReqs(it);
+  return rs.length ? (it.elements || []).filter(el => !rs.some(r => (r.elements || []).includes(el))) : [];
 }
 
 function scopeBlockHtml() {
@@ -191,7 +194,7 @@ function workItemHtml(it, st, active) {
       : e && e.judge !== undefined ? judgeNote(it.id, e.judge, done && done.commit) : '';
     return `<li>${esc(text)}${note}</li>`;
   }).join('');
-  const what = it.target ? `${esc(Object.keys(it.target)[0] || '')} ${esc(Object.values(it.target)[0] || '')}` : `${esc(it.requirement || '')} · ${esc((it.elements || []).join(', '))}`;
+  const what = it.target ? `${esc(Object.keys(it.target)[0] || '')} ${esc(Object.values(it.target)[0] || '')}` : `${esc(Work.reqs(it).join(', '))} · ${esc((it.elements || []).join(', '))}`;
   const sg = !problems.length ? itemGate(it) : null;
   const froze = workFrozen()[it.id];
   const btn = [`<button class="btn" data-file="${esc(it._path)}">Open file</button>`];
@@ -205,7 +208,7 @@ function workItemHtml(it, st, active) {
     <div class="note">${what}${it.repo ? ` · repo ${esc(it.repo)}` : ''}</div>
     ${dw ? `<ul>${dw}</ul>` : ''}
     ${problems.map(m => `<div class="note" style="color:var(--err)">${esc(m)}</div>`).join('')}
-    ${outOfScope(it).map(el => `<div class="note"><button class="btn" data-work="addreq" data-id="${esc(it.id)}" data-el="${esc(el)}">Add ${esc(el)} to ${esc(it.requirement)}</button></div>`).join('')}
+    ${outOfScope(it).map(el => `<div class="note"><button class="btn" data-work="addreq" data-id="${esc(it.id)}" data-el="${esc(el)}">Add ${esc(el)} to ${esc(Work.reqs(it).length === 1 ? Work.reqs(it)[0] : 'a requirement')}</button></div>`).join('')}
     ${recheckHtml(it, froze)}
     ${froze ? `<div class="note">Frozen as <button class="lnk" data-file="handovers/${esc(froze.handover)}/handover.yaml">${esc(froze.handover)}</button> at ${esc(froze.revision)}.</div>` : ''}
     ${sg && state !== 'done' ? (sg.ready
@@ -245,7 +248,9 @@ async function workNew(prefill) {
 
 // Human only, like binding: it edits a requirement, which the gate reads.
 async function workAddToRequirement(id, el) {
-  const it = (A.work || []).find(i => i.id === id), r = it && (A.requirements || []).find(x => x.id === it.requirement);
+  const it = (A.work || []).find(i => i.id === id), rs = it ? itemReqs(it) : [];
+  const rid = rs.length === 1 ? rs[0].id : rs.length ? await askChoice(`Which requirement should list ${el}?`, rs.map(r => ({ label: `${r.id}${r.title ? `: ${trunc(r.title, 50)}` : ''}`, value: r.id }))) : null;
+  const r = rs.find(x => x.id === rid);
   if (!r || !r._path) return;
   if (!confirm(`Add ${el} to requirement ${r.id}?\n\nThis changes ${r._path}. If the requirement now means something different, bump its version yourself so decisions promoted against it are checked again.`)) return;
   const done = await editYaml(r._path, t => Work.addToList(t, 'elements', el));
@@ -254,7 +259,7 @@ async function workAddToRequirement(id, el) {
 
 async function workAddToItem(req, el) {
   const st = workStates();
-  const open = (A.work || []).filter(i => Work.isRepo(i) && i.requirement === req && st[i.id] !== 'done');
+  const open = (A.work || []).filter(i => Work.isRepo(i) && Work.reqs(i).includes(req) && st[i.id] !== 'done');
   if (!open.length) return toast(`Every item of ${req} is done. Make a new item for ${el}.`, 'warning');
   const id = open.length === 1 ? open[0].id : await askChoice(`Which item should change ${el}?`, open.map(i => ({ label: `${i.id}${i.title ? `: ${trunc(i.title, 50)}` : ''}`, value: i.id })));
   const it = open.find(i => i.id === id); if (!it) return;
