@@ -46,6 +46,7 @@
       "sample-codebase/**",
       "renderer/**",
       "docs/guide.html",
+      "docs/guide/**",
       "sample-registry/**",
       "node_modules/monaco-editor/min/**",
       "node_modules/js-yaml/dist/**",
@@ -57,6 +58,7 @@
     ],
     "asarUnpack": [
       "docs/guide.html",
+      "docs/guide/**",
       "sample-registry/**",
       "sample-codebase/**",
       "designc-mcp.js",
