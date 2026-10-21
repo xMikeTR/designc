@@ -277,7 +277,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `behaviour/*.p` | P models, one per protocol |
 | `requirements/*.yaml` | Jira keys the design answers |
 | `decisions/*.yaml` | Decisions: `minted`, then `bound` by a human, each with `checks` |
-| `requirements/*.yaml` from import | Requirement stubs made from exported pages (`.html`, `.md`) with the ⇩ button in the Requirements section: a review shows new, changed, unchanged and not importable pages, and page text is never stored. Word, PDF and Confluence converters are in `scripts/` (`convert-pages.py`, `fetch-confluence.py`); see `docs/requirement-import.md` |
+| `requirements/*.yaml` from import | Requirement stubs made from exported pages (`.html`, `.md`) with the ⇩ button in the Requirements section: a review shows new, changed, unchanged and not importable pages, and page text is never stored. Word, PDF, Confluence and Jira converters are in `scripts/` (`convert-pages.py`, `fetch-confluence.py`, `fetch-jira.py`); see `docs/requirement-import.md` |
 | `work/*.yaml` | Work items: a requirement with elements, or a target of `document`, `jira` or `investigation`, plus `repo`, `writes`, `depends_on` and `done_when`. Human-written (Work view, New item) |
 | `acceptance/*.yaml` | UI acceptance criteria per element: states, locators and cases. Gate input; a handover turns them into Playwright spec skeletons |
 | `design-tokens/tokens.json` | W3C design tokens, judged by the gate for text size and copied into every handover |
