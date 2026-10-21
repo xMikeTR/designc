@@ -3,170 +3,256 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>designc and factory-s2: getting started</title>
+<title>designc guide</title>
 <style>
-  :root { --bg:#fff; --fg:#1d2226; --muted:#5b6670; --line:#d9dee3; --code:#f3f5f7; --accent:#1f5fbf; }
-  @media (prefers-color-scheme: dark) { :root { --bg:#16191c; --fg:#e4e8eb; --muted:#9aa5ae; --line:#2e353b; --code:#21262b; --accent:#6aa5ff; } }
+  :root { --bg:#fff; --fg:#1d2226; --muted:#5b6670; --line:#d9dee3; --code:#f3f5f7; --accent:#1f5fbf; --tip:#eef4fc; }
+  @media (prefers-color-scheme: dark) { :root { --bg:#16191c; --fg:#e4e8eb; --muted:#9aa5ae; --line:#2e353b; --code:#21262b; --accent:#6aa5ff; --tip:#1c2633; } }
   body { background:var(--bg); color:var(--fg); font:16px/1.55 system-ui, sans-serif; margin:0; }
-  main { max-width:50rem; margin:0 auto; padding:2rem 1rem 4rem; }
-  h1 { font-size:1.8rem; } h2 { margin-top:2.5rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; } h3 { margin-top:1.6rem; }
+  main { max-width:52rem; margin:0 auto; padding:2rem 1rem 4rem; }
+  h1 { font-size:1.8rem; } h2 { margin-top:2.8rem; border-bottom:1px solid var(--line); padding-bottom:.3rem; } h3 { margin-top:1.8rem; }
   code, pre { background:var(--code); border-radius:4px; font:.9em ui-monospace, monospace; }
   code { padding:.1em .3em; } pre { padding:.8rem 1rem; overflow-x:auto; }
   table { border-collapse:collapse; width:100%; } th, td { border:1px solid var(--line); padding:.4rem .6rem; text-align:left; vertical-align:top; }
   a { color:var(--accent); } .note { color:var(--muted); }
-  nav a { margin-right:1rem; }
+  nav { display:flex; flex-wrap:wrap; gap:.3rem 1rem; }
+  figure { margin:1rem 0 1.5rem; } figure img { width:100%; height:auto; border:1px solid var(--line); border-radius:6px; }
+  figcaption { color:var(--muted); font-size:.9rem; margin-top:.3rem; }
+  .tip { background:var(--tip); border-left:3px solid var(--accent); padding:.6rem .9rem; border-radius:4px; margin:1rem 0; }
+  ol.steps > li { margin-bottom:.6rem; }
+  .later { color:var(--muted); }
 </style>
 </head>
 <body>
 <main>
-<h1>designc and factory-s2: getting started</h1>
-<p class="note">designc (System 1) is the desktop app where you design. factory-s2 (System 2) is the pipeline that turns a frozen design into merged code. They share files, not a server: the design folder (also called the registry) and its ledger.</p>
-<p class="note">The design folder holds the model, requirements, decisions and ledger as plain files. It can sit inside your code repo (for example <code>design/</code>) or beside it, and a new empty folder is fine.</p>
-<nav><a href="#idea">The idea</a><a href="#first">First 10 minutes</a><a href="#terms">Terms</a><a href="#s1">Using designc</a><a href="#s2">Running factory-s2</a><a href="#loop">The whole loop</a><a href="#safety">What is guarded</a><a href="#more">Where to read more</a></nav>
+<h1>designc guide</h1>
+<p>A step-by-step guide for your first hour with designc. You follow it on a sample project, so you need no key, no account and no model. Each step says what to click and what you should see.</p>
+<nav>
+  <a href="#idea">1. The idea</a>
+  <a href="#start">2. Start the app</a>
+  <a href="#screen">3. The screen</a>
+  <a href="#walk">4. Walkthrough</a>
+  <a href="#views">5. The other views</a>
+  <a href="#own">6. Your own folder</a>
+  <a href="#agents">7. Agents</a>
+  <a href="#terms">Terms</a>
+  <a href="#stuck">When you are stuck</a>
+</nav>
 
-<h2 id="idea">The idea</h2>
-<p>The design is the source of truth and code is a build output. Models propose; deterministic checks and people decide. An agent never writes anything without a policy check, and writes need a person's approval.</p>
-<pre>designc (you design)  ──freeze──►  handover  ──►  factory-s2 (plans, builds, verifies, merges)
-        ▲                                                         │
-        └──────────── ledger (append-only events) ◄───────────────┘</pre>
+<h2 id="idea">1. The idea, in one picture</h2>
+<p>In designc you write down the design of a system, and designc checks it the way a compiler checks code. It tells you what looks wrong or is unknown, and it keeps a yes/no answer called the <strong>gate</strong>: is this design ready to build? When the gate says yes, you <strong>freeze</strong> the design into a <strong>handover</strong>, and a coding pipeline builds from that.</p>
+<pre>  you write the design ──► designc checks it ──► findings + gate
+          ▲                                        │
+          │       you fix the model or record      │
+          └──────── a decision for each finding ◄──┘
 
-<h2 id="first">First 10 minutes</h2>
-<p>No model, key or cost needed.</p>
-<p>When you want a model or Langfuse later, run <code>scripts/setup-wizard.sh [registry]</code>: a step-by-step prompt that writes only variable names to <code>designc.json</code> and keeps keys in <code>~/.config/designc/env</code>. Connection tests are free and only run if you say yes.</p>
-<ol>
-<li><code>npm install &amp;&amp; npm start</code>, then choose <strong>Try the sample project</strong>. The first launch also shows a short tour (Help, Take the tour, shows it again). This opens <code>sample-registry/</code>, a small pricing-engine design.</li>
-<li>Look at the status bar: the gate says <em>not ready</em>. In the Design sidebar, the blocking clauses are listed in the order to work them. The first one is marked <em>next</em>.</li>
-<li>Open <code>model/workspace.dsl</code> from the Explorer. Findings (DC000 to DC009) appear in the Problems panel as you read; click one to jump to the line.</li>
-<li>On a finding, try <strong>Ask the tutor</strong> to have it explained, or <strong>Record decision</strong> to write down how you will resolve it. Nothing is bound until you press Bind.</li>
-<li>Switch to <strong>Build</strong> and <strong>Improve</strong> to see what the sample ledger looks like once a pipeline has run.</li>
-<li>To see the other half, run the model-free factory-s2 commands in "Running factory-s2" below. They print the plan and the waves of tasks without calling anything.</li>
+  gate ready ──► Freeze ──► handover ──► a coding pipeline builds it
+                                               │
+  Build and Improve views ◄──── ledger ◄───────┘  (what happened, what escaped)</pre>
+<p>Everything is plain files in one folder (the <strong>registry</strong>), so git gives you review and history. Agents can explain and draft things, but only you bind a decision or freeze a handover.</p>
+
+<h2 id="start">2. Start the app</h2>
+<p>From the source folder (needs Node 20 or later):</p>
+<pre>npm install
+npm start</pre>
+<p>Or run the installer you were given. The app opens on a welcome page:</p>
+<figure><img src="guide/welcome.png" alt="Welcome page with the Open design folder, Try the sample project and Take the tour buttons on the left, and the first tour step in the middle"><figcaption>The welcome page. The left side has three buttons; the middle shows a six-step tour on first launch.</figcaption></figure>
+<ol class="steps">
+  <li>Read the six tour steps if you like (Next, or Skip tour). Help → Take the Tour shows it again later.</li>
+  <li>Click <strong>Try the sample project</strong>. designc copies a small pricing-engine design to <code>Documents/designc-sample-registry</code> (and its code to <code>Documents/designc-sample-codebase</code>) and opens it. You are working on a copy, so you can change anything.</li>
 </ol>
-<p class="note">The sample is copied from the repo; changes you make are written to the folder, so work on a copy if you want to keep it clean.</p>
+<div class="tip">Start with the sample, not your own folder. The sample already has findings, a decision, a requirement and pipeline history, so every view has something to show. Setting up your own folder is section 6.</div>
+
+<h2 id="screen">3. The screen</h2>
+<p>If you have used VS Code, the layout will be familiar.</p>
+<figure><img src="guide/workbench.png" alt="The workbench with the sample open: activity bar on the far left, Explorer sidebar, the model in the editor, the C4 sheet on the right, Problems at the bottom and the status bar"><figcaption>The sample with <code>model/workspace.dsl</code> open.</figcaption></figure>
+<table>
+<tr><th>Area</th><th>Where</th><th>What it is for</th></tr>
+<tr><td>Activity bar</td><td>Far left, a column of icons</td><td>Switches the view. Hover an icon to see its name. A red number is how many things need you there.</td></tr>
+<tr><td>Sidebar</td><td>Next to the activity bar</td><td>The current view's lists and buttons, for example the files or the gate.</td></tr>
+<tr><td>Editor</td><td>Middle</td><td>The file you opened, or a full-page view such as Build.</td></tr>
+<tr><td>C4 sheet</td><td>Right</td><td>A diagram drawn from the model as you type. Orange and red dots are findings. Close it with × and get it back with View → Toggle C4 Sheet.</td></tr>
+<tr><td>Panel</td><td>Bottom</td><td>Problems (the findings), Output (what checks printed) and Terminal.</td></tr>
+<tr><td>Status bar</td><td>Bottom edge</td><td>Error and warning counts on the left. On the right: whether a model provider is set up (LLM), and the gate, here <em>Gate: 9 blocking</em>.</td></tr>
+</table>
+
+<h3>The activity bar, top to bottom</h3>
+<p>You only need the first two at first. The ones marked "later" make sense once you have a design to build.</p>
+<table>
+<tr><th>Icon</th><th>View</th><th>Use it to</th></tr>
+<tr><td>File</td><td>Explorer</td><td>Open the files in the folder.</td></tr>
+<tr><td>Boxes and lines</td><td>Design</td><td><strong>Start here.</strong> The gate: everything blocking, in the order to work on it, each line with a button for the next step. Also decisions, requirements and the Freeze button.</td></tr>
+<tr><td>Square</td><td>Canvas</td><td>Draw the design with boxes instead of typing it. It writes the same model file.</td></tr>
+<tr><td>Square</td><td>Deployment</td><td class="later">Later. Where things run, and what goes down if a node is lost.</td></tr>
+<tr><td>Nodes</td><td>Agent topology</td><td class="later">Later. Which AI agents in your design call what. Empty if your design has no agents.</td></tr>
+<tr><td>Map</td><td>Code map</td><td>Read an existing codebase and compare it with the design (step 4.5).</td></tr>
+<tr><td>List</td><td>Work</td><td class="later">Later. Work items: slices of a requirement, tracked to Done.</td></tr>
+<tr><td>Hammer</td><td>Build</td><td class="later">Later. What the coding pipeline did. The sample has made-up history.</td></tr>
+<tr><td>Branch</td><td>Source control</td><td>Git: stage, commit, pull and push the folder.</td></tr>
+<tr><td>Tick</td><td>Improve</td><td class="later">Later. Defects that got through and which stage should have caught them.</td></tr>
+<tr><td>Speech bubble (bottom)</td><td>Agent panel</td><td>Chat with an agent about the design (section 7).</td></tr>
+</table>
+
+<h2 id="walk">4. Walkthrough on the sample</h2>
+<p>About 20 minutes. Do the steps in order.</p>
+
+<h3>4.1 Read the model</h3>
+<ol class="steps">
+  <li>Click the <strong>Explorer</strong> icon, then <code>model</code> → <code>workspace.dsl</code>.</li>
+  <li>This is the design, written in Structurizr DSL: people, systems and containers, and arrows between them (<code>a -&gt; b "description"</code>). The <code>"d.…"</code> lines under <code>properties</code> are what designc checks, for example <code>"d.instances" "1"</code> (how many copies run) or <code>"d.critical" "yes"</code>.</li>
+  <li>Hover a <code>d.</code> property to see what it means. Typing <code>"d.</code> offers the full list.</li>
+</ol>
+
+<h3>4.2 Read the findings</h3>
+<ol class="steps">
+  <li>Look at the <strong>Problems</strong> panel at the bottom. Each line is a <strong>finding</strong>: a red one is an error, an orange one a warning. The code on the right (for example <code>DC002</code>) is the rule, and <code>[Ln 53]</code> the line.</li>
+  <li>Click a finding. The editor jumps to that line.</li>
+  <li>Read one in plain words. "Quotes DB: lost update: 2 containers write "Quote" and at least one has no concurrency control" means two parts of the system write the same data and nothing stops them overwriting each other.</li>
+</ol>
+<p class="note">Some warnings say <em>undeclared property</em>. designc asks for a property only where it needs one to decide. That is not an error in the file: it is a question the design has not answered yet.</p>
+
+<h3>4.3 Fix one finding by editing the model</h3>
+<ol class="steps">
+  <li>In Problems, click <em>Rating Engine: critical, but runs 1 instance</em>. The editor jumps to line 35.</li>
+  <li>Change <code>"d.instances" "1"</code> to <code>"d.instances" "2"</code>.</li>
+  <li>Press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</li>
+</ol>
+<figure><img src="guide/fix-finding.png" alt="The model with d.instances changed to 2 on line 35; Problems now shows 6 findings and the warning count in the status bar dropped from 5 to 4"><figcaption>After saving: the finding is gone, Problems shows 6 instead of 7, and the status bar shows 4 warnings instead of 5.</figcaption></figure>
+<p>That is the main loop: change the design, save, and see what designc thinks now.</p>
+
+<h3>4.4 Look at the gate</h3>
+<ol class="steps">
+  <li>Click the <strong>Design</strong> icon (second from the top).</li>
+  <li>Under <strong>Ready gate</strong> is the list of everything still blocking (the status bar shows the count). The first line is marked <code>next</code>: start there.</li>
+  <li>Each line has its own buttons. For a finding: <strong>Record decision</strong>, <strong>Accept risk</strong>, and <strong>Ask the tutor</strong> (needs an agent, section 7).</li>
+</ol>
+<div class="tip">If the gate list is squashed to one word per line, drag the sidebar's right edge to widen it.</div>
+
+<h3>4.5 Record a decision</h3>
+<p>Not every finding is fixed by editing the model. Sometimes the answer is a rule the code must follow, such as "the worker ignores a message it has already processed". You record that as a <strong>decision</strong>.</p>
+<ol class="steps">
+  <li>On a finding in the gate list, for example DC004 on Cat Model Adapter, click <strong>Record decision</strong>.</li>
+  <li>A box asks what was decided. Type one sentence and click OK.</li>
+</ol>
+<figure><img src="guide/record-decision.png" alt="A dialog over the editor asking: DC004 on Cat Model Adapter to Cat Model Vendor: retries on a non-idempotent call duplicate side effects. What was decided?"><figcaption>Record decision asks for the statement in one line. You can leave it blank and fill it in later.</figcaption></figure>
+<p>designc writes the decision to <code>decisions/&lt;name&gt;.yaml</code> and opens it:</p>
+<figure><img src="guide/decision-file.png" alt="The new decision file with status minted, binds Cat Model Adapter and Cat Model Vendor, resolves DC004, and a TODO check"><figcaption>A new decision. <code>status: minted</code> means drafted, not yet agreed. Under <code>checks</code> goes a command that proves the decision holds.</figcaption></figure>
+<ol class="steps">
+  <li>Fill in <code>rationale</code> (why) and replace the TODO under <code>checks</code> with a real command if you have one. A check is a shell command: exit code 0 means it passed.</li>
+  <li>Back in the Design view, the gate now has a line for this decision with a <strong>Bind</strong> button. Binding means "I accept this as part of the design". Only a person can bind; agents can draft but never bind.</li>
+</ol>
+<p class="note">Notice the gate went up by one when you recorded the decision. That is expected: a draft decision blocks until someone binds it and its check passes.</p>
+
+<h3>4.6 Compare the design with the code</h3>
+<ol class="steps">
+  <li>Click the <strong>Code map</strong> icon (the map), then <strong>Extract the as-built map</strong>. The sample already points at its codebase.</li>
+  <li>designc reads the code (it never changes it) and draws what is actually built.</li>
+</ol>
+<figure><img src="guide/code-map.png" alt="The code map: boxes for each built project, a legend for in the design, not in the design, and designed but not in code, and a Projects list on the right"><figcaption>The code map of the sample. Orange means built but not in the design (<em>LegacyRatesCache</em>); dotted means designed but not found in the code.</figcaption></figure>
+<p>Click a box to see the evidence: which file and line made designc draw it. The difference between the two is called <strong>drift</strong>.</p>
+
+<h3>4.7 What you cannot do on the sample</h3>
+<p><strong>Freeze</strong> (in the Design view) is refused because the gate is not ready. This is on purpose: a handover can only be made from a design with nothing blocking, and only by a person.</p>
+
+<h2 id="views">5. The other views, briefly</h2>
+<p>These show what happens after a handover. On the sample they show made-up data marked <em>sample data</em>.</p>
+<figure><img src="guide/build.png" alt="The Build view: tokens per passing task, tasks passed, runs failed and cost, then a table per element, and a needs-decision item in the sidebar"><figcaption>Build: what the coding pipeline did, per element of the design. The sidebar shows a question the pipeline is waiting on.</figcaption></figure>
+<ul>
+  <li><strong>Build</strong>: runs, cost, failures and questions from the pipeline. A question here (<em>Waiting on a decision</em>) also blocks the gate until you answer it.</li>
+  <li><strong>Work</strong>: work items. Start, run the gates, mark Done. Done needs evidence: a passing gate at a commit that is on main.</li>
+  <li><strong>Improve</strong>: escapes (defects that got through) and which stage should have caught them, so the rules get better over time.</li>
+</ul>
+
+<h2 id="own">6. Set up your own folder</h2>
+<p>Do this once the sample makes sense.</p>
+
+<h3>6.1 Create and open the folder</h3>
+<ol class="steps">
+  <li>Make an empty folder, for example <code>design/</code> inside your code repository. Beside it works too.</li>
+  <li>In designc: File → Open Design Folder… (or <strong>Open design folder</strong> on the welcome page) and choose it.</li>
+  <li>designc sees there is no <code>designc.json</code> and opens <strong>Set up this folder</strong>.</li>
+</ol>
+<figure><img src="guide/setup.png" alt="The Set up this folder page with sections What this folder is, Model, and Read-only references"><figcaption>Set up this folder. Every section can be skipped and changed later from Help → Open Settings File.</figcaption></figure>
+
+<h3>6.2 Fill in the Set up page</h3>
+<table>
+<tr><th>Section</th><th>What to choose the first time</th></tr>
+<tr><td>What this folder is</td><td><strong>Design registry</strong>. (A study notebook is for researching a topic before deciding; a domain pack is for sharing domain rules between teams.)</td></tr>
+<tr><td>Model</td><td>Keep <code>model/workspace.dsl</code> and tick <strong>Create it with a small starter model</strong>.</td></tr>
+<tr><td>Read-only references</td><td>Skip. Used to point a build at a legacy app it is replacing.</td></tr>
+<tr><td>Model provider (LLM)</td><td>Skip for now, or see 6.3. You need it only for the built-in agent and the Grill-me button.</td></tr>
+<tr><td>Langfuse</td><td>Skip. It is where a pipeline's agent runs are traced; Build reads them from there.</td></tr>
+</table>
+<p>Click <strong>Create designc.json</strong>. You now have <code>designc.json</code> and a starter model. Open the model and start describing your system; findings appear as you type.</p>
+<p>To compare with code later, add <code>"codebase": "../path-to-your-repo"</code> to <code>designc.json</code> (relative to the folder), or use Choose codebase folder on the Code map.</p>
+
+<h3>6.3 Keys: where they go</h3>
+<p>This is the part that trips people up. <code>designc.json</code> never holds a key, only the <em>name</em> of an environment variable, so the file is safe to commit. The key itself must be in the environment <strong>before designc starts</strong>, because the app reads it from its own process.</p>
+<ol class="steps">
+  <li>In a terminal, from the designc source folder, run <code>scripts/setup-wizard.sh path/to/your/folder</code>. It asks step by step, writes only variable names to <code>designc.json</code>, and saves the keys to <code>~/.config/designc/env</code>, outside every repo.</li>
+  <li>Start designc from a terminal that has loaded them:
+<pre>source ~/.config/designc/env &amp;&amp; npm start -- path/to/your/folder</pre></li>
+  <li>The status bar's LLM item should no longer say <em>not configured</em>. If it still does, the key was not in the environment when the app started.</li>
+</ol>
+<p class="note">Started from a desktop shortcut or the installer, the app does not see variables set only in a terminal. Either start it from that terminal, or set the variable for your whole session.</p>
+
+<h3>6.4 The trust question</h3>
+<p>The first time you run a check, use git or open the terminal in a folder, designc asks whether you trust it, as VS Code does. Checks are shell commands from the folder's files, so only trust a folder whose contents you know. You can trust just this folder, the repository around it, or the parent folder.</p>
+
+<h3>6.5 A first model</h3>
+<p>If you skipped the starter, this is enough to begin:</p>
+<pre>workspace "My system" {
+  model {
+    user = person "User"
+    app = softwareSystem "My app" {
+      web = container "Web" "" "React"
+      api = container "API" "" ".NET 8"
+      db  = container "Database" "" "SQL Server" { tags "Database" }
+    }
+    user -&gt; web "Uses"
+    web -&gt; api "Calls" "HTTPS"
+    api -&gt; db "Reads and writes"
+  }
+}</pre>
+<p>Save it and look at Problems and the C4 sheet. Then go to the Design view and work the gate from the top.</p>
+
+<h2 id="agents">7. Agents (optional)</h2>
+<p>The speech bubble at the bottom of the activity bar opens the agent panel.</p>
+<figure><img src="guide/agent-panel.png" alt="The agent panel on the right with a picker for the agent and the role, three starter questions and a message box"><figcaption>The agent panel. Top left picks the agent, top right the role.</figcaption></figure>
+<ul>
+  <li><strong>Which agent</strong>: <em>designc (gateway)</em> uses the model provider from section 6.3. <em>Claude Code</em> (and other ACP agents) uses that tool's own login instead, so if you already use Claude Code you can pick it with no key in designc.</li>
+  <li><strong>Role</strong>: Architect (talk about the design), Grill-me (asks you hard questions, one at a time), Tutor (explains, never writes), Analyst (for Improve).</li>
+  <li>An agent can read everything in the folder. When it wants to write, you see a card with the change and Approve or Reject. Nothing is written without that.</li>
+</ul>
 
 <h2 id="terms">Terms</h2>
 <table>
-<tr><th>Term</th><th>What it is for</th></tr>
-<tr><td>Registry</td><td>The folder that holds one design: model, decisions, requirements, scenarios, handovers and the ledger. Plain files, kept in git.</td></tr>
-<tr><td>Model</td><td>The Structurizr DSL file (<code>model/workspace.dsl</code>) with <code>d.*</code> properties that state design intent such as interaction type or code areas.</td></tr>
-<tr><td>Finding</td><td>A lint result from the design compiler. It says what looks wrong or unknown in the design.</td></tr>
-<tr><td>Decision</td><td>A recorded answer to a finding or a requirement. It moves from minted to checked to bound; only a person binds.</td></tr>
-<tr><td>Gate</td><td>The yes/no answer to "is this design ready to build?". It lists every clause still blocking.</td></tr>
-<tr><td>Handover</td><td>A frozen, never rewritten copy of the design that a pipeline builds from, including <code>elements.json</code> and a <code>BUILD.md</code> brief.</td></tr>
-<tr><td>Work item</td><td>A slice of a requirement tied to some elements. It is Done only with a passing gate at a commit on main.</td></tr>
-<tr><td>Ledger</td><td>Append-only event log shared by designc and the pipeline. It is how they talk without a server.</td></tr>
-<tr><td>Code map and drift</td><td>The as-built model extracted from code, compared with the design to show what differs.</td></tr>
-<tr><td>Escape</td><td>A defect that got through; Improve records which stage should have caught it.</td></tr>
+<tr><th>Term</th><th>Meaning</th></tr>
+<tr><td>Registry</td><td>The folder that holds one design. Plain files, kept in git.</td></tr>
+<tr><td>Model</td><td>The design file, <code>model/workspace.dsl</code>, in Structurizr DSL with <code>d.*</code> properties.</td></tr>
+<tr><td>Finding</td><td>Something the checker thinks is wrong or unknown in the design. Rule codes DC000 to DC009.</td></tr>
+<tr><td>Gate</td><td>The yes/no answer to "is this design ready to build?", with the list of what still blocks.</td></tr>
+<tr><td>Decision</td><td>A recorded answer to a finding or requirement. Minted (drafted) → checked → bound (agreed by a person).</td></tr>
+<tr><td>Check</td><td>A shell command that proves a decision holds. Exit code 0 is a pass.</td></tr>
+<tr><td>Accept risk</td><td>Keeping a finding on purpose. It must rest on a business decision someone agreed.</td></tr>
+<tr><td>Requirement</td><td>A piece of work from outside, such as a Jira ticket, mapped to the elements it touches.</td></tr>
+<tr><td>Handover</td><td>A frozen copy of a ready design that a pipeline builds from. Never rewritten.</td></tr>
+<tr><td>Code map, drift</td><td>The design read back from the code, and where the two differ.</td></tr>
+<tr><td>Ledger</td><td>Append-only log of what happened (checks, handovers, pipeline runs), in <code>ledger/*.jsonl</code>.</td></tr>
+<tr><td>Escape</td><td>A defect that got through. Improve records which stage should have caught it.</td></tr>
 </table>
 
-<h2 id="s1">Using designc</h2>
-<h3>Install and open</h3>
-<pre>npm install
-npm start                          # opens the app
-npm start -- /path/to/registry     # opens straight into a registry folder</pre>
-<p>Needs Node 20 or later. Use <em>Try the sample project</em> to explore <code>sample-registry/</code>, a small pricing-engine design with a decision, a requirement, and a sample ledger. A registry is a plain folder, so git gives you review and history.</p>
-
-<h3>The views</h3>
+<h2 id="stuck">When you are stuck</h2>
 <table>
-<tr><th>View</th><th>Use it to</th></tr>
-<tr><td>Design</td><td>Edit the Structurizr model with <code>d.*</code> properties, see live findings (DC000 to DC009), the C4 sheet, decisions, requirements, and the gate.</td></tr>
-<tr><td>Code map</td><td>Extract a .NET or JS/TS codebase into a C4 model and see drift against your design.</td></tr>
-<tr><td>Build</td><td>See pipeline runs, tokens per passing task, reruns, and items that need a decision.</td></tr>
-<tr><td>Improve</td><td>See escapes by the stage that should have caught them, and rule health.</td></tr>
-<tr><td>Deployment</td><td>Read-only view of the declared deployment; click a node to see what goes down if it is unavailable.</td></tr>
-<tr><td>Agent panel</td><td>Chat with Architect, Grill-me, Analyst or Tutor on the built-in model, any ACP agent, or an AG-UI service.</td></tr>
+<tr><th>What you see</th><th>What to do</th></tr>
+<tr><td>The welcome page and nothing else</td><td>No folder is open. Click Try the sample project.</td></tr>
+<tr><td>"LLM: not configured" in the status bar</td><td>Expected until you do 6.3. Everything except the built-in agent and Grill-me works without it.</td></tr>
+<tr><td>The gate went up after I did something</td><td>A new draft decision blocks until it is bound. Look at the new line in the gate.</td></tr>
+<tr><td>Freeze is refused</td><td>The gate is not ready, a file has unsaved changes, or a gate file is not committed. The message says which.</td></tr>
+<tr><td>A check failed with exit code 127</td><td>The shell could not find the program. Output names it.</td></tr>
+<tr><td>Extract says it found no container</td><td>Point <code>codebase</code> at the folder that holds the app, not only a library or test project.</td></tr>
+<tr><td>A finding I do not understand</td><td>Ask the tutor on it, or Help → Design Properties Reference for what each <code>d.*</code> means.</td></tr>
 </table>
-
-<h3>A first pass</h3>
-<ol>
-<li>Open your design folder (File, Open Design Folder). The status bar shows the gate: ready or not, with each blocking clause listed in the Design sidebar in working order.</li>
-<li>Work the clauses. A finding offers <em>Record decision</em> or <em>Accept risk</em>; an unbound decision offers <em>Bind</em>; a decision check offers <em>Run check</em>. Binding is always a person's action.</li>
-<li>When the gate is ready and your files are committed, <em>Freeze handover</em>. It writes <code>handovers/&lt;id&gt;/</code> with copies of the model, requirements, bound decisions, scenarios, evals, an <code>elements.json</code> and a <code>BUILD.md</code> brief. A frozen handover is never rewritten.</li>
-<li>Dispatch it: set <code>dispatch</code> in <code>designc.json</code> to your pipeline command. designc types the filled command into the integrated terminal and stops before Enter.</li>
-</ol>
-
-<h3>Settings</h3>
-<p><code>designc.json</code> in the registry holds settings, and only the <em>names</em> of environment variables for secrets. The Set up page (opened when a folder has no <code>designc.json</code>) walks through the model, LLM and Langfuse sections, each skippable, with a Test connection button.</p>
-<pre>{
-  "model": "model/workspace.dsl",
-  "codebase": "../pricing-repo",
-  "dispatch": { "pipeline": { "label": "Build it",
-    "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" } }
-}</pre>
-
-<h3>CI</h3>
-<pre>cd python &amp;&amp; python3 -m designc check &lt;registry&gt;    # exit 0 ready, 1 not ready, 2 unreadable folder</pre>
-
-<h2 id="s2">Running factory-s2</h2>
-<h3>Try it without a model</h3>
-<pre>dotnet run --project tests/Factory.Core.Tests
-dotnet run --project src/Factory.S2 -- validate --handover examples/pricing-v3/handover.json --plan examples/pricing-v3/plan.json
-dotnet run --project src/Factory.S2 -- dispatch --handover examples/pricing-v3/handover.json --plan examples/pricing-v3/plan.json</pre>
-<p><code>validate</code> and <code>dispatch</code> are deterministic: no agents, no network, no cost. <code>dispatch</code> prints the waves of tasks that can run in parallel.</p>
-
-<h3>A real run</h3>
-<p>This calls a paid model. Pick one provider setup.</p>
-<pre># an LLM gateway
-export FACTORY_GATEWAY_URL=https://&lt;gateway&gt;/v1 FACTORY_GATEWAY_KEY=&lt;key&gt;
-export FACTORY_MODEL_FRONTIER=&lt;alias&gt; FACTORY_MODEL_STANDARD=&lt;alias&gt; FACTORY_MODEL_SMALL=&lt;alias&gt;
-# or the Anthropic API
-export FACTORY_PROVIDER=anthropic ANTHROPIC_API_KEY=&lt;key&gt;
-
-dotnet run --project src/Factory.S2 -- run \
-  --handover &lt;registry&gt;/handovers/&lt;id&gt;/handover.json \
-  --repo &lt;target repo&gt; --registry &lt;registry&gt; [--base main] [--github]</pre>
-<p>The reviewer and QA must run on a different model family from the author. Start-up refuses otherwise; with one provider only, <code>FACTORY_REVIEWER_SAME_FAMILY=allow</code> allows dry-run merges and stamps the reviews as same-family. Without <code>--github</code>, pull requests are written under <code>.factory/runs/&lt;id&gt;/</code> instead of opened.</p>
-
-<h3>Useful commands</h3>
-<table>
-<tr><th>Command</th><th>What it does</th></tr>
-<tr><td><code>run --run-id &lt;id&gt;</code></td><td>Resume a run.</td></tr>
-<tr><td><code>run --repair &lt;run&gt;</code></td><td>Repair a run that ended <code>integration_failed</code>.</td></tr>
-<tr><td><code>budget --repo . --registry r</code></td><td>Check spend caps. Exit 2 when exceeded; <code>run</code> then exits 4.</td></tr>
-<tr><td><code>digest --registry r</code></td><td>What needs you, what failed, what finished.</td></tr>
-<tr><td><code>pull-plan</code>, <code>metrics</code></td><td>Read-only reports over the registry.</td></tr>
-<tr><td><code>qa --repo . --run-id &lt;id&gt;</code></td><td>Follow-up QA without an author.</td></tr>
-</table>
-<p>Every run leaves <code>.factory/runs/&lt;id&gt;/result.json</code> saying how it ended (<code>merged</code>, <code>parked</code>, <code>failed</code>, <code>integration_failed</code>, <code>refused</code>, and so on).</p>
-
-<h3>Turning the levers</h3>
-<p>These environment variables have these defaults (from <code>FactorySettings</code>):</p>
-<table>
-<tr><th>Variable</th><th>Default</th><th>Meaning</th></tr>
-<tr><td><code>FACTORY_MAX_PLANNER_ATTEMPTS</code></td><td>3</td><td>Planner retries before giving up.</td></tr>
-<tr><td><code>FACTORY_MAX_TURNS</code></td><td>8</td><td>Turns per task.</td></tr>
-<tr><td><code>FACTORY_MAX_VERIFY_ATTEMPTS</code></td><td>3</td><td>Verify attempts per task.</td></tr>
-<tr><td><code>FACTORY_COMMANDS</code></td><td>dotnet build;dotnet test;dotnet format</td><td>Commands the agent may run.</td></tr>
-<tr><td><code>FACTORY_BASE_BRANCH</code></td><td>main</td><td>Branch to merge into.</td></tr>
-<tr><td><code>FACTORY_STATE_DIR</code></td><td>&lt;repo&gt;/.factory</td><td>Where runs are kept.</td></tr>
-<tr><td><code>FACTORY_SANDBOX</code></td><td>docker</td><td>Comma-separated fallback chain (docker, local).</td></tr>
-<tr><td><code>FACTORY_MERGE_ENFORCEMENT</code></td><td>auto</td><td><code>auto</code> or <code>tiered</code>; also settable in the merge policy file.</td></tr>
-<tr><td><code>FACTORY_PLAYWRIGHT_CLI</code></td><td>on</td><td>Set to <code>0</code> to stop the implementer using the browser tool.</td></tr>
-</table>
-<p class="note">Start with tight limits and loosen them as the numbers justify it. Per-repo policy lives in <code>.factory/</code> files (integration, merge, quality, npm, UI contract); see the factory-s2 README and <code>ARCHITECTURE.md</code>.</p>
-
-<h2 id="loop">The whole loop</h2>
-<ol>
-<li>In designc, work the gate to ready and commit the registry.</li>
-<li>Freeze a handover (whole model, or one work item for a scoped slice).</li>
-<li>Dispatch it to factory-s2 with <code>run</code>.</li>
-<li>If the pipeline needs a human answer, it writes a <code>needs_decision</code> to the ledger. Open Build or the Work digest in designc and answer with a decision.</li>
-<li>When the pipeline merges, check evidence in Build. A work item is Done only with a passing gate at a commit on main; an agent's claim is never enough.</li>
-<li>Extract the code map to see drift, and use Improve to classify escapes.</li>
-</ol>
-
-<h2 id="safety">What is guarded</h2>
-<ul>
-<li>Agents cannot bind decisions, freeze handovers, or write the ledger's human-only events.</li>
-<li>Registry access is confined to the open folder; child processes do not inherit secrets.</li>
-<li>The ledger is append-only and validated on every write.</li>
-<li>Checks, git and the terminal run only in a folder you have trusted.</li>
-</ul>
-
-<h2 id="more">Where to read more</h2>
-<ul>
-<li>designc: <code>README.md</code> (user guide), <code>AGENTS.md</code> (technical reference), <code>docs/pipeline-contract.md</code>, <code>docs/handover-elements.schema.json</code>.</li>
-<li>factory-s2: <code>README.md</code>, <code>ARCHITECTURE.md</code>, <code>docs/evals/</code>.</li>
-</ul>
+<p class="note">More detail: <code>README.md</code> in the app folder covers every property and rule; <code>AGENTS.md</code> is the technical reference for people changing designc.</p>
 </main>
 </body>
 </html>
