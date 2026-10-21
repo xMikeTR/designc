@@ -841,16 +841,17 @@ const Core = (() => {
   }
   // The gate as one work item sees it : a clause counts when it touches an in-scope element.
   // Model-wide clauses (parse, registry, duplicate ids) always count. A decision clause counts when the decision
-  // binds an in-scope element; a requirement clause when it is the item's requirement; any other clause when its
+  // binds an in-scope element; a requirement clause when it is one of the item's requirements (one id or a list); any other clause when its
   // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.
   // `elements` are element names; the hierarchical label of each also matches (a needs-decision names either).
   function scopedGate(g, { model, elements = [], requirement = null, decisions = [] }) {
     const inScope = new Set(elements);
     for (const e of model.elements.values()) if (inScope.has(e.name)) inScope.add(model.label(e.id));
     const touches = names => names.some(n => inScope.has(n));
+    const wanted = [].concat(requirement);
     const clauses = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
-      if (c.kind === 'requirement') return c.requirement === requirement;
+      if (c.kind === 'requirement') return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });

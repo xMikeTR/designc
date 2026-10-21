@@ -14,6 +14,9 @@ const Work = (() => {
   const entryKey = e => { const [k] = entryKind(e); return `${k}:${String(e[k]).trim()}`; };
   const short = c => String(c).slice(0, 7);
   const list = v => (Array.isArray(v) ? v : []);
+  // The requirement ids an item names: `requirement` is one id or a list of them (one piece of work spread
+  // over several pages). Blank entries are dropped.
+  const reqs = item => [].concat(item && item.requirement != null ? item.requirement : []).map(r => String(r == null ? '' : r).trim()).filter(Boolean);
 
   // What is wrong with this work item file. Plain sentences, each saying what to change.
   function validate(item, { requirements = [], items = [] } = {}) {
@@ -21,7 +24,8 @@ const Work = (() => {
     const id = item && item.id ? item.id : '(no id)';
     if (!item || typeof item !== 'object') return ['The work item is not a mapping.'];
     if (!item.id) out.push('The work item has no id.');
-    const hasReq = item.requirement != null && item.requirement !== '';
+    const ids = reqs(item);
+    const hasReq = ids.length > 0;
     const hasTarget = item.target != null;
     if (hasReq === hasTarget) out.push(`${id}: name either a requirement (with elements) or a target, not both and not neither.`);
     if (hasTarget) {
@@ -31,12 +35,15 @@ const Work = (() => {
       }
     }
     if (hasReq) {
-      const req = requirements.find(r => r.id === item.requirement);
-      if (!req) out.push(`${id}: requirement ${item.requirement} does not exist in requirements/.`);
+      const found = ids.map(r => requirements.find(x => x.id === r));
+      ids.forEach((r, i) => { if (!found[i]) out.push(`${id}: requirement ${r} does not exist in requirements/.`); });
       if (!list(item.elements).length) out.push(`${id}: a repo item needs elements, the design elements it changes.`);
-      if (req) {
+      if (found.every(Boolean)) {
+        const named = new Set(found.flatMap(r => list(r.elements)));
+        const which = ids.length === 1 ? `requirement ${ids[0]}` : `requirements ${ids.join(', ')}`;
+        const fix = ids.length === 1 ? 'Add it to the requirement' : 'Add it to one of them';
         for (const el of list(item.elements)) {
-          if (!list(req.elements).includes(el)) out.push(`${id}: ${el} is not an element of requirement ${item.requirement}. Add it to the requirement, or take it out of this item.`);
+          if (!named.has(el)) out.push(`${id}: ${el} is not an element of ${which}. ${fix}, or take it out of this item.`);
         }
       }
     }
@@ -110,7 +117,7 @@ const Work = (() => {
   function coverage(items, requirements) {
     const out = [];
     for (const r of list(requirements)) {
-      const mine = list(items).filter(i => isRepo(i) && i.requirement === r.id);
+      const mine = list(items).filter(i => isRepo(i) && reqs(i).includes(r.id));
       if (!mine.length) continue;
       for (const el of list(r.elements)) {
         if (!mine.some(i => list(i.elements).includes(el))) out.push({ requirement: r.id, element: el, items: mine.map(i => i.id) });
@@ -278,6 +285,6 @@ const Work = (() => {
     return JSON.stringify([d.needs.map(n => [n.kind, n.id, n.item, n.ts]), d.failed.map(f => [f.item, f.kind, f.ts])]);
   }
 
-  return { KINDS, TARGETS, isRepo, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore };
+  return { KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

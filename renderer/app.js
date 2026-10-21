@@ -1026,7 +1026,7 @@ async function freezeHandover(item) {
   try { await freezeOnce(item); } finally { A.freezing = false; }
 }
 async function freezeOnce(item) {
-  const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: item.requirement, decisions: A.decisions }) : null;
+  const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: Work.reqs(item), decisions: A.decisions }) : null;
   if (item && scoped && !scoped.ready) { toast(`${item.id} is not ready: ${plural(scoped.clauses.length, 'blocking item')} touch its elements. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
@@ -1042,7 +1042,7 @@ async function freezeOnce(item) {
   const touches = names => !item || (names || []).some(n => inScope.has(n));
   const boundIds = new Set(A.decisions.filter(d => d.status === 'bound' && touches(d.binds)).map(d => d.id));
   const read = async (dir, exts) => (await host.list(dir, exts)).map(f => ({ path: f.path, text: f.text }));
-  const acKeep = a => { if (!item) return true; const el = Core.resolveElement(A.model, a.element); return a.requirement === item.requirement && !!el && touches([el.name]); };
+  const acKeep = a => { if (!item) return true; const el = Core.resolveElement(A.model, a.element); return Work.reqs(item).includes(a.requirement) && !!el && touches([el.name]); };
   const only = (files, loaded, keep) => { const ok = new Set(loaded.filter(keep).map(x => x._path)); return files.filter(f => ok.has(f.path)); };
   const decisions = [];
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
@@ -1066,9 +1066,9 @@ async function freezeOnce(item) {
     plan = Core.handoverPlan({
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
-      item: item ? { id: item.id, requirement: item.requirement, elements: item.elements || [] } : null,
+      item: item ? { id: item.id, requirement: Work.reqs(item), elements: item.elements || [] } : null,
       model: { path: A.cfg.model, text: modelText },
-      requirements: item ? only(reqs, A.requirements, r => r.id === item.requirement) : reqs,
+      requirements: item ? only(reqs, A.requirements, r => Work.reqs(item).includes(r.id)) : reqs,
       decisions,
       behaviour: await read('behaviour', ['.p']),
       vocabulary: await read('vocabulary', ['.yaml', '.yml']),
