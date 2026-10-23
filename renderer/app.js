@@ -1101,7 +1101,7 @@ async function freezeOnce(item) {
       vocabulary: await read('vocabulary', ['.yaml', '.yml']),
       evals: item ? only(evs, A.evals, e => touches([e.agent])) : evs,
       scenarios: item ? only(scs, A.scenarios, s => touches([s.artifact])) : scs,
-      specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null }),
+      specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null, consoleAllow: (A.cfg.ux && A.cfg.ux.consoleAllow) || [] }),
       acceptance: item ? only(acs, A.acceptance, acKeep) : acs,
       tokens: A.tokens != null ? { path: TOKENS, text: A.tokens } : null,
       domain: (A.packs || []).map(p => ({ key: p.key, text: p.text })),

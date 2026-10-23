@@ -50,9 +50,9 @@ test('a text size token below the minimum is a clause; other tokens are not judg
 
 test('the skeleton adds axe, keyboard, focus and breakpoint checks only for what ux declares', () => {
   const model = Core.parse(DSL);
-  const plain = Core.acceptanceSpecs({ model, criteria: [ac(undefined)] }).files[0].text;
+  const plain = Core.acceptanceSpecs({ model, criteria: [ac(undefined)] }).files[1].text;
   assert.doesNotMatch(plain, /AxeBuilder|ux:/);
-  const t = Core.acceptanceSpecs({ model, criteria: [ac({ keyboard: true, focus_order: ['title', 'save'], focus_return: 'save', breakpoints: [375] })] }).files[0].text;
+  const t = Core.acceptanceSpecs({ model, criteria: [ac({ keyboard: true, focus_order: ['title', 'save'], focus_return: 'save', breakpoints: [375] })] }).files[1].text;
   assert.match(t, /import AxeBuilder from '@axe-core\/playwright'/);
   assert.match(t, /ux: no accessibility violations/);
   assert.match(t, /ux: reachable by keyboard/);
