@@ -34,7 +34,7 @@ def state(root):
     if domains:
         pinned = domain.pins(led)
         domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
-    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains)
+    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led))
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 

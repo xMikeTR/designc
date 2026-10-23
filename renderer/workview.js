@@ -243,7 +243,7 @@ async function workNew(prefill) {
   let text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`);
   if (prefill) text = text.replace('requirement: TODO', `requirement: ${prefill.requirement}`).replace('elements: []', `elements: ${JSON.stringify(prefill.elements)}`);
   await host.write(`work/${id}.yaml`, text); A.tree = await host.tree();
-  await openFile(`work/${id}.yaml`); await loadWork(); renderAll({ keepEditor: true });
+  await openFile(`work/${id}.yaml`); await loadWork(); recompile(); renderAll({ keepEditor: true });
 }
 
 // Human only, like binding: it edits a requirement, which the gate reads.

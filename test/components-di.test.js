@@ -70,20 +70,40 @@ const JOBS = {
 };
 const RUN = 'c_jobsfunctions_runfunction';
 
-test('an interface with several registrations gives DI-candidate edges and one unresolved entry', async () => {
+test('several registrations give DI-candidate edges from the composition root and one unresolved entry per owner', async () => {
   await withRepo(JOBS, async dir => {
     const { facts } = await extract(dir);
-    const one = to => { const es = pair(facts, RUN, to); assert.equal(es.length, 1, to); return es[0]; };
-    assert.deepEqual([one('c_jobsfunctions_jobscore').label, one('c_jobsfunctions_jobscore').via], ['Uses', 'type']);
-    const local = one('c_jobsfunctions_local'), cloud = one('c_jobsfunctions_cloud');
+    const ROOT = 'c_jobsfunctions_appshell';
+    const one = (from, to) => { const es = pair(facts, from, to); assert.equal(es.length, 1, to); return es[0]; };
+    assert.deepEqual([one(RUN, 'c_jobsfunctions_jobscore').label, one(RUN, 'c_jobsfunctions_jobscore').via], ['Uses', 'type']);
+    assert.equal(pair(facts, RUN, 'c_jobsfunctions_local').length, 0, 'a consumer of the interface does not depend on its implementations');
+    assert.equal(pair(facts, RUN, 'c_jobsfunctions_clock').length, 0);
+    const local = one(ROOT, 'c_jobsfunctions_local'), cloud = one(ROOT, 'c_jobsfunctions_cloud');
     assert.deepEqual([local.label, local.via, cloud.label, cloud.via], ['Uses (DI candidate)', 'di-candidate', 'Uses (DI candidate)', 'di-candidate']);
-    const clock = one('c_jobsfunctions_clock');
+    const clock = one(ROOT, 'c_jobsfunctions_clock');
     assert.deepEqual([clock.label, clock.via], ['Uses', 'di']);
-    const un = facts.unresolved.filter(u => /IJobRunner/.test(u.what));
+    const un = facts.unresolved.filter(u => /several registrations/.test(u.what));
     assert.equal(un.length, 1);
-    assert.match(un[0].what, /2 registrations \(LocalRunner, CloudRunner\)/);
+    assert.match(un[0].what, /IJobRunner has 2 registrations \(LocalRunner, CloudRunner\)/);
     assert.equal(un[0].where, 'Jobs.Functions');
     assert.match(un[0].file, /Program\.cs$/);
+  });
+});
+
+test('a call to a service-registration extension method is one edge to the project that declares it', async () => {
+  await withRepo({
+    'Shop.Api/Shop.Api.csproj': withRefs(WEB, 'Shop.Infrastructure'),
+    'Shop.Api/Program.cs': 'builder.Services.AddInfrastructure(builder.Configuration);',
+    'Shop.Infrastructure/Shop.Infrastructure.csproj': LIB,
+    'Shop.Infrastructure/DependencyInjection.cs': `public static class DependencyInjection
+{
+    public static IServiceCollection AddInfrastructure(this IServiceCollection services, object cfg) { return services; }
+}`,
+  }, async dir => {
+    const { facts } = await extract(dir);
+    const es = pair(facts, 'c_shopapi_appshell', 'c_shopapi_shopinfrastructure');
+    assert.equal(es.length, 1);
+    assert.equal(es[0].via, 'di');
   });
 });
 
@@ -108,7 +128,7 @@ public class Startup
   });
 });
 
-test('a certain reference absorbs a DI candidate for the same pair', async () => {
+test('a certain reference from a consumer is its own edge, apart from the root\'s DI candidate', async () => {
   await withRepo({
     ...JOBS,
     'Jobs.Functions/RunFunction.cs': `public class RunFunction
@@ -123,7 +143,21 @@ test('a certain reference absorbs a DI candidate for the same pair', async () =>
     assert.equal(es.length, 1);
     assert.equal(es[0].label, 'Uses');
     assert.ok(['type', 'di'].includes(es[0].via));
-    assert.ok(es[0].evidence.length >= 2, 'evidence of both references');
-    assert.equal(pair(facts, RUN, 'c_jobsfunctions_cloud')[0].label, 'Uses (DI candidate)');
+    assert.equal(pair(facts, 'c_jobsfunctions_appshell', 'c_jobsfunctions_local')[0].label, 'Uses (DI candidate)');
+    assert.equal(pair(facts, 'c_jobsfunctions_appshell', 'c_jobsfunctions_cloud')[0].label, 'Uses (DI candidate)');
+  });
+});
+
+test('a type in a project the file\'s own project cannot reach makes no edge and is reported', async () => {
+  await withRepo({
+    'Shop.Api/Shop.Api.csproj': withRefs(WEB, 'Shop.Application', 'Shop.Infrastructure'),
+    'Shop.Application/Shop.Application.csproj': LIB,
+    'Shop.Application/OrderService.cs': 'public class OrderService { public OrderService(SqlStore store) { } }',
+    'Shop.Infrastructure/Shop.Infrastructure.csproj': withRefs(LIB, 'Shop.Application'),
+    'Shop.Infrastructure/SqlStore.cs': 'public class SqlStore { }',
+  }, async dir => {
+    const { facts } = await extract(dir);
+    assert.equal(facts.componentEdges.filter(e => e.from === 'c_shopapi_shopapplication' && e.to === 'c_shopapi_shopinfrastructure').length, 0);
+    assert.ok(facts.unresolved.some(u => /Shop\.Application refers to a type in Shop\.Infrastructure, but has no ProjectReference path/.test(u.what)));
   });
 });

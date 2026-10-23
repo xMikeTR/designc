@@ -460,28 +460,58 @@ const Core = (() => {
     { code: 'DC003', title: 'Compound availability', source: 'concept note (not yet incident-backed)',
       doc: 'A long synchronous chain is only as available as the product of every hop. Undeclared interactions count as sync.',
       fn(m, o) {
+        const rels = m.rels.filter(r => !(interaction(r) === 'async' || structural(m, r) || m.elements.get(r.src).kind === 'person'));
+        // Elements that call each other in a cycle are one strongly connected component, reported once, not once per way through it.
+        const order = [], out0 = new Map();
+        for (const r of rels) { for (const n of [r.src, r.dst]) if (!out0.has(n)) { out0.set(n, []); order.push(n); } out0.get(r.src).push(r.dst); }
+        const idx = new Map(), low = new Map(), onStack = new Set(), stack = [], comp = new Map(), members = new Map();
+        let counter = 0;
+        const strong = v => {
+          idx.set(v, counter); low.set(v, counter++); stack.push(v); onStack.add(v);
+          for (const w of out0.get(v)) {
+            if (!idx.has(w)) { strong(w); low.set(v, Math.min(low.get(v), low.get(w))); }
+            else if (onStack.has(w)) low.set(v, Math.min(low.get(v), idx.get(w)));
+          }
+          if (low.get(v) === idx.get(v)) {
+            const group = []; let w;
+            do { w = stack.pop(); onStack.delete(w); group.push(w); } while (w !== v);
+            group.sort((x, y) => order.indexOf(x) - order.indexOf(y));
+            members.set(group[0], group);
+            for (const g of group) comp.set(g, group[0]);
+          }
+        };
+        for (const n of order) if (!idx.has(n)) strong(n);
+        const out = [];
+        for (const [rep, group] of members) {
+          if (group.length < 2 || group.length < o.chainHops) continue;
+          const inside = rels.filter(r => comp.get(r.src) === rep && comp.get(r.dst) === rep);
+          out.push(D('DC003', 'warning', `${group.length} elements call each other synchronously in a cycle: ${group.map(n => m.elements.get(n).name).join(', ')}`, m.locRel(inside[0]), { hint: 'break the cycle: make a hop async, or let the dependency point one way', related: inside.slice(1).map(m.locRel) }));
+        }
         const adj = new Map(), hasIn = new Set();
-        for (const r of m.rels) {
-          if (interaction(r) === 'async' || structural(m, r) || m.elements.get(r.src).kind === 'person') continue;
-          if (!adj.has(r.src)) adj.set(r.src, []); adj.get(r.src).push(r); hasIn.add(r.dst);
+        for (const r of rels) {
+          if (comp.get(r.src) === comp.get(r.dst)) continue;
+          const s0 = comp.get(r.src), d0 = comp.get(r.dst);
+          if (!adj.has(s0)) adj.set(s0, []); adj.get(s0).push({ r, src: s0, dst: d0 }); hasIn.add(d0);
         }
         let starts = [...adj.keys()].filter(n => !hasIn.has(n)); if (!starts.length) starts = [...adj.keys()];
         const found = [];
         const dfs = (node, seen, path) => {
           if (found.length >= 200) return; let ext = false;
-          for (const r of adj.get(node) || []) { if (seen.has(r.dst)) continue; ext = true; dfs(r.dst, new Set([...seen, r.dst]), [...path, r]); }
+          for (const e of adj.get(node) || []) { if (seen.has(e.dst)) continue; ext = true; dfs(e.dst, new Set([...seen, e.dst]), [...path, e]); }
           if (!ext && path.length >= o.chainHops) found.push(path);
         };
         starts.forEach(s => dfs(s, new Set([s]), []));
-        return found.map(path => {
-          const nodes = [path[0].src, ...path.map(r => r.dst)];
-          const av = nodes.map(n => get(m.elements.get(n), 'd.availability'));
-          const assumed = path.filter(r => interaction(r) == null).length;
-          let msg = `${path.length} synchronous hops: ${nodes.map(n => m.elements.get(n).name).join(' → ')}`;
+        for (const path of found) {
+          const nodes = [path[0].src, ...path.map(e => e.dst)];
+          const label = n => (members.get(n).length > 1 ? `[cycle: ${members.get(n).map(x => m.elements.get(x).name).join(', ')}]` : m.elements.get(n).name);
+          const av = nodes.flatMap(n => members.get(n)).map(n => get(m.elements.get(n), 'd.availability'));
+          const assumed = path.filter(e => interaction(e.r) == null).length;
+          let msg = `${path.length} synchronous hops: ${nodes.map(label).join(' → ')}`;
           msg += av.every(a => a != null) ? `; end-to-end availability ≈ ${(av.reduce((a, b) => a * b, 1) * 100).toFixed(2)}%` : `; declare d.availability on ${av.filter(a => a == null).length} more element(s) to compute it`;
           if (assumed) msg += ` (${assumed} undeclared hop(s) assumed sync)`;
-          return D('DC003', 'warning', msg, m.locRel(path[0]), { hint: 'make a hop async, cache, or add a fallback', related: path.slice(1).map(m.locRel) });
-        });
+          out.push(D('DC003', 'warning', msg, m.locRel(path[0].r), { hint: 'make a hop async, cache, or add a fallback', related: path.slice(1).map(e => m.locRel(e.r)) }));
+        }
+        return out;
       } },
     { code: 'DC004', title: 'Retry duplicates side effects', source: 'concept note (not yet incident-backed)',
       doc: 'Retrying a call whose receiver is not idempotent repeats its side effects.',
@@ -608,7 +638,7 @@ const Core = (() => {
   }
 
   // ---------- gate (definition of ready) ----------
-  // decision: {id, statement, requirement, binds[], resolves[], effect:'fix'|'accept', checks[], status}
+  // decision: {id, statement, requirement, binds[], resolves[], effect:'fix'|'accept'|'build', work?, checks[], status}
   // A readable id from what a decision or proposal says, so two branches minting at once do not both
   // take "the next number". `taken` is every id already in the registry (array or Set).
   function slugId(statement, taken) {
@@ -647,7 +677,7 @@ const Core = (() => {
     return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -657,7 +687,9 @@ const Core = (() => {
     for (const e of registryErrors) clauses.push({ kind: 'registry', text: `${e.path} does not parse`, path: e.path });
     const today = new Date(now).toISOString().slice(0, 10);
     const bound = decisions.filter(d => d.status === 'bound');
-    const covers = (dec, f) => dec.effect === 'accept' && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b));
+    // A build decision acknowledges a finding the code has to answer: it covers the finding while its work item is open.
+    const building = dec => dec.effect === 'build' && dec.work != null && workStates[dec.work] != null && workStates[dec.work] !== 'done';
+    const covers = (dec, f) => (dec.effect === 'accept' || building(dec)) && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b));
     for (const f of diags) {
       if (f.suppressed || f.sev === 'note') continue;
       if (bound.some(dec => covers(dec, f))) continue;
@@ -674,7 +706,7 @@ const Core = (() => {
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
       // An accepted risk rests on its business decision, so it needs no check; a TODO placeholder is not a check.
-      if (!business && !(dec.effect === 'accept' && !(dec.checks || []).some(c => c && !/^TODO/.test(String(c))))) {
+      if (!business && !((dec.effect === 'accept' || dec.effect === 'build') && !(dec.checks || []).some(c => c && !/^TODO/.test(String(c))))) {
         if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
         const last = latestCheck(ledger, dec.id);
         if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });
@@ -692,9 +724,13 @@ const Core = (() => {
         if (!el) clauses.push({ kind: 'promotion', text: `${dec.id}: binding ${pa.name} does not resolve`, decision: dec.id });
         else if (fingerprint(model, el.id).hash !== pa.hash) clauses.push({ kind: 'promotion', text: `${dec.id}: ${el.name} changed since promotion`, decision: dec.id, element: el.name });
       }
-      if (dec.effect === 'fix') {
+      if (dec.effect === 'build') {
+        if (dec.work == null || dec.work === '') clauses.push({ kind: 'decision', text: `${dec.id} builds a fix but names no work item`, decision: dec.id });
+        else if (workStates[dec.work] == null) clauses.push({ kind: 'decision', text: `${dec.id}: work item ${dec.work} does not exist`, decision: dec.id });
+      }
+      if (dec.effect === 'fix' || (dec.effect === 'build' && dec.work != null && workStates[dec.work] === 'done')) {
         const still = diags.filter(f => !f.suppressed && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b)));
-        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${dec.resolves.join(', ')} is fixed, but the model still raises it`, decision: dec.id, line: still[0].loc.line });
+        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${(dec.resolves || []).join(', ')} is ${dec.effect === 'build' ? 'built' : 'fixed'}, but the model still raises it`, decision: dec.id, line: still[0].loc.line });
       }
     }
     for (const req of requirements) {

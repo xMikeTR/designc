@@ -108,7 +108,8 @@ const READERS = {
       elements: A.facts.elements.map(e => ({ name: e.name, kind: e.kind, tech: e.tech, inDesign: d ? d.toDesign.has('e_' + e.key) || !!designNameFor(e.name) : null })),
       dependencies: A.facts.edges.map(e => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, evidence: e.evidence.slice(0, 2).map(v => `${v.file}:${v.line}`) })),
       drift: d ? { inCodeNotDesign: d.undeclared.map(u => `${u.from} -> ${u.to}`), elementsInCodeOnly: d.unknownEls, designedNotInCode: d.unrealised.map(u => `${u.from} -> ${u.to}`), designElementsNotFound: d.missingEls } : 'no design to compare',
-      codeAreas: A.areas ? { areas: A.areas.areas.map(a => ({ element: a.name, pattern: a.pattern, files: a.matched, ...(a.hint ? { hint: a.hint } : {}) })), filesInCodebase: A.areas.files, inNoArea: A.areas.unclaimed.length, inNoAreaFirst: A.areas.unclaimed.slice(0, 50) } : 're-extract to see code areas',
+      declaredIntent: A.intent ? (A.intent.error ? `${A.intent.file}: ${A.intent.error}` : { file: A.intent.file, declared: A.intent.declared, missingFromDesign: A.intent.missing }) : 'none configured (designc.json extract.intent)',
+      codeAreas: A.areas ? { areas: A.areas.areas.map(a => ({ element: a.name, pattern: a.pattern, files: a.matched, ...(a.hint ? { hint: a.hint } : {}) })), filesInCodebase: A.areas.files, inNoArea: A.areas.unclaimed.length, inNoAreaFirst: A.areas.unclaimed.slice(0, 50), ...(A.areas.areas.length ? {} : { note: 'no areas defined, drift is container-level only' }) } : 're-extract to see code areas',
       unresolved: A.facts.unresolved.map(u => `${u.where}: ${u.what} (${u.file}:${u.line})`),
     }));
   },
