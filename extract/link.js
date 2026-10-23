@@ -79,7 +79,10 @@ function link(facts, opts = {}) {
   linkRouted('http', 'sync', 'HTTP');
   linkRouted('hub', 'realtime', 'SignalR');
 
-  // ---- queue (unchanged): exact key match only
+  // The messaging service is one external element, from the shared catalogue.
+  const serviceBus = () => { const c = require('./catalogue').SERVICE_BUS, k = keyOf(c.name); if (!elements.has(k)) elements.set(k, { name: c.name, kind: c.kind, tech: c.tech, evidence: [] }); return k; };
+
+  // ---- queue: exact key match only
   const sends = consumes.filter(c => c.kind === 'queue');
   const receives = provides.filter(p => p.kind === 'queue');
   for (const snd of sends) {
@@ -87,14 +90,15 @@ function link(facts, opts = {}) {
     const same = receives.filter(r => r.key === snd.key && r.owner === snd.owner);
     for (const r of same) internal.push({ owner: nameOf(snd.owner), kind: 'queue', key: snd.key, send: snd.evidence, receive: r.evidence });
     const rcv = receives.filter(r => r.key === snd.key && r.owner !== snd.owner);
-    if (!rcv.length && !same.length) unresolved.push({ where: nameOf(snd.owner), what: `publishes to "${snd.key}" but no consumer of it was found in this repo`, ...snd.evidence });
+    // Sending to a named queue nobody in this repo receives is still a dependency on the messaging service, which is outside it.
+    if (!rcv.length && !same.length) addEdge(snd.owner, serviceBus(), 'async', `Sends to "${snd.key}"`, 'Azure Service Bus', { ...snd.evidence, text: `send to "${snd.key}", received outside this repo (${snd.evidence.text})` }, { from: snd.evidence, to: null });
     for (const r of rcv) addEdge(snd.owner, r.owner, 'async', `Sends via "${snd.key}"`, 'Azure Service Bus',
       { ...snd.evidence, text: `send to "${snd.key}" (${snd.evidence.file}:${snd.evidence.line}), received at ${r.evidence.file}:${r.evidence.line}` },
       { from: snd.evidence, to: r.evidence });
   }
   for (const r of receives) {
     if (r.key == null) { if (r.env) unresolved.push({ where: nameOf(r.owner), what: `provides a queue whose name depends on unbound setting "${r.env}"`, ...r.evidence }); continue; }
-    if (!sends.some(s => s.key === r.key)) unresolved.push({ where: nameOf(r.owner), what: `consumes "${r.key}" but no publisher was found in this repo`, ...r.evidence });
+    if (!sends.some(s => s.key === r.key)) addEdge(serviceBus(), r.owner, 'async', `Receives from "${r.key}"`, 'Azure Service Bus', { ...r.evidence, text: `receive from "${r.key}", sent outside this repo (${r.evidence.text})` }, { from: null, to: r.evidence });
   }
 
   // ---- designc.json bindings: any env-only consume (key === null, env set), regardless of kind
@@ -102,7 +106,7 @@ function link(facts, opts = {}) {
   for (const c of envOnly) {
     const targetName = bindings[c.env];
     if (!targetName) {
-      unresolved.push({ where: nameOf(c.owner), what: `needs "${c.env}" but no binding for it was found in designc.json`, ...c.evidence });
+      unresolved.push({ where: nameOf(c.owner), what: `needs "${c.env}" but no binding for it was found in designc.json (add "extract": { "bindings": { "${c.env}": "<system name>" } })`, ...c.evidence });
       continue;
     }
     const targetKey = keyOf(targetName);

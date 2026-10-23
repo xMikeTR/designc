@@ -29,7 +29,7 @@ test('validate refuses bad env names, non-https remote URLs and model paths outs
   assert.deepEqual(fields({ langfuse: { ...LF, baseUrl: 'ftp://x' } }), ['langfuse.baseUrl']);
   assert.deepEqual(fields({ langfuse: { ...LF, secretKeyEnv: 'lf sk' } }), ['langfuse.secretKeyEnv']);
   for (const model of ['../x.dsl', '/etc/x.dsl', 'model/x.txt', 'a/../../x.dsl']) assert.deepEqual(fields({ model }), ['model'], model);
-  assert.ok(Setup.validate({ llm: { ...LLM, apiKeyEnv: 'sk-1' } })[0].msg.includes('name of an environment variable'));
+  assert.ok(Setup.validate({ llm: { ...LLM, apiKeyEnv: 'sk-1' } })[0].msg.includes('name of the environment variable'));
 });
 
 test('merge writes only the sections given, keeps every key it does not own, and drops blank fields', () => {
@@ -196,4 +196,21 @@ test('references: validate judges rows, merge sets, keeps label and removes', ()
   assert.deepEqual(out.references, { wpf: { kind: 'legacy', path: '../old2', label: 'WPF app' } });
   assert.equal(Setup.merge(cur, { references: [] }).references, undefined);
   assert.deepEqual(Setup.merge(cur, {}).references, cur.references);
+});
+
+test('envNameProblem tells a pasted key from a badly written name, and never repeats the value', () => {
+  assert.equal(Setup.envNameProblem('MY_API_KEY'), null);
+  const key = Setup.envNameProblem('sk-ant-api03-abcdef');
+  assert.match(key, /looks like a key/);
+  assert.equal(key.includes('sk-ant'), false);
+  assert.match(Setup.envNameProblem('my key'), /capital letters/);
+  const errs = Setup.validate({ llm: { baseUrl: 'https://x/v1', model: 'm', apiKeyEnv: 'sk-live-123' } });
+  assert.match(errs[0].msg, /looks like a key/);
+});
+
+test('summary names the fields that need fixing', () => {
+  assert.equal(Setup.summary([]), '');
+  const errs = [{ field: 'llm.apiKeyEnv' }, { field: 'langfuse.baseUrl' }];
+  assert.equal(Setup.summary(errs, f => ({ 'llm.apiKeyEnv': 'API key variable', 'langfuse.baseUrl': 'Langfuse: Base URL' })[f]), 'Fix 2 fields first: API key variable, Langfuse: Base URL.');
+  assert.equal(Setup.summary([{ field: 'model' }]), 'Fix 1 field first: model.');
 });

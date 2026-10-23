@@ -13,7 +13,7 @@ from .rules import fingerprint, get, hash16, interaction, num, structural
 def accept_without_check(dec):
     """An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
     Same rule as core.js and renderer/ledger.js."""
-    return dec.get('effect') == 'accept' and not any(c and not str(c).startswith('TODO') for c in (dec.get('checks') or []))
+    return dec.get('effect') in ('accept', 'build') and not any(c and not str(c).startswith('TODO') for c in (dec.get('checks') or []))
 
 def _s(v):
     """String(v) as JavaScript does it, for ids and versions read from YAML."""
@@ -238,7 +238,8 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None):
+    work_states = work_states or {}
     clauses = []
     if model.errors:
         clauses.append({'kind': 'parse', 'text': f'{len(model.errors)} model error(s) must be fixed first'})
@@ -253,8 +254,12 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     today = _dt.datetime.fromtimestamp((time.time() * 1000 if now is None else now) / 1000, _dt.timezone.utc).date().isoformat()
     bound = [d for d in decisions if d.get('status') == 'bound']
 
+    def building(dec):
+        w = dec.get('work')
+        return dec.get('effect') == 'build' and w is not None and work_states.get(w) is not None and work_states.get(w) != 'done'
+
     def covers(dec, f):
-        return dec.get('effect') == 'accept' and f['code'] in (dec.get('resolves') or []) and any(b in f['loc']['names'] for b in (dec.get('binds') or []))
+        return (dec.get('effect') == 'accept' or building(dec)) and f['code'] in (dec.get('resolves') or []) and any(b in f['loc']['names'] for b in (dec.get('binds') or []))
 
     for f in diags:
         if f['suppressed'] or f['sev'] == 'note': continue
@@ -295,9 +300,13 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
                     el = _resolve_binding(model, pa)
                     if not el: clauses.append({'kind': 'promotion', 'text': f"{dec['id']}: binding {_s(pa.get('name'))} does not resolve"})
                     elif fingerprint(model, el.id)['hash'] != pa.get('hash'): clauses.append({'kind': 'promotion', 'text': f"{dec['id']}: {el.name} changed since promotion"})
-            if dec.get('effect') == 'fix':
+            if dec.get('effect') == 'build':
+                w = dec.get('work')
+                if w is None or w == '': clauses.append({'kind': 'decision', 'text': f"{dec['id']} builds a fix but names no work item"})
+                elif work_states.get(w) is None: clauses.append({'kind': 'decision', 'text': f"{dec['id']}: work item {_s(w)} does not exist"})
+            if dec.get('effect') == 'fix' or (dec.get('effect') == 'build' and dec.get('work') is not None and work_states.get(dec.get('work')) == 'done'):
                 still = [f for f in diags if not f['suppressed'] and f['code'] in (dec.get('resolves') or []) and any(b in f['loc']['names'] for b in (dec.get('binds') or []))]
-                if still: clauses.append({'kind': 'decision', 'text': f"{dec['id']} says {', '.join(dec['resolves'])} is fixed, but the model still raises it"})
+                if still: clauses.append({'kind': 'decision', 'text': f"{dec['id']} says {', '.join(dec.get('resolves') or [])} is {'built' if dec.get('effect') == 'build' else 'fixed'}, but the model still raises it"})
         finally:
             for c in clauses[mark:]: c.setdefault('decision', dec['id'])
 

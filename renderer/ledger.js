@@ -410,7 +410,7 @@ const Ledger = (() => {
 
   // An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
   // Same rule as the gate in core.js and python/designc (gate.py, verify.py).
-  const acceptWithoutCheck = d => d.effect === 'accept' && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
+  const acceptWithoutCheck = d => (d.effect === 'accept' || d.effect === 'build') && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
   // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.

@@ -333,6 +333,8 @@ pre.yamlprev{padding:6px 8px;white-space:pre-wrap}
 .su-row{display:grid;grid-template-columns:170px minmax(0,420px);gap:2px 12px;align-items:center;margin-top:8px}
 .su-row small{grid-column:2;color:var(--fg2);font-size:12px}
 .su-row input,.su-row select{border:1px solid var(--edge);border-radius:3px;background:var(--editor);padding:4px 7px;font-family:var(--mono, monospace);font-size:12.5px;user-select:text}
+.su-row.bad small{color:var(--err)}
+.su-row.bad input,.su-row.bad select{border-color:var(--err)}
 .su-row input:focus,.su-row select:focus{outline:1px solid var(--accent)}
 .su-skip,.su-check{display:flex;align-items:center;gap:6px;font-weight:400;color:var(--fg2)}
 .su-check{margin-top:10px}

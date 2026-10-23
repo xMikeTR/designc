@@ -53,7 +53,7 @@ function setupAdcHtml() {
 function setupEnvHtml(kind) {
   if (SU.skip[kind]) return '';
   if (kind === 'llm' && Llm.provider(SU.draft.llm) === 'vertex') return setupAdcHtml();
-  return Setup.envNames({ [kind]: SU.draft[kind] }).map(n => SU.env[n]
+  return Setup.envNames({ [kind]: SU.draft[kind] }).filter(n => Setup.ENV_NAME.test(n)).map(n => SU.env[n]
     ? `<div class="su-env ok"><span class="dot pass"></span><code>${esc(n)}</code> is set</div>`
     : `<div class="su-env"><span class="dot fail"></span><code>${esc(n)}</code> is not set. Add this line to <code>~/.profile</code>, then log out and in (or restart designc from a shell that has it):<pre>${esc(Setup.exportLine(n) || '')}</pre></div>`).join('');
 }
@@ -68,13 +68,13 @@ function setupResultHtml(kind) {
 function setupProviderRow() {
   const cur = Llm.provider(SU.draft.llm) || 'openai';
   const err = SU.errors.find(e => e.field === 'llm.provider');
-  return `<label class="su-row"><span>Provider</span><select data-su="llm.provider" ${SU.skip.llm ? 'disabled' : ''}>${SU_PROVIDERS.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
+  return `<label class="su-row${err ? ' bad' : ''}"><span>Provider</span><select data-su="llm.provider" ${err ? 'aria-invalid="true"' : ''} ${SU.skip.llm ? 'disabled' : ''}>${SU_PROVIDERS.map(([v, l]) => `<option value="${v}" ${v === cur ? 'selected' : ''}>${esc(l)}</option>`).join('')}</select>
     <small>${esc(err ? err.msg : 'Where the model runs. The key never goes in designc.json.')}</small></label>`;
 }
 function setupSection(kind, title, about) {
   const errs = new Map(SU.errors.map(e => [e.field, e.msg]));
-  const rows = (kind === 'llm' ? setupProviderRow() : '') + SU_FIELDS[kind].map(([f, label, ph, help]) => `<label class="su-row"><span>${esc(label)}</span>
-    <input data-su="${kind}.${f}" value="${esc(SU.draft[kind][f])}" placeholder="${esc(ph)}" spellcheck="false" ${SU.skip[kind] ? 'disabled' : ''}>
+  const rows = (kind === 'llm' ? setupProviderRow() : '') + SU_FIELDS[kind].map(([f, label, ph, help]) => `<label class="su-row${errs.has(`${kind}.${f}`) ? ' bad' : ''}"><span>${esc(label)}</span>
+    <input data-su="${kind}.${f}" ${errs.has(`${kind}.${f}`) ? 'aria-invalid="true"' : ''} value="${esc(SU.draft[kind][f])}" placeholder="${esc(ph)}" spellcheck="false" ${SU.skip[kind] ? 'disabled' : ''}>
     <small>${esc(errs.get(`${kind}.${f}`) || help)}</small></label>`).join('');
   return `<div class="block su-sec${SU.skip[kind] ? ' skipped' : ''}"><h3>${esc(title)}<span class="spacer"></span><label class="su-skip"><input type="checkbox" data-su-skip="${kind}" ${SU.skip[kind] ? 'checked' : ''}> Skip</label></h3>
     <div class="note">${about}</div><div class="su-body">${rows}<div id="suEnv-${kind}">${setupEnvHtml(kind)}</div>
@@ -83,14 +83,14 @@ function setupSection(kind, title, about) {
 
 function setupModelHtml(modelErr) {
   return `    <div class="block su-sec"><h3>Model</h3><div class="note">The Structurizr DSL file that holds the design.</div><div class="su-body">
-      <label class="su-row"><span>Model file</span><input data-su="model" value="${esc(SU.draft.model)}" placeholder="model/workspace.dsl" spellcheck="false"><small>${esc(modelErr ? modelErr.msg : SU.modelExists ? 'This file exists.' : 'This file does not exist yet.')}</small></label>
+      <label class="su-row${modelErr ? ' bad' : ''}"><span>Model file</span><input data-su="model" ${modelErr ? 'aria-invalid="true"' : ''} value="${esc(SU.draft.model)}" placeholder="model/workspace.dsl" spellcheck="false"><small>${esc(modelErr ? modelErr.msg : SU.modelExists ? 'This file exists.' : 'This file does not exist yet.')}</small></label>
       ${SU.modelExists ? '' : `<label class="su-check"><input type="checkbox" data-su-starter ${SU.starter ? 'checked' : ''}> Create it with a small starter model</label>`}
     </div></div>`;
 }
 // Read-only references (a legacy app to read, never write): a name and a folder per row. Saved under references in designc.json.
 function setupReferencesHtml() {
   const errs = new Map(SU.errors.map(e => [e.field, e.msg]));
-  const rows = SU.draft.references.map((r, i) => `<div class="su-row"><span>Reference ${i + 1}</span>
+  const rows = SU.draft.references.map((r, i) => `<div class="su-row${errs.has(`references.${i}.key`) || errs.has(`references.${i}.path`) ? ' bad' : ''}"><span>Reference ${i + 1}</span>
     <input data-su="references.${i}.key" value="${esc(r.key)}" placeholder="wpf" spellcheck="false" aria-label="Reference ${i + 1} name">
     <input data-su="references.${i}.path" value="${esc(r.path)}" placeholder="../legacy-app" spellcheck="false" aria-label="Reference ${i + 1} folder">
     <button class="btn" data-su-refpick="${i}">Choose folder</button><button class="l" data-su-refdel="${i}">Remove</button>
@@ -115,13 +115,28 @@ function renderSetup() {
     ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
     ${setupSection('langfuse', 'Langfuse', 'Where Build reads agent runs from. designc only reads; it needs a project\'s public and secret key.')}
     <div class="su-save"><button class="btn primary" data-su-save ${SU.invalid || SU.busy ? 'disabled' : ''}>${SU.exists ? 'Save designc.json' : 'Create designc.json'}</button>
-    ${SU.errors.length ? `<span class="su-res err">Fix ${plural(SU.errors.length, 'field')} first.</span>` : ''}${SU.exists ? '<button class="l" data-su-open>Open designc.json in the editor</button>' : ''}</div></div>`;
+    ${SU.errors.length ? `<span class="su-res err" role="alert">${esc(Setup.summary(SU.errors, setupFieldLabel))}</span>` : ''}${SU.exists ? '<button class="l" data-su-open>Open designc.json in the editor</button>' : ''}</div></div>`;
+}
+
+// The label a person sees for a field id such as llm.apiKeyEnv.
+function setupFieldLabel(field) {
+  const [kind, f, g] = field.split('.');
+  if (kind === 'model') return 'Model file';
+  if (kind === 'references') return `Reference ${+f + 1} ${g === 'key' ? 'name' : 'folder'}`;
+  if (f === 'provider') return 'Model provider';
+  const row = (SU_FIELDS[kind] || []).find(r => r[0] === f);
+  return `${kind === 'llm' ? 'Model provider' : 'Langfuse'}: ${row ? row[1] : f}`;
 }
 
 async function setupSave() {
   const d = setupDraft();
   SU.errors = Setup.validate(d);
-  if (SU.errors.length || SU.invalid) return renderSetup();
+  if (SU.errors.length || SU.invalid) {
+    renderSetup();
+    const bad = document.querySelector('#special .su-row.bad input, #special .su-row.bad select');
+    if (bad) { bad.scrollIntoView({ block: 'center' }); bad.focus(); }
+    return;
+  }
   SU.busy = 'save'; renderSetup();
   try {
     const merged = Setup.merge(SU.current, d);

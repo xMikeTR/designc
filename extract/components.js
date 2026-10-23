@@ -132,9 +132,9 @@ async function build(facts, opts = {}) {
     const pairs = e.pairs || e.evidence.map(ev => ({ from: ev, to: null }));
     const routed = /^Calls \d+ endpoint\(s\)$/.test(e.label);
     for (const p of pairs) {
-      const f = isDeployable(fromKey) ? componentFor(fromKey, p.from.file) : null;
+      const f = p.from && isDeployable(fromKey) ? componentFor(fromKey, p.from.file) : null;
       const t = p.to && isDeployable(toKey) ? componentFor(toKey, p.to.file) : null;
-      const ev = [p.from, ...(p.to ? [p.to] : [])];
+      const ev = [p.from, p.to].filter(Boolean);
       const fromId = f ? idOf(f) : elementId(fromKey), toId = t ? idOf(t) : elementId(toKey);
       addOut(fromId, toId, e.kind, e.label, e.tech, 'container-edge', ev, routed ? p.call : null);
     }
