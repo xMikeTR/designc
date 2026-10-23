@@ -41,6 +41,7 @@
       "designc-mcp.js",
       "ledger-store.js",
       "git.js",
+      "testdeps.js",
       "terminal.js",
       "llm-net.js",
       "sample-codebase/**",

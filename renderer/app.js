@@ -870,6 +870,38 @@ async function newScenario() {
   const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
   await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
 }
+// Test dependencies of the generated specs: Check reads the codebase's package.json and node_modules, Install asks (a
+// native dialog names the command and the folder it changes) and runs it. Human only; the main process owns the command.
+function testDepsHtml() {
+  const D = A.testDeps;
+  const head = '<div class="l1"><span class="id">Test dependencies</span></div>';
+  if (!A.cfg.codebase) return `<div class="item">${head}<div class="l2">Generated specs need Playwright and axe-core in the project that runs them. Set codebase in designc.json to check.</div></div>`;
+  if (!D) return `<div class="item">${head}<div class="l2">Generated specs need @playwright/test and @axe-core/playwright in the codebase.</div><div class="acts"><button class="lnk" data-a="depscheck">Check codebase</button></div></div>`;
+  if (D.error) return `<div class="item">${head}<div class="l2" style="color:var(--warn)">${esc(D.error)}</div><div class="acts"><button class="lnk" data-a="depscheck">Check again</button></div></div>`;
+  const rows = D.deps.map(d => `${esc(d.name)}: ${d.declared && d.installed ? 'installed' : d.declared ? 'in package.json, not installed' : 'missing'}`).join('<br>');
+  return `<div class="item">${head}<div class="l2">${rows}</div><div class="acts">${D.missing.length ? `<button class="lnk" data-a="depsinstall" ${A.running ? 'disabled' : ''}>Install (${esc(D.command)})</button>` : ''}<button class="lnk" data-a="depscheck">Check again</button></div></div>`;
+}
+async function checkTestDeps() {
+  A.testDeps = await host.depsCheck();
+  renderSidebar();
+  return A.testDeps;
+}
+async function installTestDeps() {
+  if (A.running) return;
+  A.running = true; showPanel('output'); renderStatus();
+  A.output = '';
+  try {
+    const r = await host.depsInstall(`deps-${Date.now()}`);
+    if (r.error) toast(r.error, 'error');
+    else if (r.cancelled) toast('Nothing installed.', 'info');
+    else if (r.already) toast('Both packages are already installed.', 'info');
+    else {
+      A.testDeps = r.after || A.testDeps;
+      if (r.code === 0 && !(r.after && r.after.missing.length)) toast('Installed. Commit package.json and the lock file in the codebase.', 'info');
+      else toast(`The install did not finish (exit ${r.code}). See Output, then Check again.`, 'error');
+    }
+  } finally { A.running = false; renderStatus(); renderSidebar(); }
+}
 async function newAcceptance() {
   const ui = [...A.model.elements.values()].filter(e => e.tags.has('UI'));
   const pick = ui.length ? await askChoice('Which UI element does this criterion cover?', ui.map(e => ({ label: A.model.label(e.id), value: e.id }))) : null;
@@ -1506,6 +1538,7 @@ function designSidebar() {
   const rated = rows.some(r => r.importance || r.difficulty);
   const scn = (rated ? Core.utilityTree(rows).map(g => `<div class="hint"><b>${esc(g.attribute || 'no attribute')}</b></div>${g.scenarios.map(scnItem).join('')}`) : rows.map(scnItem)).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
   const acc = A.acceptance.map(a => `<div class="item" data-open="${esc(a._path)}"><div class="l1"><span class="id">${esc(a.id)}</span><span class="tag">${esc(a.requirement || '')}</span></div><div class="l2">${esc(a.element || '')} · ${(a.cases || []).length} case${(a.cases || []).length === 1 ? '' : 's'}</div></div>`).join('') || '<div class="hint">No acceptance criteria. A UI element needs one case per state.</div>';
+  const depsRow = testDepsHtml();
   const evr = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
   const evs = evr.map(r => {
     const dot = r.status === 'passing' ? 'pass' : r.status === 'failing' || r.status === 'invalid' ? 'fail' : '';
@@ -1529,7 +1562,7 @@ function designSidebar() {
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
-    + section('acceptance', `Acceptance (${A.acceptance.length})`, acc, `<button title="New criterion" data-a="newacc">+</button>`)
+    + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + contractsSection()
@@ -2110,6 +2143,8 @@ document.addEventListener('click', async e => {
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();
   if (a === 'newacc') return newAcceptance();
+  if (a === 'depscheck') return checkTestDeps();
+  if (a === 'depsinstall') return installTestDeps();
   if (a === 'newtokens') return createAndOpen(TOKENS, TOKENS_STARTER, 1);
   if (a === 'runfit') return runFitness();
   if (a === 'neweval') return newEval();
@@ -2218,7 +2253,7 @@ async function onFolder(info) {
   A.buffers.clear(); A.tabs = []; A.active = null; A.selected = null; A.zoom = 'fit'; A.cmSel = null; A.cmZoom = 'fit'; A.grill = { busy: false, questions: [], error: null };
   A.canvasApi = null; A.canvasLayout = null;
   A.cmLevel = 'container'; A.cmScope = null; A.asbuiltFull = null;
-  A.root = info; A.tree = await host.tree();
+  A.root = info; A.testDeps = null; A.tree = await host.tree();
   await reloadAll();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
   SU.draft = null;
