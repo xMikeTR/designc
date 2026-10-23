@@ -40,6 +40,8 @@ contextBridge.exposeInMainWorld('host', {
   workHead: rel => ipcRenderer.invoke('work:head', rel),
   workOnMain: (rel, commit) => ipcRenderer.invoke('work:onMain', rel, commit),
   workRun: (id, rel, cmd) => ipcRenderer.invoke('work:run', id, rel, cmd),
+  depsCheck: () => ipcRenderer.invoke('deps:check'),
+  depsInstall: id => ipcRenderer.invoke('deps:install', id),
   cancelCheck: id => ipcRenderer.invoke('check:cancel', id),
   chat: messages => ipcRenderer.invoke('llm:chat', messages),
   setupEnv: names => ipcRenderer.invoke('setup:env', names),
