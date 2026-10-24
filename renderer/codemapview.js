@@ -59,17 +59,25 @@ function codemapSidebar() {
       || '<div class="hint">The code matches the design.</div>';
     h += section('drift', `Drift (${d.undeclared.length + d.unknownEls.length + d.unrealised.length + d.missingEls.length + (d.uiUntagged || []).length})`, body);
   } else if (A.asbuilt) h += section('drift', 'Drift', `<div class="hint">Drift appears once ${esc(A.cfg.model)} has elements to compare against.</div>`);
+  if (A.intent) h += section('intent', `Declared intent (${A.intent.missing.length})`, intentBody());
   if (A.cdrift && cmHasComponents()) h += section('cdrift', 'Components', cmDriftBody());
   if (f) h += codeAreasSection();
   if (f && f.unresolved.length) h += section('unres', `Unresolved (${f.unresolved.length})`, `<div class="hint">Extraction saw these but could not tie them to an element, so they are not on the map.</div>` +
     f.unresolved.map(u => `<div class="item" data-code="${esc(u.file)}" data-line="${u.line}"><div class="l1"><span class="id">${esc(u.where)}</span></div><div class="l2">${esc(u.what)}</div><div class="l2" style="font-family:var(--mono);font-size:11px">${esc(u.file)}:${u.line}</div></div>`).join(''));
   return h;
 }
+// What a repo document declares it depends on (designc.json extract.intent) against the model. Display only.
+function intentBody() {
+  const i = A.intent;
+  if (i.error) return `<div class="hint">${esc(i.file)}: ${esc(i.error)}. Fix the file or the extract.intent path, then re-extract.</div>`;
+  const row = n => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px"><span class="lbl">${esc(n)}</span><span class="desc">declared, not in the design</span></div>`;
+  return `<div class="hint">${esc(i.file)} declares ${plural(i.declared, 'dependency')}; ${i.missing.length ? `${i.missing.length} not found by name or d.aka in ${esc(A.cfg.model)}.` : 'all are in the design.'}</div>` + i.missing.map(row).join('');
+}
 // d.code against the files in the codebase. Display only: not in Problems, the gate or the CLI.
 function codeAreasSection() {
   const ar = A.areas;
   if (!ar) return section('areas', 'Code areas', '<div class="hint">Re-extract to see code areas: this map was extracted before designc kept the file list.</div>');
-  if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No element declares d.code. Set it on a container or its components to say where that code lives; a coding agent confines each task to it.</div>');
+  if (!ar.areas.length) return section('areas', 'Code areas', '<div class="hint">No areas defined, so drift is container-level only: a change inside a container, or code in no area, cannot show. Set d.code on a container or its components to say where that code lives; a coding agent confines each task to it.</div>' + codeAreasButton());
   const row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
   const empty = ar.areas.filter(a => !a.matched).length, MAX = 50;
   const body = `<div class="hint">Code areas cover ${ar.files - ar.unclaimed.length} of the ${plural(ar.files, 'file')} in the codebase.</div>`

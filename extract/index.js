@@ -12,9 +12,12 @@ const dsl = require('./dsl');
 const components = require('./components');
 const code = require('./code');
 const coverage = require('./coverage');
+const intent = require('./intent');
 
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', '.idea', 'packages', 'TestResults', 'artifacts', '.venv',
   'dist', 'build', 'coverage', 'out', '.next', 'playwright-report', 'test-results', 'junit-results']);
+// Generated or vendored files that are never the system's own code: MSW's worker, minified and bundled output.
+const GENERATED_RE = /(^mockServiceWorker\.js$|\.min\.(js|mjs|cjs)$|\.bundle\.js$|\.generated\.(cs|ts|js)$)/i;
 const MAX_FILES = 20000, MAX_LISTED = 100000;
 const FILE_RE = /\.(csproj|fsproj|cs|fs|js|jsx|ts|tsx|mjs|cjs|json)$/i;
 
@@ -30,7 +33,7 @@ async function walk(dir, out, all, depth = 0) {
     if (e.isDirectory()) await walk(p, out, all, depth + 1);
     else {
       if (all.length < MAX_LISTED) all.push(p);
-      if (FILE_RE.test(e.name)) out.push(p);
+      if (FILE_RE.test(e.name) && !GENERATED_RE.test(e.name)) out.push(p);
     }
   }
   return out;
@@ -114,6 +117,7 @@ async function extract(repo, opts = {}) {
     internal,
     componentEdges: comp.componentEdges,
     code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges, ...(covStats ? { coverage: covStats } : {}) },
+    ...(opts.intent ? { intent: intent.read(repo, opts.intent) } : {}),
     files: listed.map(rel).sort(), // every file walked, what d.code areas are judged against (Core.codeAreaDrift)
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };

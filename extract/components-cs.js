@@ -136,6 +136,8 @@ const REG_PATTERNS = [
   new RegExp(`${ADD}\\s*<\\s*${ID}\\s*>\\s*\\([^;]*?\\bnew\\s+${ID}\\s*\\(`, 'g'),
 ];
 
+const EXT_DECL = /\bstatic\s+[\w<>\[\]?.]+\s+(\w+)\s*(?:<[^<>()]*>)?\s*\(\s*this\s+(?:IServiceCollection|IHostBuilder|IHostApplicationBuilder|WebApplicationBuilder|IFunctionsWorkerApplicationBuilder)\b/g;
+
 // ctx: { units, read, elements }. Returns { refs: [{ owner, from: file, to: file, via, evidence: [..] }], unresolved }
 async function edges(ctx) {
   const refs = [], unresolved = [];
@@ -152,31 +154,57 @@ async function edges(ctx) {
       texts.set(f, text); codes.set(f, blankComments(text, true));
       for (const n of analyseFile(text).decls) { if (!decls.has(n)) decls.set(n, []); decls.get(n).push(f); }
     }
+    // Layering truth is the project-reference graph: a reference to a type in a project the file's own project cannot reach is no edge.
+    const unitOf = new Map(units.map(u => [u.file, u]));
+    const reaches = (from, to) => { const a = unitOf.get(from), b = unitOf.get(to); return !a || !b || a.project === b.project || !a.reaches || a.reaches.includes(b.project); };
+    const noPath = new Set();
+    const push = r => {
+      if (reaches(r.from, r.to)) return refs.push(r);
+      const key = `${unitOf.get(r.from).project}>${unitOf.get(r.to).project}`;
+      if (noPath.has(key)) return;
+      noPath.add(key);
+      unresolved.push({ where: ctx.elements.get(owner).name, what: `${unitOf.get(r.from).project} refers to a type in ${unitOf.get(r.to).project}, but has no ProjectReference path to it; no edge was made`, ...r.evidence[0] });
+    };
     const declared = name => { const at = decls.get(name); return at && at.length === 1 ? at[0] : null; };
     const at = (f, idx) => { const line = lineAt(texts.get(f), idx); return { file: f, line, text: texts.get(f).split(/\r?\n/)[line - 1].trim().slice(0, 200) }; };
     // registrations: interface name -> distinct implementations, in source order
     const regs = new Map();
+    const regSpans = new Map(); // file -> [{start, end, impl}]: a registration's implementation is not a type reference there
     for (const f of files) for (const re of REG_PATTERNS) for (const m of codes.get(f).matchAll(re)) {
+      if (!regSpans.has(f)) regSpans.set(f, []);
+      regSpans.get(f).push({ start: m.index, end: m.index + m[0].length, impl: m[2] });
       if (!regs.has(m[1])) regs.set(m[1], []);
       if (!regs.get(m[1]).some(r => r.impl === m[2])) regs.get(m[1]).push({ impl: m[2], ev: at(f, m.index) });
     }
-    for (const [i, list] of regs) if (list.length > 1) {
-      const first = list[0].ev;
-      unresolved.push({ where: ctx.elements.get(owner).name, what: `${i} has ${list.length} registrations (${list.map(r => r.impl).join(', ')}); component edges to them are marked DI candidate`, ...first });
+    // Several registrations for one interface are a configuration choice (stub or real adapter), not a dependency of every
+    // consumer: say it once per owner.
+    const multi = [...regs].filter(([, list]) => list.length > 1);
+    if (multi.length) {
+      const first = multi[0][1][0].ev;
+      unresolved.push({ where: ctx.elements.get(owner).name, what: `${multi.length === 1 ? '1 interface has' : `${multi.length} interfaces have`} several registrations, chosen by configuration: ${multi.map(([i, list]) => `${i} has ${list.length} registrations (${list.map(r => r.impl).join(', ')})`).join('; ')}; the composition root gets DI candidate edges to them`, ...first });
+    }
+    // Service-registration extension methods (AddInfrastructure(this IServiceCollection ...)): a call is one edge to the file that declares it.
+    const exts = new Map();
+    for (const f of files) for (const m of codes.get(f).matchAll(EXT_DECL)) { if (!exts.has(m[1])) exts.set(m[1], []); exts.get(m[1]).push(f); }
+    for (const f of files) {
+      const code = codes.get(f);
+      for (const m of code.matchAll(/\.(\w+)\s*(?:<[^<>;()]*>)?\s*\(/g)) {
+        const at1 = exts.get(m[1]);
+        if (at1 && at1.length === 1 && at1[0] !== f) push({ owner, from: f, to: at1[0], via: 'di', evidence: [at(f, m.index)] });
+      }
     }
     for (const f of files) {
       const code = codes.get(f);
       for (const re of REF_PATTERNS) for (const m of code.matchAll(re)) {
-        const name = m[1], target = declared(name);
-        if (!target) continue;
-        const ev = at(f, m.index);
-        if (target !== f) refs.push({ owner, from: f, to: target, via: 'type', evidence: [ev] });
-        const list = regs.get(name) || [];
-        for (const r of list) {
-          const to = declared(r.impl);
-          if (to && to !== f) refs.push({ owner, from: f, to, via: list.length > 1 ? 'di-candidate' : 'di', evidence: [ev, r.ev] });
-        }
+        const target = declared(m[1]);
+        if ((regSpans.get(f) || []).some(r => m.index >= r.start && m.index < r.end && r.impl === m[1])) continue;
+        if (target && target !== f) push({ owner, from: f, to: target, via: 'type', evidence: [at(f, m.index)] });
       }
+    }
+    // A registration ties its interface to an implementation at the place that registers it, so the edge starts there.
+    for (const [, list] of regs) for (const r of list) {
+      const to = declared(r.impl);
+      if (to && to !== r.ev.file) push({ owner, from: r.ev.file, to, via: list.length > 1 ? 'di-candidate' : 'di', evidence: [r.ev] });
     }
   }
   return { refs, unresolved };

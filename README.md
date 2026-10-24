@@ -26,6 +26,7 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
 | **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC009) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
+| **Parity** | Does the new app match the legacy one | Scenarios replayed on both apps by the recorder (`scripts/parity-record.js`), compared on structure, interface text and the shape of data, never the data; findings per step with legacy and new screenshots side by side. A work item can require a pass with `done_when: - parity: all` (see `docs/parity-contract.md`) |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
 | **Code map** | What the code actually is (as built) | Extract a .NET, TS/JS or F# codebase into a C4 map with evidence, down to **types and methods**, overlaid on the design as drift, with code quality warnings. See [Code map](#code-map) |
@@ -287,6 +288,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `handovers/*.yaml` | Frozen handovers, written by Run > Freeze Handover |
 | `asbuilt/` | The last code-map extraction: `workspace.dsl` and `facts.json` with evidence |
 | `telemetry/` | Sample Langfuse data (sample registry only) |
+| `parity/` | Legacy parity: `scenarios/*.yaml` (role and name steps; write them or draft them from legacy Playwright tests with `scripts/parity-import.js`), `baselines/`, `reports/` and `shots/` written by the recorder. Shots are not in git |
 | `ledger/*.jsonl` | Append-only events, one JSON object per line: `checks.jsonl`, `pipeline.jsonl`, `designc.jsonl`, `agents.jsonl` hold designc envelope v1 events; `sessions.jsonl` holds harness envelope v1 records (grill-me / MAF session and charter events, adopted as-is) |
 | `study/*.yaml` | Study topics, in a study notebook only (`designc.json` `kind: study`): a question, sources, findings, your questions, PoCs, your opinion and status |
 | `designc.json` | Settings |
@@ -531,7 +533,8 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `dev/mock-acp-agent.js` | Scripted ACP agent for demos and tests |
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
-| `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score; the Work view |
+| `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score, parity done_when; the Work view |
+| `renderer/parity.js`, `renderer/parityview.js`, `recorder/` | Legacy parity: the comparison contract, the Parity view, and the recorder run outside the app |
 | `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
 | `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |
 | `renderer/app.js` | Workbench: Monaco setup, views, panels, sheet, dashboards |

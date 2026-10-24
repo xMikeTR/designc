@@ -1,0 +1,6 @@
+id: W-parity
+requirement: QT-1
+elements: [Quotes API]
+done_when:
+  - gate: npm test
+  - parity: all

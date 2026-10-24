@@ -13,6 +13,7 @@ module.exports = {
   COSMOS_DB: { name: 'Cosmos DB', kind: 'store', tech: 'Cosmos DB' },
   MONGO_DB: { name: 'MongoDB', kind: 'store', tech: 'MongoDB' },
   MYSQL: { name: 'MySQL', kind: 'store', tech: 'MySQL' },
+  SERVICE_BUS: { name: 'Azure Service Bus', kind: 'external', tech: 'Messaging' },
   ANTHROPIC: { name: 'Anthropic API', kind: 'external', tech: 'LLM API' },
   OPENAI: { name: 'OpenAI API', kind: 'external', tech: 'LLM API' },
 };

@@ -6,7 +6,7 @@
 const Work = (() => {
   const PP = typeof PathPattern !== 'undefined' ? PathPattern : require('./pathpattern.js');
   const LG = typeof Ledger !== 'undefined' ? Ledger : require('./ledger.js');
-  const KINDS = ['gate', 'checklist', 'review', 'judge'];
+  const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity'];
   const TARGETS = ['document', 'jira', 'investigation'];
 
   const isRepo = item => !item.target;
@@ -19,7 +19,8 @@ const Work = (() => {
   const reqs = item => [].concat(item && item.requirement != null ? item.requirement : []).map(r => String(r == null ? '' : r).trim()).filter(Boolean);
 
   // What is wrong with this work item file. Plain sentences, each saying what to change.
-  function validate(item, { requirements = [], items = [] } = {}) {
+  // scenarios: the ids in parity/scenarios/, when known; a parity entry naming another id is then a problem.
+  function validate(item, { requirements = [], items = [], scenarios = null } = {}) {
     const out = [];
     const id = item && item.id ? item.id : '(no id)';
     if (!item || typeof item !== 'object') return ['The work item is not a mapping.'];
@@ -61,10 +62,15 @@ const Work = (() => {
       const ks = e && typeof e === 'object' ? Object.keys(e) : [];
       const known = ks.filter(k => KINDS.includes(k));
       const unknown = ks.filter(k => !KINDS.includes(k));
-      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review or judge.`);
-      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review or judge.`);
+      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review, judge or parity.`);
+      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review, judge or parity.`);
       else if (!String(e[known[0]] == null ? '' : e[known[0]]).trim()) out.push(`${id}: done_when entry ${i + 1} (${known[0]}) is empty.`);
-      else kinds.push(known[0]);
+      else {
+        kinds.push(known[0]);
+        const v = String(e[known[0]]).trim();
+        if (known[0] === 'parity' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (parity) is allowed only on a repo item: parity is judged at the commit that finished it.`);
+        else if (known[0] === 'parity' && Array.isArray(scenarios) && v !== 'all' && !scenarios.includes(v)) out.push(`${id}: done_when entry ${i + 1} names parity scenario ${v}, which is not in parity/scenarios/.`);
+      }
     });
     if (kinds.includes('judge') && kinds.every(k => k === 'judge')) {
       out.push(`${id}: a judge cannot be the only done_when entry; add a gate, checklist or review (a judge is a gradient, not a decision).`);
@@ -153,10 +159,34 @@ const Work = (() => {
     return null;
   }
 
+  // The scenario ids a parity entry asks for: one id, or `all` for every id in parity/scenarios/.
+  const parityIds = (e, scenarios) => (String(e.parity).trim() === 'all' ? list(scenarios) : [String(e.parity).trim()]);
+  const PARITY_OUTCOMES = ['pass', 'fail', 'could_not_run'];
+
+  // Why a parity entry is not met at this commit. The latest parity_result per scenario at the commit decides
+  // and must be a pass; results recorded after the item was declared done at that commit do not count, and an
+  // outcome this version does not know is ignored. No scenarios at all is never a pass.
+  function parityProblems(item, e, { events, commit, scenarios }) {
+    const ids = parityIds(e, scenarios);
+    if (!ids.length) return ['Parity: there are no scenarios in parity/scenarios/, so parity cannot pass. Add a scenario or take the entry out.'];
+    if (!commit) return [];
+    const done = list(events).filter(x => x.kind === 'item_done' && x.item === item.id && x.commit === commit).map(x => x._ts || 0);
+    const cutoff = done.length ? Math.min(...done) : Infinity;
+    const out = [];
+    for (const id of ids) {
+      const last = list(events).filter(x => x.kind === 'parity_result' && x.scenario === id && x.commit === commit && PARITY_OUTCOMES.includes(x.outcome) && (x._ts || 0) <= cutoff)
+        .sort((a, b) => (a._ts || 0) - (b._ts || 0)).pop();
+      if (!last) out.push(`Parity ${id} has no result at ${short(commit)}. Record it with scripts/parity-record.js --side next --commit ${short(commit)} --ledger.`);
+      else if (last.outcome === 'fail') out.push(`Parity ${id} failed at ${short(commit)} (${list(last.failures).length} difference${list(last.failures).length === 1 ? '' : 's'}). Fix the new app, or cover the difference with a requirement.`);
+      else if (last.outcome === 'could_not_run') out.push(`Parity ${id} could not run at ${short(commit)}. Fix the scenario or its params and record it again.`);
+    }
+    return out;
+  }
+
   // Everything still missing before this item may be recorded done. [] means it may.
   // events: ledger events; commit: the commit being declared done (repo items); onMain: true, false or
-  // null (could not be checked); ticks: entryKey strings a person ticked.
-  function doneProblems(item, { events = [], commit = null, onMain = null, ticks = [] } = {}) {
+  // null (could not be checked); ticks: entryKey strings a person ticked; scenarios: ids in parity/scenarios/.
+  function doneProblems(item, { events = [], commit = null, onMain = null, ticks = [], scenarios = [] } = {}) {
     const out = [];
     const repo = isRepo(item);
     if (repo) {
@@ -175,6 +205,8 @@ const Work = (() => {
         if (!ok) out.push(`${e.gate} has no passing run${repo && commit ? ` at ${short(commit)}` : ''}. Run it from the Work view.`);
       } else if (k === 'checklist' || k === 'review') {
         if (!list(ticks).includes(entryKey(e))) out.push(`${k === 'review' ? 'Review by' : 'Checklist'}: ${e[k]} is not ticked.`);
+      } else if (k === 'parity' && repo) {
+        out.push(...parityProblems(item, e, { events, commit, scenarios }));
       }
     }
     return out;
@@ -202,7 +234,7 @@ const Work = (() => {
   // commit to true, false or null (could not be checked, then it is not judged); `lastLook` is epoch ms.
   // An agent's claim is never evidence: a done item whose commit is not on main, or that names no evidence,
   // is shown as failed rather than done.
-  function digest({ items = [], states = {}, events = [], onMain = {}, wip = 3, lastLook = 0 } = {}) {
+  function digest({ items = [], states = {}, events = [], onMain = {}, wip = 3, lastLook = 0, scenarios = [] } = {}) {
     const ev = list(events).slice().sort((a, b) => (a._ts || 0) - (b._ts || 0));
     const after = (kinds, item, ts) => ev.some(e => kinds.includes(e.kind) && e.item === item && (e._ts || 0) > ts);
     const c7 = c => String(c || '').slice(0, 7);
@@ -229,6 +261,14 @@ const Work = (() => {
           if (!d || d.gate === undefined) continue;
           const last = ev.filter(e => e.kind === 'item_gate' && e.item === it.id && e.gate === d.gate).pop();
           if (last && last.outcome === 'fail') failed.push({ item: it.id, kind: 'gate', text: `${it.id}: gate "${d.gate}" failed${last.commit ? ` at ${c7(last.commit)}` : ''}`, ts: last._ts || 0 });
+        }
+        // The latest parity result per scenario the item asks for, at any commit: a fail stands until a later result.
+        for (const d of list(it.done_when)) {
+          if (!d || d.parity === undefined) continue;
+          for (const sc of parityIds(d, scenarios)) {
+            const last = ev.filter(e => e.kind === 'parity_result' && e.scenario === sc && PARITY_OUTCOMES.includes(e.outcome)).pop();
+            if (last && last.outcome === 'fail') failed.push({ item: it.id, kind: 'parity', text: `${it.id}: parity ${sc} failed${last.commit ? ` at ${c7(last.commit)}` : ''}`, ts: last._ts || 0 });
+          }
         }
       }
       if (st === 'done') {
@@ -285,6 +325,6 @@ const Work = (() => {
     return JSON.stringify([d.needs.map(n => [n.kind, n.id, n.item, n.ts]), d.failed.map(f => [f.item, f.kind, f.ts])]);
   }
 
-  return { KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore };
+  return { KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

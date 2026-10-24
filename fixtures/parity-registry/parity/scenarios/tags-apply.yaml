@@ -1,0 +1,12 @@
+id: tags-apply
+title: Bulk apply opens the apply dialog
+screen: tags
+steps:
+  - goto: { path: /tags }
+  - fill: { role: textbox, name: Program, value: { param: program } }
+  - click: { role: button, name: Bulk apply }
+params:
+  legacy: { program: "54027" }
+  next: { program: "54027" }
+masks:
+  - { column: Inception, mode: ignore }

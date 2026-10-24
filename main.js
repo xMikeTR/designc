@@ -12,6 +12,7 @@ const http = require('http');
 const crypto = require('crypto');
 const ledgerStore = require('./ledger-store');
 const git = require('./git');
+const testdeps = require('./testdeps');
 const Setup = require('./renderer/setup.js');
 const Llm = require('./renderer/llm.js');
 const LlmNet = require('./llm-net.js');
@@ -176,6 +177,12 @@ handle('app:guide', () => openGuide());
 handle('fs:tree', async () => (root ? tree(root) : []));
 handle('fs:read', async rel => fsp.readFile(inside(rel), 'utf8'));
 handle('fs:exists', async rel => { try { await fsp.access(inside(rel)); return true; } catch { return false; } });
+// Parity gallery: one screenshot by its sha256, read-only. Only a 64-hex name under parity/shots/ is accepted, so the
+// renderer cannot name any other file; a missing shot (not recorded on this machine) is null.
+handle('parity:shot', async sha => {
+  if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) return null;
+  try { return `data:image/png;base64,${(await fsp.readFile(inside(`parity/shots/${sha}.png`))).toString('base64')}`; } catch { return null; }
+});
 // Deleting is a person's action from the Explorer; no agent tool reaches it. The ledger is append-only and handovers are frozen.
 handle('fs:remove', async rel => {
   const abs = inside(rel), r = toRel(abs);
@@ -498,6 +505,27 @@ handle('work:run', async (runId, rel, cmd) => {
     message: 'A work item gate is a shell command written in this registry, run in the work item\'s repo.',
     detail: `Only trust ${root} if you trust whoever can edit its work items.\n\nRuns in ${dir}:\n${cmd}` })) return { code: null, cancelled: true };
   return runShell(runId, cmd, dir);
+});
+
+// Test dependencies for the generated acceptance specs (testdeps.js). Reading is free; installing changes package.json
+// and node_modules in the codebase, so it is the one codebase write designc makes: only after the person confirms the
+// exact command, in a trusted folder, with a command built here from a fixed package list. No agent tool reaches it.
+handle('deps:check', async () => {
+  try { return testdeps.check(workRepo(null)); } catch (e) { return { error: e.message }; }
+});
+handle('deps:install', async runId => {
+  let dir; try { dir = workRepo(null); } catch (e) { return { error: e.message }; }
+  const st = testdeps.check(dir);
+  if (st.error) return { error: st.error };
+  if (!st.command) return { ok: true, already: true };
+  const r = await dialog.showMessageBox(win, { type: 'question', buttons: ['Install', 'Cancel'], defaultId: 1, cancelId: 1, title: 'Install test dependencies?',
+    message: 'The generated acceptance specs need packages this project does not have.',
+    detail: `This changes package.json and node_modules in ${dir}.\n\nCommand:\n${st.command}` });
+  if (r.response !== 0) return { cancelled: true };
+  if (!await ensureTrusted({ button: 'Trust folder and install', title: 'Run an install in this folder?',
+    message: 'Installing runs the package manager, which can run scripts from the packages.', detail: `Only trust ${root} if you trust this project.\n\n${st.command}` })) return { cancelled: true };
+  const res = await runShell(runId, st.command, dir);
+  return { ...res, after: testdeps.check(dir) };
 });
 
 // Integrated terminal. Human only: no agent tool, ACP request or MCP call reaches it. Same folder trust as checks and git.

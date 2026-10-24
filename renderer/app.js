@@ -399,10 +399,11 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), domains: domainsInput() });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
+  A.intent = A.facts ? Core.intentDrift(A.model, A.facts.intent) : null;
   setMarkers();
 }
 async function reloadAll() {
@@ -418,7 +419,7 @@ async function loadTelemetry() {
   if (r.error) { A.tel = { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: r, loading: false }; }
   else A.tel = { runs: r.runs, tasks: r.tasks || { spans: [], empty: 0 }, meta: r.meta, error: null, loading: false };
   renderStatus(); renderSheet(); renderBadges();
-  if (['special:build', 'special:improve', 'special:review'].includes(A.active)) renderSpecial();
+  if (['special:build', 'special:improve', 'special:review', 'special:parity'].includes(A.active)) renderSpecial();
   if (A.activity === 'build' || A.activity === 'improve') renderSidebar();
 }
 setInterval(() => { if (A.root && A.tel.meta && A.tel.meta.source === 'langfuse' && document.visibilityState === 'visible') loadTelemetry(); }, 5 * 60 * 1000);
@@ -670,7 +671,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('domain') || any('behaviour')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -680,7 +681,7 @@ async function onDiskChanged(paths) {
 async function createAndOpen(path, text, selectLine) { await host.write(path, text); A.tree = await host.tree(); await openFile(path, selectLine); await loadRegistry(); recompile(); renderAll({ keepEditor: true }); }
 const yamlList = a => `[${(a || []).map(x => /[:,\[\]{}#&*!|>'"%@`]/.test(x) ? JSON.stringify(x) : x).join(', ')}]`;
 const yamlStr = s => JSON.stringify(String(s || ''));
-async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], informed_by = [], open = true, idFrom } = {}) {
+async function recordDecision({ finding, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], informed_by = [], open = true, idFrom, work } = {}) {
   if (!A.root) return;
   const id = Core.slugId(idFrom || statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
   if (finding) { binds = binds || finding.loc.names.slice(0, finding.loc.kind === 'element' ? 1 : 2); resolves = resolves || [finding.code]; }
@@ -689,12 +690,12 @@ async function recordDecision({ finding, statement = '', effect = 'fix', binds, 
   const text = `id: ${id}
 status: minted          # minted | checked | bound | superseded
 kind: ${business ? 'business' : 'technical'}          # business | technical
-effect: ${effect}             # fix (the model changes) | accept (keep the risk)
-${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
+effect: ${effect}             # fix (the model changes) | accept (keep the risk) | build (the code changes, tracked by the work item)
+${work ? `work: ${work}\n` : ''}${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
 binds: ${yamlList(binds || [])}
 resolves: ${yamlList(resolves || [])}
 statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
-${!checks.length && (business || effect === 'accept') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : 'an accepted risk rests on its business decision'}` : `checks:
+${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
 ${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
 rationale: ${rationale ? yamlStr(rationale) : '""'}
 ${informed_by.length ? `informed_by: ${JSON.stringify(informed_by)}          # study topics behind this decision; shown, never a gate input\n` : ''}assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
@@ -762,6 +763,11 @@ async function decisionForFinding(f) {
 // What the decision answering a finding is waiting for, in Problems.
 function decisionNote(d) {
   if (d.effect === 'accept') return d.status === 'bound' ? `Accepted by ${d.id}` : `Accept decision ${d.id} is ${d.status || 'minted'}: bind it`;
+  if (d.effect === 'build') {
+    if (d.status !== 'bound') return `Build decision ${d.id} is ${d.status || 'minted'}: bind it`;
+    const st = Work.states(A.work || [], A.ledger || [])[d.work];
+    return st == null ? `Build decision ${d.id}: work item ${d.work || '(none)'} is missing` : st === 'done' ? `Build decision ${d.id}: ${d.work} is done, the model still raises it` : `Building in ${d.work} (${st}) by ${d.id}`;
+  }
   return `Fix decision ${d.id} (${d.status || 'minted'}): goes when the model changes`;
 }
 // Writes a technical accept decision that relies on a business decision, drafting that one if asked. Nothing is
@@ -778,6 +784,27 @@ async function acceptRisk(f) {
   const b = pick ? null : await recordDecision({ kind: 'business', effect: 'accept', statement: why.trim(), binds: [], resolves: [], rationale, open: false });
   const t = await recordDecision({ finding: f, effect: 'accept', statement: why.trim(), relies_on: [pick || b.id], rationale, idFrom: `accept ${f.code} ${(f.loc.names || [])[0] || ''}`, open: !b });
   if (b) { await openFile(b.path); renderAll({ keepEditor: true }); toast(`Drafted ${b.id} and ${t.id}. Add evidence to ${b.id}, then bind both.`); }
+}
+// Human only. Acknowledges a finding the code has to answer: a decision with effect build, linked to a work item. The
+// decision still has to be bound, and it stops covering the finding once the item is done (a claim is not evidence).
+async function buildIt(f) {
+  if (!f) return;
+  const open = (A.work || []).filter(i => Work.states([i], A.ledger || [])[i.id] !== 'done');
+  const pick = await askChoice(`${f.code} on ${f.loc.label} needs a code change. Which work item builds it?`,
+    [...open.map(i => ({ value: i.id, label: `${i.id}: ${trunc(String(i.title || ''), 60)}` })), { value: '', label: 'New work item', primary: !open.length }]);
+  if (pick == null) return;
+  let id = pick;
+  if (!id) {
+    const title = await askText('What is this work? (a short title)', `Fix ${f.code} on ${f.loc.label}`); if (title == null) return;
+    id = Core.slugId(`W ${title}`.trim(), new Set((A.work || []).map(i => i.id)));
+    const els = (f.loc.names || []).slice(0, 1);
+    const text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`).replace('elements: []', `elements: ${JSON.stringify(els)}`);
+    await host.write(`work/${id}.yaml`, text); A.tree = await host.tree(); await loadWork();
+  }
+  const r = await recordDecision({ finding: f, effect: 'build', work: id, statement: `Build the change for ${f.code} on ${f.loc.label} in ${id}`,
+    rationale: `Acknowledges ${f.code} on ${f.loc.label}: ${f.msg}`, idFrom: `build ${f.code} ${(f.loc.names || [])[0] || ''}`, open: false });
+  await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+  toast(`Recorded ${r.id}, linked to ${id}. Bind it to stop the finding blocking while the work is open; finish ${id} with its requirement and gate.`);
 }
 // A proposal made by mistake can go while nobody has acted on it; a bound, rejected or superseded one stays as the record.
 const propDeletable = p => !!p._path && ['minted', 'checked', undefined].includes(p.status);
@@ -842,6 +869,38 @@ async function newScenario() {
   const id = (await askText('Scenario id', 'QAS-')) || ''; if (!id.trim() || id.trim() === 'QAS-') return;
   const text = `id: ${id.trim()}\ntitle: TODO\nattribute: availability   # availability, latency, ...\nartifact: TODO          # an element name in the model\nstimulus: TODO\nresponse: TODO\nmeasure: { metric: availability, op: ">=", value: 99.9, unit: "%" }\nimportance: medium       # high, medium or low: how much the business cares\ndifficulty: medium       # high, medium or low: how hard it is to achieve\nrequirement: ""\nfitness: []             # shell commands; a pass or fail is recorded in the ledger\n`;
   await createAndOpen(`scenarios/${id.trim()}.yaml`, text, 3);
+}
+// Test dependencies of the generated specs: Check reads the codebase's package.json and node_modules, Install asks (a
+// native dialog names the command and the folder it changes) and runs it. Human only; the main process owns the command.
+function testDepsHtml() {
+  const D = A.testDeps;
+  const head = '<div class="l1"><span class="id">Test dependencies</span></div>';
+  if (!A.cfg.codebase) return `<div class="item">${head}<div class="l2">Generated specs need Playwright and axe-core in the project that runs them. Set codebase in designc.json to check.</div></div>`;
+  if (!D) return `<div class="item">${head}<div class="l2">Generated specs need @playwright/test and @axe-core/playwright in the codebase.</div><div class="acts"><button class="lnk" data-a="depscheck">Check codebase</button></div></div>`;
+  if (D.error) return `<div class="item">${head}<div class="l2" style="color:var(--warn)">${esc(D.error)}</div><div class="acts"><button class="lnk" data-a="depscheck">Check again</button></div></div>`;
+  const rows = D.deps.map(d => `${esc(d.name)}: ${d.declared && d.installed ? 'installed' : d.declared ? 'in package.json, not installed' : 'missing'}`).join('<br>');
+  return `<div class="item">${head}<div class="l2">${rows}</div><div class="acts">${D.missing.length ? `<button class="lnk" data-a="depsinstall" ${A.running ? 'disabled' : ''}>Install (${esc(D.command)})</button>` : ''}<button class="lnk" data-a="depscheck">Check again</button></div></div>`;
+}
+async function checkTestDeps() {
+  A.testDeps = await host.depsCheck();
+  renderSidebar();
+  return A.testDeps;
+}
+async function installTestDeps() {
+  if (A.running) return;
+  A.running = true; showPanel('output'); renderStatus();
+  A.output = '';
+  try {
+    const r = await host.depsInstall(`deps-${Date.now()}`);
+    if (r.error) toast(r.error, 'error');
+    else if (r.cancelled) toast('Nothing installed.', 'info');
+    else if (r.already) toast('Both packages are already installed.', 'info');
+    else {
+      A.testDeps = r.after || A.testDeps;
+      if (r.code === 0 && !(r.after && r.after.missing.length)) toast('Installed. Commit package.json and the lock file in the codebase.', 'info');
+      else toast(`The install did not finish (exit ${r.code}). See Output, then Check again.`, 'error');
+    }
+  } finally { A.running = false; renderStatus(); renderSidebar(); }
 }
 async function newAcceptance() {
   const ui = [...A.model.elements.values()].filter(e => e.tags.has('UI'));
@@ -1074,7 +1133,7 @@ async function freezeOnce(item) {
       vocabulary: await read('vocabulary', ['.yaml', '.yml']),
       evals: item ? only(evs, A.evals, e => touches([e.agent])) : evs,
       scenarios: item ? only(scs, A.scenarios, s => touches([s.artifact])) : scs,
-      specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null }),
+      specs: Core.acceptanceSpecs({ model: A.model, criteria: A.acceptance.filter(acKeep), inScope: item ? item.elements || [] : null, consoleAllow: (A.cfg.ux && A.cfg.ux.consoleAllow) || [] }),
       acceptance: item ? only(acs, A.acceptance, acKeep) : acs,
       tokens: A.tokens != null ? { path: TOKENS, text: A.tokens } : null,
       domain: (A.packs || []).map(p => ({ key: p.key, text: p.text })),
@@ -1217,6 +1276,7 @@ function setActivity(a) {
   if (a === 'topology' && A.sidebarOpen && A.root) openSpecial('special:topology');
   if (a === 'work' && A.sidebarOpen && A.root) openSpecial('special:work');
   if (a === 'study' && A.sidebarOpen && A.root) openSpecial('special:study');
+  if (a === 'parity' && A.sidebarOpen && A.root) openSpecial('special:parity');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -1240,17 +1300,17 @@ function renderBadges() {
   const wd = typeof WK !== 'undefined' && WK.digest ? WK.digest.needs.length + WK.digest.failed.length : 0;
   const b6 = $('#badge-work'); b6.textContent = wd || ''; b6.className = 'badge' + (wd ? ' on bad' : '');
 }
-function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id === 'special:parity' ? 'Parity' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : id === 'special:parity' ? 'PY' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
   const on = $('#tabs .tab.active'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:parity': 'Parity (new app against legacy)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1281,7 +1341,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study' };
+  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study', parity: 'Parity' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open design folder</button><button class="btn block" data-a="sample">Try the sample project</button><button class="btn block" data-a="tour">Take the tour</button>`; return; }
@@ -1294,6 +1354,7 @@ function renderSidebar() {
   else if (A.activity === 'topology') body.innerHTML = topologySidebar();
   else if (A.activity === 'work') body.innerHTML = workSidebar();
   else if (A.activity === 'study') body.innerHTML = studySidebar();
+  else if (A.activity === 'parity') body.innerHTML = paritySidebar();
   else body.innerHTML = improveSidebar();
   if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
   if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
@@ -1330,7 +1391,7 @@ function clauseHelp(c) {
 function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S+) is not allowed/.exec(c.text); return m ? m[1] : null; }
 function clauseActions(c) {
   const b = (attr, v, label, title) => `<button class="lnk" ${attr}="${esc(String(v))}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
-  if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') : '') + b('data-askfi', fi, 'Ask the tutor'); }
+  if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') + b('data-bldfi', fi, 'Build it') : '') + b('data-askfi', fi, 'Ask the tutor'); }
   if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
   if (c.kind === 'domain' && c.pack && /not pinned|changed in its registry|edited after/.test(c.text)) return b('data-pin', c.pack, /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the pack from its registry into domain/ and records that you accepted it');
   if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
@@ -1479,6 +1540,7 @@ function designSidebar() {
   const rated = rows.some(r => r.importance || r.difficulty);
   const scn = (rated ? Core.utilityTree(rows).map(g => `<div class="hint"><b>${esc(g.attribute || 'no attribute')}</b></div>${g.scenarios.map(scnItem).join('')}`) : rows.map(scnItem)).join('') || '<div class="hint">No scenarios yet. A scenario states a stimulus, the artifact it hits, the response and a measure.</div>';
   const acc = A.acceptance.map(a => `<div class="item" data-open="${esc(a._path)}"><div class="l1"><span class="id">${esc(a.id)}</span><span class="tag">${esc(a.requirement || '')}</span></div><div class="l2">${esc(a.element || '')} · ${(a.cases || []).length} case${(a.cases || []).length === 1 ? '' : 's'}</div></div>`).join('') || '<div class="hint">No acceptance criteria. A UI element needs one case per state.</div>';
+  const depsRow = testDepsHtml();
   const evr = Core.evalReport({ model: A.model, evals: A.evals, ledger: A.ledger });
   const evs = evr.map(r => {
     const dot = r.status === 'passing' ? 'pass' : r.status === 'failing' || r.status === 'invalid' ? 'fail' : '';
@@ -1502,7 +1564,7 @@ function designSidebar() {
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
-    + section('acceptance', `Acceptance (${A.acceptance.length})`, acc, `<button title="New criterion" data-a="newacc">+</button>`)
+    + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + contractsSection()
@@ -1592,7 +1654,7 @@ function renderPanel() {
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
     rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
-      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
+      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
 
@@ -1795,7 +1857,7 @@ function renderSheet() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:parity') return renderParity(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -2003,6 +2065,7 @@ document.addEventListener('click', async e => {
   if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
   if (d.fixfi) { e.stopPropagation(); return decisionForFinding(A.diags[+d.fixfi]); }
   if (d.accfi) { e.stopPropagation(); return acceptRisk(A.diags[+d.accfi]); }
+  if (d.bldfi) { e.stopPropagation(); return buildIt(A.diags[+d.bldfi]); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
   if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
@@ -2082,6 +2145,8 @@ document.addEventListener('click', async e => {
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();
   if (a === 'newacc') return newAcceptance();
+  if (a === 'depscheck') return checkTestDeps();
+  if (a === 'depsinstall') return installTestDeps();
   if (a === 'newtokens') return createAndOpen(TOKENS, TOKENS_STARTER, 1);
   if (a === 'runfit') return runFitness();
   if (a === 'neweval') return newEval();
@@ -2190,7 +2255,7 @@ async function onFolder(info) {
   A.buffers.clear(); A.tabs = []; A.active = null; A.selected = null; A.zoom = 'fit'; A.cmSel = null; A.cmZoom = 'fit'; A.grill = { busy: false, questions: [], error: null };
   A.canvasApi = null; A.canvasLayout = null;
   A.cmLevel = 'container'; A.cmScope = null; A.asbuiltFull = null;
-  A.root = info; A.tree = await host.tree();
+  A.root = info; A.testDeps = null; A.tree = await host.tree();
   await reloadAll();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
   SU.draft = null;

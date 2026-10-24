@@ -195,7 +195,8 @@ async function scan(ctx) {
 
   // ---- scan sources
   const hits = [];
-  for (const p of projects) for (const f of p.sources) {
+  // Test projects are never a source of edges: a test that mentions AddJwtBearer is not a deployable talking to Entra ID.
+  for (const p of projects) for (const f of p.kind === 'test' ? [] : p.sources) {
     const lines = (await read(f)).split(/\r?\n/);
     lines.forEach((text, i) => hits.push({ p, file: rel(f), line: i + 1, text, ctx: lines.slice(i, i + 4).join(' ') }));
   }
@@ -220,7 +221,8 @@ async function scan(ctx) {
     if (p.kind === 'test') continue;
     const owners = (p.kind === 'library' ? ownersOf(p) : [p]).map(d => keyOf(d.name));
     if (!owners.length) continue;
-    for (const f of p.sources) units.push({ file: rel(f), owners, project: p.name, projectKind: p.kind, root: rel(p.dir), lang: p.lang });
+    const reaches = closure(p).map(q => q.name); // the project-reference graph, which layering is judged against
+    for (const f of p.sources) units.push({ file: rel(f), owners, project: p.name, projectKind: p.kind, root: rel(p.dir), lang: p.lang, reaches });
   }
   const setting = (d, key) => { for (const q of closure(d)) { const v = q.settings[key.toLowerCase()]; if (v != null) return v; } return undefined; };
 
@@ -395,6 +397,7 @@ async function scan(ctx) {
   // PackageReference triggers: the package alone says the project talks to that system.
   const CS_CATALOGUE_PACKAGES = [
     { re: /^NewRelic\.Agent/i, cat: 'NEW_RELIC', label: 'Sends telemetry to', name: 'NewRelic.Agent' },
+    { re: /^Snowflake\.Data$/i, cat: 'SNOWFLAKE', label: 'Reads and writes', kind: 'data' },
     { re: /^Anthropic(\.SDK|\.Sdk)?$/i, cat: 'ANTHROPIC', label: 'Calls' },
     { re: /^(OpenAI|Azure\.AI\.OpenAI|Betalgo\.OpenAI)$/i, cat: 'OPENAI', label: 'Calls' },
   ];
@@ -406,7 +409,7 @@ async function scan(ctx) {
       const entry = catalogue[trig.cat];
       const evidence = { file: rel(p.file), line: 1, text: `PackageReference: ${pkg}` };
       const el = add(entry.name, entry.kind, entry.tech); el.evidence.push(evidence);
-      for (const d of owners) addEdge(keyOf(d.name), keyOf(entry.name), 'sync', trig.label, entry.tech, evidence);
+      for (const d of owners) addEdge(keyOf(d.name), keyOf(entry.name), trig.kind || 'sync', trig.label, entry.tech, evidence);
     }
   }
 

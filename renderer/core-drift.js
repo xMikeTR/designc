@@ -95,6 +95,18 @@
     return { areas, unclaimed, files: files.length };
   }
 
+  // Declared intent (facts.intent: the depends_on list a repo document declares, see extract/intent.js) against the model.
+  // An entry is present when its normalised name is an element's name or d.aka; no fuzzy matching, so an alias is the fix.
+  // Display only, like codeAreaDrift: the document is the codebase's, not a gate input. null when none is configured.
+  function intentDrift(model, intent) {
+    if (!intent) return null;
+    if (intent.error) return { file: intent.file, error: intent.error, declared: 0, missing: [] };
+    const have = new Set();
+    for (const e of model.elements.values()) [e.name, ...(get(e, 'd.aka') || [])].forEach(n => have.add(key(n)));
+    const declared = [...new Set(intent.depends_on || [])];
+    return { file: intent.file, declared: declared.length, missing: declared.filter(n => !have.has(key(n))) };
+  }
+
   function driftComponents(design, built) {
     const cmap = driftModels(Core.atLevel(design, 'container'), Core.atLevel(built, 'container'));
     const kids = (m, id) => [...m.elements.values()].filter(e => e.kind === 'component' && e.parent === id);
@@ -140,5 +152,5 @@
     return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, neutral, scored, adoptable };
   }
 
-  Object.assign(Core, { drift, driftModels, driftComponents, codeAreaDrift, resolveElement });
+  Object.assign(Core, { drift, driftModels, driftComponents, codeAreaDrift, intentDrift, resolveElement });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

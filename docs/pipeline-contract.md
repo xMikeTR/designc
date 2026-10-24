@@ -49,6 +49,8 @@ A work item names the elements it changes (`in_scope`). A pipeline works only th
 
 `item_budget {item, status, limit_tokens?, spent_tokens?, reason?}` reports an item's token budget; `status` is `within`, `exceeded` or `waiting`, and anything other than `within` needs both numbers (whole numbers, at least 0). The latest row per item wins. `exceeded` and `waiting` show under Waiting as "budget" until a `within` row or a later `item_pulled`; they never enter Needs you or Failed, so write `item_awaiting_human` as well when a person must act. designc never sets or enforces the limit.
 
+`parity_result {scenario, commit, outcome, failures, item?, report?}` reports one legacy parity scenario compared at a commit. Write it with `scripts/parity-record.js --side next --ledger` rather than by hand: the CLI builds the row with `Parity.resultEvent` and appends it through the one append path. `outcome` is `pass`, `fail` or `could_not_run` (not a failure, and not a pass); `failures` holds at most 50 `{step, key, kind, msg}` and at least one on a fail; `report` is the registry-relative report with the rest. The latest row per scenario at an item's done commit decides a `parity` done_when entry. See `docs/parity-contract.md`.
+
 `item_judge {item, judge, score, threshold, outcome, commit, judge_version?, rubric_hash?, trace_id?}` reports one judge score for an item. `judge` is the value of the item's `judge` done_when entry, `outcome` is `pass` or `fail`, and `commit` is a string or null. designc shows the latest score on that entry and marks it stale when `commit` differs from the commit the item was declared done at. A judge is a gradient: a fail never enters Failed and never decides Done.
 
 ## Item handover

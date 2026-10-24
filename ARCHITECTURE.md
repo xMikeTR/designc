@@ -4,7 +4,9 @@
 > whenever module boundaries or interfaces change.
 > Source of truth for blast radius assessment, onboarding, and enterprise
 > architecture aggregation.
-> Last updated: 2026-10-18 — read-only references: `designc.json` `references` (`{key: {kind: "legacy", path}}`) read by `Dispatch.references`/`legacy` in `renderer/dispatch.js`; `Core.handoverPlan` takes `references`, lists `{key, kind}` (no path) in `handover.yaml` inside the id hash, and `buildBrief` adds a never-write rule; `{legacy}` fills dispatch and resume commands (`terminalview.js`); freeze confirmation names them unchecked; Set up has a Read-only references section. `fixtures/migration/` is a WPF-to-JS trial fixture (not app code).
+> Last updated: 2026-10-24 — legacy UI parity: `renderer/parity.js` (pure contract: normalise, diff, compare, `parity_result`), `renderer/parityview.js` (read-only Parity view, `host.parityShot`), `recorder/` and `scripts/parity-record.js`/`parity-import.js` (outside the app), `parity` done_when in `work.js`/`work.py`, Grill-me `read_parity`.
+>
+> Previously 2026-10-18 — read-only references: `designc.json` `references` (`{key: {kind: "legacy", path}}`) read by `Dispatch.references`/`legacy` in `renderer/dispatch.js`; `Core.handoverPlan` takes `references`, lists `{key, kind}` (no path) in `handover.yaml` inside the id hash, and `buildBrief` adds a never-write rule; `{legacy}` fills dispatch and resume commands (`terminalview.js`); freeze confirmation names them unchecked; Set up has a Read-only references section. `fixtures/migration/` is a WPF-to-JS trial fixture (not app code).
 > Earlier the same day: exploration finished. canvas, agent panel, ACP hub, MCP server,
 > extract entry point and telemetry read and added. Verified by reading the code: `main.js`,
 > `preload.js`, `ledger-store.js`, `renderer/ledger.js`, `renderer/core.js`, `acp.js`,
@@ -84,6 +86,8 @@ C4Container
 | `renderer/gitview.js` | Git UI: status bar item, History, Compare tab | `G`, `gitRefresh`, `renderCompare` | `renderer/app.js` hooks | — |
 | `renderer/work.js` | Work item rules: validate, states, conflicts, what is missing before Done. Pure, dual-loaded | `Work.validate, states, conflicts, doneProblems, coverage, addToList` | `renderer/workview.js`, `test/work.test.js` | `renderer/pathpattern.js` |
 | `renderer/workview.js` | Work view: backlog, Start, Run gates, Done | `loadWork`, `renderWork` | `renderer/app.js` hooks | `host.work*` |
+| `renderer/parity.js` | Legacy parity contract: shapes, normalise, exceptions from acceptance and business decisions, diff, compare, `parity_result`. Pure, dual-loaded | `Parity.normalise, snapshot, diff, compare, resultEvent, scenarioProblems, detect` | `renderer/parityview.js`, `renderer/agent.js`, `recorder/`, `scripts/parity-record.js`, tests | none |
+| `renderer/parityview.js` | Parity view: scenarios, ledger results, report findings, screenshots | `loadParityScenarios`, `renderParity`, `parityNote` | `renderer/workview.js`, `renderer/app.js` hooks | `host.parityShot`, `host.list`, `host.read` |
 | `renderer/study.js` | Study topics: parse, validate, append-only edits (sources, findings, questions, PoCs), human-only opinion and status, decision draft from a settled topic. Pure, dual-loaded | `Study.parse, addSource, addFinding, answerQuestion, setStatus, decisionDraft` | `renderer/agent.js` (Researcher tools), `renderer/studyview.js`, `test/study.test.js` | none |
 | `renderer/studyview.js` | Study activity: topics sidebar, topic page, opinion and status (human only), Ask the Researcher; New decision from a study | `renderStudy`, `studySidebar`, `newDecisionFromStudy`, `settledStudies` | `renderer/app.js` hooks | `host.list`, `host.write`, `host.registryList` |
 | `renderer/policy.js` | Agent policy, pure, dual-loaded like `ledger.js`: which tools a role may use, what an ACP agent may write, which disk changes were not approved | `Policy.{WRITE_TOOLS, WRITE_PATHS, verdict, writeVerdict, unapprovedChanges}` | `renderer/agent.js`, `test/policy.test.js` | — |
@@ -117,6 +121,9 @@ graph TD
     agent --> study[renderer/study.js]
     studyview[renderer/studyview.js] --> study
     studyview --> app
+    parityview[renderer/parityview.js] --> parity[renderer/parity.js]
+    parityview --> app
+    agent --> parity
     main --> gitmod[git.js]
     app --> gitview[renderer/gitview.js]
     canvas --> core
@@ -133,6 +140,8 @@ graph TD
   main --> telemetry[telemetry.js]
   main --> acp[acp.js]
   mcp[designc-mcp.js] --> main
+  recorder[recorder/ + scripts/parity-record.js] -. outside the app .-> parity
+  recorder --> store
 ```
 
 `renderer/ledger.js` is the one file loaded on both sides of the process boundary.
