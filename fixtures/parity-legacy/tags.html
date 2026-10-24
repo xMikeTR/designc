@@ -1,0 +1,33 @@
+<!doctype html>
+<html lang="en"><head><meta charset="utf-8"><title>Adhoc tags</title>
+<style>body{font:14px sans-serif;margin:16px} [hidden]{display:none} td,th{padding:4px 8px}</style></head>
+<body>
+<main>
+  <h1>Adhoc tags</h1>
+  <label>Program <input id="program" data-testid="program-search"></label>
+  <table aria-label="Programs">
+    <thead><tr><th>Program</th><th>Inception</th></tr></thead>
+    <tbody>
+      <tr><td>Mock Program Alpha</td><td>15/01/2026</td></tr>
+      <tr><td>Mock Program Beta</td><td>01/03/2026</td></tr>
+    </tbody>
+  </table>
+  <button id="bulk">Bulk apply</button>
+  <button disabled>Export</button>
+  <button id="refresh">Refresh</button>
+</main>
+<div role="dialog" aria-label="Apply tag" id="dlg" hidden>
+  <label>Tag <input id="tag"></label>
+  <button id="apply">Apply</button>
+  <button id="cancel">Cancel</button>
+</div>
+<p role="status" id="msg"></p>
+<script>
+  const $ = id => document.getElementById(id);
+  $('bulk').onclick = () => { $('dlg').hidden = false; };
+  $('cancel').onclick = () => { $('dlg').hidden = true; };
+  $('apply').onclick = () => { $('dlg').hidden = true; $('msg').textContent = 'Tag ' + $('tag').value + ' applied to 2 programs'; };
+  $('refresh').onclick = () => fetch('api/refresh', { method: 'POST' })
+    .then(() => { $('msg').textContent = 'Refreshed'; }, () => { $('msg').textContent = 'Could not refresh'; });
+</script>
+</body></html>

@@ -294,3 +294,26 @@ test('user can pin a domain pack and see it checked @critical', async () => {
   await expect(sidebar.locator('.clause', { hasText: 'but not pinned' })).toHaveCount(0);
   await expect(sidebar.getByText('pricing/Quote', { exact: true })).toBeVisible();
 });
+
+test('user can see legacy parity and what it holds a work item to @critical', async () => {
+  const { reg } = copyRegistry('fixtures/parity-registry');
+  // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
+  const shots = path.join(reg, 'parity/shots');
+  for (const f of fs.readdirSync(shots)) if (f.endsWith('.png')) fs.rmSync(path.join(shots, f));
+  const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  fs.writeFileSync(path.join(shots, '3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a.png'), png);
+  session = await launch(reg);
+  const { page } = session;
+  // The work item names parity as done_when, and its card says what each scenario last gave.
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const special = page.locator('#special');
+  await expect(special.getByText('tags-apply pass at 1111111 · tags-list fail at 1111111')).toBeVisible();
+  await special.getByRole('button', { name: 'Show parity' }).first().click();
+  // The Parity view: the failing scenario, its finding, and the two shots side by side for looking only.
+  await page.locator('#sbBody').getByText('tags-list', { exact: true }).click();
+  await expect(special.getByRole('heading', { name: /^tags-list/ })).toBeVisible();
+  await expect(special.getByRole('cell', { name: /^step 1: column "Inception" is date:dddd-0d-dd/ })).toBeVisible();
+  await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
+  await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);
+  await expect(special.getByText('Not on this machine (shots are not in git).')).toBeVisible();
+});

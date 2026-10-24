@@ -1,0 +1,268 @@
+{
+ "start": "list",
+ "paths": {
+  "/tags": "list"
+ },
+ "viewport": {
+  "width": 1280,
+  "height": 800
+ },
+ "screens": {
+  "list": {
+   "role": "RootWebArea",
+   "name": "Adhoc tags",
+   "box": null,
+   "children": [
+    {
+     "role": "main",
+     "name": "",
+     "box": null,
+     "children": [
+      {
+       "role": "heading",
+       "name": "Adhoc tags",
+       "box": null,
+       "children": [
+        {
+         "role": "StaticText",
+         "name": "Adhoc tags",
+         "box": null,
+         "children": []
+        }
+       ]
+      },
+      {
+       "role": "textbox",
+       "name": "Program",
+       "box": null,
+       "children": [],
+       "testId": "program-search"
+      },
+      {
+       "role": "table",
+       "name": "Programs",
+       "box": null,
+       "children": [
+        {
+         "role": "rowgroup",
+         "name": "",
+         "box": null,
+         "children": [
+          {
+           "role": "row",
+           "name": "",
+           "box": null,
+           "children": [
+            {
+             "role": "columnheader",
+             "name": "Program",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "Program",
+               "box": null,
+               "children": []
+              }
+             ]
+            },
+            {
+             "role": "columnheader",
+             "name": "Inception",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "Inception",
+               "box": null,
+               "children": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        },
+        {
+         "role": "rowgroup",
+         "name": "",
+         "box": null,
+         "children": [
+          {
+           "role": "row",
+           "name": "",
+           "box": null,
+           "children": [
+            {
+             "role": "cell",
+             "name": "Mock Program Alpha",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "Mock Program Alpha",
+               "box": null,
+               "children": []
+              }
+             ]
+            },
+            {
+             "role": "cell",
+             "name": "2026-01-15",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "2026-01-15",
+               "box": null,
+               "children": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "role": "row",
+           "name": "",
+           "box": null,
+           "children": [
+            {
+             "role": "cell",
+             "name": "Mock Program Beta",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "Mock Program Beta",
+               "box": null,
+               "children": []
+              }
+             ]
+            },
+            {
+             "role": "cell",
+             "name": "2026-03-02",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "2026-03-02",
+               "box": null,
+               "children": []
+              }
+             ]
+            }
+           ]
+          },
+          {
+           "role": "row",
+           "name": "",
+           "box": null,
+           "children": [
+            {
+             "role": "cell",
+             "name": "Mock Program Gamma",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "Mock Program Gamma",
+               "box": null,
+               "children": []
+              }
+             ]
+            },
+            {
+             "role": "cell",
+             "name": "2026-04-10",
+             "box": null,
+             "children": [
+              {
+               "role": "StaticText",
+               "name": "2026-04-10",
+               "box": null,
+               "children": []
+              }
+             ]
+            }
+           ]
+          }
+         ]
+        }
+       ]
+      },
+      {
+       "role": "button",
+       "name": "Bulk apply",
+       "box": null,
+       "children": [
+        {
+         "role": "StaticText",
+         "name": "Bulk apply",
+         "box": null,
+         "children": []
+        }
+       ]
+      },
+      {
+       "role": "button",
+       "name": "Export",
+       "box": null,
+       "children": [
+        {
+         "role": "StaticText",
+         "name": "Export",
+         "box": null,
+         "children": []
+        }
+       ],
+       "disabled": true
+      }
+     ]
+    }
+   ]
+  },
+  "dialog": {
+   "role": "RootWebArea",
+   "name": "Adhoc tags",
+   "box": null,
+   "children": [
+    {
+     "role": "dialog",
+     "name": "Apply tag",
+     "box": null,
+     "children": [
+      {
+       "role": "heading",
+       "name": "Apply tag",
+       "box": null,
+       "children": []
+      },
+      {
+       "role": "button",
+       "name": "Apply",
+       "box": null,
+       "children": []
+      },
+      {
+       "role": "button",
+       "name": "Cancel",
+       "box": null,
+       "children": []
+      }
+     ]
+    }
+   ]
+  }
+ },
+ "on": [
+  {
+   "screen": "list",
+   "click": {
+    "role": "button",
+    "name": "Bulk apply"
+   },
+   "go": "dialog"
+  }
+ ]
+}

@@ -177,6 +177,12 @@ handle('app:guide', () => openGuide());
 handle('fs:tree', async () => (root ? tree(root) : []));
 handle('fs:read', async rel => fsp.readFile(inside(rel), 'utf8'));
 handle('fs:exists', async rel => { try { await fsp.access(inside(rel)); return true; } catch { return false; } });
+// Parity gallery: one screenshot by its sha256, read-only. Only a 64-hex name under parity/shots/ is accepted, so the
+// renderer cannot name any other file; a missing shot (not recorded on this machine) is null.
+handle('parity:shot', async sha => {
+  if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) return null;
+  try { return `data:image/png;base64,${(await fsp.readFile(inside(`parity/shots/${sha}.png`))).toString('base64')}`; } catch { return null; }
+});
 // Deleting is a person's action from the Explorer; no agent tool reaches it. The ledger is append-only and handovers are frozen.
 handle('fs:remove', async rel => {
   const abs = inside(rel), r = toRel(abs);

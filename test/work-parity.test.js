@@ -28,6 +28,10 @@ const FILES = {
   'multi-out': 'id: multi-out\nrequirement: [HRE-1, HRE-2]\nelements: [Mail]\ndone_when:\n  - gate: x\n',
   'multi-missing': 'id: multi-missing\nrequirement: [HRE-1, HRE-404]\nelements: [Pricing API]\ndone_when:\n  - gate: x\n',
   'doc-b': 'id: doc-b\ntarget: { document: "https://c/p/1" }\ndone_when:\n  - checklist: a\n',
+  'parity-ok': 'id: parity-ok\nrequirement: HRE-1\nelements: [Pricing API]\ndone_when:\n  - gate: x\n  - parity: all\n  - parity: tags-list\n',
+  'parity-unknown': 'id: parity-unknown\nrequirement: HRE-1\nelements: [Pricing API]\ndone_when:\n  - gate: x\n  - parity: nope\n',
+  'parity-alone': 'id: parity-alone\nrequirement: HRE-1\nelements: [Pricing API]\ndone_when:\n  - parity: all\n',
+  'parity-target': 'id: parity-target\ntarget: { jira: HRE-7 }\ndone_when:\n  - checklist: a\n  - parity: all\n',
 };
 
 test('the Python work report matches renderer/work.js on the same files', { skip }, () => {
@@ -36,6 +40,8 @@ test('the Python work report matches renderer/work.js on the same files', { skip
   put(root, 'requirements/HRE-1.yaml', 'id: HRE-1\ntitle: t\nversion: 1\nelements: [Pricing API]\n');
   put(root, 'requirements/HRE-2.yaml', 'id: HRE-2\ntitle: t\nversion: 1\nelements: [Quotes DB]\n');
   for (const [name, text] of Object.entries(FILES)) put(root, `work/${name}.yaml`, text);
+  put(root, 'parity/scenarios/tags-list.yaml', 'id: tags-list\nsteps:\n  - goto: { path: /tags }\n');
+  put(root, 'parity/scenarios/no-id.yaml', 'steps:\n  - goto: { path: /x }\n');
   const items = Object.entries(FILES).map(([name, text]) => ({ ...yaml.load(text), _path: `work/${name}.yaml` }))
     .sort((a, b) => a.id.localeCompare(b.id));
   const ids = items.map(i => i.id);
@@ -52,12 +58,13 @@ test('the Python work report matches renderer/work.js on the same files', { skip
   assert.deepEqual(py.items.map(x => x.id), ids);
   for (const it of items) {
     const row = py.items.find(x => x.id === it.id);
-    const js = Work.validate(it, { requirements: reqs, items: ids.filter(x => x !== it.id) });
+    const js = Work.validate(it, { requirements: reqs, items: ids.filter(x => x !== it.id), scenarios: ['tags-list'] });
     assert.deepEqual(row.problems, js, `problems for ${it.id}`);
     assert.equal(row.state, st[it.id], `state for ${it.id}`);
     assert.deepEqual(row.conflicts.map(c => [c.with, c.reason, c.detail]), Work.conflicts(it, active).map(c => [c.with, c.reason, c.detail]), `conflicts for ${it.id}`);
   }
   assert.equal(r.status, 1, 'problems give exit 1');
+  assert.deepEqual(py.errors, [{ path: 'parity/scenarios/no-id.yaml', msg: 'parity/scenarios/no-id.yaml has no id; a parity scenario is recorded and judged by its id.' }]);
   assert.ok(py.items.find(x => x.id === 'clash').conflicts.length >= 1);
 });
 

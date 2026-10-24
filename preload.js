@@ -10,6 +10,7 @@ contextBridge.exposeInMainWorld('host', {
   tree: () => ipcRenderer.invoke('fs:tree'),
   read: rel => ipcRenderer.invoke('fs:read', rel),
   exists: rel => ipcRenderer.invoke('fs:exists', rel),
+  parityShot: sha => ipcRenderer.invoke('parity:shot', sha),
   write: (rel, text) => ipcRenderer.invoke('fs:write', rel, text),
   remove: rel => ipcRenderer.invoke('fs:remove', rel),
   list: (dir, ext) => ipcRenderer.invoke('fs:list', dir, ext),

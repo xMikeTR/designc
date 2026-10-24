@@ -419,7 +419,7 @@ async function loadTelemetry() {
   if (r.error) { A.tel = { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: r, loading: false }; }
   else A.tel = { runs: r.runs, tasks: r.tasks || { spans: [], empty: 0 }, meta: r.meta, error: null, loading: false };
   renderStatus(); renderSheet(); renderBadges();
-  if (['special:build', 'special:improve', 'special:review'].includes(A.active)) renderSpecial();
+  if (['special:build', 'special:improve', 'special:review', 'special:parity'].includes(A.active)) renderSpecial();
   if (A.activity === 'build' || A.activity === 'improve') renderSidebar();
 }
 setInterval(() => { if (A.root && A.tel.meta && A.tel.meta.source === 'langfuse' && document.visibilityState === 'visible') loadTelemetry(); }, 5 * 60 * 1000);
@@ -671,7 +671,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('domain') || any('behaviour')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -1276,6 +1276,7 @@ function setActivity(a) {
   if (a === 'topology' && A.sidebarOpen && A.root) openSpecial('special:topology');
   if (a === 'work' && A.sidebarOpen && A.root) openSpecial('special:work');
   if (a === 'study' && A.sidebarOpen && A.root) openSpecial('special:study');
+  if (a === 'parity' && A.sidebarOpen && A.root) openSpecial('special:parity');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -1299,17 +1300,17 @@ function renderBadges() {
   const wd = typeof WK !== 'undefined' && WK.digest ? WK.digest.needs.length + WK.digest.failed.length : 0;
   const b6 = $('#badge-work'); b6.textContent = wd || ''; b6.className = 'badge' + (wd ? ' on bad' : '');
 }
-function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id === 'special:parity' ? 'Parity' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : id === 'special:parity' ? 'PY' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
   const on = $('#tabs .tab.active'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:parity': 'Parity (new app against legacy)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1340,7 +1341,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study' };
+  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study', parity: 'Parity' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open design folder</button><button class="btn block" data-a="sample">Try the sample project</button><button class="btn block" data-a="tour">Take the tour</button>`; return; }
@@ -1353,6 +1354,7 @@ function renderSidebar() {
   else if (A.activity === 'topology') body.innerHTML = topologySidebar();
   else if (A.activity === 'work') body.innerHTML = workSidebar();
   else if (A.activity === 'study') body.innerHTML = studySidebar();
+  else if (A.activity === 'parity') body.innerHTML = paritySidebar();
   else body.innerHTML = improveSidebar();
   if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
   if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
@@ -1855,7 +1857,7 @@ function renderSheet() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:parity') return renderParity(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {

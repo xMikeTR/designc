@@ -1,0 +1,135 @@
+{
+  "scenario": "tags-list",
+  "side": "legacy",
+  "adapter": "fixture",
+  "steps": [
+    {
+      "n": 1,
+      "action": "goto",
+      "status": "ok",
+      "shot": "87bb1f5c685a7d0efb5bdc27d0d9d0e08e5f896b7cab7891fb688dbf050476c4",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "elements": [
+        {
+          "role": "heading",
+          "enabled": true,
+          "box": null,
+          "name": "Adhoc tags",
+          "children": [],
+          "key": "heading:Adhoc tags"
+        },
+        {
+          "role": "textbox",
+          "enabled": true,
+          "box": null,
+          "testId": "program-search",
+          "name": "Program",
+          "children": [],
+          "key": "textbox:Program"
+        },
+        {
+          "role": "table",
+          "enabled": true,
+          "box": null,
+          "name": "Programs",
+          "columns": [
+            {
+              "name": "Program",
+              "shape": "text:Aa"
+            },
+            {
+              "name": "Inception",
+              "shape": "date:dd/0d/dddd"
+            }
+          ],
+          "records": 3,
+          "children": [
+            {
+              "role": "row",
+              "name": "",
+              "enabled": true,
+              "box": null,
+              "key": "row:head",
+              "children": [
+                {
+                  "role": "columnheader",
+                  "enabled": true,
+                  "box": null,
+                  "name": "Program",
+                  "children": [],
+                  "key": "columnheader:Program"
+                },
+                {
+                  "role": "columnheader",
+                  "enabled": true,
+                  "box": null,
+                  "name": "Inception",
+                  "children": [],
+                  "key": "columnheader:Inception"
+                }
+              ]
+            },
+            {
+              "role": "row",
+              "name": "",
+              "enabled": true,
+              "box": null,
+              "key": "row:record",
+              "children": [
+                {
+                  "role": "cell",
+                  "enabled": true,
+                  "box": null,
+                  "column": "Program",
+                  "name": "",
+                  "data": true,
+                  "shape": "text:Aa",
+                  "children": [],
+                  "key": "cell[Program]"
+                },
+                {
+                  "role": "cell",
+                  "enabled": true,
+                  "box": null,
+                  "column": "Inception",
+                  "name": "",
+                  "data": true,
+                  "shape": "date:dd/0d/dddd",
+                  "children": [],
+                  "key": "cell[Inception]"
+                }
+              ]
+            }
+          ],
+          "checks": [
+            {
+              "kind": "sort",
+              "column": "Inception",
+              "dir": "asc"
+            }
+          ],
+          "key": "table:Programs"
+        },
+        {
+          "role": "button",
+          "enabled": true,
+          "box": null,
+          "name": "Bulk apply",
+          "children": [],
+          "key": "button:Bulk apply"
+        },
+        {
+          "role": "button",
+          "enabled": false,
+          "box": null,
+          "name": "Export",
+          "children": [],
+          "key": "button:Export"
+        }
+      ]
+    }
+  ]
+}

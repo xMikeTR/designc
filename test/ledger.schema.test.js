@@ -128,3 +128,35 @@ test('item_budget and item_judge are pipeline kinds and route to pipeline.jsonl'
     assert.equal(Ledger.KINDS[k].stream, 'pipeline.jsonl');
   }
 });
+
+// parity_result: a pipeline kind (docs/parity-contract.md), judged the same in Python.
+test('parity_result: outcome is pass, fail or could_not_run; failures are bounded and shaped', () => {
+  const r = { kind: 'parity_result', by: 'p', scenario: 'tags-sort', commit: 'c'.repeat(40), outcome: 'pass', failures: [] };
+  assert.deepEqual(Ledger.validate(r), []);
+  assert.deepEqual(Ledger.validate({ ...r, commit: null, outcome: 'could_not_run', item: 'W-a', report: 'parity/reports/x.json' }), []);
+  const f = { step: 2, key: 'button:Change', kind: 'text', msg: 'button "Edit" reads "Change"' };
+  assert.deepEqual(Ledger.validate({ ...r, outcome: 'fail', failures: [f] }), []);
+  assert.ok(Ledger.validate({ ...r, outcome: 'fail' }).some(e => /name at least one/.test(e)));
+  assert.ok(Ledger.validate({ ...r, outcome: 'maybe' }).length);
+  assert.ok(Ledger.validate({ ...r, outcome: 'fail', failures: [{ ...f, step: '2' }] }).some(e => /failures\[0\]/.test(e)));
+  assert.ok(Ledger.validate({ ...r, outcome: 'fail', failures: Array(51).fill(f) }).some(e => /at most 50/.test(e)));
+  assert.ok(Ledger.PIPELINE_KINDS.includes('parity_result'));
+  assert.equal(Ledger.KINDS.parity_result.stream, 'pipeline.jsonl');
+});
+
+test('parity_result: Python judges the same lines the same way', () => {
+  const { execFileSync } = require('node:child_process');
+  const f = { step: 1, key: 'k', kind: 'text', msg: 'm' };
+  const base = { schema_version: 1, event_id: 'e', ts: 1, kind: 'parity_result', by: 'p', scenario: 's', commit: null };
+  const lines = [
+    { ...base, outcome: 'pass', failures: [] },
+    { ...base, outcome: 'fail', failures: [] },
+    { ...base, outcome: 'fail', failures: [{ ...f, step: 1.5 }] },
+    { ...base, outcome: 'fail', failures: Array(51).fill(f) },
+    { ...base, outcome: 'fail', failures: [f] },
+  ];
+  const py = 'import json,sys; from designc import ledger; print(json.dumps([len(ledger.validate(json.loads(l))) > 0 for l in sys.stdin.read().splitlines()]))';
+  const out = JSON.parse(execFileSync('python3', ['-c', py], { cwd: require('node:path').join(__dirname, '..', 'python'), input: lines.map(l => JSON.stringify(l)).join('\n') }).toString());
+  assert.deepEqual(out, lines.map(l => Ledger.validate(l).length > 0));
+  assert.deepEqual(out, [false, true, true, true, false]);
+});

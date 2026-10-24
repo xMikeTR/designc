@@ -21,6 +21,7 @@ done_when:
 
 async function loadWork() {
   A.work = []; A.workErrors = []; A.workWarnings = [];
+  await loadParityScenarios();
   let files = [];
   try { files = await host.list('work', ['.yaml', '.yml']); } catch { files = []; }
   for (const f of files) {
@@ -34,7 +35,7 @@ async function loadWork() {
   const ids = A.work.map(i => String(i.id));
   const seen = new Set();
   for (const it of A.work) {
-    for (const m of Work.validate(it, { requirements: A.requirements, items: ids.filter(x => x !== String(it.id)) })) A.workErrors.push({ path: it._path, line: 1, msg: m });
+    for (const m of Work.validate(it, { requirements: A.requirements, items: ids.filter(x => x !== String(it.id)), scenarios: A.parityIds })) A.workErrors.push({ path: it._path, line: 1, msg: m });
     if (seen.has(it.id)) A.workErrors.push({ path: it._path, line: 1, msg: `${it.id}: duplicate work item id` });
     seen.add(it.id);
   }
@@ -74,7 +75,7 @@ async function refreshDigest() {
       if (!dn || !dn.commit || WK.onMain[dn.commit] === true) continue;
       try { const r = await host.workOnMain(workRel(it), dn.commit); WK.onMain[dn.commit] = r && !r.error ? r.onMain : null; } catch { WK.onMain[dn.commit] = null; }
     }
-    const d = Work.digest({ items: A.work, states: st, events: A.ledger, onMain: WK.onMain, wip: workWip(), lastLook: lastLook() });
+    const d = Work.digest({ items: A.work, states: st, events: A.ledger, onMain: WK.onMain, wip: workWip(), lastLook: lastLook(), scenarios: A.parityIds || [] });
     const sig = Work.digestSignature(d), changed = WK.sig !== null && sig !== WK.sig;
     const had = WK.digest && JSON.stringify(WK.digest) !== JSON.stringify(d);
     WK.digest = d;
@@ -191,7 +192,8 @@ function workItemHtml(it, st, active) {
   const dw = (Array.isArray(it.done_when) ? it.done_when : []).map(e => {
     const text = entryText(e), g = e && e.gate !== undefined ? gateLast(e.gate) : null;
     const note = g ? ` <span class="desc">last run ${esc(g.outcome)} at ${esc(String(g.commit || 'no commit').slice(0, 7))}${g.dirty ? ' (uncommitted changes, does not count)' : ''}</span>`
-      : e && e.judge !== undefined ? judgeNote(it.id, e.judge, done && done.commit) : '';
+      : e && e.judge !== undefined ? judgeNote(it.id, e.judge, done && done.commit)
+      : e && e.parity !== undefined ? parityNote(e) : '';
     return `<li>${esc(text)}${note}</li>`;
   }).join('');
   const what = it.target ? `${esc(Object.keys(it.target)[0] || '')} ${esc(Object.values(it.target)[0] || '')}` : `${esc(Work.reqs(it).join(', '))} · ${esc((it.elements || []).join(', '))}`;
@@ -329,14 +331,15 @@ async function workDone(id) {
     if (k !== 'checklist' && k !== 'review') continue;
     if (confirm(`${id}\n\n${k === 'review' ? `Has ${e[k]} reviewed this?` : `Is this true: ${e[k]}?`}\n\nOK records that you checked it.`)) ticks.push(Work.entryKey(e));
   }
-  const problems = [...notes, ...Work.doneProblems(it, { events: A.ledger, commit, onMain, ticks })];
+  const problems = [...notes, ...Work.doneProblems(it, { events: A.ledger, commit, onMain, ticks, scenarios: A.parityIds || [] })];
   WK.refused[id] = problems;
   if (problems.length) {
     toast(`${id} is not done: ${problems.length} thing${problems.length === 1 ? '' : 's'} missing. See the Work view.`, 'warning');
     if (A.active !== 'special:work') openSpecial('special:work');
     return renderAll({ keepEditor: true });
   }
-  const evidence = [...(it.done_when || []).filter(e => e && e.gate !== undefined).map(e => `gate:${e.gate}${commit ? `@${commit.slice(0, 7)}` : ''}`), ...ticks];
+  const evidence = [...(it.done_when || []).filter(e => e && e.gate !== undefined).map(e => `gate:${e.gate}${commit ? `@${commit.slice(0, 7)}` : ''}`),
+    ...(it.done_when || []).filter(e => e && e.parity !== undefined).flatMap(e => Work.parityIds(e, A.parityIds || [])).map(sc => `parity:${sc}${commit ? `@${commit.slice(0, 7)}` : ''}`), ...ticks];
   await recordEvent('item_done', { item: id, commit: repo ? commit : null, evidence });
   toast(`${id} is done.`, 'info');
 }
