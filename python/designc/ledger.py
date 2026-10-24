@@ -30,6 +30,15 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'failures_shape':
+        fs = ev.get('failures')
+        if not isinstance(fs, list): return None
+        if len(fs) > 50: return 'failures: at most 50 (the report holds the rest)'
+        for i, f in enumerate(fs):
+            if not (isinstance(f, dict) and _is_num(f.get('step')) and float(f['step']).is_integer() and not isinstance(f.get('step'), bool)
+                    and isinstance(f.get('key'), str) and isinstance(f.get('kind'), str) and isinstance(f.get('msg'), str)):
+                return f'failures[{i}]: must be {{step, key, kind, msg}}'
+        if ev.get('outcome') == 'fail' and not fs: return "failures: name at least one when outcome is 'fail'"
     elif rid == 'budget_shape':
         for k in ('limit_tokens', 'spent_tokens'):
             if k in ev and not (_is_num(ev[k]) and float(ev[k]).is_integer() and ev[k] >= 0):

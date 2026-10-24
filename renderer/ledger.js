@@ -54,6 +54,7 @@ const Ledger = (() => {
     wip_limit_changed: 'pipeline.jsonl',
     item_budget: 'pipeline.jsonl',
     item_judge: 'pipeline.jsonl',
+    parity_result: 'pipeline.jsonl',
     run_started: 'pipeline.jsonl',
     run_ended: 'pipeline.jsonl',
     decision_promoted: 'designc.jsonl',
@@ -73,7 +74,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -217,6 +218,15 @@ const Ledger = (() => {
       enums: { outcome: ['pass', 'fail'] },
       types: { item: 'string', judge: 'string', score: 'number', threshold: 'number', outcome: 'string', commit: 'string|null', judge_version: 'string', rubric_hash: 'string', trace_id: 'string' },
     },
+    // A legacy parity scenario compared at a commit (renderer/parity.js, docs/parity-contract.md). The latest per scenario
+    // at an item's done commit decides a done_when parity entry; could_not_run is not a failure, and not a pass.
+    parity_result: {
+      required: ['scenario', 'commit', 'outcome', 'failures'],
+      optional: ['item', 'report'],
+      enums: { outcome: ['pass', 'fail', 'could_not_run'] },
+      types: { scenario: 'string', commit: 'string|null', outcome: 'string', failures: 'array', item: 'string', report: 'string' },
+      rules: ['failures_shape'],
+    },
     // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own
     // id for the attempt; the status is generic so any pipeline maps its own outcomes onto it.
     run_started: {
@@ -340,6 +350,16 @@ const Ledger = (() => {
   // Mirrored by id in python/designc/ledger.py.
   const RULES = {
     fail_needs_evidence: ev => (ev.outcome === 'fail' && ev.exit_code === undefined && !ev.reason ? "exit_code: required when outcome is 'fail' (or give reason)" : null),
+    // parity_result.failures: at most 50 of {step, key, kind, msg}; a fail names at least one.
+    failures_shape: ev => {
+      if (!Array.isArray(ev.failures)) return null;
+      if (ev.failures.length > 50) return 'failures: at most 50 (the report holds the rest)';
+      for (const [i, f] of ev.failures.entries()) {
+        if (!isPlainObject(f) || !Number.isInteger(f.step) || typeof f.key !== 'string' || typeof f.kind !== 'string' || typeof f.msg !== 'string') return `failures[${i}]: must be {step, key, kind, msg}`;
+      }
+      if (ev.outcome === 'fail' && !ev.failures.length) return "failures: name at least one when outcome is 'fail'";
+      return null;
+    },
     budget_shape: ev => {
       for (const k of ['limit_tokens', 'spent_tokens']) {
         if (ev[k] !== undefined && !(Number.isInteger(ev[k]) && ev[k] >= 0)) return `${k}: must be a whole number of at least 0`;
@@ -410,7 +430,7 @@ const Ledger = (() => {
 
   // An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
   // Same rule as the gate in core.js and python/designc (gate.py, verify.py).
-  const acceptWithoutCheck = d => d.effect === 'accept' && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
+  const acceptWithoutCheck = d => (d.effect === 'accept' || d.effect === 'build') && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
   // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.

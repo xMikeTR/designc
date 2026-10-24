@@ -212,28 +212,65 @@ def dc002(m, o):
 
 
 def dc003(m, o):
+    rels = [r for r in m.rels if not (interaction(r) == 'async' or structural(m, r) or m.elements[r.src].kind == 'person')]
+    # Elements that call each other in a cycle are one strongly connected component, reported once.
+    order, out0 = [], {}
+    for r in rels:
+        for n in (r.src, r.dst):
+            if n not in out0: out0[n] = []; order.append(n)
+        out0[r.src].append(r.dst)
+    idx, low, on_stack, stack, comp, members = {}, {}, set(), [], {}, {}
+    counter = [0]
+
+    def strong(v):
+        idx[v] = low[v] = counter[0]; counter[0] += 1; stack.append(v); on_stack.add(v)
+        for w in out0[v]:
+            if w not in idx:
+                strong(w); low[v] = min(low[v], low[w])
+            elif w in on_stack:
+                low[v] = min(low[v], idx[w])
+        if low[v] == idx[v]:
+            group = []
+            while True:
+                w = stack.pop(); on_stack.discard(w); group.append(w)
+                if w == v: break
+            group.sort(key=order.index)
+            members[group[0]] = group
+            for g in group: comp[g] = group[0]
+
+    for n in order:
+        if n not in idx: strong(n)
+    out = []
+    for rep, group in members.items():
+        if len(group) < 2 or len(group) < o['chainHops']: continue
+        inside = [r for r in rels if comp[r.src] == rep and comp[r.dst] == rep]
+        out.append(D('DC003', 'warning', f'{len(group)} elements call each other synchronously in a cycle: {", ".join(m.elements[n].name for n in group)}', m.loc_rel(inside[0]), hint='break the cycle: make a hop async, or let the dependency point one way', related=[m.loc_rel(r) for r in inside[1:]]))
     adj, has_in = {}, set()
-    for r in m.rels:
-        if interaction(r) == 'async' or structural(m, r) or m.elements[r.src].kind == 'person': continue
-        adj.setdefault(r.src, []).append(r); has_in.add(r.dst)
+    for r in rels:
+        if comp[r.src] == comp[r.dst]: continue
+        s0, d0 = comp[r.src], comp[r.dst]
+        adj.setdefault(s0, []).append((r, s0, d0)); has_in.add(d0)
     starts = [n for n in adj if n not in has_in] or list(adj)
     found = []
 
     def dfs(node, seen, path):
         if len(found) >= 200: return
         ext = False
-        for r in adj.get(node, []):
-            if r.dst in seen: continue
-            ext = True; dfs(r.dst, seen | {r.dst}, path + [r])
+        for e in adj.get(node, []):
+            if e[2] in seen: continue
+            ext = True; dfs(e[2], seen | {e[2]}, path + [e])
         if not ext and len(path) >= o['chainHops']: found.append(path)
 
     for s in starts: dfs(s, {s}, [])
-    out = []
+
+    def label(n):
+        return '[cycle: ' + ', '.join(m.elements[x].name for x in members[n]) + ']' if len(members[n]) > 1 else m.elements[n].name
+
     for path in found:
-        nodes = [path[0].src] + [r.dst for r in path]
-        av = [get(m.elements[n], 'd.availability') for n in nodes]
-        assumed = sum(1 for r in path if interaction(r) is None)
-        msg = f'{len(path)} synchronous hops: {" → ".join(m.elements[n].name for n in nodes)}'
+        nodes = [path[0][1]] + [e[2] for e in path]
+        av = [get(m.elements[n], 'd.availability') for g in nodes for n in members[g]]
+        assumed = sum(1 for e in path if interaction(e[0]) is None)
+        msg = f'{len(path)} synchronous hops: {" → ".join(label(n) for n in nodes)}'
         if all(a is not None for a in av):
             prod = 1
             for a in av: prod *= a
@@ -241,7 +278,7 @@ def dc003(m, o):
         else:
             msg += f'; declare d.availability on {sum(1 for a in av if a is None)} more element(s) to compute it'
         if assumed: msg += f' ({assumed} undeclared hop(s) assumed sync)'
-        out.append(D('DC003', 'warning', msg, m.loc_rel(path[0]), hint='make a hop async, cache, or add a fallback', related=[m.loc_rel(r) for r in path[1:]]))
+        out.append(D('DC003', 'warning', msg, m.loc_rel(path[0][0]), hint='make a hop async, cache, or add a fallback', related=[m.loc_rel(e[0]) for e in path[1:]]))
     return out
 
 

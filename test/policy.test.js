@@ -126,6 +126,16 @@ test('map_requirement and read_import_page are offered to Grill-me only, and the
   assert.equal(/requirements\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
 });
 
+test('read_parity is a read-only tool offered to Grill-me only', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'agent.js'), 'utf8');
+  const roleLine = key => src.split('\n').find(l => l.startsWith(`  ${key}: { label:`));
+  for (const k of ['architect', 'analyst', 'tutor']) assert.equal(/read_parity/.test(roleLine(k)), false, k);
+  assert.match(roleLine('grill'), /allow: \[[^\]]*'read_parity'/);
+  assert.equal(/read_parity/.test(roleLine('grill').split('ask:')[1].split(']')[0]), false);
+  assert.equal(Policy.WRITE_TOOLS.includes('read_parity'), false);
+  assert.equal(/parity\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
+});
+
 test('the Researcher appends to study topics only through its approved tools; a raw write to study/ is refused', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../renderer/agent.js'), 'utf8');
   const line = src.split('\n').find(l => l.startsWith('  researcher: { label:'));

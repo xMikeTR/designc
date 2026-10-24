@@ -49,11 +49,27 @@ const Setup = (() => {
     return p.protocol === 'http:' ? 'Use https, or http only for localhost: the key would be sent unencrypted.' : 'Enter a full URL starting with https://.';
   }
 
+  // A pasted key looks like sk-/pk-..., or is long, or is dashed or dotted; a name is just written wrong. Never repeats the value.
+  function envNameProblem(v) {
+    const t = String(v).trim();
+    if (ENV_NAME.test(t)) return null;
+    if (/^(sk|pk)-/i.test(t) || t.length > 48 || (t.length > 24 && /[-.]/.test(t))) return 'That looks like a key, not a variable name. Enter the name of the environment variable that holds it (like MY_API_KEY), and keep the key out of this page.';
+    return 'Use capital letters, digits and underscores for the variable name, like MY_API_KEY.';
+  }
+
+  // "Fix 2 fields first: Model provider: Public key env, Langfuse: URL." labelFor maps a field id to the label on screen.
+  function summary(errs, labelFor) {
+    if (!errs.length) return '';
+    const names = errs.map(e => (labelFor ? labelFor(e.field) : e.field));
+    return `Fix ${errs.length} field${errs.length === 1 ? '' : 's'} first: ${names.join(', ')}.`;
+  }
+
   function validate(draft) {
     const errs = [];
     const envField = (sec, key, f) => {
       if (!sec || blank(sec[f])) return;
-      if (!ENV_NAME.test(String(sec[f]).trim())) errs.push({ field: `${key}.${f}`, msg: 'Enter the name of an environment variable (like MY_API_KEY), not the key itself.' });
+      const m = envNameProblem(sec[f]);
+      if (m) errs.push({ field: `${key}.${f}`, msg: m });
     };
     const urlField = (sec, key) => { if (sec && !blank(sec.baseUrl)) { const m = urlProblem(String(sec.baseUrl).trim()); if (m) errs.push({ field: `${key}.baseUrl`, msg: m }); } };
     for (const f of ['project', 'region']) {
@@ -189,7 +205,7 @@ const Setup = (() => {
 
   const exportLine = n => (ENV_NAME.test(n) ? `export ${n}="<your key>"` : null);
 
-  const m = { ENV_NAME, DEFAULTS, STARTER_MODEL, KINDS, kind, envNames, envStatus, validate, merge, probe, verdict, hostOf, llmReady, exportLine };
+  const m = { ENV_NAME, DEFAULTS, STARTER_MODEL, KINDS, kind, envNames, envStatus, validate, envNameProblem, summary, merge, probe, verdict, hostOf, llmReady, exportLine };
   if (typeof module === 'object' && module.exports) module.exports = m;
   return m;
 })();

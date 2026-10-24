@@ -79,3 +79,56 @@ test('a folder with projects but nothing that runs says why and what to change',
   const r = await extract(dir);
   assert.deepEqual(r, { error: 'Found 1 project but nothing that runs: Engine (library). The code map draws what runs and shows libraries inside the app that references them, so set "codebase" in designc.json to a folder that also holds that app, often the repository root.' });
 });
+
+test('a test project that mentions a catalogue trigger adds no edge and does not crash extraction', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-testproj-'));
+  const w = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  w('Web/Web.csproj', '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>');
+  w('Web/Program.cs', 'builder.Services.AddAuthentication().AddJwtBearer();');
+  w('Web.Tests/Web.Tests.csproj', '<Project Sdk="Microsoft.NET.Sdk"><ItemGroup><PackageReference Include="xunit" Version="2.0.0" /></ItemGroup></Project>');
+  w('Web.Tests/AuthTests.cs', '// checks that AddJwtBearer is wired\nclass AuthTests {}');
+  const r = await extract(dir);
+  assert.equal('error' in r, false, r.error);
+  assert.equal(/Web\.Tests/.test(r.dsl), false);
+  assert.ok(r.facts.edges.some(e => e.from === 'Web' && /Authenticates/.test(e.label)), 'real project keeps its Entra ID edge');
+});
+
+test('a queue with no counterpart in the repo is an edge to Azure Service Bus; Snowflake.Data alone gives a Snowflake edge', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-sb-'));
+  const w = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  w('Jobs/Jobs.csproj', '<Project Sdk="Microsoft.NET.Sdk.Web"><ItemGroup><PackageReference Include="Snowflake.Data" Version="4.0.0" /></ItemGroup></Project>');
+  w('Jobs/Out.cs', 'public class Out { [ServiceBusOutput("outbound-q", Connection = "SB")] public string Send() => ""; [ServiceBusTrigger("inbound-q")] public void Recv() {} }');
+  const r = await extract(dir);
+  assert.equal('error' in r, false, r.error);
+  const has = (from, to, label) => r.facts.edges.some(e => e.from === from && e.to === to && e.label === label);
+  assert.ok(has('Jobs', 'AzureServiceBus', 'Sends to "outbound-q"') || r.facts.edges.some(e => /Sends to "outbound-q"/.test(e.label)));
+  assert.ok(r.facts.edges.some(e => /Receives from "inbound-q"/.test(e.label)));
+  assert.ok(r.facts.edges.some(e => e.kind === 'data' && /Snowflake/i.test(String(e.to))));
+  assert.equal(r.facts.unresolved.some(u => /no consumer|no publisher/.test(u.what)), false);
+});
+
+test('generated files are not scanned', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-gen-'));
+  const w = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  w('Web/Web.csproj', '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>');
+  w('ui/package.json', JSON.stringify({ name: 'ui', dependencies: { react: '18.0.0' }, devDependencies: { vite: '5.0.0' } }));
+  w('ui/src/App.tsx', 'export const App = () => null;');
+  w('ui/public/mockServiceWorker.js', "fetch('/api/should-not-appear');");
+  const r = await extract(dir);
+  assert.equal('error' in r, false, r.error);
+  assert.equal(JSON.stringify(r.facts).includes('should-not-appear'), false);
+});
+
+test('type names that differ only in case are two types, and a reference to either links', async () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-case-'));
+  const w = (rel, text) => { fs.mkdirSync(path.dirname(path.join(dir, rel)), { recursive: true }); fs.writeFileSync(path.join(dir, rel), text); };
+  w('Web/Web.csproj', '<Project Sdk="Microsoft.NET.Sdk.Web"></Project>');
+  w('Web/A/EpPoint.cs', 'public class EpPoint { }');
+  w('Web/B/EPPoint.cs', 'public class EPPoint { }');
+  w('Web/C/User.cs', 'public class User { public EpPoint a; public void M() { var x = new EPPoint(); } }');
+  const r = await extract(dir);
+  const names = r.facts.code.types.map(t => t.name).sort();
+  assert.deepEqual(names.filter(n => /pPoint/i.test(n)), ['EPPoint', 'EpPoint']);
+  assert.equal(r.facts.code.typeEdges.length, 2);
+  assert.equal(r.facts.unresolved.some(u => /declared 2 times/.test(u.what)), false);
+});

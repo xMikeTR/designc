@@ -1,0 +1,4 @@
+{
+  "model": "model/workspace.dsl",
+  "parity": { "legacy": { "baseUrl": "https://legacy.example.test" }, "next": { "baseUrl": "http://localhost:5173" } }
+}

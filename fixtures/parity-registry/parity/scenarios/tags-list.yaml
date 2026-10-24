@@ -1,0 +1,6 @@
+id: tags-list
+title: The tags list, sorted by inception
+screen: tags
+steps:
+  - goto: { path: /tags }
+    expect: { sorted: Inception }
