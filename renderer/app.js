@@ -1034,7 +1034,9 @@ async function chooseRequirement(d) {
   return A.requirements.find(r => r.id === id) || null;
 }
 async function bindDecision(d, { confirmed = false } = {}) {
-  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
+  const probs = Core.bindProblems(d, A.model, A.diags);
+  const warn = probs.length ? `\n\nThis will not clear anything in the gate:\n- ${probs.join('\n- ')}\n\nFix the decision file first, or bind it anyway.` : '';
+  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.${warn}`)) return;
   let against;
   if (d.kind === 'business') {
     let req = A.requirements.find(r => r.id === d.requirement);
@@ -1188,7 +1190,8 @@ async function runChecks(list) {
         if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return; }
         const ok = r.code === 0; pass = pass && ok; ran++;
         appendOutput(`${ok ? '✓ passed' : `✗ failed (exit ${r.code})`} in ${(r.ms / 1000).toFixed(1)}s\n`);
-        if (r.code === 127) appendOutput(`The shell could not find the program "${String(cmd).trim().split(/\s+/)[0]}". A check runs as a command in ${A.root.name}; check the name and that it is on PATH.\n`);
+        const hint = ok ? null : Policy.checkFailHint(cmd, r.code, A.platform);
+        if (hint) appendOutput(`${hint} A check runs as a command in ${A.root.name}.\n`);
         await recordEvent('check', { decision: d.id, check: cmd, outcome: ok ? 'pass' : 'fail', source: 'local', ms: r.ms, exit_code: r.code });
       }
       appendOutput(ran ? `${pass ? '●' : '○'} ${d.id} ${pass ? 'passing' : 'failing'}\n` : `○ ${d.id} not checked: no check is a command yet\n`);
