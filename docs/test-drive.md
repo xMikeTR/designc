@@ -85,4 +85,5 @@ answer findings on the rest of the model to get here.
 | Freeze item is disabled | Only the clauses it lists count. Answer those, or take the element out of the item |
 | A bound decision did not clear its finding | The bind confirmation now says why: `resolves` must name the code, `binds` must use element names |
 | A `.sh` check fails on Windows | Write it as `bash checks/x.sh`, with LF line endings |
+| A finding is tagged "from code map" | It only says what extraction wrote. Declare what is true (`d.interaction`, `d.availability`), accept it, or leave it out of your item |
 | Freeze says commit first | Commit the files it names, then freeze again |
