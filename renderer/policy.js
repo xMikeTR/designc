@@ -69,6 +69,16 @@ const Policy = (() => {
     return null;
   }
 
+  // What to tell the person when a check that ran failed for a reason the shell, not the decision, caused. Null when
+  // the exit code says nothing about the shell. Windows runs checks through cmd.exe, which cannot run a .sh script
+  // and says a missing program with 9009; POSIX shells say it with 127.
+  function checkFailHint(cmd, code, platform) {
+    const first = String(cmd == null ? '' : cmd).trim().split(/\s+/)[0];
+    if (platform === 'win32' && /\.sh$/i.test(first)) return `Windows runs checks through cmd.exe, which cannot run "${first}". Write the check as "bash ${first.replace(/^\.[\\/]/, '')}" (Git Bash or WSL on PATH), and keep the script's line endings LF.`;
+    if (code === 127 || (platform === 'win32' && code === 9009)) return `The shell could not find the program "${first}". Check the name and that it is on PATH.`;
+    return null;
+  }
+
   // Which of the registry paths that changed on disk during an agent turn did designc not write or
   // approve? `approved` maps a path to the time its write was approved; `ownAppends` maps a ledger
   // file to the time the app last appended to it. An approval never covers a ledger file: only the
@@ -82,6 +92,6 @@ const Policy = (() => {
     });
   }
 
-  return { WRITE_PATHS, WRITE_TOOLS, verdict, writeVerdict, checkProblem, unapprovedChanges };
+  return { WRITE_PATHS, WRITE_TOOLS, verdict, writeVerdict, checkProblem, checkFailHint, unapprovedChanges };
 })();
 if (typeof module !== 'undefined') module.exports = Policy;
