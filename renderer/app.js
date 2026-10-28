@@ -1089,7 +1089,7 @@ async function freezeHandover(item) {
 async function freezeOnce(item) {
   const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: Work.reqs(item), decisions: A.decisions }) : null;
   if (item && scoped && !scoped.ready) { toast(`${item.id} is not ready: ${plural(scoped.clauses.length, 'blocking item')} touch its elements. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
-  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
+  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design, or freeze a work item, which is checked only against its own elements.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }, { label: 'Open Work', run: () => setActivity('work') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
   let st = await host.gitStatus();
   if (st.repo && !st.trusted) {
@@ -1521,7 +1521,7 @@ function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
-  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
+  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` + (g.ready ? '' : itemFreezeHint()) +
     gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
@@ -2136,6 +2136,7 @@ document.addEventListener('click', async e => {
   if (a === 'tour-done') return endTour();
   if (a === 'guide') return host.openGuide();
   if (a === 'freeze') return freezeHandover();
+  if (a === 'work') return setActivity('work');
   if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
   if (a === 'compilecontracts') return compileContracts();

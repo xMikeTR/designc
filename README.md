@@ -4,7 +4,7 @@ A system design IDE in which **the design is the source and code is a build outp
 
 The rule behind every feature: **probabilistic components propose; deterministic components and humans decide.** Agents (LLMs) can draft and suggest. Nothing they produce is written without a policy check and your explicit approval, and the gate that says "ready for handover" is plain code, not a model.
 
-New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthrough of designc and the S2 pipeline.
+New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthrough of designc and the S2 pipeline. Trying one module first? [docs/test-drive.md](docs/test-drive.md) takes it from code map to parity to a build without clearing the whole gate.
 
 ![Explorer](docs/explorer.png)
 
