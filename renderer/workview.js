@@ -141,6 +141,21 @@ function itemGate(it) {
   return Core.scopedGate(A.gate, { model: A.model, elements: it.elements || [], requirement: Work.reqs(it), decisions: A.decisions });
 }
 
+// Open repo items whose scoped gate is ready: they can be frozen while the whole gate still says no.
+function itemsReadyToFreeze() {
+  const st = workStates();
+  return (A.work || []).filter(it => st[it.id] !== 'done' && (it.elements || []).length && (itemGate(it) || {}).ready);
+}
+// Shown under a gate that is not ready: freezing one work item checks only its scope, which is how to try one piece.
+function itemFreezeHint() {
+  if (!A.work || !A.gate || A.gate.ready) return '';
+  const ready = itemsReadyToFreeze();
+  const text = ready.length
+    ? `${ready.map(it => it.id).slice(0, 3).join(', ')}${ready.length > 3 ? ` and ${ready.length - 3} more` : ''} can be frozen now: a work item is checked only against its own elements.`
+    : 'To try one piece before the whole gate is ready, freeze a work item: only the blocking items on its own elements count.';
+  return `<div class="hint">${esc(text)}</div><button class="btn block" data-a="work">${ready.length ? 'Open Work' : 'Go to Work'}</button>`;
+}
+
 function workSidebar() {
   if (!A.work) return '<div class="hint">Loading work items…</div>';
   const st = workStates(), n = s => A.work.filter(i => st[i.id] === s).length;
