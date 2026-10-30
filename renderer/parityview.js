@@ -1,8 +1,9 @@
 /* designc desktop: Parity (legacy UI parity). Classic script after workview.js, shares the renderer's global scope with
-   app.js. Read-only: scenarios, baselines and reports are written by scripts/parity-record.js outside the app, results
-   reach the ledger as parity_result, and the screenshots (parity/shots/<sha>.png, not in git) are shown only, never
-   compared. Every HTML string passes file and ledger content through esc(). */
-const PV = { sel: null, reports: {}, baselines: {}, shots: {} };
+   app.js. Baselines and reports are written by scripts/parity-record.js outside the app, results reach the ledger as
+   parity_result, and the screenshots (parity/shots/<sha>.png, not in git) are shown only, never compared. The buttons
+   type the recorder's line into the Terminal without Enter, like Dispatch; the app writes only a new scenario file and
+   the two URLs in designc.json. Every HTML string passes file and ledger content through esc(). */
+const PV = { sel: null, reports: {}, baselines: {}, shots: {}, tools: null };
 const PARITY_DIR = 'parity/scenarios';
 
 // The scenarios in parity/scenarios/. A file with no id is a problem, never named after its file (python/designc
@@ -61,12 +62,107 @@ function paritySidebar() {
   return section('parity', `Scenarios (${A.parity.length})`, rows + bad);
 }
 
+const parityUrl = side => ((A.cfg.parity || {})[side] || {}).baseUrl || '';
+const SIDE_NAME = { legacy: 'legacy app', next: 'new app' };
+
+// Whether this machine can record: the scripts, Playwright and Chromium, and the two URLs. Says what to do about each.
+function parityToolsHtml() {
+  const t = PV.tools;
+  if (!t) return '<div class="note">Checking this machine…</div>';
+  const url = side => `<div class="note">${esc(SIDE_NAME[side][0].toUpperCase() + SIDE_NAME[side].slice(1))}: ${parityUrl(side) ? esc(parityUrl(side)) : 'no URL yet'} <button class="lnk" data-pr="url" data-side="${side}">${parityUrl(side) ? 'Change' : 'Set URL'}</button></div>`;
+  const tool = !t.record ? '<div class="note" style="color:var(--err)">This installed designc does not include the recorder. Run designc from its source folder with npm start to record.</div>'
+    : !t.playwright ? '<div class="note" style="color:var(--err)">Playwright is not installed. Run npm install in the designc folder, then Check again. <button class="lnk" data-pr="recheck">Check again</button></div>'
+    : !t.chromium ? '<div class="note" style="color:var(--err)">Chromium is not installed. <button class="btn" data-pr="chromium">Install Chromium</button> <button class="lnk" data-pr="recheck">Check again</button></div>'
+    : '';
+  return tool + url('legacy') + url('next');
+}
+
+// The buttons for one scope: this scenario or all of them. Each types its line into the Terminal and stops before Enter.
+function parityButtons(scope, suffix) {
+  const off = PV.tools && PV.tools.record ? '' : 'disabled';
+  const scn = `data-scope="${esc(scope)}"`;
+  return `<button class="btn" data-pr="record" data-side="legacy" ${scn} ${off}>Record legacy${suffix}</button> <button class="btn" data-pr="record" data-side="next" ${scn} ${off}>Compare new app${suffix}</button>`;
+}
+
 function parityCommands(s) {
-  const reg = A.root ? A.root.root || '.' : '.';
-  const q = v => `'${String(v).replace(/'/g, `'\\''`)}'`;
-  const base = `node scripts/parity-record.js --registry ${q(reg)} --scenario ${q(s.id)}`;
-  return `<div class="note">Run these from the designc folder on a machine that reaches both apps. The recorder is read-only unless you say otherwise.</div>
-    <pre class="rvpre">${esc(`${base} --side legacy --base-url <legacy url>\n${base} --side next --base-url <new app url> --commit <sha> --item <work item> --ledger`)}</pre>`;
+  const off = PV.tools && PV.tools.record ? '' : 'disabled';
+  return `<div class="note">Each button types the command into the Terminal and stops. Read it, then press Enter. Both are read-only on the apps: committing clicks and requests that change data are blocked. Compare shows you the gaps and records nothing as evidence.</div>
+    ${parityToolsHtml()}
+    <p>${parityButtons(s.id, '')}</p>
+    <p>${parityButtons('all', ', all scenarios')}</p>
+    <p><button class="btn" data-pr="result" ${off}>Record result for Done</button> <span class="desc">Run this after the build is merged, on the merged commit.</span></p>
+    <p><button class="btn" data-pr="import" ${off}>Draft from legacy tests</button> <button class="btn" data-pr="new">New scenario</button></p>`;
+}
+
+// The page before any scenario exists: the whole path, then how to start it.
+function parityStartHtml() {
+  const off = PV.tools && PV.tools.import ? '' : 'disabled';
+  return `<div class="block"><h3>Start here</h3>
+      <ol class="pvsteps"><li>Add scenarios: the screens and clicks to replay.</li><li>Record legacy once. That is the baseline.</li><li>Compare the new app to see the gaps.</li><li>Sort the gaps against the requirements: a difference a requirement asks for gets an acceptance criterion or a bound business decision, and the rest gets built.</li><li>After the merge, record the result for Done.</li></ol>
+      ${parityToolsHtml()}
+      <p><button class="btn primary" data-pr="import" ${off}>Draft from legacy tests</button> <button class="btn" data-pr="new">New scenario</button></p>
+      <div class="note">A scenario looks like this:</div>
+      <pre class="rvpre">${esc('id: tags-list\ntitle: The tags list\nscreen: tags\nsteps:\n  - goto: { path: /tags }\n  - click: { role: button, name: Bulk apply }')}</pre></div>`;
+}
+
+// Saved in designc.json, so the recorder reads it and the person is asked once.
+async function setParityUrl(side) {
+  const url = await askText(`The ${SIDE_NAME[side]}'s address, for example https://app.example.com`, parityUrl(side));
+  if (url == null) return null;
+  const clean = url.trim();
+  if (!/^https?:\/\/\S+$/.test(clean)) { toast('That is not an address. Start it with https:// or http://.', 'warning'); return null; }
+  let cfg = {}; const t = await readText('designc.json');
+  if (t) { try { cfg = JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return null; } }
+  const parity = { ...(cfg.parity || {}), [side]: { ...((cfg.parity || {})[side] || {}), baseUrl: clean } };
+  await host.write('designc.json', JSON.stringify({ ...cfg, parity }, null, 2) + '\n');
+  A.cfg.parity = parity;
+  renderSpecial();
+  return clean;
+}
+
+const typeParity = line => {
+  if (line.error) { toast(line.error, 'error'); return; }
+  return typeInTerminal(line, 'the button');
+};
+
+async function recordParity(side, scope, extra = {}) {
+  const baseUrl = parityUrl(side) || await setParityUrl(side);
+  if (!baseUrl) return;
+  return typeParity(Dispatch.parityRecord({ script: PV.tools.record, registry: A.root.root, scenario: scope, side, ...extra }, A.platform));
+}
+
+// Evidence for a work item's parity entry: the comparison at the merged commit, recorded to the ledger.
+async function recordParityResult() {
+  const items = (A.work || []).filter(i => (i.done_when || []).some(e => e && e.parity !== undefined));
+  if (!items.length) { toast('No work item has a parity entry in done_when. Add one on the item first.', 'warning'); return; }
+  const item = items.length === 1 ? items[0] : await askChoice('Record the result for which work item?', items.map(i => ({ label: i.id, value: i })));
+  if (!item) return;
+  let head = {}; try { head = await host.workHead(item.repo || null); } catch { /* the person types the commit */ }
+  const commit = await askText(`Which merged commit is this result for? Use the same one you declare ${item.id} done at.`, head.commit || '');
+  if (!commit || !commit.trim()) return;
+  // Done stores the full hash and a result counts only at that exact commit, so a short hash is resolved here.
+  let full = {}; try { full = await host.workOnMain(item.repo || null, commit.trim()); } catch (err) { full = { error: err.message }; }
+  if (full.error || !full.commit) { toast(`Nothing was typed. ${full.error || 'That commit could not be checked.'}`, 'error'); return; }
+  return recordParity('next', 'all', { item: item.id, commit: full.commit });
+}
+
+async function draftParityScenarios() {
+  const refs = Dispatch.references(A.cfg.references);
+  const lg = refs && !refs.error ? Dispatch.legacy(refs.refs) : null;
+  const from = await askText('The folder holding the legacy app\'s Playwright tests', lg && lg.path ? dispatchAbs(lg.path) : '');
+  if (!from || !from.trim()) return;
+  return typeParity(Dispatch.parityImport({ script: PV.tools.import, registry: A.root.root, from: from.trim() }, A.platform));
+}
+
+async function newParityScenario() {
+  const id = await askText('A short name for the scenario, for example tags-list');
+  if (!id || !id.trim()) return;
+  const clean = id.trim();
+  if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(clean)) { toast('Use letters, digits, dots, dashes and underscores in the name.', 'warning'); return; }
+  const rel = `${PARITY_DIR}/${clean}.yaml`;
+  if (await host.exists(rel)) { toast(`${rel} already exists.`, 'warning'); return; }
+  await host.write(rel, `id: ${clean}\ntitle: ${clean}\nsteps:\n  - goto: { path: / }\n`);
+  openFile(rel);
 }
 
 function shotImg(sha, label) {
@@ -92,7 +188,8 @@ function renderParity() {
   if (!PV.sel || !(A.parity || []).some(s => s.id === PV.sel)) PV.sel = A.parity && A.parity.length ? A.parity[0].id : null;
   const s = (A.parity || []).find(x => x.id === PV.sel);
   const head = `<h1>Legacy parity</h1><p class="lede">The new app should look and behave like the legacy one, unless a requirement says otherwise. Each scenario is replayed on both; structure, interface text and the shape of data are compared, never the data. A pass is a work item's done_when entry (parity: &lt;id&gt; or all).</p>`;
-  if (!s) { el.innerHTML = `<div class="dash">${head}<div class="note">No scenarios in ${PARITY_DIR}/. Write one, or draft them from the legacy app's Playwright tests with scripts/parity-import.js.</div></div>`; return; }
+  if (!PV.tools) host.parityTools().then(t => { PV.tools = t; if (A.active === 'special:parity') renderSpecial(); }).catch(() => { PV.tools = {}; });
+  if (!s) { el.innerHTML = `<div class="dash">${head}${parityStartHtml()}</div>`; return; }
   const results = parityResults(s.id).slice(-8).reverse().map(r => `<tr><td>${outcomeTag(r.outcome)}</td><td class="code">${esc(c7(r.commit))}</td><td>${esc(r.item || '')}</td><td>${esc(when(r._ts))}</td><td>${(r.failures || []).slice(0, 3).map(f => esc(`step ${f.step}: ${f.msg}`)).join('<br>')}${(r.failures || []).length > 3 ? `<br><span class="desc">and ${(r.failures.length - 3)} more</span>` : ''}</td></tr>`).join('');
   el.innerHTML = `<div class="dash">${head}
     <div class="block"><h3>${esc(s.id)}${s.title ? ` · ${esc(s.title)}` : ''}<span class="spacer"></span><button class="btn" data-file="${esc(s._path)}">Open file</button></h3>
@@ -113,6 +210,19 @@ async function loadShots(el) {
     else img.replaceWith(Object.assign(document.createElement('div'), { className: 'desc', textContent: 'Not on this machine (shots are not in git).' }));
   }
 }
+
+// The recording buttons. Human only: no agent tool reaches them, and designc runs nothing. They only type a line.
+document.addEventListener('click', e => {
+  const t = e.target.closest('[data-pr]'); if (!t || t.disabled) return;
+  const act = t.dataset.pr;
+  if (act === 'record') recordParity(t.dataset.side, t.dataset.scope);
+  else if (act === 'result') recordParityResult();
+  else if (act === 'import') draftParityScenarios();
+  else if (act === 'new') newParityScenario();
+  else if (act === 'url') setParityUrl(t.dataset.side);
+  else if (act === 'chromium') typeInTerminal(`node ${A.platform === 'win32' ? `'${PV.tools.install.replace(/'/g, "''")}'` : `'${PV.tools.install.replace(/'/g, "'\\''")}'`} install chromium`, 'the button');
+  else if (act === 'recheck') { PV.tools = null; renderSpecial(); }
+});
 
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-pv]'); if (!t) return;

@@ -85,6 +85,31 @@ const Dispatch = (() => {
     return { path: l[0].path };
   }
 
-  return { VARS, settings, command, references, legacy };
+  // One line that runs a designc script, each value quoted for the shell, or `{error}` when a value is missing or spans lines.
+  function toolLine(script, args, platform) {
+    const quote = platform === 'win32' ? pwsh : posix;
+    const parts = ['node', script, ...args];
+    if (parts.some(p => p === null || p === undefined || p === '')) return { error: 'The command is missing a value.' };
+    if (parts.some(p => /[\r\n]/.test(String(p)))) return { error: 'A value spans more than one line, so it cannot be typed as one command.' };
+    return parts.map(p => (/^(node|--[a-z-]+)$/.test(String(p)) ? String(p) : quote(String(p)))).join(' ');
+  }
+
+  // The parity recorder's line (docs/parity-contract.md). It never carries --allow-writes or --allow-request: those stay
+  // something a person adds by hand. A commit makes it evidence for Done, so it records to the ledger with its item.
+  function parityRecord({ script, registry, scenario, side, baseUrl, commit, item }, platform) {
+    if (side !== 'legacy' && side !== 'next') return { error: 'The side is legacy or next.' };
+    if (commit && (side !== 'next' || !item)) return { error: 'Recording a result for Done needs the new app and a work item.' };
+    const args = ['--registry', registry, '--scenario', scenario, '--side', side];
+    if (baseUrl) args.push('--base-url', baseUrl);
+    if (commit) args.push('--ledger', '--item', item, '--commit', commit);
+    return toolLine(script, args, platform);
+  }
+
+  // Drafts scenarios from the legacy app's Playwright tests; the script never overwrites a scenario that exists.
+  function parityImport({ script, registry, from }, platform) {
+    return toolLine(script, ['--from', from, '--registry', registry, '--write'], platform);
+  }
+
+  return { VARS, settings, command, references, legacy, parityRecord, parityImport };
 })();
 if (typeof module !== 'undefined') module.exports = Dispatch;

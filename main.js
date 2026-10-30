@@ -183,6 +183,19 @@ handle('parity:shot', async sha => {
   if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) return null;
   try { return `data:image/png;base64,${(await fsp.readFile(inside(`parity/shots/${sha}.png`))).toString('base64')}`; } catch { return null; }
 });
+// What the Parity view's buttons need on this machine, read-only. The recorder and Playwright are not in an installer,
+// so `record` is null there and the view says to run from source. Paths only; nothing is started.
+handle('parity:tools', async () => {
+  const script = name => { const f = path.join(__dirname, 'scripts', name); return !app.isPackaged && fs.existsSync(f) ? f : null; };
+  const out = { record: script('parity-record.js'), import: script('parity-import.js'), playwright: false, chromium: false, install: null };
+  try {
+    const { chromium } = require('playwright-core');
+    out.playwright = true;
+    out.chromium = fs.existsSync(chromium.executablePath());
+    out.install = path.join(path.dirname(require.resolve('playwright-core/package.json')), 'cli.js');
+  } catch { /* not installed: the view says to run npm install */ }
+  return out;
+});
 // Deleting is a person's action from the Explorer; no agent tool reaches it. The ledger is append-only and handovers are frozen.
 handle('fs:remove', async rel => {
   const abs = inside(rel), r = toRel(abs);

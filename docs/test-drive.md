@@ -33,20 +33,14 @@ the handover passes it to the coding agent as fact.
 
 ## 3. Parity scenarios and the legacy baseline
 
-1. Draft scenarios from the legacy app's Playwright tests, or write them by hand (`docs/parity-contract.md`):
+Open **Parity**. Its buttons type each command into the Terminal and stop, so you read it and press Enter.
+The recorder needs designc running from source, not an installer.
 
-   ```
-   node scripts/parity-import.js --from <legacy tests folder> --registry <registry>          # report only
-   node scripts/parity-import.js --from <legacy tests folder> --registry <registry> --write  # create drafts
-   ```
-
-2. Record the legacy baseline. This is read-only by default, so committing clicks and non-GET requests are
-   blocked:
-
-   ```
-   node scripts/parity-record.js --registry <registry> --scenario all --side legacy --base-url <legacy url>
-   ```
-
+1. **Draft from legacy tests**, or **New scenario** to write one by hand (`docs/parity-contract.md`).
+2. **Record legacy, all scenarios**. This is read-only, so committing clicks and non-GET requests are blocked.
+   It asks for the address the first time.
+   Start legacy with sign-in off first (mock mode): the recorder does not sign in, and stops at a login wall without writing a baseline.
+   See "Recording legacy parity" in the README.
 3. **Parity** lists each scenario and shows whether it has a baseline.
 
 ## 4. Work item and freeze
@@ -70,12 +64,7 @@ the handover passes it to the coding agent as fact.
 
 1. **Build it** (or **Dispatch**) on the card types the `dispatch` command from `designc.json` into the
    Terminal with the handover filled in. It doesn't press Enter: read the line, then run it.
-2. When the build is merged, compare the new app and record the result at that commit:
-
-   ```
-   node scripts/parity-record.js --registry <registry> --scenario all --side next --base-url <new url> \
-     --ledger --item <item id> --commit <merged sha>
-   ```
+2. When the build is merged, press **Record result for Done** in **Parity** and give it the merged commit.
 
 3. **Run gates**, then **Done** on the card. Done needs a passing gate at a commit on main and a
    `parity_result` of `pass` for every scenario at that commit.

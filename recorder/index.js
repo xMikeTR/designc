@@ -4,7 +4,7 @@
 // raw tree; normalising and diffing are renderer/parity.js's job, so a capture stays as the adapter saw it.
 //
 // Adapter: { name, open({params}) -> session }
-// Session: { act(step) -> {ok: true} | {missing: reason}, capture() -> {tree, viewport, url?}, screenshot() -> Buffer | null, close() }
+// Session: { act(step) -> {ok: true} | {missing: reason} | {wall: reason}, capture() -> {tree, viewport, url?}, screenshot() -> Buffer | null, close() }
 // Raw tree node: { role, name, value?, testId?, disabled?, box: {x, y, w, h} | null, children[] }
 const crypto = require('crypto');
 const Parity = require('../renderer/parity.js');
@@ -36,7 +36,8 @@ function resolve(step, params) {
 
 const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 
-// {scenario, side, adapter, steps: [{n, action, args, status: ok | could_not_run | error, reason?, capture?, shot?}], shots}
+// {scenario, side, adapter, steps: [{n, action, args, status: ok | could_not_run | error, reason?, capture?, shot?}], shots, wall?}
+// A login wall is could not run and sets wall, because what the step shows is not the app: nothing of it is captured.
 // A click that would commit is blocked unless allowWrites, and the steps after it could not run.
 // A step that cannot run on this side (its element or param is missing) is could_not_run, not a failure, and every
 // later step is too, because the screen is no longer the one the scenario expects. shots maps sha256 to the image bytes.
@@ -65,6 +66,7 @@ async function record({ scenario, side, adapter, params = {}, screenshots = true
       try { res = await session.act({ [r.action]: r.args }); }
       catch (e) { row.status = 'error'; row.reason = e.message; stopped = row.n; continue; }
       if (res && res.missing) { row.status = 'could_not_run'; row.reason = res.missing; stopped = row.n; continue; }
+      if (res && res.wall) { row.status = 'could_not_run'; row.reason = `login wall: ${res.wall}`; out.wall = res.wall; stopped = row.n; continue; }
       row.status = 'ok';
       row.capture = await session.capture();
       if (screenshots) {

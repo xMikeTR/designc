@@ -26,7 +26,7 @@ test('validate: parity only on a repo item, a known scenario when the ids are gi
 test('every scenario must pass at the done commit; all means every id', () => {
   assert.deepEqual(done(item(), [res('a', 'pass'), res('b', 'pass')]), []);
   const p = done(item(), [res('a', 'pass')]);
-  assert.deepEqual(p, ['Parity b has no result at 3f2a9c1. Record it with scripts/parity-record.js --side next --commit 3f2a9c1 --ledger.']);
+  assert.deepEqual(p, [`Parity b has no result at 3f2a9c1. Press Record result for Done in Parity and give it ${C1}.`]);
   assert.deepEqual(done(item('a'), [res('a', 'pass')]), [], 'one id asks for that scenario only');
   assert.match(done(item(), [res('a', 'pass'), res('b', 'pass', { commit: C2 })])[0], /Parity b has no result at 3f2a9c1/, 'another commit does not count');
 });
