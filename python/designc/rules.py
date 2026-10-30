@@ -154,6 +154,12 @@ def zone(m, eid):
 def structural(m, r): return m.is_ancestor(r.src, r.dst) or m.is_ancestor(r.dst, r.src)
 
 
+# Two components of the same container run in one process: they are up or down together.
+def in_process(m, r):
+    a, b = m.elements[r.src], m.elements[r.dst]
+    return a.kind == 'component' and b.kind == 'component' and a.parent == b.parent
+
+
 def num(n):
     """A number the way JavaScript writes it in a template string."""
     return str(int(n)) if isinstance(n, float) and n.is_integer() else str(n)
@@ -212,7 +218,7 @@ def dc002(m, o):
 
 
 def dc003(m, o):
-    rels = [r for r in m.rels if not (interaction(r) == 'async' or structural(m, r) or m.elements[r.src].kind == 'person')]
+    rels = [r for r in m.rels if not (interaction(r) == 'async' or structural(m, r) or in_process(m, r) or m.elements[r.src].kind == 'person')]
     # Elements that call each other in a cycle are one strongly connected component, reported once.
     order, out0 = [], {}
     for r in rels:

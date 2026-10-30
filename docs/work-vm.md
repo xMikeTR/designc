@@ -1,5 +1,7 @@
 # Taking designc, S2 and M to the work VM
 
+First run on a real codebase: follow [test-drive.md](test-drive.md) once you are set up.
+
 Read this on the VM. The work VM has no Anthropic key: models come through Vertex AI with
 gcloud Application Default Credentials (ADC). Nothing here needs a key in a file.
 

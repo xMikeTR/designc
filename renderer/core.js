@@ -344,6 +344,8 @@ const Core = (() => {
   const isStore = e => (e.props['d.store'] != null ? get(e, 'd.store') === 'yes' : e.tags.has('Database'));
   function zone(m, id) { let c = m.elements.get(id); while (c) { const z = get(c, 'd.zone'); if (z) return z; c = c.parent ? m.elements.get(c.parent) : null; } return null; }
   const structural = (m, r) => m.isAncestor(r.src, r.dst) || m.isAncestor(r.dst, r.src);
+  // Two components of the same container run in one process: they are up or down together.
+  const inProcess = (m, r) => { const a = m.elements.get(r.src), b = m.elements.get(r.dst); return a.kind === 'component' && b.kind === 'component' && a.parent === b.parent; };
 
   // ---------- timing and retry amplification (slice 16) ----------
   // Sync calls only (async, structural pairs and calls from a person are out). A timeout bounds the wait, so a
@@ -458,9 +460,9 @@ const Core = (() => {
         return out;
       } },
     { code: 'DC003', title: 'Compound availability', source: 'concept note (not yet incident-backed)',
-      doc: 'A long synchronous chain is only as available as the product of every hop. Undeclared interactions count as sync.',
+      doc: 'A long synchronous chain is only as available as the product of every hop. Undeclared interactions count as sync. A call between two components of one container stays in one process, so it is not a hop.',
       fn(m, o) {
-        const rels = m.rels.filter(r => !(interaction(r) === 'async' || structural(m, r) || m.elements.get(r.src).kind === 'person'));
+        const rels = m.rels.filter(r => !(interaction(r) === 'async' || structural(m, r) || inProcess(m, r) || m.elements.get(r.src).kind === 'person'));
         // Elements that call each other in a cycle are one strongly connected component, reported once, not once per way through it.
         const order = [], out0 = new Map();
         for (const r of rels) { for (const n of [r.src, r.dst]) if (!out0.has(n)) { out0.set(n, []); order.push(n); } out0.get(r.src).push(r.dst); }
@@ -677,6 +679,19 @@ const Core = (() => {
     return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
+  // Why binding a technical decision would leave the gate as it is: names in binds that are not elements, and, for an
+  // accept or build decision, no finding it answers (resolves names no code, or no live finding has that code on a bound
+  // element). Shown before the bind is confirmed; never a gate clause. Business decisions bind a requirement, not elements.
+  function bindProblems(dec, model, diags) {
+    if (dec.kind === 'business') return [];
+    const arr = v => (Array.isArray(v) ? v : []), names = new Set([...model.elements.values()].map(e => e.name));
+    const out = arr(dec.binds).filter(b => !names.has(b)).map(b => `binds "${b}", which is not an element name in the model`);
+    if (dec.effect !== 'accept' && dec.effect !== 'build') return out;
+    if (!arr(dec.resolves).length) return [...out, 'resolves lists no finding code, so it answers no finding'];
+    const live = diags.filter(f => !f.suppressed && f.sev !== 'note');
+    if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
+    return out;
+  }
   function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
@@ -699,6 +714,7 @@ const Core = (() => {
     for (const dec of decisions) {
       const kind = dec.kind == null ? 'technical' : dec.kind;
       if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
+      if (dec.status === 'superseded') continue;
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
       assumptionClauses(dec, today, clauses);
@@ -880,18 +896,22 @@ const Core = (() => {
   // binds an in-scope element; a requirement clause when it is one of the item's requirements (one id or a list); any other clause when its
   // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.
   // `elements` are element names; the hierarchical label of each also matches (a needs-decision names either).
+  // A warning on an in-scope element does not block an item: it often only says a property is undeclared. It comes back
+  // as `warnings` for the person to check. Errors still block, and the whole gate still counts both.
   function scopedGate(g, { model, elements = [], requirement = null, decisions = [] }) {
     const inScope = new Set(elements);
     for (const e of model.elements.values()) if (inScope.has(e.name)) inScope.add(model.label(e.id));
     const touches = names => names.some(n => inScope.has(n));
     const wanted = [].concat(requirement);
-    const clauses = g.clauses.filter(c => {
+    const kept = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
       if (c.kind === 'requirement') return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });
-    return { ready: clauses.length === 0, clauses, scoped: true, outside: g.clauses.length - clauses.length };
+    const isWarning = c => c.kind === 'finding' && c.finding && c.finding.sev === 'warning';
+    const clauses = kept.filter(c => !isWarning(c));
+    return { ready: clauses.length === 0, clauses, warnings: kept.filter(isWarning), scoped: true, outside: g.clauses.length - kept.length };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
   // Bound by one of designc.json businessOwners, the bind itself is the record, so no link is needed.
@@ -1044,7 +1064,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, RATINGS }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, RATINGS }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
