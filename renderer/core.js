@@ -714,6 +714,7 @@ const Core = (() => {
     for (const dec of decisions) {
       const kind = dec.kind == null ? 'technical' : dec.kind;
       if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
+      if (dec.status === 'superseded') continue;
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
       assumptionClauses(dec, today, clauses);
@@ -895,18 +896,22 @@ const Core = (() => {
   // binds an in-scope element; a requirement clause when it is one of the item's requirements (one id or a list); any other clause when its
   // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.
   // `elements` are element names; the hierarchical label of each also matches (a needs-decision names either).
+  // A warning on an in-scope element does not block an item: it often only says a property is undeclared. It comes back
+  // as `warnings` for the person to check. Errors still block, and the whole gate still counts both.
   function scopedGate(g, { model, elements = [], requirement = null, decisions = [] }) {
     const inScope = new Set(elements);
     for (const e of model.elements.values()) if (inScope.has(e.name)) inScope.add(model.label(e.id));
     const touches = names => names.some(n => inScope.has(n));
     const wanted = [].concat(requirement);
-    const clauses = g.clauses.filter(c => {
+    const kept = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
       if (c.kind === 'requirement') return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });
-    return { ready: clauses.length === 0, clauses, scoped: true, outside: g.clauses.length - clauses.length };
+    const isWarning = c => c.kind === 'finding' && c.finding && c.finding.sev === 'warning';
+    const clauses = kept.filter(c => !isWarning(c));
+    return { ready: clauses.length === 0, clauses, warnings: kept.filter(isWarning), scoped: true, outside: g.clauses.length - kept.length };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
   // Bound by one of designc.json businessOwners, the bind itself is the record, so no link is needed.

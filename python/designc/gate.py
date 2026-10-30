@@ -264,7 +264,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     for f in diags:
         if f['suppressed'] or f['sev'] == 'note': continue
         if any(covers(d, f) for d in bound): continue
-        clauses.append({'kind': 'finding', 'text': f"{f['code']} on {f['loc']['label']} is neither fixed nor accepted",
+        clauses.append({'kind': 'finding', 'sev': f['sev'], 'text': f"{f['code']} on {f['loc']['label']} is neither fixed nor accepted",
                         'about': list(f['loc']['names']) + [n for r in f.get('related') or [] for n in r.get('names', [])]})
     bound_business = {d['id'] for d in decisions if d.get('status') == 'bound' and d.get('kind') == 'business'}
     for dec in decisions:
@@ -273,6 +273,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             kind = 'technical' if dec.get('kind') is None else dec['kind']
             if kind not in ('business', 'technical'):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} has kind {_s(kind)}, expected business or technical"})
+            if dec.get('status') == 'superseded': continue
             if dec.get('status') != 'bound':
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} is {dec.get('status') or 'minted'}, not bound"}); continue
             business = kind == 'business'
@@ -356,7 +357,8 @@ def domain_clauses(model, ledger, domains):
 def scoped_gate(g, model, elements, requirement, decisions):
     """The gate as one work item sees it (Core.scopedGate): model-wide clauses always count, a decision clause
     when the decision binds an in-scope element, a requirement clause when it is one of the item's requirements (one id or a list), any
-    other clause when `about` names one. A clause that names nothing counts."""
+    other clause when `about` names one. A clause that names nothing counts. A warning on an in-scope element does not
+    block: it comes back as `warnings`."""
     scope = set(elements)
     for e in model.elements.values():
         if e.name in scope: scope.add(model.label(e.id))
@@ -372,7 +374,9 @@ def scoped_gate(g, model, elements, requirement, decisions):
             ok = d is None or touches(d.get('binds') or [])
         else: ok = touches(c['about']) if c.get('about') else True
         if ok: keep.append(c)
-    return {'ready': not keep, 'clauses': keep, 'scoped': True, 'outside': len(g['clauses']) - len(keep)}
+    warnings = [c for c in keep if c['kind'] == 'finding' and c.get('sev') == 'warning']
+    blocking = [c for c in keep if c not in warnings]
+    return {'ready': not blocking, 'clauses': blocking, 'warnings': warnings, 'scoped': True, 'outside': len(g['clauses']) - len(keep)}
 
 
 # ---------- agent evals (Core.evalReport, Core.evalClauses) ----------

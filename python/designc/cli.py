@@ -129,10 +129,12 @@ def main(argv):
         reg = load_registry(root)
         s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], work.reqs(it), reg['decisions'])}
         r = report_of(s)
-        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside']}, ensure_ascii=False, indent=2))
+        warned = [c['text'] for c in s['gate']['warnings']]
+        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside'], 'warnings': warned}, ensure_ascii=False, indent=2))
         else:
             print(f"Gate for work item {args.item} ({s['gate']['outside']} clause{'' if s['gate']['outside'] == 1 else 's'} outside its elements not counted)")
             print(render(r))
+            if warned: print(f"{len(warned)} warning{'' if len(warned) == 1 else 's'} on its elements to check, not blocking.")
         return 0 if r['gate']['ready'] else 1
     r = report_of(s)
     note = sys.stderr if args.json else sys.stdout

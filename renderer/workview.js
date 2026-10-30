@@ -136,6 +136,12 @@ async function refreshRecheck() {
 }
 
 // The gate as this item sees it, or null when the item cannot be judged yet (no gate, not a repo item, problems in its file).
+// Warnings on an item's elements: for the person to check, they do not block the freeze.
+function itemWarningsHtml(sg) {
+  if (!sg.warnings.length) return '';
+  return `<div class="note"><b>${plural(sg.warnings.length, 'warning')} to check, not blocking.</b><ul>${sg.warnings.slice(0, 6).map(c => `<li>${esc(`${c.finding.code} on ${c.finding.loc.label}: ${c.finding.msg}`)}</li>`).join('')}</ul>${sg.warnings.length > 6 ? `and ${sg.warnings.length - 6} more. ` : ''}<button class="btn" data-work="gate">Show gate</button></div>`;
+}
+
 function itemGate(it) {
   if (!A.gate || !A.model || !Work.isRepo(it)) return null;
   return Core.scopedGate(A.gate, { model: A.model, elements: it.elements || [], requirement: Work.reqs(it), decisions: A.decisions });
@@ -231,6 +237,7 @@ function workItemHtml(it, st, active) {
     ${sg && state !== 'done' ? (sg.ready
       ? `<div class="note">Gate for this item: ready.${sg.outside ? ` ${plural(sg.outside, 'blocking clause')} elsewhere in the design ${sg.outside === 1 ? 'does' : 'do'} not touch it.` : ''}</div>`
       : `<div class="note" style="color:var(--warn)"><b>Gate for this item: ${plural(sg.clauses.length, 'blocking clause')}.</b><ul>${sg.clauses.slice(0, 6).map(c => `<li>${esc(c.text)}</li>`).join('')}</ul>${sg.clauses.length > 6 ? `and ${sg.clauses.length - 6} more. ` : ''}<button class="btn" data-work="gate">Show gate</button></div>`) : ''}
+    ${sg && state !== 'done' ? itemWarningsHtml(sg) : ''}
     ${clashes.map(c => `<div class="note" style="color:var(--warn)">Conflicts with ${esc(c.with)}: ${esc(c.detail)}</div>`).join('')}
     ${deps.map(d => `<div class="note" style="color:var(--warn)">Depends on ${esc(d)}, which is not done.</div>`).join('')}
     ${refused.length ? `<div class="note" style="color:var(--err)"><b>Not done yet:</b><ul>${refused.map(m => `<li>${esc(m)}</li>`).join('')}</ul></div>` : ''}
