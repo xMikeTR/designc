@@ -89,6 +89,20 @@ test('user can extract the code map @critical', async () => {
   await expect(page.locator('#special svg text', { hasText: 'Pricing.Api' }).first()).toBeVisible();
 });
 
+test('user can remove a requirement and a bound decision made by mistake', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/FAKE-1.yaml'), 'id: FAKE-1\ntitle: Made by mistake\nversion: 1\nelements: []\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design' }).click();
+  const sidebar = page.locator('#sbBody');
+  await sidebar.locator('.item', { hasText: 'FAKE-1' }).getByRole('button', { name: 'Delete' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'requirements/FAKE-1.yaml'))).toBe(false);
+  await sidebar.getByRole('button', { name: 'Bind', exact: true }).first().click();
+  await sidebar.getByRole('button', { name: 'Supersede', exact: true }).first().click();
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0001.yaml'), 'utf8')).toMatch(/^status: superseded/m);
+});
+
 test('user can track a work item @critical', async () => {
   const { execFileSync } = require('child_process');
   const { reg, dir } = copyRegistry('e2e/fixtures/ready-registry');

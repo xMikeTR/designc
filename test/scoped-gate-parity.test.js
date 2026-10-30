@@ -83,3 +83,23 @@ test('check --item refuses an item that is not a repo item', { skip }, () => {
   assert.equal(r.status, 2);
   assert.match(r.stderr, /no repo work item nope/);
 });
+
+test('warnings on an item\'s elements do not block, in Python too; errors do', { skip }, () => {
+  const withRel = rel => `workspace "Q" {\n  model {\n    s = softwareSystem "Quotes" {\n      api = container "Quotes API"\n      bus = container "Bus"\n    }\n    api -> bus "sends" { properties {\n      d.interaction async\n      d.delivery \"at-least-once\"${rel} } }\n  }\n}\n`;
+  for (const [idem, ready] of [['\n      d.idempotent no', false], ['', true]]) {
+    const dsl = withRel(idem);
+    const model = Core.parse(dsl), diags = Core.check(model, {});
+    const g = Core.gate({ model, diags, decisions: [], requirements: [], ledger: [] });
+    const js = Core.scopedGate(g, { model, elements: ['Quotes API', 'Bus'], requirement: 'R-1', decisions: [] });
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
+    put(root, 'designc.json', '{}');
+    put(root, 'model/workspace.dsl', dsl);
+    put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quotes API, Bus]\n');
+    put(root, 'work/W-1.yaml', 'id: W-1\nrequirement: R-1\nelements: [Quotes API, Bus]\ndone_when:\n  - gate: x\n');
+    const py = JSON.parse(spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-1', '--json'], { cwd: PY, encoding: 'utf8' }).stdout);
+    assert.equal(js.ready, ready, JSON.stringify(js.clauses.map(c => c.text)));
+    assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
+    assert.deepEqual(py.warnings, js.warnings.map(c => c.text));
+    assert.equal(js.warnings.length, ready ? 1 : 0, 'the undeclared case warns, the declared no is an error');
+  }
+});

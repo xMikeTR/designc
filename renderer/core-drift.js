@@ -152,5 +152,27 @@
     return { toDesign, toBuilt, relStatus, undeclared, unrealised, unknownEls, missingEls, neutral, scored, adoptable };
   }
 
-  Object.assign(Core, { drift, driftModels, driftComponents, codeAreaDrift, intentDrift, resolveElement });
+  // A finding raised only by what the code map wrote: every element and relationship it points at has an as-built twin
+  // (same normalised names) carrying exactly the same d.* properties, so nobody has declared anything there yet. Where the
+  // code lives and what else it is called (d.code, d.risk, d.aka) say nothing about behaviour and are left out. Display
+  // only: it tells the person the finding is about the extractor's defaults, not about a choice they made.
+  const IDENTITY = new Set(['d.code', 'd.risk', 'd.aka']);
+  function fromExtraction(f, design, built) {
+    if (!f || !f.loc || !design || !built) return false;
+    const props = x => JSON.stringify(Object.keys(x.props || {}).filter(k => k.startsWith('d.') && !IDENTITY.has(k)).sort().map(k => [k, x.props[k]]));
+    const twins = new Map();
+    for (const e of built.elements.values()) if (!twins.has(key(e.name))) twins.set(key(e.name), e);
+    const sameEl = e => { const b = e && twins.get(key(e.name)); return !!b && props(e) === props(b); };
+    const sameRel = r => {
+      const s = twins.get(key(design.elements.get(r.src).name)), d = twins.get(key(design.elements.get(r.dst).name));
+      return !!s && !!d && sameEl(design.elements.get(r.src)) && sameEl(design.elements.get(r.dst)) && built.rels.some(b => b.src === s.id && b.dst === d.id && props(b) === props(r));
+    };
+    return [f.loc, ...(f.related || [])].every(l => {
+      if (l.kind === 'relationship') { const r = design.rels.find(x => x.id === l.id); return !!r && sameRel(r); }
+      if (l.kind === 'element') return sameEl(design.elements.get(l.id));
+      return false;
+    });
+  }
+
+  Object.assign(Core, { drift, driftModels, driftComponents, codeAreaDrift, intentDrift, resolveElement, fromExtraction });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

@@ -809,10 +809,10 @@ async function buildIt(f) {
 // A proposal made by mistake can go while nobody has acted on it; a bound, rejected or superseded one stays as the record.
 const propDeletable = p => !!p._path && ['minted', 'checked', undefined].includes(p.status);
 // Human only, from the Explorer, the Decisions list and the Proposals lists. The ledger and handovers are refused by the main process as well.
-async function deleteFile(path) {
+async function deleteFile(path, note = '') {
   if (/^(ledger|handovers)\//.test(path)) { toast(`${path} cannot be deleted: the ledger is append-only and handovers are frozen.`, 'warning'); return; }
   const b = A.buffers.get(path);
-  if (!confirm(`Delete ${path}?${b && b.dirty ? ' It has unsaved changes.' : ''} Git history keeps it if it was committed.`)) return;
+  if (!confirm(`Delete ${path}?${b && b.dirty ? ' It has unsaved changes.' : ''} Git history keeps it if it was committed.${note}`)) return;
   if (typeof AG !== 'undefined') AG.approved.set(path, Date.now() + 2000);
   try { await host.remove(path); } catch (err) { toast(`${path} was not deleted: ${err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, 'error'); return; }
   if (b) { b.model.dispose(); A.buffers.delete(path); }
@@ -820,6 +820,20 @@ async function deleteFile(path) {
   A.tree = await host.tree();
   if (path === A.cfg.model) await loadModel(); else await loadRegistry();
   recompile(); renderAll({ keepEditor: A.active !== null }); toast(`Deleted ${path}.`);
+}
+// What still names a requirement, so its Delete confirmation can say what will start complaining. Handovers keep their own copy.
+function deleteRequirement(r) {
+  const uses = [...(A.work || []).filter(w => Work.reqs(w).includes(r.id)).map(w => `work item ${w.id}`),
+    ...A.decisions.filter(d => d.requirement === r.id).map(d => `decision ${d.id}`),
+    ...(A.acceptance || []).filter(c => c.requirement === r.id).map(c => `acceptance criterion ${c.id}`)];
+  return deleteFile(r._path, uses.length ? `\n\nStill named by ${uses.join(', ')}. ${uses.length === 1 ? 'It' : 'They'} will report a missing requirement until changed.` : '');
+}
+// Human only, like bindDecision: a bound decision made by mistake stops counting, and its file stays as the record.
+async function supersedeDecision(d) {
+  const relying = A.decisions.filter(x => (x.relies_on || []).includes(d.id)).map(x => x.id);
+  if (!confirm(`Supersede ${d.id}? It stops counting in the gate, and anything it answered counts as unanswered again.${relying.length ? `\n\n${relying.join(', ')} ${relying.length === 1 ? 'relies' : 'rely'} on it and will block until changed.` : ''}`)) return;
+  await editYaml(d._path, t => setField(t, 'status', 'superseded     # minted | checked | bound | superseded'));
+  await loadRegistry(); recompile(); renderAll({ keepEditor: true }); toast(`${d.id} is superseded.`);
 }
 async function newRequirement() {
   const id = (await askText('Jira key for the requirement', 'HRE-')) || ''; if (!id.trim() || id.trim() === 'HRE-') return;
@@ -1034,7 +1048,9 @@ async function chooseRequirement(d) {
   return A.requirements.find(r => r.id === id) || null;
 }
 async function bindDecision(d, { confirmed = false } = {}) {
-  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
+  const probs = Core.bindProblems(d, A.model, A.diags);
+  const warn = probs.length ? `\n\nThis will not clear anything in the gate:\n- ${probs.join('\n- ')}\n\nFix the decision file first, or bind it anyway.` : '';
+  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.${warn}`)) return;
   let against;
   if (d.kind === 'business') {
     let req = A.requirements.find(r => r.id === d.requirement);
@@ -1087,7 +1103,7 @@ async function freezeHandover(item) {
 async function freezeOnce(item) {
   const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: Work.reqs(item), decisions: A.decisions }) : null;
   if (item && scoped && !scoped.ready) { toast(`${item.id} is not ready: ${plural(scoped.clauses.length, 'blocking item')} touch its elements. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
-  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
+  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design, or freeze a work item, which is checked only against its own elements.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }, { label: 'Open Work', run: () => setActivity('work') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
   let st = await host.gitStatus();
   if (st.repo && !st.trusted) {
@@ -1146,7 +1162,7 @@ async function freezeOnce(item) {
   // Named in the confirmation, not checked: a missing folder never refuses a freeze.
   const refNote = refs && refs.refs.length ? `\n\nRead-only references named in it (paths stay on this machine): ${refs.refs.map(r => `${r.key} (${r.kind}) at ${r.path}`).join('; ')}. designc does not check that they exist.` : '';
   const ask = (item
-    ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.`
+    ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
   if (!confirm(ask)) return;
   for (const f of plan.files) await host.write(f.path, f.text);
@@ -1188,7 +1204,8 @@ async function runChecks(list) {
         if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return; }
         const ok = r.code === 0; pass = pass && ok; ran++;
         appendOutput(`${ok ? '✓ passed' : `✗ failed (exit ${r.code})`} in ${(r.ms / 1000).toFixed(1)}s\n`);
-        if (r.code === 127) appendOutput(`The shell could not find the program "${String(cmd).trim().split(/\s+/)[0]}". A check runs as a command in ${A.root.name}; check the name and that it is on PATH.\n`);
+        const hint = ok ? null : Policy.checkFailHint(cmd, r.code, A.platform);
+        if (hint) appendOutput(`${hint} A check runs as a command in ${A.root.name}.\n`);
         await recordEvent('check', { decision: d.id, check: cmd, outcome: ok ? 'pass' : 'fail', source: 'local', ms: r.ms, exit_code: r.code });
       }
       appendOutput(ran ? `${pass ? '●' : '○'} ${d.id} ${pass ? 'passing' : 'failing'}\n` : `○ ${d.id} not checked: no check is a command yet\n`);
@@ -1514,20 +1531,23 @@ async function suggestCodeAreas() {
   await host.write(A.cfg.model, r.text); await loadModel(); recompile(); await openFile(A.cfg.model); renderAll();
   toast(`Added ${plural(r.areas.length, 'code area')}. Review them in the model before you freeze.`);
 }
+// Label for a finding raised only by what the code map wrote into the model (Core.fromExtraction). Display only.
+const EXTRACTED_TITLE = 'Everything this finding looks at is exactly what the code map extracted: nobody has declared anything here yet. Declare what is true (for example d.interaction or d.availability), or accept it.';
+const extractedTag = f => (Core.fromExtraction(f, A.model, A.asbuiltFull) ? ` <span class="tag" title="${esc(EXTRACTED_TITLE)}">from code map</span>` : '');
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
-  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
+  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` + (g.ready ? '' : itemFreezeHint()) +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
-      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}</div></div>`).join('')
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -1638,7 +1658,7 @@ function renderPanel() {
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
   const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line })),
-    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0] }))];
+    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
   if (mrows.length) groups.push([A.cfg.model, mrows]);
   const byPath = new Map();
   for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
@@ -1653,7 +1673,7 @@ function renderPanel() {
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
       ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
@@ -2061,6 +2081,8 @@ document.addEventListener('click', async e => {
   if (d.toggle && !e.target.closest('.acts')) { A.collapsed.has(d.toggle) ? A.collapsed.delete(d.toggle) : A.collapsed.add(d.toggle); renderSidebar(); return; }
   if (d.dir) { A.expanded.has(d.dir) ? A.expanded.delete(d.dir) : A.expanded.add(d.dir); renderSidebar(); return; }
   if (d.delfile) { e.stopPropagation(); return deleteFile(d.delfile); }
+  if (d.delreq) { e.stopPropagation(); return deleteRequirement(A.requirements.find(r => r.id === d.delreq)); }
+  if (d.supersede) { e.stopPropagation(); return supersedeDecision(A.decisions.find(x => x.id === d.supersede)); }
   if (d.file) return openFile(d.file);
   if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
   if (d.fixfi) { e.stopPropagation(); return decisionForFinding(A.diags[+d.fixfi]); }
@@ -2133,6 +2155,7 @@ document.addEventListener('click', async e => {
   if (a === 'tour-done') return endTour();
   if (a === 'guide') return host.openGuide();
   if (a === 'freeze') return freezeHandover();
+  if (a === 'work') return setActivity('work');
   if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
   if (a === 'compilecontracts') return compileContracts();

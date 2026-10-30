@@ -151,3 +151,12 @@ test('no role may write domain/: a pack is pinned by a person from its registry'
   assert.equal(/domain\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
   for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'domain/pricing.yaml', 'id: pricing\n').ok, false, role);
 });
+
+test('checkFailHint names what the shell got wrong, not the decision', () => {
+  assert.match(Policy.checkFailHint('./checks/in-process-only.sh', 1, 'win32'), /cmd\.exe.*"bash checks\/in-process-only\.sh"/);
+  assert.match(Policy.checkFailHint('checks\\x.sh --fast', 9009, 'win32'), /"bash checks\\x\.sh"/);
+  assert.match(Policy.checkFailHint('pcheck -tc t', 9009, 'win32'), /could not find the program "pcheck"/);
+  assert.match(Policy.checkFailHint('pcheck -tc t', 127, 'linux'), /could not find the program "pcheck"/);
+  assert.equal(Policy.checkFailHint('./checks/x.sh', 1, 'linux'), null);
+  assert.equal(Policy.checkFailHint('bash checks/x.sh', 1, 'win32'), null);
+});
