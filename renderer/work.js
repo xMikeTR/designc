@@ -176,7 +176,7 @@ const Work = (() => {
     for (const id of ids) {
       const last = list(events).filter(x => x.kind === 'parity_result' && x.scenario === id && x.commit === commit && PARITY_OUTCOMES.includes(x.outcome) && (x._ts || 0) <= cutoff)
         .sort((a, b) => (a._ts || 0) - (b._ts || 0)).pop();
-      if (!last) out.push(`Parity ${id} has no result at ${short(commit)}. Record it with scripts/parity-record.js --side next --commit ${short(commit)} --ledger.`);
+      if (!last) out.push(`Parity ${id} has no result at ${short(commit)}. Press Record result for Done in Parity and give it ${commit}.`);
       else if (last.outcome === 'fail') out.push(`Parity ${id} failed at ${short(commit)} (${list(last.failures).length} difference${list(last.failures).length === 1 ? '' : 's'}). Fix the new app, or cover the difference with a requirement.`);
       else if (last.outcome === 'could_not_run') out.push(`Parity ${id} could not run at ${short(commit)}. Fix the scenario or its params and record it again.`);
     }

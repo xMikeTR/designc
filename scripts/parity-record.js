@@ -111,6 +111,8 @@ async function runOne(o, entry, settings, adapter) {
   }
   const rec = await Recorder.record({ scenario, side: o.side, adapter, params, screenshots: o.shots, allowWrites: !!o.allowWrites, allowRequests: o.allowRequests });
   if (rec.error) return { scenario: scenario.id, error: rec.error };
+  // A login page is not the legacy app, so it must not replace a baseline. On the new app it is could not run, below.
+  if (rec.wall && o.side === 'legacy') return { scenario: scenario.id, error: `legacy stopped at a login wall: ${rec.wall}. No baseline written. Run legacy with sign-in off, then record again.` };
   if (o.shots) writeShots(o.registry, rec.shots);
   const snap = Parity.snapshot(rec, scenario, { params });
   if (o.side === 'legacy') {

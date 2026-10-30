@@ -9,6 +9,33 @@ test('command: fills every placeholder, each value shell-quoted', () => {
   assert.equal(r, "factory run --handover 'handovers/20261014-99e5021f' --repo '../codebase' --registry '/home/me/reg' --base 'main'");
 });
 
+const rec = { script: '/app/scripts/parity-record.js', registry: "/home/o'neil/reg", scenario: 'all' };
+
+test('parityRecord: the legacy and new app lines, quoted for the shell', () => {
+  assert.equal(Dispatch.parityRecord({ ...rec, side: 'legacy' }, 'linux'), "node '/app/scripts/parity-record.js' --registry '/home/o'\\''neil/reg' --scenario 'all' --side 'legacy'");
+  assert.equal(Dispatch.parityRecord({ ...rec, side: 'next' }, 'win32'), "node '/app/scripts/parity-record.js' --registry '/home/o''neil/reg' --scenario 'all' --side 'next'");
+});
+
+test('parityRecord: a commit makes it evidence, which needs the new app and an item', () => {
+  assert.match(Dispatch.parityRecord({ ...rec, side: 'next', item: 'W-1', commit: 'abc' }, 'linux'), /--ledger --item 'W-1' --commit 'abc'$/);
+  assert.ok(Dispatch.parityRecord({ ...rec, side: 'next', commit: 'abc' }, 'linux').error);
+  assert.ok(Dispatch.parityRecord({ ...rec, side: 'legacy', item: 'W-1', commit: 'abc' }, 'linux').error);
+  assert.doesNotMatch(Dispatch.parityRecord({ ...rec, side: 'next' }, 'linux'), /--ledger/);
+});
+
+test('parityRecord: never relaxes the read-only default, and a value cannot add a line', () => {
+  const line = Dispatch.parityRecord({ ...rec, side: 'next', baseUrl: 'https://x --allow-writes' }, 'linux');
+  assert.match(line, /--base-url 'https:\/\/x --allow-writes'/, 'stays one quoted value');
+  assert.doesNotMatch(Dispatch.parityRecord({ ...rec, side: 'next', item: 'W', commit: 'c' }, 'linux'), /--allow/);
+  assert.ok(Dispatch.parityRecord({ ...rec, side: 'next', scenario: 'a\nrm x' }, 'linux').error);
+  assert.ok(Dispatch.parityRecord({ ...rec, side: 'other' }, 'linux').error);
+  assert.ok(Dispatch.parityRecord({ ...rec, script: null, side: 'next' }, 'linux').error);
+});
+
+test('parityImport: writes drafts from the folder named', () => {
+  assert.equal(Dispatch.parityImport({ script: '/app/scripts/parity-import.js', registry: '/reg', from: '/legacy tests' }, 'linux'), "node '/app/scripts/parity-import.js' --from '/legacy tests' --registry '/reg' --write");
+});
+
 test('command: a value cannot break out of its quotes', () => {
   const v = { ...vars, registry: "/tmp/it's; rm -rf ~" };
   assert.equal(Dispatch.command('x {registry}', v, 'linux'), "x '/tmp/it'\\''s; rm -rf ~'");

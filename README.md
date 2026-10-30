@@ -14,6 +14,7 @@ New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthro
 - [The views](#the-views), one by one
 - [Code map](#code-map), its levels, code quality and coverage
 - [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
+- [Recording legacy parity](#recording-legacy-parity), including login and mock mode
 - [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
 - Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -314,6 +315,20 @@ The pipeline appends lines like these; the app watches the folder and updates li
 `event_id` and `ts` are optional for external (pipeline) writers — the app's single append path stamps them if missing. Token spend on a `task` splits as `tokens_in`/`tokens_out` (`Ledger.totalTokens` sums them) plus an optional `cost`; the older single `tokens` field is still read. `escape` and `escape_classified` use `code`/`caught_by` as of the v1 envelope; older pipeline output using `rule`/`stage` is still read (upcast on load), just no longer written.
 
 The app itself only appends: check results to `ledger/checks.jsonl`, and handovers, escape classifications and resolved needs-decisions to `ledger/designc.jsonl`. It never rewrites a ledger line.
+
+## Recording legacy parity
+
+Run designc from source (`npm start`), because an installer does not include the recorder. Start the legacy app with sign-in off, such as a local copy in mock mode; an agent can do this with your start tool. Then in **Parity**:
+
+1. Set the legacy address when asked.
+2. Press **Record legacy** on one scenario. The command is typed into the Terminal; press Enter.
+3. Check that scenario's screenshot, then record the rest.
+
+An agent can run the recorder instead (`scripts/parity-record.js`, see `docs/parity-contract.md`), from the Terminal or a separate session. An agent in the panel writing to `parity/` is flagged as an unapproved change.
+
+**Login.** The recorder does not sign in. It stops at a login wall: a redirect to another host, or a page with exactly one visible password field. On legacy this is an error and any existing baseline stays as it was; on the new app the scenario is `could_not_run`, which never counts as a pass. It cannot see an email-first sign-in page on the same host, which is why step 3 checks the screenshot.
+
+**Mock mode.** Recording is read-only even against a mock: clicks such as Save or Apply and requests other than GET, HEAD and OPTIONS are blocked. To record past them, add `--allow-writes` to the typed line yourself, against a mock only and never a live legacy app. If the mock uses a service worker such as Mock Service Worker, its POSTs may not be blocked, because Playwright's request blocking does not see what a service worker handles (from Playwright's docs, not tested here). They could change the mock's data between scenarios, so restart the mock if baselines look inconsistent.
 
 ## Settings (`designc.json`)
 

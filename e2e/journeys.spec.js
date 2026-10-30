@@ -330,4 +330,11 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
   await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);
   await expect(special.getByText('Not on this machine (shots are not in git).')).toBeVisible();
+  // Compare types the recorder's line into the Terminal and stops: no report is rewritten until the person presses Enter.
+  const report = path.join(reg, 'parity/reports/tags-list.json');
+  const before = fs.readFileSync(report, 'utf8');
+  await special.getByRole('button', { name: 'Compare new app', exact: true }).click();
+  await expect(page.locator('#termBody')).toContainText('parity-record.js');
+  await expect(page.locator('#termBody')).toContainText('tags-list');
+  expect(fs.readFileSync(report, 'utf8')).toBe(before);
 });

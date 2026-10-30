@@ -74,6 +74,17 @@ async function axTree(page) {
   }
 }
 
+const hostname = u => { try { return new URL(u).hostname; } catch { return null; } };
+
+// Why this page is a login wall rather than the app, or null. The new host catches a redirect to single sign-on; one
+// visible password field catches a sign-in form on the app's own host (a change or register form has two or more).
+async function loginWall(page, baseUrl) {
+  const now = hostname(page.url());
+  if (now && now !== hostname(baseUrl)) return `the app went to ${now}, not ${hostname(baseUrl)}`;
+  const fields = await page.locator('input[type="password"]:visible').count();
+  return fields === 1 ? `the page at ${new URL(page.url()).pathname} asks for a password` : null;
+}
+
 function create(name = 'web', { timeout = 10000 } = {}) {
   return {
     name,
@@ -96,13 +107,17 @@ function create(name = 'web', { timeout = 10000 } = {}) {
           return route.abort('blockedbyclient');
         });
       }
+      const settled = async () => {
+        await settle(page, timeout);
+        const wall = await loginWall(page, params.baseUrl);
+        return wall ? { wall } : { ok: true };
+      };
       const all = a => page.getByRole(a.role, a.name ? { name: a.name, exact: true } : {});
       return {
         async act(step) {
           if (step.goto) {
             await page.goto(new URL(step.goto.path, params.baseUrl).href);
-            await settle(page, timeout);
-            return { ok: true };
+            return settled();
           }
           const [k] = Object.keys(step);
           const a = step[k];
@@ -111,8 +126,7 @@ function create(name = 'web', { timeout = 10000 } = {}) {
           if (k === 'click') await l.click({ timeout });
           else if (k === 'fill') await l.fill(a.value, { timeout });
           else await l.selectOption(a.value, { timeout });
-          await settle(page, timeout);
-          return { ok: true };
+          return settled();
         },
         async capture() {
           const out = { tree: await axTree(page), viewport, url: page.url() };
@@ -126,4 +140,4 @@ function create(name = 'web', { timeout = 10000 } = {}) {
   };
 }
 
-module.exports = { create, axTree };
+module.exports = { create, axTree, loginWall };
