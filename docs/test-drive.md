@@ -11,8 +11,10 @@ flowchart LR
 ```
 
 **The one rule to know:** the whole gate can stay red. A work item is frozen against a *scoped* gate. Only
-blocking items on its own elements count, plus parse errors, files that do not parse and repeated ids. Don't
-answer findings on the rest of the model to get here.
+blocking items on its own elements count, plus parse errors, files that do not parse and repeated ids. A
+warning, such as an undeclared property, never blocks an item: the card lists it for you to check. Don't
+answer findings on the rest of the model to get here, and don't invent a value to silence a warning, because
+the handover passes it to the coding agent as fact.
 
 ## 1. Open and map
 

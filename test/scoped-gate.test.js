@@ -85,3 +85,16 @@ test('the /2 example in docs is what handoverElements writes', () => {
   const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'handover-elements-2.schema.json'), 'utf8'));
   assert.equal(schema.$id, 'designc.handover.elements/2');
 });
+
+test('a warning on an in-scope element does not block the item; an error does', () => {
+  const finding = (code, sev) => ({ kind: 'finding', text: `${code} on Quotes API`, about: ['Quotes API'], finding: { code, sev } });
+  const g = { ready: false, clauses: [finding('DC001', 'warning'), finding('DC003', 'warning'), { kind: 'finding', text: 'DC003 on Mail', about: ['Mail'], finding: { code: 'DC003', sev: 'warning' } }] };
+  const warned = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: 'R-1', decisions: [] });
+  assert.equal(warned.ready, true);
+  assert.deepEqual(warned.warnings.map(c => c.text), ['DC001 on Quotes API', 'DC003 on Quotes API']);
+  assert.equal(warned.outside, 1);
+  const failed = Core.scopedGate({ ready: false, clauses: [...g.clauses, finding('DC004', 'error')] }, { model, elements: ['Quotes API'], requirement: 'R-1', decisions: [] });
+  assert.equal(failed.ready, false);
+  assert.deepEqual(failed.clauses.map(c => c.text), ['DC004 on Quotes API']);
+  assert.equal(failed.warnings.length, 2);
+});
