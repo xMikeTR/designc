@@ -56,6 +56,21 @@ test('a missing element or param is could not run, and so is every later step', 
   assert.match(p.steps[0].reason, /legacy has no param program/);
 });
 
+test('a login wall is could not run, captures nothing, and stops the later steps', async () => {
+  let captures = 0;
+  const walled = { name: 'walled', open: async () => ({
+    act: async () => ({ wall: 'the app went to sso.example.com, not localhost' }),
+    capture: async () => { captures++; return {}; },
+    screenshot: async () => null,
+    close: async () => {},
+  }) };
+  const r = await R.record({ scenario: { id: 's', steps: [{ goto: { path: '/' } }, { click: { role: 'button', name: 'Edit' } }] }, side: 'legacy', adapter: walled });
+  assert.deepStrictEqual(r.steps.map(s => s.status), ['could_not_run', 'could_not_run']);
+  assert.match(r.steps[0].reason, /^login wall: .*sso\.example\.com/);
+  assert.match(r.wall, /sso\.example\.com/);
+  assert.strictEqual(captures, 0);
+});
+
 test('an action that fails is an error, not could not run', async () => {
   const r = await run([{ click: { role: 'button', name: 'Export' } }]);
   assert.strictEqual(r.steps[0].status, 'error');

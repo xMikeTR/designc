@@ -11,6 +11,7 @@ contextBridge.exposeInMainWorld('host', {
   read: rel => ipcRenderer.invoke('fs:read', rel),
   exists: rel => ipcRenderer.invoke('fs:exists', rel),
   parityShot: sha => ipcRenderer.invoke('parity:shot', sha),
+  parityTools: () => ipcRenderer.invoke('parity:tools'),
   write: (rel, text) => ipcRenderer.invoke('fs:write', rel, text),
   remove: rel => ipcRenderer.invoke('fs:remove', rel),
   list: (dir, ext) => ipcRenderer.invoke('fs:list', dir, ext),
