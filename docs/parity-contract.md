@@ -50,6 +50,7 @@ node scripts/parity-record.js --registry <dir> --scenario <id|all> --side <legac
 - Adapter params come from `designc.json` `parity.legacy` / `parity.next` (`baseUrl`, `viewport`, `locale`, `timezoneId`, `headless`), then the scenario's `params.<side>`, then `--param`; `--base-url` wins. Secrets never go there.
 - The web adapter needs `playwright-core` and Chromium on the machine that can reach both apps. It runs en-GB, Europe/London, 1280×800 by default.
 - Read-only by default: a click whose name looks like it commits (Save, Apply, Delete, Submit…) is `blocked`, and the web adapter aborts every request that is not GET, HEAD or OPTIONS. Only the person running it may pass `--allow-writes` or `--allow-request`; a pipeline never should against a live legacy app.
+- A login wall stops the scenario: a redirect to another host, or a page with exactly one visible password field. On legacy it is an error and the baseline is left as it was, so a sign-in page can never become the baseline; on the new app the scenario is `could_not_run`. The recorder does not sign in. Run the apps with sign-in off, such as a local copy in mock mode. It cannot see a sign-in page on the same host that shows no password field yet (email first), so look at the first baseline's screenshot.
 - Exit: `0` pass (or baseline recorded), `1` a scenario failed, `2` an error (no baseline, bad scenario, adapter could not open; nothing judged), `3` a scenario could not run. With several scenarios the worst wins: 2, then 1, then 3.
 
 ## Drafting scenarios from legacy tests
@@ -62,7 +63,9 @@ Each `test(...)` in the folder's Playwright tests becomes one draft scenario. It
 
 ## In the app
 
-The Parity activity lists the scenarios, whether each has a baseline, and its latest result. A scenario's page shows its steps, its ledger results, and the latest report's findings per step. Beside the findings, it shows the legacy and new app screenshots, read through `parity:shot` (a 64-hex name only, confined to `parity/shots/`). A shot missing on this machine says so. A work item card with a `parity` entry shows each scenario's latest result and links to the view. Grill-me can read all of this, except screenshots and page data, with the read-only `read_parity` tool. Nothing in the app records, writes scenarios or appends `parity_result`.
+The Parity activity lists the scenarios, whether each has a baseline, and its latest result. A scenario's page shows its steps, its ledger results, and the latest report's findings per step. Beside the findings, it shows the legacy and new app screenshots, read through `parity:shot` (a 64-hex name only, confined to `parity/shots/`). A shot missing on this machine says so. A work item card with a `parity` entry shows each scenario's latest result and links to the view. Grill-me can read all of this, except screenshots and page data, with the read-only `read_parity` tool.
+
+The view has buttons for the commands on this page: Record legacy, Compare new app (each for one scenario or all), Record result for Done, and Draft from legacy tests. Each types its command into the Terminal and stops before Enter, as Dispatch does, so the app itself never records or appends `parity_result`, and the command is never given `--allow-writes` or `--allow-request`. No agent tool reaches them. The app writes two things directly, both at a person's request: a starter scenario (New scenario) and `parity.legacy.baseUrl` / `parity.next.baseUrl` in `designc.json`. The view says what this machine lacks (`parity:tools`). An installer does not include the recorder, so there the buttons are disabled and the view says to run designc from source.
 
 ## Done
 

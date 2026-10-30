@@ -44,6 +44,30 @@ test('legacy writes a baseline with no page data; next compares, reports and rec
   assert.ok(fs.existsSync(path.join(reg, lines[1].report)));
 });
 
+const walled = { name: 'walled', open: async () => ({
+  act: async () => ({ wall: 'the page at /login asks for a password' }),
+  capture: async () => ({}), screenshot: async () => null, close: async () => {},
+}) };
+const withWall = async args => {
+  const out = [];
+  const code = await CLI.main(args, { log: s => out.push(s), err: s => out.push(s), adapter: walled });
+  return { code, out: out.join('\n') };
+};
+
+test('a login wall on legacy leaves the baseline alone; on the new app it is could not run, never a pass', async () => {
+  const reg = scratch();
+  await side(reg, 'legacy', ['--no-shots']);
+  const file = path.join(reg, 'parity/baselines/tags-list/legacy.json');
+  const good = fs.readFileSync(file, 'utf8');
+  const legacy = await withWall(['--registry', reg, '--scenario', 'tags-list', '--side', 'legacy', '--no-shots']);
+  assert.strictEqual(legacy.code, 2);
+  assert.match(legacy.out, /login wall: the page at \/login asks for a password\. No baseline written/);
+  assert.strictEqual(fs.readFileSync(file, 'utf8'), good);
+  const next = await withWall(['--registry', reg, '--scenario', 'tags-list', '--side', 'next', '--no-shots']);
+  assert.strictEqual(next.code, 3);
+  assert.match(next.out, /could not run/);
+});
+
 test('next with no baseline is an error, and nothing is recorded', async () => {
   const reg = scratch();
   const r = await side(reg, 'next', ['--ledger', '--scenario', 'tags-list']);

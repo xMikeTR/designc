@@ -22,7 +22,14 @@ test.before(async () => {
   catch (e) { skip = `Chromium cannot start here: ${e.message.split('\n')[0]}`; return; }
   server = http.createServer((req, res) => {
     if (req.method === 'POST') { posts.push(req.url); res.end('{}'); return; }
-    const f = path.join(dir, path.basename(new URL(req.url, 'http://x').pathname));
+    const page = new URL(req.url, 'http://x').pathname;
+    if (page === '/sso') { res.statusCode = 302; res.setHeader('location', `http://localhost:${server.address().port}/tags.html`); res.end(); return; }
+    if (page === '/login' || page === '/change') {
+      res.setHeader('content-type', 'text/html');
+      res.end(`<title>x</title><input type="password"><input ${page === '/change' ? 'type="password"' : 'type="hidden"'}>`);
+      return;
+    }
+    const f = path.join(dir, path.basename(page));
     if (!fs.existsSync(f)) { res.statusCode = 404; res.end(); return; }
     res.setHeader('content-type', 'text/html'); res.end(fs.readFileSync(f));
   });
@@ -77,6 +84,19 @@ test('read-only aborts a request that is not a read, whatever the button is call
     allowRequests: ['/api/refresh'] });
   assert.deepStrictEqual(posts, ['/api/refresh']);
   assert.ok(has(ok.steps[1].capture.tree, 'Refreshed'));
+});
+
+test('a login wall stops the scenario: a sign-in form, or a redirect to another host', async t => {
+  if (skip) return t.skip(skip);
+  const go = p => R.record({ adapter: Web.create(), side: 'legacy', params: { baseUrl }, scenario: { id: 'w', steps: [{ goto: { path: p } }] }, screenshots: false });
+  const form = await go('login');
+  assert.strictEqual(form.steps[0].status, 'could_not_run');
+  assert.match(form.wall, /\/login asks for a password/);
+  assert.match((await go('sso')).wall, /went to localhost, not 127\.0\.0\.1/);
+  const two = await go('change');
+  assert.strictEqual(two.steps[0].status, 'ok', 'two password fields is a form in the app, not a sign-in');
+  assert.strictEqual(two.wall, undefined);
+  assert.strictEqual((await go('tags.html')).wall, undefined);
 });
 
 test('an element the page does not have is could not run', async t => {
