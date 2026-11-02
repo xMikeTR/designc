@@ -378,6 +378,12 @@ async function loadAsbuilt() {
   A.asbuiltFull = dsl ? Core.parse(dsl) : null;
   A.asbuilt = A.asbuiltFull ? Core.atLevel(A.asbuiltFull, 'container') : null;
   try { A.facts = facts ? JSON.parse(facts) : null; } catch { A.facts = null; }
+  // UI graphs of references repos (7e), read only when a person extracted them.
+  A.uiRefs = {};
+  for (const key of cmUiRepos().slice(1)) {
+    const t = await readText(`asbuilt/ui-${key}.json`);
+    try { if (t) A.uiRefs[key] = JSON.parse(t); } catch { /* unreadable: shown as not read yet */ }
+  }
   if (A.cmSel && (!A.asbuilt || !A.asbuilt.elements.has(A.cmSel))) A.cmSel = null;
   if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
@@ -605,11 +611,14 @@ async function openFile(path, line) {
   if (line) revealLine(line);
   setMarkers();
 }
-async function openCode(rel, line) {
-  const id = 'code:' + rel;
+// A codebase file, read-only; with `ref` (a designc.json references key) a file of that repo instead.
+async function openCode(rel, line, ref) {
+  const r = ref ? Dispatch.references(A.cfg.references) : null, refPath = r && r.refs ? (r.refs.find(x => x.key === ref) || {}).path : null;
+  if (ref && !refPath) { toast(`${ref} is not a references key in designc.json.`, 'error'); return; }
+  const id = ref ? `code:@${ref}/${rel}` : 'code:' + rel;
   if (!A.buffers.has(id)) {
-    let text; try { text = await host.readCode(A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
-    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(rel)));
+    let text; try { text = await host.readCode(ref ? refPath : A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
+    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(ref ? `@${ref}/${rel}` : rel)));
     A.buffers.set(id, { model, dirty: false, disk: text, view: null, ro: true });
   }
   if (!A.tabs.includes(id)) A.tabs.push(id);
@@ -1342,6 +1351,7 @@ function renderTabs() {
 function renderCrumbs() {
   const id = A.active;
   $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:parity': 'Parity (new app against legacy)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+    : id.startsWith('code:@') ? id.slice(6).split('/').map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -2144,7 +2154,7 @@ document.addEventListener('click', async e => {
     if (c.kind === 'eval' && c.evalId != null) { const x = A.evals.find(y => String(y.id) === String(c.evalId)); if (x) return openFile(x._path); }
     return;
   }
-  if (d.code) return openCode(d.code, d.line ? +d.line : undefined);
+  if (d.code) return openCode(d.code, d.line ? +d.line : undefined, d.ref);
   if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
@@ -2197,6 +2207,7 @@ document.addEventListener('click', async e => {
   if (a === 'improvedash') return openSpecial('special:improve');
   if (a === 'design') return setActivity('design');
   if (a === 'extract') return extractCodebase();
+  if (a === 'extractrefui') return extractReferenceUi(d.key);
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
@@ -2217,6 +2228,7 @@ document.addEventListener('change', async e => {
     await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
   }
   if (d.cmscreen !== undefined) { A.cmScreen = e.target.value; return renderCodemap(); }
+  if (d.cmrepo !== undefined) { A.cmRepo = e.target.value; return cmGo('ui'); }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });

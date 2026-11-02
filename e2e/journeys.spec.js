@@ -90,7 +90,7 @@ test('user can extract the code map @critical', async () => {
 });
 
 test('user can see the UI graph of a screen @critical', async () => {
-  const { reg } = copyRegistry('fixtures/ui-registry', { codebase: 'fixtures/ui-app' });
+  const { reg } = copyRegistry('fixtures/ui-registry', { codebase: 'fixtures/ui-app', siblings: ['fixtures/ui-legacy'] });
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Code map' }).click();
@@ -111,6 +111,12 @@ test('user can see the UI graph of a screen @critical', async () => {
   await expect(table.getByRole('row').filter({ hasText: 'New tag' })).toContainText('canEdit');
   // A registered field carries the rules of the one schema naming it, then its register rules.
   await expect(table.getByRole('row').filter({ hasText: 'TagForm.tsx:17' })).toContainText('min 1, max 40, required');
+  // A references repo is read only when the person extracts it; a tag in ui.roles takes its role from there.
+  await special.getByRole('combobox', { name: 'Repo' }).selectOption('legacy');
+  await special.getByRole('button', { name: 'Extract legacy' }).click();
+  await expect(page.getByText(/^Read 1 screen and 2 controls from legacy/)).toBeVisible();
+  expect(fs.existsSync(path.join(reg, 'asbuilt/ui-legacy.json'))).toBe(true);
+  await expect(table.getByRole('row').filter({ hasText: 'Add tag' })).toContainText('mapped');
 });
 
 test('user can remove a requirement and a bound decision made by mistake', async () => {

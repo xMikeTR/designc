@@ -92,14 +92,61 @@ class Old extends React.Component { render() { const x = () => <a href="/">A</a>
   assert.deepEqual(r.controls.map(c => c.component), ['src/Orders/index.jsx#Orders', 'src/Orders/index.jsx#Orders', 'src/Orders/index.jsx#Old']);
 });
 
-test('screens: a pattern that matches nothing, a rejected pattern, an outside tsconfig and a reference key are unresolved', () => {
+test('screens: a pattern that matches nothing, a rejected pattern, an outside tsconfig and an unknown repo key are unresolved', () => {
   const r = ui.build({ repo: FIX, files: ['src/pages/Tags/TagsPage.tsx'], ui: { tsconfig: { codebase: '../x.json' }, screens: { a: { codebase: ['nowhere/**', '/abs/**'], legacy: ['x'] } } } });
   assert.deepEqual(r.screens, [{ name: 'a', roots: [], components: [], followed: [] }]);
   const what = r.unresolved.map(u => u.what);
   assert.ok(what.some(w => /outside the codebase/.test(w)));
   assert.ok(what.some(w => /"nowhere\/\*\*" matches no source file/.test(w)));
   assert.ok(what.some(w => /"\/abs\/\*\*" is rejected/.test(w)));
-  assert.ok(what.some(w => /ui.screens.a.legacy: reference repositories are not read yet/.test(w)));
+  assert.ok(what.some(w => /ui.screens.a.legacy: "legacy" is not a designc.json references key/.test(w)));
+});
+
+test('screens: a references key is read only when that repo is extracted; out.repo names it; screens without the key are left out', () => {
+  const cfg = { tsconfig: { legacy: 'tsconfig.json' }, screens: { a: { codebase: ['src/pages/Tags/TagsPage.tsx'], legacy: ['src/legacy/OldTags.jsx'] }, b: { codebase: ['src/pages/Tags/TagRow.tsx'] } } };
+  const files = ['src/pages/Tags/TagsPage.tsx', 'src/pages/Tags/TagRow.tsx', 'src/legacy/OldTags.jsx'];
+  const code = ui.build({ repo: FIX, files, ui: cfg, keys: ['legacy'] });
+  assert.equal(code.repo, 'codebase');
+  assert.deepEqual(code.screens.map(s => [s.name, s.roots]), [['a', ['src/pages/Tags/TagsPage.tsx']], ['b', ['src/pages/Tags/TagRow.tsx']]]);
+  assert.ok(!code.unresolved.some(u => /legacy/.test(u.what)));
+  const legacy = ui.build({ repo: FIX, files, ui: cfg, key: 'legacy', keys: ['legacy'] });
+  assert.equal(legacy.repo, 'legacy');
+  assert.deepEqual(legacy.screens.map(s => [s.name, s.roots]), [['a', ['src/legacy/OldTags.jsx']]]);
+  assert.ok(legacy.controls.length > 0 && legacy.controls.every(c => c.screen === 'a' && c.file === 'src/legacy/OldTags.jsx'));
+});
+
+test('extractUi reads one repo for its UI graph only: no projects needed', async () => {
+  const { extractUi } = require('../extract/index.js');
+  const r = await extractUi(FIX, { ui: { screens: { a: { legacy: ['src/legacy/OldTags.jsx'] } } }, key: 'legacy', keys: ['legacy'] });
+  assert.equal(r.ui.repo, 'legacy');
+  assert.deepEqual(r.ui.screens.map(s => s.roots), [['src/legacy/OldTags.jsx']]);
+  const none = await extractUi(FIX, { ui: {}, key: 'legacy', keys: ['legacy'] });
+  assert.match(none.error, /no screen names "legacy"/);
+});
+
+test('roles: ui.roles maps a library or unresolvable tag to a role (basis mapped) and its name prop; no role entry is unresolved', () => {
+  const kit = {
+    'node_modules/kit/package.json': '{"name":"kit","types":"index.d.ts"}',
+    'node_modules/kit/index.d.ts': 'export declare function Button(p: any): any; export declare function TextField(p: any): any; export declare function Chip(p: any): any;',
+  };
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-'));
+  const files = { 'src/Page.tsx': `import { Button, TextField, Chip } from 'kit';
+export const Page = ({ q }) => (<div><Button onClick={() => 1}>Reset</Button><TextField label="Tag name" onChange={() => 1} /><TextField label={q} onChange={() => 1} /><Chip label="x" /><Mystery onClick={() => 1} /></div>);`, ...kit };
+  for (const [f, src] of Object.entries(files)) { fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), src); }
+  const roleMap = { Button: { role: 'button' }, TextField: { role: 'textbox', name: 'label' }, Chip: { role: 'button', name: 'label' }, Mystery: { role: 'link' }, Bad: { role: 'nonsense' }, Worse: 'button' };
+  let r;
+  try { r = ui.build({ repo: dir, files: Object.keys(files), ui: { screens: { s: { codebase: ['src/Page.tsx'] } }, roles: roleMap } }); }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+  assert.deepEqual(r.controls.map(c => [c.tag, c.role, c.basis, c.name]), [
+    ['Button', 'button', 'mapped', 'Reset'], ['TextField', 'textbox', 'mapped', 'Tag name'], ['TextField', 'textbox', 'mapped', null],
+    ['Chip', 'button', 'mapped', 'x'], ['Mystery', 'link', 'mapped', null]]);
+  assert.equal(r.controls[0].library, 'kit');
+  assert.deepEqual(r.controls[2].names[0], { from: 'label', value: null, expr: 'q' });
+  const what = r.unresolved.map(u => u.what);
+  assert.ok(!what.some(w => /comes from kit/.test(w)), what.join('\n'));
+  assert.ok(what.some(w => /<Mystery> could not be resolved/.test(w)), 'unresolvable stays reported even when mapped');
+  assert.ok(what.some(w => /ui.roles.Bad: role "nonsense" is not a widget role/.test(w)));
+  assert.ok(what.some(w => /ui.roles.Worse: must be \{role, name\?\}/.test(w)));
 });
 
 test('roleOf is the whole native and aria table', () => {

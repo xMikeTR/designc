@@ -5,7 +5,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
 const { spawn } = require('child_process');
-const { extract } = require('./extract');
+const { extract, extractUi } = require('./extract');
+const Dispatch = require('./renderer/dispatch.js');
 const { fetchTelemetry, fetchTrace, traceSteps } = require('./telemetry');
 const { AcpHub } = require('./acp');
 const http = require('http');
@@ -260,7 +261,28 @@ handle('import:read', async p => {
 handle('codebase:extract', async p => {
   const dir = codebaseDir(p);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Codebase folder not found: ${dir}` };
-  const s = readSettings(); try { return await extract(dir, { ...(s.extract || {}), ...(s.ui ? { ui: s.ui } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+  const s = readSettings(), refs = Dispatch.references(s.references);
+  const uiKeys = refs && refs.refs ? refs.refs.map(r => r.key) : [];
+  try { return await extract(dir, { ...(s.extract || {}), ...(s.ui ? { ui: s.ui, uiKeys } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+});
+// The UI graph of a references repo (phase 7e): read-only, only a key designc.json references lists (Dispatch.references
+// validates it, so it is a plain file name), written to asbuilt/ui-<key>.json in the registry. No agent tool reaches it.
+handle('reference:extractUi', async key => {
+  if (!root) return { error: 'No folder is open' };
+  const s = readSettings(), refs = Dispatch.references(s.references);
+  if (!refs) return { error: 'designc.json has no references. Add one, for example "references": {"legacy": {"kind": "legacy", "path": "../legacy-app"}}.' };
+  if (refs.error) return { error: refs.error };
+  const ref = refs.refs.find(r => r.key === key);
+  if (!ref) return { error: `${key} is not listed in designc.json references` };
+  const dir = path.resolve(root, ref.path);
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Reference ${key} folder not found: ${dir}. Check its path in designc.json references.` };
+  let r;
+  try { r = await extractUi(dir, { ui: s.ui || {}, key, keys: refs.refs.map(x => x.key) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+  if (r.error) return r;
+  const rel = `asbuilt/ui-${key}.json`, abs = inside(rel);
+  await fsp.mkdir(path.dirname(abs), { recursive: true });
+  await fsp.writeFile(abs, JSON.stringify(r.ui, null, 2) + '\n', 'utf8');
+  return { ui: r.ui, path: rel };
 });
 handle('codebase:read', async (p, rel) => {
   const base = codebaseDir(p), abs = path.resolve(base, rel);
