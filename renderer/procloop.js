@@ -10,9 +10,12 @@
      mixed      bound, in between
      retired    retired or superseded
    Stats for earlier hashes of the same id are kept as `older`, so a new version can be compared with the old one.
-   Trace entries whose id names no procedure file (S2's own prompt:, policy:, target: entries) are counted in
-   `ignored` and never judged. Suggestions only: binding and retiring are a person's actions in Improve. Never a gate
-   input. Thresholds: designc.json improve.procedures {minUses, proven, struggling}. */
+   External entries: ids with a colon (the pipeline's own prompt:<name>, policy:<name>, target:policy) have no file here;
+   their source of truth is the pipeline's repository. They are judged the same way in `external`, grouped by id, the
+   most recently given hash being the current version (a new hash is a new version even when the declared version is
+   unchanged). A struggling one gets action `propose`: a change proposed in the pipeline's repository, never Bind or
+   Retire here. Other ids that name no file are counted in `ignored`. Suggestions only: binding and retiring are a
+   person's actions in Improve. Never a gate input. Thresholds: designc.json improve.procedures {minUses, proven, struggling}. */
 (function (root, factory) {
   if (typeof module === 'object' && module.exports) module.exports = factory(require('./records.js'), require('./memory.js'));
   else root.ProcLoop = factory(root.Records, root.Memory);
@@ -40,6 +43,26 @@
   const zero = { uses: 0, passed: 0, failed: 0, success: 0, causes: {} };
   const rate = st => st.uses ? st.passed / st.uses : null;
 
+  // Where an external entry's source of truth lives (the pipeline's repository, or the target repository).
+  function sourceOf(id) {
+    const [kind, name] = [id.slice(0, id.indexOf(':')), id.slice(id.indexOf(':') + 1)];
+    if (kind === 'prompt') return `prompts/${name}.md in the pipeline's repository`;
+    if (kind === 'target' && name === 'policy') return '.factory/policy.yaml in the target repository';
+    if (kind === 'policy') return `policies/s2/${name}.yaml in the pipeline's repository`;
+    return 'outside designc';
+  }
+
+  // bound status, current stats and settings to {judgement, action, reason}; external entries propose, never retire.
+  function judge(cur, s, external) {
+    const r = rate(cur);
+    if (cur.uses < s.minUses) return { judgement: 'untested', action: null, reason: `given in ${cur.uses} finished task${cur.uses === 1 ? '' : 's'} on this version; judged from ${s.minUses}` };
+    if (r >= s.proven) return { judgement: 'proven', action: null, reason: `passed ${cur.passed} of ${cur.uses} tasks it was given in` };
+    if (r <= s.struggling) return external
+      ? { judgement: 'struggling', action: 'propose', reason: `passed ${cur.passed} of ${cur.uses} tasks it was given in; propose a change in the pipeline's repository (promotion is a git change there)` }
+      : { judgement: 'struggling', action: 'retire', reason: `passed ${cur.passed} of ${cur.uses} tasks it was given in; retire it or write a new version` };
+    return { judgement: 'mixed', action: null, reason: `passed ${cur.passed} of ${cur.uses} tasks it was given in` };
+  }
+
   // procedures: [{rec, path, text}]; stats: Memory.procedureStats(...); s: settings(...)
   function review({ procedures = [], stats = [], settings: s = DEFAULTS } = {}) {
     const rows = [], invalid = [];
@@ -55,18 +78,26 @@
       const older = mine.filter(x => x.hash !== ref.hash).map(x => ({ version: x.version, hash: x.hash, uses: x.uses, passed: x.passed, failed: x.failed, success: x.success, rate: rate(x) }));
       const status = Records.status(p.rec.status);
       const r = rate(cur);
-      let judgement, action = null, reason;
-      if (status === 'proposed') { judgement = 'proposed'; action = 'bind'; reason = 'not given to agents until a person binds it'; }
-      else if (status !== 'bound') { judgement = 'retired'; reason = `${status}: not given to agents`; }
-      else if (cur.uses < s.minUses) { judgement = 'untested'; reason = `given in ${cur.uses} finished task${cur.uses === 1 ? '' : 's'} on this version; judged from ${s.minUses}`; }
-      else if (r >= s.proven) { judgement = 'proven'; reason = `passed ${cur.passed} of ${cur.uses} tasks it was given in`; }
-      else if (r <= s.struggling) { judgement = 'struggling'; action = 'retire'; reason = `passed ${cur.passed} of ${cur.uses} tasks it was given in; retire it or write a new version`; }
-      else { judgement = 'mixed'; reason = `passed ${cur.passed} of ${cur.uses} tasks it was given in`; }
+      const { judgement, action, reason } = status === 'proposed' ? { judgement: 'proposed', action: 'bind', reason: 'not given to agents until a person binds it' }
+        : status !== 'bound' ? { judgement: 'retired', action: null, reason: `${status}: not given to agents` }
+        : judge(cur, s, false);
       rows.push({ id: ref.id, path: p.path || null, title: p.rec.title, version: ref.version, hash: ref.hash, status, uses: cur.uses, passed: cur.passed, failed: cur.failed, delivered: cur.success, causes: cur.causes, rate: r, older, judgement, action, reason });
     }
     rows.sort((a, b) => byStr(a.id, b.id));
-    const ignored = stats.filter(x => !ids.has(x.id)).length;
-    return { rows, invalid, ignored };
+    const outside = stats.filter(x => !ids.has(x.id));
+    const groups = new Map();
+    for (const x of outside.filter(x => String(x.id).includes(':'))) {
+      if (!groups.has(x.id)) groups.set(x.id, []);
+      groups.get(x.id).push(x);
+    }
+    const external = [...groups.entries()].map(([id, xs]) => {
+      const cur = xs.reduce((a, b) => ((b.last ?? -1) > (a.last ?? -1) ? b : a));
+      const older = xs.filter(x => x !== cur).sort((a, b) => (b.last ?? -1) - (a.last ?? -1))
+        .map(x => ({ version: x.version, hash: x.hash, uses: x.uses, passed: x.passed, failed: x.failed, success: x.success, rate: rate(x) }));
+      return { id, external: true, source: sourceOf(id), version: cur.version, hash: cur.hash, uses: cur.uses, passed: cur.passed, failed: cur.failed, delivered: cur.success, causes: cur.causes, rate: rate(cur), older, ...judge(cur, s, true) };
+    }).sort((a, b) => byStr(a.id, b.id));
+    const ignored = outside.filter(x => !String(x.id).includes(':')).length;
+    return { rows, external, invalid, ignored };
   }
 
   // The one edit Improve makes on a person's say: the top-level status line, nothing else. null when there is no

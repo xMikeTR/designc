@@ -71,6 +71,7 @@ function describe(cmd, r) {
   }
   if (cmd === 'procedures') return [
     ...r.review.rows.map(x => `${x.id} v${x.version}: ${x.judgement}, ${x.reason}${x.older.length ? `; earlier: ${x.older.map(o => `v${o.version} passed ${o.passed} of ${o.uses}`).join(', ')}` : ''}`),
+    ...r.review.external.map(x => `${x.id} v${x.version} (${x.hash}, ${x.source}): ${x.judgement}, ${x.reason}${x.older.length ? `; earlier: ${x.older.map(o => `${o.hash} passed ${o.passed} of ${o.uses}`).join(', ')}` : ''}`),
     ...r.review.problems.map(m => `designc.json: ${m}`),
     ...r.review.invalid.map(x => `not judged, invalid: ${x.path} (${x.errors.join('; ')})`),
     '', 'given in traces (all versions):',

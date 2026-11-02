@@ -909,10 +909,18 @@ const Ledger = (() => {
         rows.set(key, { at: i, first: prev ? prev.first : i, ev: e });
       }
     });
+    // A resumed run re-runs integration and QA, so a later success on the same run (run_ended succeeded, or its
+    // handover closed delivered) overturns an earlier run-level outcome. Task-level outcomes are not overturned.
+    const succeededAt = new Map(), deliveredAt = new Map();
+    events.forEach((e, i) => {
+      if (e.kind === 'run_ended' && e.status === 'succeeded' && typeof e.run === 'string') succeededAt.set(e.run, i);
+      else if (e.kind === 'handover_closed' && e.outcome === 'delivered') deliveredAt.set(e.handover, i);
+    });
     const outcomes = events.map((e, i) => ({ e, i })).filter(x => x.e.kind === 'outcome');
     return [...rows.values()].sort((a, b) => a.first - b.first).map(({ at, ev }) => {
-      const later = outcomes.filter(x => x.i > at && x.e.run === ev.run && (x.e.task === undefined || x.e.task === ev.task)).pop();
       const handover = handoverOf.get(ev.run) || null;
+      const overturnAt = Math.max(succeededAt.has(ev.run) ? succeededAt.get(ev.run) : -1, handover != null && deliveredAt.has(handover) ? deliveredAt.get(handover) : -1);
+      const later = outcomes.filter(x => x.i > at && x.e.run === ev.run && (x.e.task === undefined ? x.i > overturnAt : x.e.task === ev.task)).pop();
       const isDelivered = !!handover && delivered.has(handover);
       return {
         run: ev.run, task: ev.task, outcome: ev.outcome, final: ev.outcome !== 'blocked',

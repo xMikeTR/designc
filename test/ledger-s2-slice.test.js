@@ -111,6 +111,35 @@ test('taskOutcomes: latest trace per run and task; later outcome decides the cau
   assert.equal(runLevel[0].success, false);
 });
 
+test('taskOutcomes: a later success on the same run overturns an earlier run-level outcome (resumed run)', () => {
+  const started = { ...base, kind: 'run_started', run: 'R1', handover: 'H1' };
+  const ended = st => ({ ...base, kind: 'run_ended', run: 'R1', handover: 'H1', status: st, ...(st === 'succeeded' ? {} : { reason: 'x' }) });
+  const resumed = Ledger.taskOutcomes(stamp([
+    started, trace(), trace({ task: 'T-2' }),
+    outcome({ task: 'T-2', cause: 'ci_failed', ref: { kind: 'ci', id: 'lint' } }),
+    outcome({ cause: 'integration_failed', ref: { kind: 'integration', id: 'att-1' } }), ended('failed'),
+    started, ended('succeeded'),
+    { ...base, kind: 'handover_closed', handover: 'H1', outcome: 'delivered' },
+  ]));
+  assert.equal(resumed[0].cause, null, 'attempt 1 run-level failure is overturned');
+  assert.equal(resumed[0].ref, null);
+  assert.equal(resumed[0].success, true);
+  assert.equal(resumed[1].cause, 'ci_failed', 'a task-level outcome is not overturned');
+  assert.equal(resumed[1].success, false);
+
+  const closedOnly = Ledger.taskOutcomes(stamp([started, trace(), outcome({ cause: 'qa_failed', ref: { kind: 'qa', id: 'a' } }),
+    { ...base, kind: 'handover_closed', handover: 'H1', outcome: 'delivered' }]));
+  assert.equal(closedOnly[0].cause, null, 'a delivered handover also overturns it');
+
+  const after = Ledger.taskOutcomes(stamp([started, trace(), ended('succeeded'),
+    outcome({ cause: 'qa_failed', ref: { kind: 'qa', id: 'b' } })]));
+  assert.equal(after[0].cause, 'qa_failed', 'an outcome after the success still counts');
+
+  const other = Ledger.taskOutcomes(stamp([started, trace(), outcome({ cause: 'qa_failed', ref: { kind: 'qa', id: 'c' } }),
+    { ...base, kind: 'run_ended', run: 'R9', handover: 'H1', status: 'succeeded' }, ended('failed')]));
+  assert.equal(other[0].cause, 'qa_failed', 'another run, or a failed end, overturns nothing');
+});
+
 const { spawnSync } = require('child_process');
 const path = require('path');
 const skipPy = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';

@@ -79,17 +79,17 @@
   // Per procedure id and version (and hash), over final episodes: uses, passed, failed, success (delivered), causes.
   function procedureStats(eps) {
     const rows = new Map();
-    for (const e of list(eps)) {
-      if (!e.final) continue;
+    list(eps).forEach((e, i) => {
+      if (!e.final) return;
       for (const p of list(e.procedures)) {
         const k = `${p.id}\u0000${p.version}\u0000${p.hash}`;
-        if (!rows.has(k)) rows.set(k, { id: p.id, version: p.version, hash: p.hash, eps: [] });
-        rows.get(k).eps.push(e);
+        if (!rows.has(k)) rows.set(k, { id: p.id, version: p.version, hash: p.hash, eps: [], last: i });
+        const r = rows.get(k); r.eps.push(e); r.last = i;
       }
-    }
+    });
     return [...rows.values()].map(r => {
       const c = count(r.eps);
-      return { id: r.id, version: r.version, hash: r.hash, uses: r.eps.length, passed: c.passed, failed: c.failed, success: r.eps.filter(e => e.success).length, causes: c.causes };
+      return { id: r.id, version: r.version, hash: r.hash, uses: r.eps.length, passed: c.passed, failed: c.failed, success: r.eps.filter(e => e.success).length, causes: c.causes, last: r.last };
     }).sort((a, b) => byStr(a.id, b.id) || byStr(a.version, b.version) || byStr(a.hash, b.hash));
   }
 
