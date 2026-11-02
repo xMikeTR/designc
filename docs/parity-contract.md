@@ -108,6 +108,10 @@ node scripts/parity-qa.js --registry <dir> --screen <screen|all> [--json]
 
 Read-only. Exit: `0` reported, `1` reported but a QA file has problems (a bad kind, a repeated key, a screenshot outside `shots/`, a missing `parity/qa/shots/.gitignore` when bugs list screenshots), `2` an error (no folder, no QA file for that screen). The Parity view shows the same as a "QA bugs" block on each scenario whose `screen` has a QA file.
 
+### Joining the UI graph (7f)
+
+When `designc.json` `ui.screens` names the scenario's screen, `ParityQa.report` also takes `ui = {legacy, next}` (the UI graphs of each side) and `ParityQa.fromCode` joins their controls to the recording: by role and name when the source gives a role; by name alone, taking the recorded role, when it does not and exactly one recorded role has that name (`name`); `ambiguous` when several do; `unnamed` for a control with no literal name (a `t('key')` is not recorded text); `unrecorded` when nothing matches. Nothing is guessed. For the buckets `state_not_recorded` and `not_flagged` the reason then adds "in code: ..." per side: the file and line, the conditions it is shown under, its disabled, readOnly, hidden or required props, and its format, as source text, never evaluated. Buckets do not change, and no bug text is copied. The Parity scenario page shows the same joins in a "From code" block.
+
 ## Done
 
 A work item may list `parity: <id>` or `parity: all` in `done_when` (repo items only, beside a `gate`). It is met when, for each scenario (`all` is every id in `parity/scenarios/`; none means not met), the latest `parity_result` at the item's done commit, recorded before `item_done`, is `pass`; a latest `fail` or `could_not_run` leaves it unmet. A row whose outcome designc does not know is ignored.
