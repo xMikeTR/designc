@@ -1,9 +1,10 @@
-// The UI graph (phase 7, slices 7a-7d): the controls of each screen named in designc.json `ui.screens`, read from
+// The UI graph (phase 7, slices 7a-7e): the controls of each screen named in designc.json `ui.screens`, read from
 // source with the TypeScript compiler API. Display only, like facts.code: never a gate input, finding, DSL line or
 // fingerprint input. One program per screen over its roots and, through the compiler, their imports. Controls in the
 // roots are read directly; an in-repo component a root renders is followed (ui-follow.js) with the usage's props, and its
 // controls are listed at the usage site with basis `followed` and `via`. A library's (.d.ts) component is never followed. Nothing is guessed: a control whose role the source cannot show gets
-// role null and an unresolved entry. TypeScript is required lazily, here and only here (Node, main process).
+// role null and an unresolved entry, unless designc.json `ui.roles` names its tag (basis `mapped`). One repo is read per
+// build: the codebase, or a `references` key (`key`). TypeScript is required lazily, here and only here (Node, main process).
 const path = require('path');
 const glob = require('./glob');
 const roles = require('./ui-roles');
@@ -23,11 +24,11 @@ const squash = s => s.replace(/\s+/g, ' ').trim();
 const capital = n => /^[A-Z]/.test(n || '');
 
 // Compiler options from the configured tsconfig (paths, baseUrl, jsx), with what a read-only scan needs on top.
-function compilerOptions(ts, repo, tsconfigRel, out) {
+function compilerOptions(ts, repo, tsconfigRel, out, repoLabel = 'codebase') {
   let options = {};
   if (tsconfigRel) {
     const abs = path.resolve(repo, tsconfigRel);
-    if (abs !== repo && !abs.startsWith(repo + path.sep)) out.push(issue(`ui.tsconfig "${tsconfigRel}" is outside the codebase, so it was not read`, 'designc.json', 1, 'ui.tsconfig'));
+    if (abs !== repo && !abs.startsWith(repo + path.sep)) out.push(issue(`ui.tsconfig "${tsconfigRel}" is outside the ${repoLabel}, so it was not read`, 'designc.json', 1, 'ui.tsconfig'));
     else {
       const read = ts.readConfigFile(abs, ts.sys.readFile);
       if (read.error) out.push(issue(`ui.tsconfig could not be read: ${ts.flattenDiagnosticMessageText(read.error.messageText, ' ')}`, 'designc.json', 1, 'ui.tsconfig'));
@@ -117,7 +118,7 @@ const MAX_DEPTH = 8;
 
 /* One screen's scan. A context is {sf, file, env, site, hops, stack}: a root file has no env and no site; a followed
    component has the usage's env, the outermost usage site in a root (where its controls are listed) and the hops. */
-function screenScanner(ts, program, repo, roots, screen, out) {
+function screenScanner(ts, program, repo, roots, screen, out, roleMap = new Map()) {
   const checker = program.getTypeChecker();
   const indexes = new Map();
   const followed = new Set();
@@ -208,12 +209,16 @@ function screenScanner(ts, program, repo, roots, screen, out) {
       scanFormats(fsf, r.file, r.fn, id); scanForms(fsf, r.file);
       return;
     }
-    if (!Object.keys(attrs).some(k => INTERACTIVE.has(k))) return;
+    // ui.roles names the tag: a person said what it is, so it is a control even with no interactive prop.
+    const mapped = roleMap.get(tag);
+    if (!mapped && !Object.keys(attrs).some(k => INTERACTIVE.has(k))) return;
     const place = placeOf(ctx, n);
-    const names = attrNames(attrs, ['aria-label', 'label', 'title']).concat(partsToNames('text', contentOf(ts, ctx, n)));
-    const c = { id: idOf(ctx, n), screen, component: place.component, file: place.file, line: place.line, tag, role: null, basis: null, name: firstLiteral(names), names,
+    const own = mapped && mapped.name && attrs[mapped.name] ? attrNames(attrs, [mapped.name]) : [];
+    const names = own.concat(attrNames(attrs, ['aria-label', 'label', 'title']).concat(partsToNames('text', contentOf(ts, ctx, n))).filter(x => !own.length || x.from !== mapped.name));
+    const c = { id: idOf(ctx, n), screen, component: place.component, file: place.file, line: place.line, tag, role: mapped ? mapped.role : null, basis: mapped ? 'mapped' : null, name: firstLiteral(names), names,
       ...(r.kind === 'library' ? { library: r.from } : {}), ...(ctx.site ? { as: ctx.site.as } : {}), ...(ctx.hops.length ? { via: ctx.hops, at: { file: ctx.file, line: lineOf(ctx.sf, n) } } : {}), ...(spreads ? { spreads } : {}) };
     finish(ctx, n, op, attrs, c);
+    if (mapped && r.kind === 'library') return;
     out.unresolved.push(issue(r.kind === 'library'
       ? `<${tag}> comes from ${r.from}, a library whose source is not read; its role is not in source (name it in designc.json ui.roles)`
       : `<${tag}> could not be resolved to a declaration`, place.file, place.line, op.getText(ctx.sf).slice(0, 120), screen));
@@ -303,20 +308,40 @@ function joinFields(out, screen) {
   }
 }
 
-/* ui: designc.json `ui` ({tsconfig?: {codebase}, screens: {name: {codebase: [patterns]}}}).
-   files: repo-relative source files from the walk. Returns facts.ui. */
-function build({ repo, files, ui }) {
-  const out = { schema: SCHEMA, repo: 'codebase', screens: [], components: [], controls: [], formats: [], forms: [], unresolved: [] };
+// designc.json ui.roles ({Tag: {role, name?}}): a widget role for a tag the source cannot show, and the prop naming it.
+// A bad entry is unresolved and not applied.
+function roleMapOf(map, out) {
+  const res = new Map();
+  if (map == null) return res;
+  if (typeof map !== 'object' || Array.isArray(map)) { out.push(issue('ui.roles must be an object of {role, name?} by tag', 'designc.json', 1, 'ui.roles')); return res; }
+  for (const [tag, v] of Object.entries(map)) {
+    if (!v || typeof v !== 'object' || Array.isArray(v)) { out.push(issue(`ui.roles.${tag}: must be {role, name?}`, 'designc.json', 1, 'ui.roles')); continue; }
+    if (!roles.WIDGET_ROLES.has(v.role)) { out.push(issue(`ui.roles.${tag}: role "${v.role}" is not a widget role`, 'designc.json', 1, 'ui.roles')); continue; }
+    if (v.name != null && (typeof v.name !== 'string' || !v.name)) { out.push(issue(`ui.roles.${tag}: name must be the prop that names it`, 'designc.json', 1, 'ui.roles')); continue; }
+    res.set(tag, { role: v.role, ...(v.name ? { name: v.name } : {}) });
+  }
+  return res;
+}
+
+/* ui: designc.json `ui` ({tsconfig?: {<repo key>: path}, screens: {name: {<repo key>: [patterns]}}, roles?}).
+   key: the repo read, `codebase` or a designc.json `references` key; keys: the references keys there are (another key on a
+   screen is unresolved). files: repo-relative source files from the walk. Returns facts.ui. */
+function build({ repo, files, ui, key = 'codebase', keys = [] }) {
+  const out = { schema: SCHEMA, repo: key, screens: [], components: [], controls: [], formats: [], forms: [], unresolved: [] };
   const screens = ui && ui.screens && typeof ui.screens === 'object' ? ui.screens : {};
   let ts;
   try { ts = loadTs(); } catch (e) { out.unresolved.push(issue(`The TypeScript compiler could not be loaded (${e.message}), so no screen was read`, 'designc.json', 1, 'ui.screens')); return out; }
-  const tsconfig = ui && ui.tsconfig && typeof ui.tsconfig === 'object' ? ui.tsconfig.codebase : null;
-  const options = compilerOptions(ts, repo, tsconfig, out.unresolved);
+  const tsconfig = ui && ui.tsconfig && typeof ui.tsconfig === 'object' ? ui.tsconfig[key] : null;
+  const options = compilerOptions(ts, repo, tsconfig, out.unresolved, key === 'codebase' ? 'codebase' : `${key} repository`);
+  const roleMap = roleMapOf(ui && ui.roles, out.unresolved);
+  const known = new Set(['codebase', ...keys]);
   const sources = files.filter(isSource);
   const seen = new Map();
   for (const [name, def] of Object.entries(screens)) {
-    const pats = def && def.codebase != null ? [].concat(def.codebase) : [];
-    for (const k of Object.keys(def || {})) if (k !== 'codebase') out.unresolved.push(issue(`ui.screens.${name}.${k}: reference repositories are not read yet; only "codebase" is`, 'designc.json', 1, `ui.screens.${name}`, name));
+    for (const k of Object.keys(def || {})) if (!known.has(k)) out.unresolved.push(issue(`ui.screens.${name}.${k}: "${k}" is not a designc.json references key`, 'designc.json', 1, `ui.screens.${name}`, name));
+    // A screen with no patterns for this repo is not part of its graph (it may live only in another repo).
+    if (!def || def[key] == null) continue;
+    const pats = [].concat(def[key]);
     const roots = new Set();
     for (const p of pats) {
       const bad = typeof p === 'string' ? glob.problem(p) : 'not a string';
@@ -329,7 +354,7 @@ function build({ repo, files, ui }) {
     const program = rootList.length ? ts.createProgram(rootList.map(f => path.join(repo, f)), options, ts.createCompilerHost(options, true)) : null;
     const compIds = new Set();
     if (program) {
-      const scan = screenScanner(ts, program, repo, roots, name, out);
+      const scan = screenScanner(ts, program, repo, roots, name, out, roleMap);
       for (const f of rootList) {
         const sf = program.getSourceFile(path.join(repo, f));
         if (!sf) { out.unresolved.push(issue(`${f} could not be parsed`, f, 1, '', name)); continue; }

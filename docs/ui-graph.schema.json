@@ -2,7 +2,7 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "designc.ui.graph/1",
   "title": "UI graph",
-  "description": "facts.ui in asbuilt/facts.json: the controls of each screen named in designc.json ui.screens, read from source with the TypeScript compiler (extract/ui.js). Display only: never a gate input, finding, DSL line or fingerprint input. Nothing is guessed: what the source cannot show is null and listed in unresolved. docs/ui-graph.example.json is the fixture output, pinned in test/extract-ui.test.js.",
+  "description": "facts.ui in asbuilt/facts.json, or asbuilt/ui-<key>.json for a designc.json references repo: the controls of each screen named in designc.json ui.screens, read from source with the TypeScript compiler (extract/ui.js). Display only: never a gate input, finding, DSL line or fingerprint input. Nothing is guessed: what the source cannot show is null and listed in unresolved. docs/ui-graph.example.json is the fixture output, pinned in test/extract-ui.test.js.",
   "type": "object",
   "required": ["schema", "repo", "screens", "components", "controls", "formats", "forms", "unresolved"],
   "additionalProperties": false,
@@ -37,7 +37,8 @@
   },
   "properties": {
     "schema": { "const": "designc.ui.graph/1" },
-    "repo": { "type": "string", "description": "Which repository: codebase, or a designc.json references key (later, 7e)." },
+    "extractedAt": { "type": "string", "description": "Only in asbuilt/ui-<key>.json: when the references repo was read (ISO time). facts.ui has it on facts instead." },
+    "repo": { "type": "string", "description": "Which repository: codebase (facts.ui), or the designc.json references key whose patterns were read (asbuilt/ui-<key>.json). One repo per build." },
     "screens": {
       "type": "array",
       "items": {
@@ -78,7 +79,7 @@
           "at": { "type": "object", "required": ["file", "line"], "properties": { "file": { "type": "string" }, "line": { "type": "integer" } }, "description": "Where the element itself is, when it sits in a followed component." },
           "library": { "type": "string", "description": "The package an unfollowed component comes from; its role is not in source." },
           "role": { "type": ["string", "null"], "description": "Null when the source cannot show it; an unresolved entry says why." },
-          "basis": { "enum": ["native", "aria", "followed", "mapped", null], "description": "native: the HTML element's implicit role. aria: a literal role attribute. followed: the role of an element inside a followed component. mapped: from designc.json ui.roles (7e, not yet). Null for a library or unresolved component." },
+          "basis": { "enum": ["native", "aria", "followed", "mapped", null], "description": "native: the HTML element's implicit role. aria: a literal role attribute. followed: the role of an element inside a followed component. mapped: from designc.json ui.roles ({Tag: {role, name?}}), for a library or unresolvable tag. Null for a library or unresolved component." },
           "name": { "type": ["string", "null"], "description": "The accessible name when a literal decides it: the first source present in the order aria-labelledby, aria-label, label, alt, text, value, title, placeholder. Null when that source is an expression or t('key')." },
           "names": {
             "type": "array",

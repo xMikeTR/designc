@@ -56,6 +56,7 @@ contextBridge.exposeInMainWorld('host', {
   chooseImportFolder: () => ipcRenderer.invoke('import:choose'),
   readImportFolder: p => ipcRenderer.invoke('import:read', p),
   extract: p => ipcRenderer.invoke('codebase:extract', p),
+  extractReferenceUi: key => ipcRenderer.invoke('reference:extractUi', key),
   readCode: (p, rel) => ipcRenderer.invoke('codebase:read', p, rel),
   telemetry: () => ipcRenderer.invoke('telemetry:fetch'),
   telemetryTrace: (traceId, spanId) => ipcRenderer.invoke('telemetry:trace', traceId, spanId),
