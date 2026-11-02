@@ -25,7 +25,9 @@ const UiGraph = (() => {
     const loose = controls.filter(x => !placed.has(x.id));
     if (loose.length) tree.push({ id: null, name: '(no component)', file: '', line: 0, renders: [], depth: 0, controls: loose });
     const followed = (ui.components || []).filter(c => (s.followed || []).includes(c.id)).sort(byPlace);
-    return { name, roots: s.roots.slice(), tree, controls, followed, unresolved: (ui.unresolved || []).filter(u => u.screen === name) };
+    const formats = (ui.formats || []).filter(f => f.screen === name).sort(byPlace);
+    const forms = (ui.forms || []).filter(f => f.screen === name).sort(byPlace);
+    return { name, roots: s.roots.slice(), tree, controls, followed, formats, forms, unresolved: (ui.unresolved || []).filter(u => u.screen === name) };
   }
 
   // Counts per screen: controls, those without a role the source shows, those without a literal name.
@@ -38,8 +40,19 @@ const UiGraph = (() => {
     return { screens, controls: sum('controls'), roleless: sum('roleless'), unnamed: sum('unnamed'), unresolved: ((ui && ui.unresolved) || []).length };
   }
 
+  // Short text for a control's format tag: the pattern when literal, else the call and its argument source.
+  function formatText(f) {
+    if (!f) return '';
+    return f.pattern != null ? `${f.lib === 'Intl' || f.lib === 'toLocale' ? f.call + ' ' : ''}${f.pattern}` : `${f.call}(${f.args || ''})`;
+  }
+
+  // Short text for a field's rules: 'min 1, max 40, required'. The type rule is left out; a true value is just the rule.
+  function rulesText(rules) {
+    return (rules || []).filter(r => r.rule !== 'type').map(r => r.value === true ? r.rule : `${r.rule} ${typeof r.value === 'string' ? r.value : JSON.stringify(r.value)}`).join(', ');
+  }
+
   const BASIS = { native: 'HTML element', aria: 'role attribute', followed: 'followed component', mapped: 'designc.json ui.roles' };
 
-  return { screen, summary, BASIS };
+  return { screen, summary, formatText, rulesText, BASIS };
 })();
 if (typeof module !== 'undefined') module.exports = UiGraph;

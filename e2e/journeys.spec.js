@@ -109,6 +109,8 @@ test('user can see the UI graph of a screen @critical', async () => {
   await expect(table.getByRole('row').filter({ hasText: 'ui-lib' }).first()).toBeVisible();
   // Conditions are source text, never evaluated.
   await expect(table.getByRole('row').filter({ hasText: 'New tag' })).toContainText('canEdit');
+  // A registered field carries the rules of the one schema naming it, then its register rules.
+  await expect(table.getByRole('row').filter({ hasText: 'TagForm.tsx:17' })).toContainText('min 1, max 40, required');
 });
 
 test('user can remove a requirement and a bound decision made by mistake', async () => {

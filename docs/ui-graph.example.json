@@ -5,10 +5,12 @@
     {
       "name": "tags",
       "roots": [
+        "src/pages/Tags/TagForm.tsx",
         "src/pages/Tags/TagRow.tsx",
         "src/pages/Tags/TagsPage.tsx"
       ],
       "components": [
+        "src/pages/Tags/TagForm.tsx#TagForm",
         "src/pages/Tags/TagRow.tsx#TagRow",
         "src/pages/Tags/TagsPage.tsx#TagsPage"
       ],
@@ -54,6 +56,14 @@
       "basis": "declared"
     },
     {
+      "id": "src/pages/Tags/TagForm.tsx#TagForm",
+      "name": "TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 13,
+      "renders": [],
+      "basis": "declared"
+    },
+    {
       "id": "src/pages/Tags/TagRow.tsx#TagRow",
       "name": "TagRow",
       "file": "src/pages/Tags/TagRow.tsx",
@@ -77,6 +87,189 @@
     }
   ],
   "controls": [
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:17:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 17,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Tag name",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Tag name"
+        }
+      ],
+      "spreads": 1,
+      "field": {
+        "form": "tagSchema",
+        "name": "name",
+        "rules": [
+          {
+            "rule": "type",
+            "value": "string",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 8
+          },
+          {
+            "rule": "min",
+            "value": 1,
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 8
+          },
+          {
+            "rule": "max",
+            "value": 40,
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 8
+          },
+          {
+            "rule": "required",
+            "value": true,
+            "message": "Name is required",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 17
+          },
+          {
+            "rule": "maxLength",
+            "value": 40,
+            "message": "Too long",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 17
+          }
+        ]
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:18:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 18,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Colour",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Colour"
+        }
+      ],
+      "spreads": 1,
+      "field": {
+        "form": "tagSchema",
+        "name": "colour",
+        "rules": [
+          {
+            "rule": "type",
+            "value": "string",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 9
+          },
+          {
+            "rule": "regex",
+            "value": "/^#[0-9a-f]{6}$/i",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 9
+          },
+          {
+            "rule": "optional",
+            "value": true,
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 9
+          }
+        ]
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:19:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 19,
+      "tag": "textarea",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Note",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Note"
+        }
+      ],
+      "spreads": 1,
+      "field": {
+        "form": "noteSchema",
+        "name": "note",
+        "rules": [
+          {
+            "rule": "type",
+            "value": "string",
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 11
+          },
+          {
+            "rule": "max",
+            "value": 200,
+            "file": "src/pages/Tags/TagForm.tsx",
+            "line": 11
+          }
+        ]
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:20:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 20,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Owner",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Owner"
+        }
+      ],
+      "spreads": 1,
+      "field": {
+        "form": null,
+        "name": "owner",
+        "rules": []
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:25:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 25,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": null,
+      "names": [
+        {
+          "from": "text",
+          "value": null,
+          "expr": "Save {created.toLocaleTimeString('en-GB')}"
+        }
+      ],
+      "format": {
+        "lib": "toLocale",
+        "call": "toLocaleTimeString",
+        "pattern": "'en-GB'",
+        "args": "'en-GB'",
+        "file": "src/pages/Tags/TagForm.tsx",
+        "line": 25
+      }
+    },
     {
       "id": "tags:src/pages/Tags/TagRow.tsx:6:5",
       "screen": "tags",
@@ -562,6 +755,148 @@
         {
           "from": "value",
           "value": "Add tag"
+        }
+      ]
+    }
+  ],
+  "formats": [
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:21:19",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "lib": "date-fns",
+      "call": "format",
+      "pattern": "dd/MM/yyyy",
+      "args": "created, 'dd/MM/yyyy'",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 21
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:22:19",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "lib": "dayjs",
+      "call": "format",
+      "pattern": "D MMM YYYY",
+      "args": "'D MMM YYYY'",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 22
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:23:11",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "lib": "Intl",
+      "call": "Intl.NumberFormat",
+      "pattern": "'en-GB', { style: 'percent' }",
+      "args": "'en-GB', { style: 'percent' }",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 23
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:24:14",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "lib": "toLocale",
+      "call": "toLocaleDateString",
+      "pattern": null,
+      "args": "locale",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 24
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx:25:35",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagForm.tsx#TagForm",
+      "lib": "toLocale",
+      "call": "toLocaleTimeString",
+      "pattern": "'en-GB'",
+      "args": "'en-GB'",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 25
+    }
+  ],
+  "forms": [
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx#tagSchema",
+      "screen": "tags",
+      "form": "tagSchema",
+      "lib": "zod",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 7,
+      "fields": [
+        {
+          "name": "name",
+          "rules": [
+            {
+              "rule": "type",
+              "value": "string",
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 8
+            },
+            {
+              "rule": "min",
+              "value": 1,
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 8
+            },
+            {
+              "rule": "max",
+              "value": 40,
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 8
+            }
+          ]
+        },
+        {
+          "name": "colour",
+          "rules": [
+            {
+              "rule": "type",
+              "value": "string",
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 9
+            },
+            {
+              "rule": "regex",
+              "value": "/^#[0-9a-f]{6}$/i",
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 9
+            },
+            {
+              "rule": "optional",
+              "value": true,
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 9
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagForm.tsx#noteSchema",
+      "screen": "tags",
+      "form": "noteSchema",
+      "lib": "yup",
+      "file": "src/pages/Tags/TagForm.tsx",
+      "line": 11,
+      "fields": [
+        {
+          "name": "note",
+          "rules": [
+            {
+              "rule": "type",
+              "value": "string",
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 11
+            },
+            {
+              "rule": "max",
+              "value": 200,
+              "file": "src/pages/Tags/TagForm.tsx",
+              "line": 11
+            }
+          ]
         }
       ]
     }
