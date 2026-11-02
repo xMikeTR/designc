@@ -4,7 +4,7 @@
 > whenever module boundaries or interfaces change.
 > Source of truth for blast radius assessment, onboarding, and enterprise
 > architecture aggregation.
-> Last updated: 2026-10-24 — legacy UI parity: `renderer/parity.js` (pure contract: normalise, diff, compare, `parity_result`), `renderer/parityview.js` (read-only Parity view, `host.parityShot`), `recorder/` and `scripts/parity-record.js`/`parity-import.js` (outside the app), `parity` done_when in `work.js`/`work.py`, Grill-me `read_parity`.
+> Last updated: 2026-11-02 — QA bugs against recorded parity (intelligence plane phase 1): `renderer/parity-qa.js` (pure: behaviour table, grouped diff, QA file, buckets), `scripts/parity-qa.js` (read-only CLI), QA bugs block in `renderer/parityview.js`, step `state` labels in `parity.js`.
 >
 > Previously 2026-10-18 — read-only references: `designc.json` `references` (`{key: {kind: "legacy", path}}`) read by `Dispatch.references`/`legacy` in `renderer/dispatch.js`; `Core.handoverPlan` takes `references`, lists `{key, kind}` (no path) in `handover.yaml` inside the id hash, and `buildBrief` adds a never-write rule; `{legacy}` fills dispatch and resume commands (`terminalview.js`); freeze confirmation names them unchecked; Set up has a Read-only references section. `fixtures/migration/` is a WPF-to-JS trial fixture (not app code).
 > Earlier the same day: exploration finished. canvas, agent panel, ACP hub, MCP server,
@@ -87,6 +87,7 @@ C4Container
 | `renderer/work.js` | Work item rules: validate, states, conflicts, what is missing before Done. Pure, dual-loaded | `Work.validate, states, conflicts, doneProblems, coverage, addToList` | `renderer/workview.js`, `test/work.test.js` | `renderer/pathpattern.js` |
 | `renderer/workview.js` | Work view: backlog, Start, Run gates, Done | `loadWork`, `renderWork` | `renderer/app.js` hooks | `host.work*` |
 | `renderer/parity.js` | Legacy parity contract: shapes, normalise, exceptions from acceptance and business decisions, diff, compare, `parity_result`. Pure, dual-loaded | `Parity.normalise, snapshot, diff, compare, resultEvent, scenarioProblems, detect` | `renderer/parityview.js`, `renderer/agent.js`, `recorder/`, `scripts/parity-record.js`, tests | none |
+| `renderer/parity-qa.js` | QA bugs against recorded parity: behaviour table, grouped diff (missing, divergent, new-only), `parity/qa/<screen>.yaml` reader, buckets (caught, not captured, state not recorded, not flagged, triage). Pure, dual-loaded, fixed rules | `ParityQa.behaviour, group, read, report` | `renderer/parityview.js`, `scripts/parity-qa.js`, tests | none |
 | `renderer/parityview.js` | Parity view: scenarios, ledger results, report findings, screenshots | `loadParityScenarios`, `renderParity`, `parityNote` | `renderer/workview.js`, `renderer/app.js` hooks | `host.parityShot`, `host.list`, `host.read` |
 | `renderer/study.js` | Study topics: parse, validate, append-only edits (sources, findings, questions, PoCs), human-only opinion and status, decision draft from a settled topic. Pure, dual-loaded | `Study.parse, addSource, addFinding, answerQuestion, setStatus, decisionDraft` | `renderer/agent.js` (Researcher tools), `renderer/studyview.js`, `test/study.test.js` | none |
 | `renderer/studyview.js` | Study activity: topics sidebar, topic page, opinion and status (human only), Ask the Researcher; New decision from a study | `renderStudy`, `studySidebar`, `newDecisionFromStudy`, `settledStudies` | `renderer/app.js` hooks | `host.list`, `host.write`, `host.registryList` |
@@ -122,6 +123,8 @@ graph TD
     studyview[renderer/studyview.js] --> study
     studyview --> app
     parityview[renderer/parityview.js] --> parity[renderer/parity.js]
+    parityview --> parityqa[renderer/parity-qa.js]
+    parityqa --> parity
     parityview --> app
     agent --> parity
     main --> gitmod[git.js]
@@ -141,6 +144,7 @@ graph TD
   main --> acp[acp.js]
   mcp[designc-mcp.js] --> main
   recorder[recorder/ + scripts/parity-record.js] -. outside the app .-> parity
+  qacli[scripts/parity-qa.js] -. outside the app .-> parityqa
   recorder --> store
 ```
 

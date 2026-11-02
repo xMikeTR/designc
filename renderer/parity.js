@@ -274,6 +274,9 @@ const Parity = (() => {
       if (ex.sorted != null && typeof ex.sorted !== 'string') return 'expect.sorted names a column';
       if (ex.filtered != null && !(ex.filtered && typeof ex.filtered.column === 'string' && ex.filtered.contains != null)) return 'expect.filtered needs a column and contains';
     }
+    // state names the screen state the step leaves the app in ("list", "apply dialog"); QA bugs say which state they
+    // were seen in (renderer/parity-qa.js). Display and matching only: the comparison never reads it.
+    if (step.state != null && !(typeof step.state === 'string' && step.state.trim())) return 'state must be a name for the screen state after this step';
     return null;
   }
 
