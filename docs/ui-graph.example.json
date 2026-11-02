@@ -100,11 +100,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:16:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:19:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 16,
+      "line": 19,
       "tag": "input",
       "role": "searchbox",
       "basis": "native",
@@ -114,14 +114,22 @@
           "from": "label",
           "value": "Search tags"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:19:9",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:22:9",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 19,
+      "line": 22,
       "tag": "input",
       "role": "checkbox",
       "basis": "native",
@@ -131,22 +139,13 @@
           "from": "label",
           "value": "Show archived"
         }
-      ]
-    },
-    {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:21:7",
-      "screen": "tags",
-      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
-      "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 21,
-      "tag": "select",
-      "role": "combobox",
-      "basis": "native",
-      "name": "Sort by",
-      "names": [
+      ],
+      "when": [
         {
-          "from": "aria-label",
-          "value": "Sort by"
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
         }
       ]
     },
@@ -156,48 +155,22 @@
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
       "line": 24,
-      "tag": "textarea",
-      "role": "textbox",
+      "tag": "select",
+      "role": "combobox",
       "basis": "native",
-      "name": "Notes",
+      "name": "Sort by",
       "names": [
         {
-          "from": "placeholder",
-          "value": "Notes"
+          "from": "aria-label",
+          "value": "Sort by"
         }
-      ]
-    },
-    {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:25:7",
-      "screen": "tags",
-      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
-      "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 25,
-      "tag": "button",
-      "role": "button",
-      "basis": "native",
-      "name": "Clear",
-      "names": [
+      ],
+      "when": [
         {
-          "from": "text",
-          "value": "Clear"
-        }
-      ]
-    },
-    {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:26:7",
-      "screen": "tags",
-      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
-      "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 26,
-      "tag": "button",
-      "role": "button",
-      "basis": "native",
-      "name": null,
-      "names": [
-        {
-          "from": "t()",
-          "value": "tags.save"
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
         }
       ]
     },
@@ -207,6 +180,84 @@
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
       "line": 27,
+      "tag": "textarea",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Notes",
+      "names": [
+        {
+          "from": "placeholder",
+          "value": "Notes"
+        }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:28:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 28,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": "Clear",
+      "names": [
+        {
+          "from": "text",
+          "value": "Clear"
+        }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ],
+      "props": {
+        "disabled": "!query"
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:29:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 29,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": null,
+      "names": [
+        {
+          "from": "t()",
+          "value": "tags.save"
+        }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:30:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 30,
       "tag": "button",
       "role": "button",
       "basis": "native",
@@ -221,14 +272,22 @@
           "from": "title",
           "value": "Delete tag"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:28:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:31:19",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 28,
+      "line": 31,
       "tag": "a",
       "role": "link",
       "basis": "native",
@@ -238,14 +297,59 @@
           "from": "text",
           "value": "New tag"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        },
+        {
+          "kind": "and",
+          "expr": "canEdit",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 31
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:30:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:32:18",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 30,
+      "line": 32,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": "Rename",
+      "names": [
+        {
+          "from": "text",
+          "value": "Rename"
+        }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        },
+        {
+          "kind": "ternary",
+          "expr": "canEdit",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 32
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:34:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 34,
       "tag": "div",
       "role": "switch",
       "basis": "aria",
@@ -255,14 +359,22 @@
           "from": "aria-label",
           "value": "Compact view"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:32:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:36:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 32,
+      "line": 36,
       "tag": "input",
       "role": null,
       "basis": null,
@@ -272,14 +384,22 @@
           "from": "aria-label",
           "value": "Created after"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:35:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:39:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 35,
+      "line": 39,
       "tag": "input",
       "role": "textbox",
       "basis": "native",
@@ -290,14 +410,22 @@
           "value": "Filter",
           "ref": "filter-label"
         }
+      ],
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:36:7>src/components/Field.tsx:8:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:40:7>src/components/Field.tsx:8:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 36,
+      "line": 40,
       "tag": "input",
       "role": "textbox",
       "basis": "followed",
@@ -323,14 +451,25 @@
       "at": {
         "file": "src/components/Field.tsx",
         "line": 8
+      },
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ],
+      "props": {
+        "required": true
       }
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:37:7>src/components/IconButton.tsx:5:3",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:41:7>src/components/IconButton.tsx:5:3",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 37,
+      "line": 41,
       "tag": "button",
       "role": "button",
       "basis": "followed",
@@ -356,14 +495,22 @@
       "at": {
         "file": "src/components/IconButton.tsx",
         "line": 5
-      }
+      },
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:38:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:42:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 38,
+      "line": 42,
       "tag": "Button",
       "role": null,
       "basis": null,
@@ -374,7 +521,15 @@
           "value": "Reset"
         }
       ],
-      "library": "ui-lib"
+      "library": "ui-lib",
+      "when": [
+        {
+          "kind": "if-return",
+          "expr": "!(loading)",
+          "file": "src/pages/Tags/TagsPage.tsx",
+          "line": 14
+        }
+      ]
     },
     {
       "id": "legacy-tags:src/legacy/OldTags.jsx:7:9",
@@ -416,7 +571,7 @@
       "where": "ui",
       "what": "<input> has no role the source can show: input type \"date\" has no implicit role",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 32,
+      "line": 36,
       "text": "<input type=\"date\" aria-label=\"Created after\" />",
       "screen": "tags"
     },
@@ -424,7 +579,7 @@
       "where": "ui",
       "what": "<Button> comes from ui-lib, a library whose source is not read; its role is not in source (name it in designc.json ui.roles)",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 38,
+      "line": 42,
       "text": "<Button onClick={() => setQuery('')}>",
       "screen": "tags"
     }

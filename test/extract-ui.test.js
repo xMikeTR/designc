@@ -160,3 +160,48 @@ test('follow: a component that renders itself stops with an unresolved entry', (
   assert.deepEqual(r.controls.map(c => c.name), ['Open']);
   assert.ok(r.unresolved.some(u => /<Tree> was not followed further: it renders itself/.test(u.what)));
 });
+
+test('when: and, or, ternary both branches, if/else and early returns, outermost first; nothing evaluated', () => {
+  const r = one(`export function P({ a, b, busy, err }) {
+  if (busy) return null;
+  if (err) { return <button>Retry</button>; }
+  return (<div>
+    {a && b && <button>One</button>}
+    {a || <button>Two</button>}
+    {a ? <button>Three</button> : <button>Four</button>}
+    <button>Five</button>
+  </div>);
+}`);
+  const w = n => r.controls.find(c => c.name === n).when.map(x => [x.kind, x.expr]);
+  assert.deepEqual(w('Retry'), [['if-return', '!(busy)'], ['if', 'err']]);
+  assert.deepEqual(w('One'), [['if-return', '!(busy)'], ['if-return', '!(err)'], ['and', 'a && b']]);
+  assert.deepEqual(w('Two'), [['if-return', '!(busy)'], ['if-return', '!(err)'], ['or', '!(a)']]);
+  assert.deepEqual(w('Three').at(-1), ['ternary', 'a']);
+  assert.deepEqual(w('Four').at(-1), ['ternary', '!(a)']);
+  assert.deepEqual(w('Five'), [['if-return', '!(busy)'], ['if-return', '!(err)']]);
+  assert.equal(r.controls.find(c => c.name === 'One').when[2].line, 5);
+});
+
+test('when: a condition at the usage of a followed component comes before the component\'s own', () => {
+  const r = many({
+    'src/Page.tsx': `import { Box } from './Box'; export const Page = ({ open }) => (<div>{open && <Box />}</div>);`,
+    'src/Box.tsx': `export const Box = ({ editable }) => (<div>{editable ? <button>Edit</button> : null}</div>);`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls[0].when.map(x => [x.kind, x.expr, x.file]), [['and', 'open', 'src/Page.tsx'], ['ternary', 'editable', 'src/Box.tsx']]);
+});
+
+test('props: disabled, readOnly, hidden, required as true or source text; false and aria "false" are dropped', () => {
+  const r = one(`export const P = ({ busy }) => (<form>
+    <button disabled>A</button><button disabled={busy}>B</button><button disabled={false}>C</button>
+    <input aria-label="D" readOnly={true} required /><button aria-hidden="false">E</button><button aria-disabled="true">F</button></form>);`);
+  assert.deepEqual(r.controls.map(c => c.props), [{ disabled: true }, { disabled: 'busy' }, undefined, { readOnly: true, required: true }, undefined, { disabled: true }]);
+  assert.equal(r.controls[0].when, undefined);
+});
+
+test('props: a followed component passes the usage value through; one the usage does not give is absent', () => {
+  const r = many({
+    'src/Page.tsx': `import { Go } from './Go'; export const Page = ({ busy }) => (<div><Go off={busy} /><Go /></div>);`,
+    'src/Go.tsx': `export const Go = ({ off }) => <button disabled={off}>Go</button>;`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls.map(c => c.props), [{ disabled: 'busy' }, undefined]);
+});

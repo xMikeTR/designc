@@ -9,6 +9,9 @@ export function TagsPage() {
   const [query, setQuery] = useState('');
   const label = 'Dynamic';
   const tags = ['urgent', 'later'];
+  const [loading] = useState(false);
+  const canEdit = tags.length > 0;
+  if (loading) return <p>Loading tags</p>;
   return (
     <main>
       <h1>Tags</h1>
@@ -22,10 +25,11 @@ export function TagsPage() {
         <option>Name</option>
       </select>
       <textarea placeholder="Notes" />
-      <button type="button" onClick={() => setQuery('')}>Clear</button>
+      <button type="button" onClick={() => setQuery('')} disabled={!query}>Clear</button>
       <button>{t('tags.save')}</button>
       <button title="Delete tag">{label}</button>
-      <a href="/tags/new">New tag</a>
+      {canEdit && <a href="/tags/new">New tag</a>}
+      {canEdit ? <button>Rename</button> : <span>Read only</span>}
       <a>Not a link</a>
       <div role="switch" aria-label="Compact view" />
       <div role="presentation">Layout only</div>
@@ -33,7 +37,7 @@ export function TagsPage() {
       <input type="hidden" name="csrf" />
       <span id="filter-label">Filter</span>
       <input type="text" aria-labelledby="filter-label" />
-      <Field label="Tag name" type="text" name="name" />
+      <Field label="Tag name" type="text" name="name" required />
       <IconButton label="Refresh" onClick={() => setQuery('')}>↻</IconButton>
       <Button onClick={() => setQuery('')}>Reset</Button>
       <Badge>{tags.length}</Badge>

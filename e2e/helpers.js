@@ -20,12 +20,15 @@ function cleanup() {
 }
 
 // Copies `registry` (relative to the app) into a scratch folder outside any git repo.
-// `codebase: true` also copies sample-codebase as the sibling designc.json names.
+// `codebase: true` also copies sample-codebase as the sibling designc.json names; a string copies that folder
+// (relative to the app) as the sibling `designc-<basename>` instead.
 function copyRegistry(registry, { codebase = false } = {}) {
   const dir = scratch();
   const reg = path.join(dir, 'registry');
   fs.cpSync(path.join(APP, registry), reg, { recursive: true });
-  if (codebase) {
+  if (typeof codebase === 'string') {
+    fs.cpSync(path.join(APP, codebase), path.join(dir, `designc-${path.basename(codebase)}`), { recursive: true });
+  } else if (codebase) {
     fs.cpSync(path.join(APP, 'sample-codebase'), path.join(dir, 'designc-sample-codebase'), {
       recursive: true,
       filter: src => !/[\\/](bin|obj)$/.test(src),
