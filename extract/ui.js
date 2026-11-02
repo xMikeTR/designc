@@ -1,4 +1,4 @@
-// The UI graph (phase 7, slices 7a-7b): the controls of each screen named in designc.json `ui.screens`, read from
+// The UI graph (phase 7, slices 7a-7d): the controls of each screen named in designc.json `ui.screens`, read from
 // source with the TypeScript compiler API. Display only, like facts.code: never a gate input, finding, DSL line or
 // fingerprint input. One program per screen over its roots and, through the compiler, their imports. Controls in the
 // roots are read directly; an in-repo component a root renders is followed (ui-follow.js) with the usage's props, and its
@@ -9,6 +9,7 @@ const glob = require('./glob');
 const roles = require('./ui-roles');
 const { resolveTag, propsBinding, environment, INTERACTIVE } = require('./ui-follow');
 const behaviour = require('./ui-behaviour');
+const formats = require('./ui-formats');
 
 const SCHEMA = 'designc.ui.graph/1';
 const SOURCE_RE = /\.(tsx|ts|jsx|js|mjs|cjs)$/i;
@@ -120,6 +121,26 @@ function screenScanner(ts, program, repo, roots, screen, out) {
   const checker = program.getTypeChecker();
   const indexes = new Map();
   const followed = new Set();
+  const importsCache = new Map(), formatIds = new Set(), formIds = new Set();
+  const importsOf = sf => importsCache.get(sf) || importsCache.set(sf, formats.importsOf(ts, sf)).get(sf);
+  // Formatting calls (each listed once per screen) and form schemas (once per file and form) under a node.
+  const formatAt = f => ({ lib: f.lib, call: f.call, pattern: f.pattern, args: f.args, file: f.file, line: f.line });
+  function scanFormats(sf, file, node, component) {
+    for (const f of formats.formatsIn(ts, sf, file, importsOf(sf), node)) {
+      const id = `${screen}:${file}:${where(sf, f.node)}`;
+      if (formatIds.has(id)) continue;
+      formatIds.add(id);
+      out.formats.push({ id, screen, component: component || `${file}#${componentAt(ts, f.node, file).name}`, ...formatAt(f) });
+    }
+  }
+  function scanForms(sf, file) {
+    for (const f of formats.formsIn(ts, sf, file, importsOf(sf))) {
+      const id = `${screen}:${file}#${f.form}`;
+      if (formIds.has(id)) continue;
+      formIds.add(id);
+      out.forms.push({ id, screen, ...f });
+    }
+  }
   const pos = (sf, n) => sf.getLineAndCharacterOfPosition(n.getStart(sf));
   const lineOf = (sf, n) => pos(sf, n).line + 1;
   const where = (sf, n) => { const p = pos(sf, n); return `${p.line + 1}:${p.character + 1}`; };
@@ -184,6 +205,7 @@ function screenScanner(ts, program, repo, roots, screen, out) {
       const env = environment(ts, propsBinding(ts, r.fn), attrs, contentOf(ts, ctx, n));
       const next = { sf: fsf, file: r.file, env, site: { ...place, chain, as: ctx.site ? ctx.site.as : tag }, hops: ctx.hops.concat({ component: id, file: r.file, line: lineOf(fsf, r.fn) }), stack: ctx.stack.concat(r.fn), when: ctx.when.concat(behaviour.whenOf(ts, ctx.sf, ctx.file, n)) };
       ts.forEachChild(r.fn, c => visit(next, c));
+      scanFormats(fsf, r.file, r.fn, id); scanForms(fsf, r.file);
       return;
     }
     if (!Object.keys(attrs).some(k => INTERACTIVE.has(k))) return;
@@ -246,24 +268,45 @@ function screenScanner(ts, program, repo, roots, screen, out) {
   }
 
   // When the control is on screen (the usage chain's conditions, then its own; outermost first) and its state props.
-  // Later slices (formats, fields) add their fields here too.
+  // A format: the first formatting call inside the element. A field: a react-hook-form register spread on it (its form
+  // and the schema's rules are joined per screen in build).
   function finish(ctx, n, op, attrs, c) {
     const when = ctx.when.concat(behaviour.whenOf(ts, ctx.sf, ctx.file, n)), props = behaviour.propsOf(attrs);
     if (when.length) c.when = when;
     if (Object.keys(props).length) c.props = props;
+    const fm = formats.formatsIn(ts, ctx.sf, ctx.file, importsOf(ctx.sf), n)[0];
+    if (fm) c.format = formatAt(fm);
+    const reg = formats.registerOf(ts, ctx.sf, ctx.file, op);
+    if (reg) c.field = { form: null, ...reg };
     out.controls.push(c);
   }
 
   return {
-    root(sf, file) { visit({ sf, file, env: null, site: null, hops: [], stack: [], when: [] }, sf); return componentsOf(sf, file); },
+    root(sf, file) { visit({ sf, file, env: null, site: null, hops: [], stack: [], when: [] }, sf); scanFormats(sf, file, sf); scanForms(sf, file); return componentsOf(sf, file); },
     followed: () => [...followed].sort(),
   };
+}
+
+// A registered field takes the one form schema of its screen that names it (its rules first, then the register's own).
+// None: form stays null. Several: form null and an unresolved entry, never a pick.
+function joinFields(out, screen) {
+  const forms = out.forms.filter(f => f.screen === screen);
+  for (const c of out.controls) {
+    if (c.screen !== screen || !c.field || c.field.name == null) continue;
+    const hits = forms.filter(f => f.fields.some(x => x.name === c.field.name));
+    if (hits.length === 1) {
+      const field = hits[0].fields.find(x => x.name === c.field.name);
+      c.field = { ...c.field, form: hits[0].form, rules: field.rules.concat(c.field.rules) };
+    } else if (hits.length > 1) {
+      out.unresolved.push(issue(`Field "${c.field.name}" is named by ${hits.length} forms (${hits.map(f => f.form).join(', ')}), so its form rules were not joined`, c.file, c.line, c.field.name, screen));
+    }
+  }
 }
 
 /* ui: designc.json `ui` ({tsconfig?: {codebase}, screens: {name: {codebase: [patterns]}}}).
    files: repo-relative source files from the walk. Returns facts.ui. */
 function build({ repo, files, ui }) {
-  const out = { schema: SCHEMA, repo: 'codebase', screens: [], components: [], controls: [], unresolved: [] };
+  const out = { schema: SCHEMA, repo: 'codebase', screens: [], components: [], controls: [], formats: [], forms: [], unresolved: [] };
   const screens = ui && ui.screens && typeof ui.screens === 'object' ? ui.screens : {};
   let ts;
   try { ts = loadTs(); } catch (e) { out.unresolved.push(issue(`The TypeScript compiler could not be loaded (${e.message}), so no screen was read`, 'designc.json', 1, 'ui.screens')); return out; }
@@ -293,9 +336,13 @@ function build({ repo, files, ui }) {
         for (const c of scan.root(sf, f)) { compIds.add(c.id); if (!seen.has(c.id)) { seen.set(c.id, c); out.components.push(c); } }
       }
       out.screens.push({ name, roots: rootList, components: [...compIds].sort(), followed: scan.followed() });
+      joinFields(out, name);
     } else out.screens.push({ name, roots: rootList, components: [], followed: [] });
   }
   out.components.sort((a, b) => a.id.localeCompare(b.id));
+  const byPlace = (a, b) => a.screen.localeCompare(b.screen) || a.file.localeCompare(b.file) || a.line - b.line;
+  out.formats.sort(byPlace);
+  out.forms.sort(byPlace);
   return out;
 }
 

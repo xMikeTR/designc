@@ -45,3 +45,24 @@ test('screen: the render tree nests by renders with a depth; followed components
   assert.deepEqual(s.tree.map(c => [c.name, c.depth, c.controls.length]), [['Page', 0, 1], ['Row', 1, 0]]);
   assert.deepEqual(s.followed.map(c => c.id), ['f.tsx#Field']);
 });
+
+test('screen: formats and forms of that screen, by place; format and rules text for the tags', () => {
+  const g = {
+    screens: [{ name: 's', roots: ['p.tsx'], components: [], followed: [] }],
+    components: [], controls: [], unresolved: [],
+    formats: [
+      { id: 's:p.tsx:9:1', screen: 's', component: 'p.tsx#P', lib: 'Intl', call: 'Intl.NumberFormat', pattern: null, args: 'loc', file: 'p.tsx', line: 9 },
+      { id: 's:p.tsx:3:1', screen: 's', component: 'p.tsx#P', lib: 'date-fns', call: 'format', pattern: 'dd/MM/yyyy', args: "d, 'dd/MM/yyyy'", file: 'p.tsx', line: 3 },
+      { id: 't:p.tsx:1:1', screen: 't', component: 'p.tsx#P', lib: 'dayjs', call: 'format', pattern: 'D', args: "'D'", file: 'p.tsx', line: 1 },
+    ],
+    forms: [{ id: 's:p.tsx#f', screen: 's', form: 'f', lib: 'zod', file: 'p.tsx', line: 2, fields: [] }],
+  };
+  const s = UiGraph.screen(g, 's');
+  assert.deepEqual(s.formats.map(f => f.line), [3, 9]);
+  assert.deepEqual(s.forms.map(f => f.form), ['f']);
+  assert.deepEqual(UiGraph.screen(ui, 's').formats, []);
+  assert.equal(UiGraph.formatText(g.formats[1]), 'dd/MM/yyyy');
+  assert.equal(UiGraph.formatText(g.formats[0]), 'Intl.NumberFormat(loc)');
+  assert.equal(UiGraph.formatText({ lib: 'toLocale', call: 'toLocaleTimeString', pattern: "'en-GB'", args: "'en-GB'" }), "toLocaleTimeString 'en-GB'");
+  assert.equal(UiGraph.rulesText([{ rule: 'type', value: 'string' }, { rule: 'min', value: 1 }, { rule: 'regex', value: '/^a$/' }, { rule: 'required', value: true, message: 'x' }]), 'min 1, regex /^a$/, required');
+});

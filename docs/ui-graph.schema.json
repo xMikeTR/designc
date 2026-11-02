@@ -2,11 +2,30 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "designc.ui.graph/1",
   "title": "UI graph",
-  "description": "facts.ui in asbuilt/facts.json: the controls of each screen named in designc.json ui.screens, read from source with the TypeScript compiler (extract/ui.js). Display only: never a gate input, finding, DSL line or fingerprint input. Nothing is guessed: what the source cannot show is null and listed in unresolved. docs/ui-graph.example.json is the fixture output, pinned in test/extract-ui.test.js. Fields marked 'later' are added by later slices of phase 7 and are absent until then.",
+  "description": "facts.ui in asbuilt/facts.json: the controls of each screen named in designc.json ui.screens, read from source with the TypeScript compiler (extract/ui.js). Display only: never a gate input, finding, DSL line or fingerprint input. Nothing is guessed: what the source cannot show is null and listed in unresolved. docs/ui-graph.example.json is the fixture output, pinned in test/extract-ui.test.js.",
   "type": "object",
-  "required": ["schema", "repo", "screens", "components", "controls", "unresolved"],
+  "required": ["schema", "repo", "screens", "components", "controls", "formats", "forms", "unresolved"],
   "additionalProperties": false,
   "$defs": {
+    "format": {
+      "type": "object", "required": ["lib", "call", "pattern", "args", "file", "line"],
+      "properties": {
+        "lib": { "enum": ["Intl", "toLocale", "date-fns", "dayjs", "moment"], "description": "Decided by the call's shape and, for date-fns, dayjs and moment, by the file's own import of that package." },
+        "call": { "type": "string", "description": "Intl.<X>Format, toLocaleDateString, toLocaleTimeString, toLocaleString, or format." },
+        "pattern": { "type": ["string", "null"], "description": "date-fns: the literal second argument; dayjs/moment: the literal first argument; Intl and toLocale*: the argument source text when every argument is a literal. Null otherwise; never evaluated." },
+        "args": { "type": "string", "description": "Source text of the arguments, whitespace squashed." },
+        "file": { "type": "string" }, "line": { "type": "integer" }
+      }
+    },
+    "rule": {
+      "type": "object", "required": ["rule", "value", "file", "line"],
+      "properties": {
+        "rule": { "type": "string", "description": "type (the zod/yup base: string, number, ...), then each chained call (min, max, regex, optional, ...), or a react-hook-form rule (required, maxLength, pattern, validate, ...)." },
+        "value": { "description": "A literal number, string, boolean or regex source; true for a call with no argument or required: 'message'; otherwise source text." },
+        "message": { "type": "string", "description": "A react-hook-form rule's message, when literal." },
+        "file": { "type": "string" }, "line": { "type": "integer" }
+      }
+    },
     "unresolved": {
       "type": "object",
       "required": ["where", "what", "file", "line", "text"],
@@ -59,7 +78,7 @@
           "at": { "type": "object", "required": ["file", "line"], "properties": { "file": { "type": "string" }, "line": { "type": "integer" } }, "description": "Where the element itself is, when it sits in a followed component." },
           "library": { "type": "string", "description": "The package an unfollowed component comes from; its role is not in source." },
           "role": { "type": ["string", "null"], "description": "Null when the source cannot show it; an unresolved entry says why." },
-          "basis": { "enum": ["native", "aria", "followed", "mapped", null], "description": "native: the HTML element's implicit role. aria: a literal role attribute. followed: the role of an element inside a followed component. mapped (7e) later. Null for a library or unresolved component." },
+          "basis": { "enum": ["native", "aria", "followed", "mapped", null], "description": "native: the HTML element's implicit role. aria: a literal role attribute. followed: the role of an element inside a followed component. mapped: from designc.json ui.roles (7e, not yet). Null for a library or unresolved component." },
           "name": { "type": ["string", "null"], "description": "The accessible name when a literal decides it: the first source present in the order aria-labelledby, aria-label, label, alt, text, value, title, placeholder. Null when that source is an expression or t('key')." },
           "names": {
             "type": "array",
@@ -79,10 +98,25 @@
             "expr": { "type": "string", "description": "Source text, whitespace squashed." }, "file": { "type": "string" }, "line": { "type": "integer" } } } },
           "props": { "type": "object", "additionalProperties": false, "description": "State props the element carries (or its aria- form). true for a bare or literal attribute; source text for an expression; absent when false or not given.", "properties": {
             "disabled": { "type": ["boolean", "string"] }, "readOnly": { "type": ["boolean", "string"] }, "hidden": { "type": ["boolean", "string"] }, "required": { "type": ["boolean", "string"] } } },
-          "format": { "type": "object", "description": "later (7d)" },
-          "field": { "type": "object", "description": "later (7d)" }
+          "format": { "allOf": [{ "$ref": "#/$defs/format" }], "description": "The first formatting call inside the element (its text or attributes). Absent when there is none." },
+          "field": { "type": "object", "required": ["form", "name", "rules"], "description": "A react-hook-form register(name, rules) spread on the element. Absent when there is none.", "properties": {
+            "form": { "type": ["string", "null"], "description": "The one zod or yup schema on the screen that names the field; null when none does, or several do (then an unresolved entry)." },
+            "name": { "type": ["string", "null"], "description": "Null when the name is not a literal." },
+            "expr": { "type": "string", "description": "Source text of the name when not a literal." },
+            "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "description": "The schema's rules for the field, then the register rules." } } }
         }
       }
+    },
+    "formats": {
+      "type": "array", "description": "Every formatting call in the screen's components (declared and followed, each file once), sorted by screen, file, line. Includes calls outside controls, such as a date in a table cell.",
+      "items": { "allOf": [{ "$ref": "#/$defs/format" }], "required": ["id", "screen", "component"], "properties": { "id": { "type": "string", "description": "<screen>:<file>:<line>:<column>" }, "screen": { "type": "string" }, "component": { "type": "string" } } }
+    },
+    "forms": {
+      "type": "array", "description": "zod z.object({...}) and yup yup.object({...}) / yup.object().shape({...}) schemas assigned to a const in the screen's files, sorted by screen, file, line.",
+      "items": { "type": "object", "required": ["id", "screen", "form", "lib", "file", "line", "fields"], "properties": {
+        "id": { "type": "string", "description": "<screen>:<file>#<form>" }, "screen": { "type": "string" }, "form": { "type": "string" }, "lib": { "enum": ["zod", "yup"] },
+        "file": { "type": "string" }, "line": { "type": "integer" },
+        "fields": { "type": "array", "items": { "type": "object", "required": ["name", "rules"], "properties": { "name": { "type": "string" }, "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "description": "Empty when the value is not a chain." } } } } } }
     },
     "unresolved": { "type": "array", "items": { "$ref": "#/$defs/unresolved" } }
   }

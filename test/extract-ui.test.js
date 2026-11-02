@@ -205,3 +205,52 @@ test('props: a followed component passes the usage value through; one the usage 
   }, ['src/Page.tsx']);
   assert.deepEqual(r.controls.map(c => c.props), [{ disabled: 'busy' }, undefined]);
 });
+
+test('formats: Intl, toLocale*, date-fns, dayjs and moment; a pattern only when literal; imports decide the library', () => {
+  const r = one(`import { format } from 'date-fns'; import dayjs from 'dayjs'; import moment from 'moment'; import { format as fmt } from './mine';
+    export const P = ({ d, n, loc }) => (<div>
+      <p>{new Intl.DateTimeFormat('en-GB', { dateStyle: 'short' }).format(d)}</p><p>{Intl.NumberFormat(loc).format(n)}</p>
+      <p>{d.toLocaleDateString()}</p><p>{n.toLocaleString('de-DE')}</p>
+      <p>{format(d, 'yyyy-MM-dd')}</p><p>{format(d, pat)}</p><p>{dayjs(d).format('DD/MM')}</p><p>{moment(d).format()}</p><p>{fmt(d, 'x')}</p>
+    </div>);`);
+  assert.deepEqual(r.formats.map(f => [f.lib, f.call, f.pattern, f.line]), [
+    ['Intl', 'Intl.DateTimeFormat', "'en-GB', { dateStyle: 'short' }", 3], ['Intl', 'Intl.NumberFormat', null, 3],
+    ['toLocale', 'toLocaleDateString', null, 4], ['toLocale', 'toLocaleString', "'de-DE'", 4],
+    ['date-fns', 'format', 'yyyy-MM-dd', 5], ['date-fns', 'format', null, 5], ['dayjs', 'format', 'DD/MM', 5], ['moment', 'format', null, 5],
+  ]);
+  assert.equal(r.formats[1].args, 'loc');
+  assert.ok(r.formats.every(f => f.screen === 's' && f.component === 'src/Page.tsx#P'));
+});
+
+test('formats: a control holding a formatting call carries it; a followed component lists its formats once', () => {
+  const r = many({
+    'src/Page.tsx': `import { When } from './When'; export const P = ({ d }) => (<div><button>{d.toLocaleDateString('en-GB')}</button><When d={d} /><When d={d} /></div>);`,
+    'src/When.tsx': `import { format } from 'date-fns'; export const When = ({ d }) => <time>{format(d, 'dd MMM')}</time>;`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls[0].format, { lib: 'toLocale', call: 'toLocaleDateString', pattern: "'en-GB'", args: "'en-GB'", file: 'src/Page.tsx', line: 1 });
+  assert.deepEqual(r.formats.map(f => [f.file, f.pattern, f.component]), [['src/Page.tsx', "'en-GB'", 'src/Page.tsx#P'], ['src/When.tsx', 'dd MMM', 'src/When.tsx#When']]);
+});
+
+test('forms: zod and yup schemas; a register field joins the one schema naming it; none or several leave form null', () => {
+  const r = one(`import { z } from 'zod'; import * as yup from 'yup'; import { useForm } from 'react-hook-form';
+    const a = z.object({ name: z.string().min(1).max(40), age: z.number().int().optional(), raw: someThing });
+    const b = yup.object().shape({ note: yup.string().max(200), dup: yup.string() });
+    const c = yup.object({ dup: yup.string().required() });
+    const notForm = other.object({ x: 1 });
+    export const P = () => { const f = useForm(); return (<form>
+      <input aria-label="Name" {...f.register('name', { required: 'Say a name', maxLength: { value: 40, message: 'Too long' }, pattern: /^[a-z]+$/ })} />
+      <input aria-label="Note" {...register('note')} /><input aria-label="Dup" {...register('dup')} />
+      <input aria-label="Other" {...register('other', { min: 3 })} /><input aria-label="Dyn" {...register(key)} /></form>); };`);
+  assert.deepEqual(r.forms.map(f => [f.form, f.lib, f.line, f.fields.map(x => [x.name, x.rules.map(y => [y.rule, y.value])])]), [
+    ['a', 'zod', 2, [['name', [['type', 'string'], ['min', 1], ['max', 40]]], ['age', [['type', 'number'], ['int', true], ['optional', true]]], ['raw', []]]],
+    ['b', 'yup', 3, [['note', [['type', 'string'], ['max', 200]]], ['dup', [['type', 'string']]]]],
+    ['c', 'yup', 4, [['dup', [['type', 'string'], ['required', true]]]]],
+  ]);
+  const by = n => r.controls.find(c => c.name === n).field;
+  assert.deepEqual(by('Name').rules.map(x => [x.rule, x.value, x.message]), [['type', 'string', undefined], ['min', 1, undefined], ['max', 40, undefined], ['required', true, 'Say a name'], ['maxLength', 40, 'Too long'], ['pattern', '/^[a-z]+$/', undefined]]);
+  assert.equal(by('Name').form, 'a');
+  assert.equal(by('Note').form, 'b');
+  assert.deepEqual([by('Dup').form, by('Other').form, by('Other').rules.map(x => x.rule)], [null, null, ['min']]);
+  assert.deepEqual([by('Dyn').name, by('Dyn').expr], [null, 'key']);
+  assert.ok(r.unresolved.some(u => /Field "dup" is named by 2 forms \(b, c\)/.test(u.what)));
+});
