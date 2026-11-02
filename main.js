@@ -260,7 +260,7 @@ handle('import:read', async p => {
 handle('codebase:extract', async p => {
   const dir = codebaseDir(p);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Codebase folder not found: ${dir}` };
-  try { return await extract(dir, readSettings().extract || {}); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+  const s = readSettings(); try { return await extract(dir, { ...(s.extract || {}), ...(s.ui ? { ui: s.ui } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
 });
 handle('codebase:read', async (p, rel) => {
   const base = codebaseDir(p), abs = path.resolve(base, rel);

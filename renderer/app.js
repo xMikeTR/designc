@@ -382,6 +382,7 @@ async function loadAsbuilt() {
   if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
   if (A.cmLevel === 'code' && !cmHasCode()) { A.cmLevel = 'container'; A.cmScope = null; }
+  if (A.cmLevel === 'ui' && !cmHasUi()) A.cmLevel = 'container';
 }
 // Code quality (QC rules): warnings only, judged from designc.json `quality`. Never reaches the gate.
 let QMEMO = null;
@@ -2215,6 +2216,7 @@ document.addEventListener('change', async e => {
     const esc0 = A.ledger.find(x => x.kind === 'escape' && x.id === d.origin);
     await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
   }
+  if (d.cmscreen !== undefined) { A.cmScreen = e.target.value; return renderCodemap(); }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });

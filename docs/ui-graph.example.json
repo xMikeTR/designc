@@ -1,0 +1,315 @@
+{
+  "schema": "designc.ui.graph/1",
+  "repo": "codebase",
+  "screens": [
+    {
+      "name": "tags",
+      "roots": [
+        "src/pages/Tags/TagRow.tsx",
+        "src/pages/Tags/TagsPage.tsx"
+      ],
+      "components": [
+        "src/pages/Tags/TagRow.tsx#TagRow",
+        "src/pages/Tags/TagsPage.tsx#TagsPage"
+      ]
+    },
+    {
+      "name": "legacy-tags",
+      "roots": [
+        "src/legacy/OldTags.jsx"
+      ],
+      "components": [
+        "src/legacy/OldTags.jsx#OldTags"
+      ]
+    }
+  ],
+  "components": [
+    {
+      "id": "src/legacy/OldTags.jsx#OldTags",
+      "name": "OldTags",
+      "file": "src/legacy/OldTags.jsx",
+      "line": 3,
+      "renders": [],
+      "basis": "declared"
+    },
+    {
+      "id": "src/pages/Tags/TagRow.tsx#TagRow",
+      "name": "TagRow",
+      "file": "src/pages/Tags/TagRow.tsx",
+      "line": 3,
+      "renders": [],
+      "basis": "declared"
+    },
+    {
+      "id": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "name": "TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 5,
+      "renders": [
+        "TagRow"
+      ],
+      "basis": "declared"
+    }
+  ],
+  "controls": [
+    {
+      "id": "tags:src/pages/Tags/TagRow.tsx:6:5",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagRow.tsx#TagRow",
+      "file": "src/pages/Tags/TagRow.tsx",
+      "line": 6,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": null,
+      "names": [
+        {
+          "from": "aria-label",
+          "value": null,
+          "expr": "`Edit ${name}`"
+        },
+        {
+          "from": "text",
+          "value": "Edit"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:13:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 13,
+      "tag": "input",
+      "role": "searchbox",
+      "basis": "native",
+      "name": "Search tags",
+      "names": [
+        {
+          "from": "label",
+          "value": "Search tags"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:16:9",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 16,
+      "tag": "input",
+      "role": "checkbox",
+      "basis": "native",
+      "name": "Show archived",
+      "names": [
+        {
+          "from": "label",
+          "value": "Show archived"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:18:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 18,
+      "tag": "select",
+      "role": "combobox",
+      "basis": "native",
+      "name": "Sort by",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Sort by"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:21:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 21,
+      "tag": "textarea",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Notes",
+      "names": [
+        {
+          "from": "placeholder",
+          "value": "Notes"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:22:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 22,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": "Clear",
+      "names": [
+        {
+          "from": "text",
+          "value": "Clear"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:23:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 23,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": null,
+      "names": [
+        {
+          "from": "t()",
+          "value": "tags.save"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:24:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 24,
+      "tag": "button",
+      "role": "button",
+      "basis": "native",
+      "name": null,
+      "names": [
+        {
+          "from": "text",
+          "value": null,
+          "expr": "label"
+        },
+        {
+          "from": "title",
+          "value": "Delete tag"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:25:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 25,
+      "tag": "a",
+      "role": "link",
+      "basis": "native",
+      "name": "New tag",
+      "names": [
+        {
+          "from": "text",
+          "value": "New tag"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:27:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 27,
+      "tag": "div",
+      "role": "switch",
+      "basis": "aria",
+      "name": "Compact view",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Compact view"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:29:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 29,
+      "tag": "input",
+      "role": null,
+      "basis": null,
+      "name": "Created after",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Created after"
+        }
+      ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:32:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 32,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Filter",
+      "names": [
+        {
+          "from": "aria-labelledby",
+          "value": "Filter",
+          "ref": "filter-label"
+        }
+      ]
+    },
+    {
+      "id": "legacy-tags:src/legacy/OldTags.jsx:7:9",
+      "screen": "legacy-tags",
+      "component": "src/legacy/OldTags.jsx#OldTags",
+      "file": "src/legacy/OldTags.jsx",
+      "line": 7,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "native",
+      "name": "Tag name",
+      "names": [
+        {
+          "from": "placeholder",
+          "value": "Tag name"
+        }
+      ]
+    },
+    {
+      "id": "legacy-tags:src/legacy/OldTags.jsx:8:9",
+      "screen": "legacy-tags",
+      "component": "src/legacy/OldTags.jsx#OldTags",
+      "file": "src/legacy/OldTags.jsx",
+      "line": 8,
+      "tag": "input",
+      "role": "button",
+      "basis": "native",
+      "name": "Add tag",
+      "names": [
+        {
+          "from": "value",
+          "value": "Add tag"
+        }
+      ]
+    }
+  ],
+  "unresolved": [
+    {
+      "where": "ui",
+      "what": "<input> has no role the source can show: input type \"date\" has no implicit role",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 29,
+      "text": "<input type=\"date\" aria-label=\"Created after\" />",
+      "screen": "tags"
+    }
+  ]
+}

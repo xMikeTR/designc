@@ -123,6 +123,7 @@ function cmAdoptBtn(builtId) {
   return a ? `<div style="padding:0 20px 8px"><button class="btn block" data-a="adoptcomp" data-built="${esc(a.built)}" data-design="${esc(a.design)}">Adopt these components</button></div>` : '';
 }
 function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
+function cmHasUi() { return !!(A.facts && A.facts.ui && A.facts.ui.screens && A.facts.ui.screens.length); }
 function cmHasCode() { return !!(A.facts && A.facts.code && A.facts.code.types && A.facts.code.types.length); }
 // The component the Code level opens on: the scope if it is one, else the selected component, else the first with types.
 function cmCodeScope() {
@@ -137,6 +138,7 @@ function cmModel() {
 }
 function cmGo(level, scope) {
   if (level === 'component' && !cmHasComponents()) return;
+  if (level === 'ui') { if (!cmHasUi()) return; A.cmSel = null; A.cmLevel = 'ui'; if (!UiGraph.screen(A.facts.ui, A.cmScreen)) A.cmScreen = A.facts.ui.screens[0].name; return renderCodemap(); }
   if (level === 'code') { if (!cmHasCode()) return; if (scope === undefined || scope === null) scope = cmCodeScope(); }
   A.cmLevel = level; if (scope !== undefined) A.cmScope = scope;
   A.cmZoom = 'fit';
@@ -144,16 +146,17 @@ function cmGo(level, scope) {
   renderCodemap();
 }
 function cmUp() {
+  if (A.cmLevel === 'ui') return cmGo('container');
   if (A.cmLevel === 'code') { const c = A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope); A.cmSel = null; return cmGo('component', c ? c.parent : null); }
   if (A.cmLevel === 'component') cmGo('container'); else if (A.cmLevel === 'container') cmGo('context'); }
 function cmSeg() {
   const has = cmHasComponents();
-  const hasCode = cmHasCode();
-  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''} ${lv === 'code' && !hasCode ? 'disabled title="No types were found. Re-extract to read them."' : ''}>${name}</button>`;
+  const hasCode = cmHasCode(), hasUi = cmHasUi();
+  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''} ${lv === 'code' && !hasCode ? 'disabled title="No types were found. Re-extract to read them."' : ''} ${lv === 'ui' && !hasUi ? 'disabled title="No screens were read. Name them in designc.json ui.screens, then re-extract."' : ''}>${name}</button>`;
   const sc = A.cmScope && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope);
   const cc = A.cmLevel === 'code' && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope), cp = cc && A.asbuiltFull.elements.get(cc.parent);
   const crumb = A.cmLevel === 'code' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${cp ? ` ▸ <button class="cm-all" data-a="cmcontainer" data-id="${esc(cp.id)}">${esc(cp.name)}</button>` : ''}${cc ? ` ▸ <b>${esc(cc.name)}</b>` : ''}</span>` : A.cmLevel === 'component' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
-  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}${b('code', 'Code')}</span>${crumb}`;
+  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}${b('code', 'Code')}${b('ui', 'UI')}</span>${crumb}`;
 }
 function renderCodemap() {
   const el = $('#special');
@@ -179,13 +182,15 @@ function renderCodemap() {
   el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
       ${cmSeg()}
       ${A.cmLevel === 'code' ? '<span class="legend"><i class="lg ghost"></i>type in another component</span>' : ''}
-      ${A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
-      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
-      <button class="btn" data-a="cmfit">Fit</button><button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
-    <div class="cm-main"><div class="cm-canvas sheetscroll" id="cmcanvas"></div><aside class="cm-side" id="cmside"></aside></div></div>`;
+      ${A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
+      ${A.cmLevel === 'ui' ? `<label class="chk">Screen <select data-cmscreen aria-label="Screen">${A.facts.ui.screens.map(s => `<option value="${esc(s.name)}" ${s.name === A.cmScreen ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
+      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
+      ${A.cmLevel === 'ui' ? '' : '<button class="btn" data-a="cmfit">Fit</button>'}<button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
+    <div class="cm-main">${A.cmLevel === 'ui' ? '<div class="cm-ui" id="cmui"></div>' : '<div class="cm-canvas sheetscroll" id="cmcanvas"></div>'}<aside class="cm-side" id="cmside"></aside></div></div>`;
   requestAnimationFrame(drawCodemap);
 }
 function drawCodemap() {
+  if (A.cmLevel === 'ui') return drawUi();
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
   if (A.cmLevel === 'code') return drawCode(host_);
   const lvl = A.cmLevel, m = cmModel(), L = layout(m, { groupEdges: lvl === 'component' });
@@ -227,6 +232,31 @@ function drawCode(host_) {
   });
   renderCmSide();
 }
+// The UI level: one screen's controls by component, read from source (facts.ui, extract/ui.js). A row opens file:line.
+function drawUi() {
+  const box = $('#cmui'); if (!box || !cmHasUi()) return;
+  const s = UiGraph.screen(A.facts.ui, A.cmScreen);
+  if (!s) { box.innerHTML = ''; return renderCmSide(); }
+  const nameCell = c => c.name != null ? esc(c.name)
+    : `<span class="muted">${c.names.length ? esc(c.names.map(n => n.from === 't()' ? `t('${n.value}')` : n.value != null ? n.value : n.expr ? `{${n.expr}}` : `#${n.ref}`).join(' · ')) : 'no name in source'}</span>`;
+  const roleCell = c => c.role ? `${esc(c.role)} <span class="tag" title="${esc(UiGraph.BASIS[c.basis] || c.basis)}">${esc(c.basis)}</span>` : '<span class="tag warning" title="The source does not show a role; see Unresolved">unknown</span>';
+  const rows = s.tree.map(comp => `<tr class="grp"><td colspan="4"><b>${esc(comp.name)}</b> ${comp.file ? `<span class="desc">${esc(comp.file)}</span>` : ''}${comp.renders && comp.renders.length ? ` <span class="desc">renders ${esc(comp.renders.join(', '))}</span>` : ''}</td></tr>`
+    + comp.controls.map(c => `<tr class="uirow" data-code="${esc(c.file)}" data-line="${c.line}" title="Open ${esc(c.file)}:${c.line}"><td>${roleCell(c)}</td><td>${nameCell(c)}</td><td><code>&lt;${esc(c.tag)}&gt;</code></td><td class="evfile">${esc(c.file)}:${c.line}</td></tr>`).join('')).join('');
+  box.innerHTML = s.controls.length
+    ? `<table class="t" aria-label="Controls on ${esc(s.name)}"><thead><tr><th>Role</th><th>Name</th><th>Element</th><th>Where</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="hint" style="padding:16px">${s.roots.length ? `No controls found in ${plural(s.roots.length, 'file')} of this screen.` : 'The screen\'s patterns match no source file. See Unresolved.'}</div>`;
+  renderCmSide();
+}
+function cmUiSide() {
+  const s = UiGraph.screen(A.facts.ui, A.cmScreen), sum = UiGraph.summary(A.facts.ui).screens.find(x => x.name === A.cmScreen);
+  const general = (A.facts.ui.unresolved || []).filter(u => !u.screen);
+  const un = s ? s.unresolved.concat(general) : general;
+  return `<h3>${esc(A.cmScreen || '')}</h3><div class="muted">Read from source; display only, never a gate input.</div>
+    ${sum ? `<p>${plural(sum.controls, 'control')} in ${plural(sum.roots, 'file')}${sum.roleless ? `; ${sum.roleless} without a role` : ''}${sum.unnamed ? `; ${sum.unnamed} without a literal name` : ''}.</p>` : ''}
+    ${s && s.roots.length ? `<h4>Files</h4>${s.roots.map(f => `<div class="evrow" data-code="${esc(f)}" data-line="1"><div class="evfile">${esc(f)}</div></div>`).join('')}` : ''}
+    ${un.length ? `<h4>Unresolved (${un.length})</h4>${un.map(u => `<div class="evrow" ${u.file === 'designc.json' ? 'data-open="designc.json" data-line="1"' : `data-code="${esc(u.file)}" data-line="${u.line}"`}>${esc(u.what)}<div class="evfile">${esc(u.file)}:${u.line}</div></div>`).join('')}` : ''}
+    <p class="muted">A role comes from the HTML element or a literal role attribute. A name comes from a literal label, aria-label or text; t('key') and expressions are listed but never taken as the name.</p>`;
+}
 const cmCompName = id => { const c = A.asbuiltFull && A.asbuiltFull.elements.get(id); return c ? c.name : ''; };
 function cmTypeSide(t) {
   const code = A.facts.code, rows = CodeLevel.methodsOf(code, t.id).sort((a, b) => b.cc - a.cc || a.name.localeCompare(b.name));
@@ -242,6 +272,7 @@ function cmTypeSide(t) {
 function renderCmSide() {
   const side = $('#cmside'); if (!side) return;
   const f = A.facts; const d = A.cmLevel === 'container' ? A.drift : null;
+  if (A.cmLevel === 'ui') { side.innerHTML = cmUiSide(); return; }
   if (A.cmLevel === 'code') {
     const t = A.cmSel && f.code.types.find(x => x.id === A.cmSel);
     side.innerHTML = t ? cmTypeSide(t) : `<h3>${esc(cmCompName(A.cmScope))}</h3><p class="muted">Select a type to see its methods. Dashed boxes belong to other components.</p>`;
