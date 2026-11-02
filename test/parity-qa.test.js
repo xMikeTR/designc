@@ -125,3 +125,43 @@ test('the fixture registry: tags bugs land where its README says', () => {
   const r = ParityQa.report({ screen: 'tags', scenarios, baselines, reports, qa });
   assert.deepStrictEqual(r.counts, { caught: 1, not_captured: 1, state_not_recorded: 2, not_flagged: 1, triage: 1 });
 });
+
+// Slice 7f: the UI graph join. docs/parity-qa-cases.json "code".
+const C = cases.code;
+const codeReport = bugs => ParityQa.report({ screen: W.screen, scenarios: W.scenarios, baselines: W.baselines, reports: W.reports, qa: { screen: W.screen, bugs, problems: [] }, ui: C.ui });
+const bugOf = c => c.bug || cases.bugs.find(x => x.bug.key === c.bug_key).bug;
+
+test('ui join: role and name, name only to exactly one recorded role, never guessed', () => {
+  const r = codeReport([]);
+  for (const side of ['legacy', 'next']) {
+    const got = Object.fromEntries(r.code[side].controls.map(c => [c.name == null ? '(unnamed)' : c.name, c.join]));
+    assert.deepStrictEqual(got, C.joins[side], side);
+  }
+  const dp = r.code.next.controls.find(c => c.tag === 'DatePicker');
+  assert.deepStrictEqual([dp.role, dp.recorded.role], [null, 'textbox'], 'the graph keeps role null; the join says what the recording shows');
+  assert.deepStrictEqual(r.code.next.controls.find(c => c.name === 'Orders').candidates.sort(), ['heading', 'table']);
+  assert.deepStrictEqual(r.code.next.joined, { role: 1, name: 1, ambiguous: 1, unnamed: 1, unrecorded: 2 });
+});
+
+for (const c of C.bugs) {
+  test(`ui case ${bugOf(c).key}: ${c.about}`, () => {
+    const b = codeReport([bugOf(c)]).bugs[0];
+    assert.strictEqual(b.bucket, c.bucket, b.reason);
+    for (const want of c.cites) assert.ok(b.reason.includes(want), `${b.reason}\n  lacks: ${want}`);
+    if (!c.cites.length) assert.ok(!/in code:/.test(b.reason) && !b.code, b.reason);
+  });
+}
+
+test('ui join: buckets do not change with the code, and without ui nothing is cited', () => {
+  const all = cases.bugs.map(c => c.bug);
+  assert.deepStrictEqual(codeReport(all).counts, reportOf(all).counts);
+  const plain = reportOf(all);
+  assert.ok(!plain.code && plain.bugs.every(b => !b.code && !/in code:/.test(b.reason)));
+  assert.strictEqual(ParityQa.fromCode(C.ui.next, 'customers', []), null, 'a graph without the screen gives nothing');
+  const out = JSON.stringify(codeReport(all));
+  for (const c of cases.bugs) for (const k of ['description', 'actual', 'expected']) if (c.bug[k]) assert.ok(!out.includes(c.bug[k]), `${c.bug.key} ${k} leaked`);
+});
+
+test('ui join: the widget roles are the UI graph\'s own', () => {
+  assert.deepStrictEqual([...ParityQa.WIDGET].sort(), [...require('../extract/ui-roles.js').WIDGET_ROLES].sort());
+});

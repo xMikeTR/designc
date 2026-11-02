@@ -88,11 +88,67 @@ const ParityQa = (() => {
   }
 
   const where = w => `${w.role} "${clean(w.name)}"`;
+
+  // The UI graph (facts.ui, designc.ui.graph/1) of one side, for one screen, joined to what that side recorded (rows:
+  // behaviour() rows of that side, any state). A control whose role the source shows joins by role and name ('role');
+  // one with role null joins by its literal name to the one recorded control with that name and takes the recorder's
+  // role ('name'); several recorded roles under that name is 'ambiguous' and none is taken; no literal name (a t() key or
+  // an expression) is 'unnamed'; nothing recorded is 'unrecorded'. Never a guessed role. null when the graph lacks the screen.
+  function fromCode(graph, screen, rows = []) {
+    if (!graph || !(graph.screens || []).some(s => s.name === screen)) return null;
+    const controls = (graph.controls || []).filter(c => c.screen === screen).map(c => {
+      const base = { id: c.id, file: c.file, line: c.line, tag: c.tag, role: c.role || null, basis: c.basis || null, name: c.name == null ? null : c.name, when: c.when || [], props: c.props || {}, format: c.format || null, library: c.library || null };
+      if (base.name == null || !clean(base.name)) return { ...base, join: 'unnamed', recorded: null };
+      if (base.role) {
+        const r = rows.find(x => same({ role: base.role, name: base.name }, x.role, x.name));
+        return { ...base, join: r ? 'role' : 'unrecorded', recorded: r ? { role: r.role, name: r.name } : null };
+      }
+      const by = new Map();
+      for (const x of rows) if (x.name && nameKey(x.name) === nameKey(base.name) && !by.has(roleKey(x.role))) by.set(roleKey(x.role), { role: x.role, name: x.name });
+      if (by.size === 1) return { ...base, join: 'name', recorded: [...by.values()][0] };
+      return { ...base, join: by.size ? 'ambiguous' : 'unrecorded', recorded: null, ...(by.size ? { candidates: [...by.values()].map(v => v.role) } : {}) };
+    });
+    const formats = (graph.formats || []).filter(f => f.screen === screen);
+    const count = k => controls.filter(c => c.join === k).length;
+    return { repo: graph.repo || null, controls, formats, joined: { role: count('role'), name: count('name'), ambiguous: count('ambiguous'), unnamed: count('unnamed'), unrecorded: count('unrecorded') } };
+  }
+
+  // The roles the UI graph lists controls for (extract/ui-roles.js WIDGET_ROLES): only for these does finding none in code say
+  // anything; a heading, text or dialog is never a control there.
+  const WIDGET = new Set(['button', 'link', 'textbox', 'searchbox', 'checkbox', 'radio', 'combobox', 'listbox', 'option', 'slider', 'spinbutton', 'switch', 'tab', 'menuitem', 'menuitemcheckbox', 'menuitemradio', 'treeitem', 'gridcell', 'scrollbar']);
+  const fmtText = f => (f.pattern != null ? `${f.call} ${f.pattern}` : `${f.call}(${f.args || ''})`);
+  // A control in code as text: file:line, the conditions it is shown under and its state props as source text, its format.
+  function codeText(c) {
+    const bits = [`${c.file}:${c.line}`];
+    if (c.join === 'name') bits.push(`<${c.tag}> takes role ${c.recorded.role} from the recording`);
+    if (c.when.length) bits.push(`shown when ${c.when.map(w => w.expr).join(' && ')}`);
+    for (const [k, v] of Object.entries(c.props)) bits.push(v === true ? k : `${k} if ${v}`);
+    if (c.format) bits.push(`format ${fmtText(c.format)}`);
+    return bits.join(', ');
+  }
+  // What the code of each side says about a bug's control (and, for a format bug on a column, the screen's formats).
+  function codeCite(b, code) {
+    const out = {}, text = [];
+    for (const [side, label] of [['legacy', 'legacy'], ['next', 'new']]) {
+      const g = code[side];
+      if (!g) continue;
+      const cs = g.controls.filter(c => c.join !== 'ambiguous' && c.join !== 'unnamed' && same(b.where, c.role || (c.recorded && c.recorded.role), c.name));
+      const fs = b.kind === 'format' && roleKey(b.where.role) === 'column' && !cs.some(c => c.format) ? g.formats : [];
+      out[side] = { controls: cs.map(c => ({ file: c.file, line: c.line, join: c.join, when: c.when, props: c.props, format: c.format })), formats: fs.map(f => ({ file: f.file, line: f.line, lib: f.lib, call: f.call, pattern: f.pattern })) };
+      if (cs.length) text.push(`${label} ${cs.slice(0, 2).map(codeText).join('; ')}`);
+      else if (WIDGET.has(b.where.role)) text.push(`${label} code has no ${where(b.where)} on this screen`);
+      if (fs.length) text.push(`${label} formats on the screen: ${fs.slice(0, 3).map(f => `${fmtText(f)} at ${f.file}:${f.line}`).join('; ')}`);
+    }
+    return text.length ? { code: out, text: `; in code: ${text.join('; ')}` } : null;
+  }
   const parentOf = key => { const i = key.lastIndexOf('/'); return i < 0 ? '/' : key.slice(0, i + 1); };
 
-  // One screen: {screen, scenarios, baselines {id: snapshot}, reports {id: {next, result}}, qa: read()}.
-  // -> {screen, states, counts {bucket: n}, bugs [{key, bucket, reason, finding?, seen?}], problems}.
-  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] } }) {
+  // One screen: {screen, scenarios, baselines {id: snapshot}, reports {id: {next, result}}, qa: read(), ui?}.
+  // ui (optional) is the UI graph per side, {legacy, next}: facts.ui of each repo. With it, a bug that is not caught (state
+  // not recorded, captured but not flagged) cites what the code of each side says about the control, and the result
+  // carries code {legacy, next} from fromCode(). Without it the result is as before.
+  // -> {screen, states, counts {bucket: n}, bugs [{key, bucket, reason, finding?, seen?, code?}], problems, code?}.
+  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] }, ui = null }) {
     const problems = [...(qa.problems || [])];
     const mine = scenarios.filter(s => s && s.screen === screen);
     if (!mine.length) problems.push(`no scenario has screen: ${screen}, so nothing on it was recorded`);
@@ -144,12 +200,26 @@ const ParityQa = (() => {
       return { bucket: 'not_flagged', reason: `${where(b.where)} was recorded (legacy ${show(seen.legacy)}; new ${show(seen.next)}) but no ${b.kind} rule flagged it`, seen };
     };
 
-    const bugs = (qa.bugs || []).map(b => ({ key: b.key, ...judge(b) }));
+    let code = null;
+    if (ui && (ui.legacy || ui.next)) {
+      const all = { legacy: [], next: [] };
+      for (const s of mine) {
+        all.legacy.push(...behaviour(baselines[s.id], s));
+        all.next.push(...behaviour((reports[s.id] || {}).next, s));
+      }
+      code = { legacy: fromCode(ui.legacy, screen, all.legacy), next: fromCode(ui.next, screen, all.next) };
+    }
+    const bugs = (qa.bugs || []).map(b => {
+      const j = { key: b.key, ...judge(b) };
+      if (!code || (j.bucket !== 'state_not_recorded' && j.bucket !== 'not_flagged') || needsTriage(b)) return j;
+      const c = codeCite(b, code);
+      return c ? { ...j, reason: j.reason + c.text, code: c.code } : j;
+    });
     const counts = Object.fromEntries(BUCKETS.map(k => [k, bugs.filter(b => b.bucket === k).length]));
-    return { screen, states, counts, bugs, problems };
+    return { screen, states, counts, bugs, problems, ...(code ? { code } : {}) };
   }
 
-  return { KINDS, BUCKETS, GROUP_OF, FITS, behaviour, group, read, report, needsTriage };
+  return { KINDS, BUCKETS, GROUP_OF, FITS, WIDGET, behaviour, group, read, report, needsTriage, fromCode, codeText };
 })();
 
 if (typeof module !== 'undefined') module.exports = ParityQa;

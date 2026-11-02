@@ -1,0 +1,115 @@
+{
+  "commit": null,
+  "next": {
+    "scenario": "tags-search",
+    "side": "next",
+    "adapter": "fixture",
+    "steps": [
+      {
+        "n": 1,
+        "action": "goto",
+        "status": "ok",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "elements": [
+          {
+            "role": "searchbox",
+            "enabled": true,
+            "box": null,
+            "name": "Search tags",
+            "children": [],
+            "key": "searchbox:Search tags"
+          },
+          {
+            "role": "button",
+            "enabled": false,
+            "box": null,
+            "name": "Clear",
+            "children": [],
+            "key": "button:Clear"
+          },
+          {
+            "role": "button",
+            "enabled": true,
+            "box": null,
+            "name": "Reset",
+            "children": [],
+            "key": "button:Reset"
+          },
+          {
+            "role": "textbox",
+            "enabled": true,
+            "box": null,
+            "name": "Created after",
+            "children": [],
+            "key": "textbox:Created after"
+          }
+        ]
+      }
+    ]
+  },
+  "result": {
+    "scenario": "tags-search",
+    "outcome": "fail",
+    "steps": [
+      {
+        "n": 1,
+        "action": "goto",
+        "legacyShot": null,
+        "nextShot": null,
+        "findings": [
+          {
+            "kind": "text",
+            "key": "searchbox:Search tags",
+            "severity": "fail",
+            "msg": "searchbox \"Find tag\" reads \"Search tags\"",
+            "role": "searchbox",
+            "name": "Search tags",
+            "was": "Find tag"
+          },
+          {
+            "kind": "text",
+            "key": "button:Clear",
+            "severity": "fail",
+            "msg": "button \"Add tag\" reads \"Clear\"",
+            "role": "button",
+            "name": "Clear",
+            "was": "Add tag"
+          },
+          {
+            "kind": "extra",
+            "key": "button:Reset",
+            "severity": "fail",
+            "msg": "button \"Reset\" is not in legacy",
+            "role": "button",
+            "name": "Reset"
+          },
+          {
+            "kind": "extra",
+            "key": "textbox:Created after",
+            "severity": "fail",
+            "msg": "textbox \"Created after\" is not in legacy",
+            "role": "textbox",
+            "name": "Created after"
+          },
+          {
+            "kind": "state",
+            "key": "button:Clear",
+            "severity": "fail",
+            "msg": "button \"Add tag\" is disabled; legacy has it enabled",
+            "role": "button",
+            "name": "Clear"
+          }
+        ],
+        "status": "compared"
+      }
+    ],
+    "counts": {
+      "fail": 5,
+      "covered": 0,
+      "could_not_run": 0
+    }
+  }
+}
