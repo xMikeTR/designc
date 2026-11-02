@@ -1,0 +1,10 @@
+id: change-ui-list
+status: bound
+title: Change a list screen in the Tags UI
+version: 2
+scope: [el:Tags UI]
+steps:
+  - Read the parity report for the screen before changing it.
+  - Keep the date format of the legacy screen unless a bound decision says otherwise.
+  - Run the acceptance specs for the screen before claiming done.
+source: Two failed runs on the tags list, 2026-10

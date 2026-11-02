@@ -1,0 +1,7 @@
+id: occ
+status: bound
+requirement: DEMO-1
+binds: [Pricing API]
+statement: Quote writes use optimistic concurrency
+checks:
+  - p check -tc tcOptimistic

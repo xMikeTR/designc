@@ -1,0 +1,6 @@
+id: db-unique
+status: bound
+requirement: DEMO-2
+binds: [Tags DB]
+statement: "Tag names are unique in the store"
+checks: ["p check -tc tcUnique"]

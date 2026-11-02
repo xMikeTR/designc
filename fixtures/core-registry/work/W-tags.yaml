@@ -1,0 +1,8 @@
+id: W-tags
+title: Tags list
+requirement: DEMO-7
+elements: [Tags UI, Tags API]
+repo: ../tags-repo
+writes: ["web/src/tags/**"]
+done_when:
+  - gate: npm test

@@ -1,0 +1,83 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.context.bundle/1",
+  "title": "designc context bundle",
+  "description": "What a coding agent in one role needs for one task, built by the headless core (headless/index.js bundle, or scripts/designc-core.js bundle) from files only. Deterministic: bundle_id is 'sha256:' plus the sha256 hex of the canonical JSON (keys sorted at every level, no whitespace) of every other field. Governance (who may see what) belongs to mlang/ACS and is null until that interface exists; procedures are the bound procedures touching the key's elements (phase 4). docs/context-bundle.example.json is pinned to real output in test/headless.test.js.",
+  "type": "object",
+  "required": ["bundle_id", "schema", "key", "revision", "commit", "decisions", "requirements", "verdicts", "procedures", "governance"],
+  "additionalProperties": false,
+  "properties": {
+    "bundle_id": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+    "schema": { "const": "designc.context.bundle/1" },
+    "key": {
+      "type": "object",
+      "required": ["handover", "work_item", "task", "role", "elements"],
+      "additionalProperties": false,
+      "properties": {
+        "handover": { "type": ["string", "null"] },
+        "work_item": { "type": ["string", "null"] },
+        "task": { "type": ["string", "null"] },
+        "role": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" },
+        "elements": { "type": "array", "items": { "type": "string" }, "description": "Element names, sorted" }
+      }
+    },
+    "revision": { "type": ["string", "null"], "description": "The handover's revision, else the model's r- revision now" },
+    "commit": { "type": ["string", "null"] },
+    "jira": { "type": "array", "items": { "type": "string" } },
+    "decisions": {
+      "type": "array",
+      "description": "Bound decisions binding or scoping an element of the key, sorted by id",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "effect", "statement", "scope", "checks", "enforced_by"],
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["technical", "business"] },
+          "effect": { "type": ["string", "null"] },
+          "statement": { "type": "string" },
+          "scope": { "type": "array", "items": { "type": "string" } },
+          "checks": { "type": "array", "items": { "type": "object", "required": ["id", "run"], "properties": { "id": { "type": "string" }, "run": { "type": "string" } } } },
+          "enforced_by": { "type": "array", "items": { "type": "string" } },
+          "rationale": { "type": "string" }
+        }
+      }
+    },
+    "requirements": {
+      "type": "array",
+      "items": { "type": "object", "required": ["id", "title"], "properties": { "id": { "type": "string" }, "title": { "type": "string" }, "source": { "type": "string" }, "version": { "type": "string" } } }
+    },
+    "verdicts": {
+      "type": "array",
+      "description": "renderer/verdicts.js query nodes for the key's elements at commit",
+      "items": {
+        "type": "object",
+        "required": ["node_id", "verdict", "evidence", "records"],
+        "properties": {
+          "node_id": { "type": "string" },
+          "verdict": { "enum": ["matched", "diverged", "accepted", null] },
+          "evidence": { "type": "array", "items": { "type": "string" } },
+          "records": { "type": "array", "items": { "type": "string" } },
+          "conflict": { "type": "array", "items": { "type": "string" } },
+          "stale": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "procedures": {
+      "type": "array",
+      "description": "Bound procedures/*.yaml whose scope names one of the key's elements, sorted by id then version. A trace row names the ones used as {id, version, hash}.",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "version", "hash", "title", "steps"],
+        "properties": {
+          "id": { "type": "string" },
+          "version": { "type": "string" },
+          "hash": { "type": "string", "pattern": "^[0-9a-f]{16}$", "description": "hash16 of the procedure file text with CRLF read as LF" },
+          "title": { "type": "string" },
+          "steps": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    },
+    "governance": { "type": "null" }
+  }
+}

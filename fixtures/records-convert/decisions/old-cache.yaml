@@ -1,0 +1,4 @@
+id: old-cache
+status: superseded
+binds: [Pricing API]
+statement: Cache quotes for an hour

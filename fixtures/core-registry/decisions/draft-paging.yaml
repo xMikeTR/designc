@@ -1,0 +1,4 @@
+id: draft-paging
+status: minted
+binds: [Tags UI]
+statement: "The list pages at 50 rows"
