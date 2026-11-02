@@ -262,19 +262,22 @@ function memoryHtml(it) {
 // rows that gave it to an agent; the person binds or retires. Display and suggestions only, never a gate input.
 const PROC_TAG = { proposed: 'minted', untested: '', proven: 'bound', mixed: 'warning', struggling: 'fail', retired: 'superseded' };
 function proceduresHtml() {
-  if (!(A.procedures || []).length) return '';
   const s = ProcLoop.settings(A.cfg);
   const stats = Memory.procedureStats(Memory.episodes(A.ledger || [], { items: A.work }));
-  const r = ProcLoop.review({ procedures: A.procedures.map(p => ({ ...p, text: textOf(p.path) ?? p.text })), stats, settings: s });
+  if (!(A.procedures || []).length && !stats.some(x => String(x.id).includes(':'))) return '';
+  const r = ProcLoop.review({ procedures: (A.procedures || []).map(p => ({ ...p, text: textOf(p.path) ?? p.text })), stats, settings: s });
   const pct = x => (x == null ? '—' : `${Math.round(x * 100)}%`);
   const notes = [...s.problems.map(m => `designc.json: ${m}`), ...r.invalid.map(x => `${x.path}: not judged (${x.errors.join('; ')})`)];
   const btn = x => x.action === 'bind' ? `<button class="btn" data-procstatus="bound" data-procpath="${esc(x.path)}">Bind</button>`
     : x.action === 'retire' ? `<button class="btn" data-procstatus="retired" data-procpath="${esc(x.path)}">Retire</button>` : '';
-  return `<div class="block"><h3>Procedures<span class="spacer"></span><span class="note-i">${r.rows.filter(x => x.judgement === 'struggling').length} struggling</span></h3>
+  return `<div class="block"><h3>Procedures<span class="spacer"></span><span class="note-i">${[...r.rows, ...r.external].filter(x => x.judgement === 'struggling').length} struggling</span></h3>
     <div class="note">How tasks ended when an agent was given each procedure, from <code>procedures/</code> and the pipeline's <code>trace</code> rows. Given means it was in the agent's context, not that the agent followed it. Judged on the version in the file now once it was given in ${s.minUses} finished tasks: proven at ${pct(s.proven)} passed or more, struggling at ${pct(s.struggling)} or less. Thresholds are <code>improve.procedures</code> in designc.json. These are suggestions: only you bind or retire a procedure.</div>
     ${notes.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}
     <div class="tw2"><table class="t"><tr><th>Procedure</th><th>Version</th><th class="num">Given in</th><th class="num">Passed</th><th class="num">Delivered</th><th>Earlier versions</th><th>Judgement</th><th></th></tr>${r.rows.map(x => `<tr><td><span class="id">${esc(x.id)}</span> ${esc(x.title)}</td><td>v${esc(x.version)}</td><td class="num">${fmtN(x.uses)}</td><td class="num">${pct(x.rate)}</td><td class="num">${fmtN(x.delivered)}</td><td>${x.older.length ? esc(x.older.map(o => `v${o.version}: ${pct(o.rate)} of ${o.uses}`).join(', ')) : '<span style="color:var(--fg3)">none</span>'}</td><td><span class="tag ${PROC_TAG[x.judgement] || ''}">${esc(x.judgement)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.reason)}</div></td><td>${btn(x)}<button class="lnk" data-file="${esc(x.path)}">Open</button></td></tr>`).join('')}</table></div>
-    ${r.ignored ? `<div class="note">${esc(plural(r.ignored, 'other trace entry'))} name no file in procedures/ (for example the pipeline's own prompts) and are not judged.</div>` : ''}</div>`;
+    ${r.external.length ? `<h4>The pipeline's own prompts and policies</h4>
+    <div class="note">Named in trace rows as <code>prompt:</code>, <code>policy:</code> or <code>target:policy</code>. Their source of truth is the pipeline's repository, so a struggling one is a change to propose there, made as a git change and merged by a person. A new hash is a new version even when the declared version is the same.</div>
+    <div class="tw2"><table class="t"><tr><th>Entry</th><th>Version</th><th class="num">Given in</th><th class="num">Passed</th><th class="num">Delivered</th><th>Earlier hashes</th><th>Judgement</th></tr>${r.external.map(x => `<tr><td><span class="id">${esc(x.id)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.source)}</div></td><td>v${esc(x.version)} <span style="color:var(--fg3)">${esc(trunc(x.hash, 18))}</span></td><td class="num">${fmtN(x.uses)}</td><td class="num">${pct(x.rate)}</td><td class="num">${fmtN(x.delivered)}</td><td>${x.older.length ? esc(x.older.map(o => `${trunc(o.hash, 18)}: ${pct(o.rate)} of ${o.uses}`).join(', ')) : '<span style="color:var(--fg3)">none</span>'}</td><td><span class="tag ${PROC_TAG[x.judgement] || ''}">${esc(x.judgement)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.reason)}</div></td></tr>`).join('')}</table></div>` : ''}
+    ${r.ignored ? `<div class="note">${esc(plural(r.ignored, 'other trace entry'))} name no file in procedures/ and are not judged.</div>` : ''}</div>`;
 }
 // Improve: System 3 knowledge health (Knowledge.health) beside parity coverage, which is counted here from the Parity
 // view's scenarios so the core keeps no parity logic. Display only, never a gate input; nothing here writes.

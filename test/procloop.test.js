@@ -41,8 +41,39 @@ test('review judges the version in the file now', () => {
   assert.strictEqual(n.uses, 1);
   assert.deepStrictEqual(n.older.map(o => [o.version, o.uses, o.rate]), [['1', 8, 0.25]]);
   assert.match(r.rows.find(x => x.id === 'p-weak').reason, /passed 2 of 6 tasks it was given in/);
-  assert.strictEqual(r.ignored, 1);
+  assert.deepStrictEqual(r.external.map(x => x.id), ['prompt:builder'], 'a pipeline entry is judged as external');
+  assert.strictEqual(r.ignored, 0);
   assert.deepStrictEqual(r.invalid.map(x => x.id), ['p-bad']);
+});
+
+test('external procedures (prompt:, policy:, target:policy): grouped by id, the latest hash is current, no bind or retire', () => {
+  const st = (id, version, hash, uses, passed, last) => ({ id, version, hash, uses, passed, failed: uses - passed, success: passed, causes: {}, last });
+  const stats = [
+    st('prompt:builder', '3', 'sha256:old', 6, 6, 4),
+    st('prompt:builder', '3', 'sha256:new', 5, 1, 9),
+    st('policy:review', '1', 'sha256:p', 5, 5, 7),
+    st('target:policy', '2', 'sha256:t', 2, 2, 8),
+    st('orphan', '1', 'abc', 3, 3, 1),
+  ];
+  const r = ProcLoop.review({ procedures: [], stats, settings: ProcLoop.settings({}) });
+  const j = Object.fromEntries(r.external.map(x => [x.id, [x.hash, x.judgement, x.action]]));
+  assert.deepStrictEqual(j, {
+    'policy:review': ['sha256:p', 'proven', null],
+    'prompt:builder': ['sha256:new', 'struggling', 'propose'],
+    'target:policy': ['sha256:t', 'untested', null],
+  });
+  const b = r.external.find(x => x.id === 'prompt:builder');
+  assert.deepStrictEqual(b.older.map(o => [o.hash, o.rate]), [['sha256:old', 1]], 'same declared version, new hash: a new version');
+  assert.match(b.source, /prompts\/builder\.md/);
+  assert.match(b.reason, /propose a change in the pipeline's repository/);
+  assert.match(r.external.find(x => x.id === 'target:policy').source, /\.factory\/policy\.yaml/);
+  assert.strictEqual(r.ignored, 1, 'an id with no colon and no file is still not judged');
+});
+
+test('procedureStats: last is the newest episode that named the version', () => {
+  const ep = (run, hash, outcome = 'passed') => ({ run, task: 'T', final: true, outcome, success: outcome === 'passed', cause: null, procedures: [{ id: 'prompt:x', version: '1', hash }] });
+  const s = Memory.procedureStats([ep('R1', 'a'), ep('R2', 'b'), ep('R3', 'a')]);
+  assert.deepStrictEqual(s.map(x => [x.hash, x.last]), [['a', 2], ['b', 1]]);
 });
 
 test('setStatus changes only the one top-level status line', () => {

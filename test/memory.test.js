@@ -88,10 +88,11 @@ test('recall gives the episodes on an element, newest first', () => {
 
 test('procedure stats count final outcomes per id and version', () => {
   const s = Memory.procedureStats(Memory.episodes(events(), { items }));
-  assert.deepStrictEqual(s, [
+  assert.deepStrictEqual(s.map(({ last, ...x }) => x), [
     { id: 'p-ui', version: '1', hash: 'h1', uses: 2, passed: 1, failed: 1, success: 1, causes: { ci_failed: 1 } },
     { id: 'p-ui', version: '2', hash: 'h2', uses: 1, passed: 0, failed: 1, success: 0, causes: { stalled: 1 } },
   ]);
+  assert.ok(s.every(x => Number.isInteger(x.last)));
 });
 
 test('summary line for a card', () => {
