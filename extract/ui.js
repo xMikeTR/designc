@@ -8,6 +8,7 @@ const path = require('path');
 const glob = require('./glob');
 const roles = require('./ui-roles');
 const { resolveTag, propsBinding, environment, INTERACTIVE } = require('./ui-follow');
+const behaviour = require('./ui-behaviour');
 
 const SCHEMA = 'designc.ui.graph/1';
 const SOURCE_RE = /\.(tsx|ts|jsx|js|mjs|cjs)$/i;
@@ -115,7 +116,7 @@ const MAX_DEPTH = 8;
 
 /* One screen's scan. A context is {sf, file, env, site, hops, stack}: a root file has no env and no site; a followed
    component has the usage's env, the outermost usage site in a root (where its controls are listed) and the hops. */
-function screenScanner(ts, program, repo, roots, screen, out, opts) {
+function screenScanner(ts, program, repo, roots, screen, out) {
   const checker = program.getTypeChecker();
   const indexes = new Map();
   const followed = new Set();
@@ -181,7 +182,7 @@ function screenScanner(ts, program, repo, roots, screen, out, opts) {
       const id = `${r.file}#${r.name}`, fsf = r.fn.getSourceFile();
       if (!followed.has(id)) { followed.add(id); if (!out.components.some(c => c.id === id)) out.components.push({ id, name: r.name, file: r.file, line: lineOf(fsf, r.fn), renders: [], basis: 'followed' }); }
       const env = environment(ts, propsBinding(ts, r.fn), attrs, contentOf(ts, ctx, n));
-      const next = { sf: fsf, file: r.file, env, site: { ...place, chain, as: ctx.site ? ctx.site.as : tag }, hops: ctx.hops.concat({ component: id, file: r.file, line: lineOf(fsf, r.fn) }), stack: ctx.stack.concat(r.fn), when: (ctx.when || []).concat(opts.whenOf ? opts.whenOf(ctx, n) : []) };
+      const next = { sf: fsf, file: r.file, env, site: { ...place, chain, as: ctx.site ? ctx.site.as : tag }, hops: ctx.hops.concat({ component: id, file: r.file, line: lineOf(fsf, r.fn) }), stack: ctx.stack.concat(r.fn), when: ctx.when.concat(behaviour.whenOf(ts, ctx.sf, ctx.file, n)) };
       ts.forEachChild(r.fn, c => visit(next, c));
       return;
     }
@@ -244,9 +245,12 @@ function screenScanner(ts, program, repo, roots, screen, out, opts) {
     if (!r.role) out.unresolved.push(issue(`<${tag}> has no role the source can show: ${r.reason}`, place.file, place.line, op.getText(sf).slice(0, 120), screen));
   }
 
-  // Hooks for later slices (conditions, props, formats) add their fields here; then the control is kept.
+  // When the control is on screen (the usage chain's conditions, then its own; outermost first) and its state props.
+  // Later slices (formats, fields) add their fields here too.
   function finish(ctx, n, op, attrs, c) {
-    if (opts.behaviour) Object.assign(c, opts.behaviour(ctx, n, op, attrs, c));
+    const when = ctx.when.concat(behaviour.whenOf(ts, ctx.sf, ctx.file, n)), props = behaviour.propsOf(attrs);
+    if (when.length) c.when = when;
+    if (Object.keys(props).length) c.props = props;
     out.controls.push(c);
   }
 
@@ -282,7 +286,7 @@ function build({ repo, files, ui }) {
     const program = rootList.length ? ts.createProgram(rootList.map(f => path.join(repo, f)), options, ts.createCompilerHost(options, true)) : null;
     const compIds = new Set();
     if (program) {
-      const scan = screenScanner(ts, program, repo, roots, name, out, {});
+      const scan = screenScanner(ts, program, repo, roots, name, out);
       for (const f of rootList) {
         const sf = program.getSourceFile(path.join(repo, f));
         if (!sf) { out.unresolved.push(issue(`${f} could not be parsed`, f, 1, '', name)); continue; }

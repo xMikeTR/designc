@@ -74,8 +74,11 @@
             }
           },
           "spreads": { "type": "integer", "description": "How many {...props} spreads the element has whose attributes could not be read (a spread of a followed component's props is read)." },
-          "when": { "type": "array", "description": "later (7c)" },
-          "props": { "type": "object", "description": "later (7c)" },
+          "when": { "type": "array", "description": "The conditions under which the control is rendered, outermost first (the usage chain of a followed component, then its own), never evaluated. Absent when always rendered.", "items": { "type": "object", "required": ["kind", "expr", "file", "line"], "additionalProperties": false, "properties": {
+            "kind": { "enum": ["and", "or", "ternary", "if", "if-return"], "description": "and: c && <x/>. or: c || <x/> (expr !(c)). ternary: c ? <x/> : y (else branch !(c)). if: if (c) { return <x/> } (else !(c)). if-return: an earlier if (c) return ...; (expr !(c))." },
+            "expr": { "type": "string", "description": "Source text, whitespace squashed." }, "file": { "type": "string" }, "line": { "type": "integer" } } } },
+          "props": { "type": "object", "additionalProperties": false, "description": "State props the element carries (or its aria- form). true for a bare or literal attribute; source text for an expression; absent when false or not given.", "properties": {
+            "disabled": { "type": ["boolean", "string"] }, "readOnly": { "type": ["boolean", "string"] }, "hidden": { "type": ["boolean", "string"] }, "required": { "type": ["boolean", "string"] } } },
           "format": { "type": "object", "description": "later (7d)" },
           "field": { "type": "object", "description": "later (7d)" }
         }

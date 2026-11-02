@@ -1,0 +1,5 @@
+{
+  "model": "model/workspace.dsl",
+  "codebase": "../designc-ui-app",
+  "ui": { "tsconfig": { "codebase": "tsconfig.json" }, "screens": { "tags": { "codebase": ["src/pages/Tags/**"] } } }
+}

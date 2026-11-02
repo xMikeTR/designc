@@ -89,6 +89,28 @@ test('user can extract the code map @critical', async () => {
   await expect(page.locator('#special svg text', { hasText: 'Pricing.Api' }).first()).toBeVisible();
 });
 
+test('user can see the UI graph of a screen @critical', async () => {
+  const { reg } = copyRegistry('fixtures/ui-registry', { codebase: 'fixtures/ui-app' });
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.ui.screens.map(s => s.name)).toEqual(['tags']);
+  // The UI level lists the screen's controls by component: role, name, the element and when it is on screen.
+  const special = page.locator('#special');
+  await special.getByRole('button', { name: 'UI', exact: true }).click();
+  const table = special.getByRole('table', { name: 'Controls on tags' });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'Search tags' }).first()).toContainText('searchbox');
+  // A control inside a followed component, named at the usage, and one from a library whose role is not in source.
+  await expect(table.getByRole('row').filter({ hasText: 'via Field' }).first()).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'ui-lib' }).first()).toBeVisible();
+  // Conditions are source text, never evaluated.
+  await expect(table.getByRole('row').filter({ hasText: 'New tag' })).toContainText('canEdit');
+});
+
 test('user can remove a requirement and a bound decision made by mistake', async () => {
   const { reg } = copyRegistry('sample-registry');
   fs.writeFileSync(path.join(reg, 'requirements/FAKE-1.yaml'), 'id: FAKE-1\ntitle: Made by mistake\nversion: 1\nelements: []\n');

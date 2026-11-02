@@ -246,6 +246,9 @@ table.t .num{text-align:right;font-variant-numeric:tabular-nums}
 .cm-ui tr.grp td{background:var(--chrome);padding-top:8px}
 .cm-ui tr.uirow{cursor:pointer}
 .cm-ui tr.uirow:hover td{background:var(--hover, var(--chrome))}
+.cm-ui .cm-when{cursor:pointer;white-space:nowrap}
+.cm-ui .cm-when code{font-size:11px}
+.cm-ui .cm-when:hover code{text-decoration:underline}
 .cm-side{border-left:1px solid var(--edge);overflow:auto;padding:12px 14px;background:var(--editor);font-size:12.5px}
 .cm-side h3{margin:0 0 4px;font-size:15px}
 .cm-side h4{margin:16px 0 6px;font-size:12px;color:var(--fg2);font-weight:600}
