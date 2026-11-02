@@ -3,8 +3,11 @@ title: Bulk apply opens the apply dialog
 screen: tags
 steps:
   - goto: { path: /tags }
+    state: list
   - fill: { role: textbox, name: Program, value: { param: program } }
+    state: filtered
   - click: { role: button, name: Bulk apply }
+    state: apply dialog
 params:
   legacy: { program: "54027" }
   next: { program: "54027" }

@@ -1,0 +1,43 @@
+# QA bugs logged against the tags screen. QA give key, description, actual, expected and screenshots; a person adds
+# where (the control's role and accessible name), kind and state. Screenshots live in shots/, which git ignores.
+screen: tags
+bugs:
+  - key: TAG-1
+    description: Inception dates show year first
+    actual: 2026-01-15
+    expected: 15/01/2026
+    where: { role: cell, name: Inception }
+    kind: format
+    state: list
+  - key: TAG-2
+    description: Bulk apply button is the wrong colour
+    actual: grey
+    expected: blue
+    where: { role: button, name: Bulk apply }
+    kind: look
+    state: list
+  - key: TAG-3
+    description: No message when the search finds nothing
+    actual: blank table
+    expected: No programs match
+    where: { role: text, name: No programs match }
+    kind: missing
+    state: no programs
+  - key: TAG-4
+    description: The apply dialog has no Undo
+    actual: no Undo
+    expected: Undo button
+    where: { role: button, name: Undo }
+    kind: missing
+    state: apply dialog
+  - key: TAG-5
+    description: Export should be enabled when a program is listed
+    actual: disabled
+    expected: enabled
+    where: { role: button, name: Export }
+    kind: state
+    state: list
+  - key: TAG-6
+    description: Something about the header looks off
+    actual: see screenshot
+    expected: like legacy

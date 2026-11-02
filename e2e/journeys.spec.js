@@ -330,6 +330,10 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
   await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);
   await expect(special.getByText('Not on this machine (shots are not in git).')).toBeVisible();
+  // QA bugs on the scenario's screen, matched against the recordings: how many were caught, and why the rest were not.
+  await expect(special.getByRole('heading', { name: /^QA bugs/ })).toBeVisible();
+  await expect(special.getByText('Caught 1', { exact: true })).toBeVisible();
+  await expect(special.getByRole('row').filter({ hasText: 'TAG-5' })).toContainText('Captured but not flagged');
   // Compare types the recorder's line into the Terminal and stops: no report is rewritten until the person presses Enter.
   const report = path.join(reg, 'parity/reports/tags-list.json');
   const before = fs.readFileSync(report, 'utf8');
