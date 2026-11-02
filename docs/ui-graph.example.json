@@ -11,6 +11,10 @@
       "components": [
         "src/pages/Tags/TagRow.tsx#TagRow",
         "src/pages/Tags/TagsPage.tsx#TagsPage"
+      ],
+      "followed": [
+        "src/components/Field.tsx#Field",
+        "src/components/IconButton.tsx#IconButton"
       ]
     },
     {
@@ -20,10 +24,27 @@
       ],
       "components": [
         "src/legacy/OldTags.jsx#OldTags"
-      ]
+      ],
+      "followed": []
     }
   ],
   "components": [
+    {
+      "id": "src/components/Field.tsx#Field",
+      "name": "Field",
+      "file": "src/components/Field.tsx",
+      "line": 4,
+      "renders": [],
+      "basis": "followed"
+    },
+    {
+      "id": "src/components/IconButton.tsx#IconButton",
+      "name": "IconButton",
+      "file": "src/components/IconButton.tsx",
+      "line": 4,
+      "renders": [],
+      "basis": "followed"
+    },
     {
       "id": "src/legacy/OldTags.jsx#OldTags",
       "name": "OldTags",
@@ -44,8 +65,12 @@
       "id": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "name": "TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 5,
+      "line": 8,
       "renders": [
+        "Badge",
+        "Button",
+        "Field",
+        "IconButton",
         "TagRow"
       ],
       "basis": "declared"
@@ -75,11 +100,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:13:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:16:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 13,
+      "line": 16,
       "tag": "input",
       "role": "searchbox",
       "basis": "native",
@@ -92,11 +117,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:16:9",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:19:9",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 16,
+      "line": 19,
       "tag": "input",
       "role": "checkbox",
       "basis": "native",
@@ -109,11 +134,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:18:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:21:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 18,
+      "line": 21,
       "tag": "select",
       "role": "combobox",
       "basis": "native",
@@ -126,11 +151,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:21:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:24:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 21,
+      "line": 24,
       "tag": "textarea",
       "role": "textbox",
       "basis": "native",
@@ -143,11 +168,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:22:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:25:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 22,
+      "line": 25,
       "tag": "button",
       "role": "button",
       "basis": "native",
@@ -160,11 +185,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:23:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:26:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 23,
+      "line": 26,
       "tag": "button",
       "role": "button",
       "basis": "native",
@@ -177,11 +202,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:24:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:27:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 24,
+      "line": 27,
       "tag": "button",
       "role": "button",
       "basis": "native",
@@ -199,11 +224,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:25:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:28:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 25,
+      "line": 28,
       "tag": "a",
       "role": "link",
       "basis": "native",
@@ -216,11 +241,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:27:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:30:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 27,
+      "line": 30,
       "tag": "div",
       "role": "switch",
       "basis": "aria",
@@ -233,11 +258,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:29:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:32:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 29,
+      "line": 32,
       "tag": "input",
       "role": null,
       "basis": null,
@@ -250,11 +275,11 @@
       ]
     },
     {
-      "id": "tags:src/pages/Tags/TagsPage.tsx:32:7",
+      "id": "tags:src/pages/Tags/TagsPage.tsx:35:7",
       "screen": "tags",
       "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 32,
+      "line": 35,
       "tag": "input",
       "role": "textbox",
       "basis": "native",
@@ -266,6 +291,90 @@
           "ref": "filter-label"
         }
       ]
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:36:7>src/components/Field.tsx:8:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 36,
+      "tag": "input",
+      "role": "textbox",
+      "basis": "followed",
+      "name": "Tag name",
+      "names": [
+        {
+          "from": "label",
+          "value": "Tag name"
+        },
+        {
+          "from": "title",
+          "value": "Optional"
+        }
+      ],
+      "as": "Field",
+      "via": [
+        {
+          "component": "src/components/Field.tsx#Field",
+          "file": "src/components/Field.tsx",
+          "line": 4
+        }
+      ],
+      "at": {
+        "file": "src/components/Field.tsx",
+        "line": 8
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:37:7>src/components/IconButton.tsx:5:3",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 37,
+      "tag": "button",
+      "role": "button",
+      "basis": "followed",
+      "name": "Refresh",
+      "names": [
+        {
+          "from": "aria-label",
+          "value": "Refresh"
+        },
+        {
+          "from": "text",
+          "value": "↻"
+        }
+      ],
+      "as": "IconButton",
+      "via": [
+        {
+          "component": "src/components/IconButton.tsx#IconButton",
+          "file": "src/components/IconButton.tsx",
+          "line": 4
+        }
+      ],
+      "at": {
+        "file": "src/components/IconButton.tsx",
+        "line": 5
+      }
+    },
+    {
+      "id": "tags:src/pages/Tags/TagsPage.tsx:38:7",
+      "screen": "tags",
+      "component": "src/pages/Tags/TagsPage.tsx#TagsPage",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 38,
+      "tag": "Button",
+      "role": null,
+      "basis": null,
+      "name": "Reset",
+      "names": [
+        {
+          "from": "text",
+          "value": "Reset"
+        }
+      ],
+      "library": "ui-lib"
     },
     {
       "id": "legacy-tags:src/legacy/OldTags.jsx:7:9",
@@ -307,8 +416,16 @@
       "where": "ui",
       "what": "<input> has no role the source can show: input type \"date\" has no implicit role",
       "file": "src/pages/Tags/TagsPage.tsx",
-      "line": 29,
+      "line": 32,
       "text": "<input type=\"date\" aria-label=\"Created after\" />",
+      "screen": "tags"
+    },
+    {
+      "where": "ui",
+      "what": "<Button> comes from ui-lib, a library whose source is not read; its role is not in source (name it in designc.json ui.roles)",
+      "file": "src/pages/Tags/TagsPage.tsx",
+      "line": 38,
+      "text": "<Button onClick={() => setQuery('')}>",
       "screen": "tags"
     }
   ]

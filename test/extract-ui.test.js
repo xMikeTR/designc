@@ -19,6 +19,13 @@ function one(src, file = 'src/Page.tsx', extra = {}) {
   try { return ui.build({ repo: dir, files: [file], ui: { screens: { s: { codebase: [file] } }, ...extra } }); }
   finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
+// A scratch repo of several files; `roots` (patterns) are the screen, every other file is reachable only by import.
+function many(files, roots) {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'ui-'));
+  for (const [f, src] of Object.entries(files)) { fs.mkdirSync(path.join(dir, path.dirname(f)), { recursive: true }); fs.writeFileSync(path.join(dir, f), src); }
+  try { return ui.build({ repo: dir, files: Object.keys(files), ui: { screens: { s: { codebase: roots } } } }); }
+  finally { fs.rmSync(dir, { recursive: true, force: true }); }
+}
 const ctl = (src, i = 0) => one(`export const P = () => (<div>${src}</div>);`).controls[i];
 
 test('facts.ui of the fixture matches the pinned example (docs/ui-graph.example.json)', async () => {
@@ -87,7 +94,7 @@ class Old extends React.Component { render() { const x = () => <a href="/">A</a>
 
 test('screens: a pattern that matches nothing, a rejected pattern, an outside tsconfig and a reference key are unresolved', () => {
   const r = ui.build({ repo: FIX, files: ['src/pages/Tags/TagsPage.tsx'], ui: { tsconfig: { codebase: '../x.json' }, screens: { a: { codebase: ['nowhere/**', '/abs/**'], legacy: ['x'] } } } });
-  assert.deepEqual(r.screens, [{ name: 'a', roots: [], components: [] }]);
+  assert.deepEqual(r.screens, [{ name: 'a', roots: [], components: [], followed: [] }]);
   const what = r.unresolved.map(u => u.what);
   assert.ok(what.some(w => /outside the codebase/.test(w)));
   assert.ok(what.some(w => /"nowhere\/\*\*" matches no source file/.test(w)));
@@ -102,4 +109,54 @@ test('roleOf is the whole native and aria table', () => {
   assert.deepEqual(roles.roleOf('input', { type: L('search') }), { control: true, role: 'searchbox', basis: 'native' });
   assert.deepEqual(roles.roleOf('select', { size: L('4') }), { control: true, role: 'listbox', basis: 'native' });
   assert.deepEqual(roles.roleOf('div', { role: L('menuitem checkbox') }), { control: true, role: 'menuitem', basis: 'aria' });
+});
+
+test('follow: an in-repo component is read with the usage props; its controls are listed at the usage, basis followed', () => {
+  const r = many({
+    'src/Page.tsx': `import { Field } from './parts/Field';
+export const Page = () => (<div><Field label="Email" type="email" /><Field label="Age" type="number" /></div>);`,
+    'src/parts/Field.tsx': `export function Field({ label, ...rest }) { return (<label>{label}<input {...rest} /></label>); }`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls.map(c => [c.role, c.basis, c.name, c.tag, c.as, c.file, c.line, c.component]), [
+    ['textbox', 'followed', 'Email', 'input', 'Field', 'src/Page.tsx', 2, 'src/Page.tsx#Page'],
+    ['spinbutton', 'followed', 'Age', 'input', 'Field', 'src/Page.tsx', 2, 'src/Page.tsx#Page'],
+  ]);
+  assert.deepEqual(r.controls[0].via, [{ component: 'src/parts/Field.tsx#Field', file: 'src/parts/Field.tsx', line: 1 }]);
+  assert.deepEqual(r.controls[0].at, { file: 'src/parts/Field.tsx', line: 1 });
+  assert.notEqual(r.controls[0].id, r.controls[1].id);
+  assert.deepEqual(r.screens[0].followed, ['src/parts/Field.tsx#Field']);
+  assert.equal(r.components.find(c => c.id === 'src/parts/Field.tsx#Field').basis, 'followed');
+});
+
+test('follow: props.x, defaults, an absent prop, children, memo and a nested chain', () => {
+  const r = many({
+    'src/Page.tsx': `import { Btn } from './Btn'; import Outer from './Outer';
+export const Page = () => (<div><Btn label="Save" /><Btn>Plain</Btn><Outer /></div>);`,
+    'src/Btn.tsx': `import { memo } from 'react';
+export const Btn = memo((props) => <button aria-label={props.label} title={props.tip}>{props.children}</button>);`,
+    'src/Outer.tsx': `import { Inner } from './Inner'; export default function Outer() { return <Inner kind="go" />; }`,
+    'src/Inner.tsx': `export const Inner = ({ kind, text = 'Go' }) => <a href={kind}>{text}</a>;`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls.map(c => [c.role, c.name, c.as]), [['button', 'Save', 'Btn'], ['button', 'Plain', 'Btn'], ['link', 'Go', 'Outer']]);
+  assert.deepEqual(r.controls[2].via.map(v => v.component), ['src/Outer.tsx#Outer', 'src/Inner.tsx#Inner']);
+});
+
+test('follow: a library component is not followed; interactive ones are controls with no role and an unresolved entry', () => {
+  const r = many({
+    'src/Page.tsx': `import { Button, Badge } from 'kit';
+export const Page = () => (<div><Button onClick={() => 1}>Reset</Button><Badge>3</Badge></div>);`,
+    'node_modules/kit/package.json': '{"name":"kit","types":"index.d.ts"}',
+    'node_modules/kit/index.d.ts': 'export declare function Button(p: any): any; export declare function Badge(p: any): any;',
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls.map(c => [c.tag, c.role, c.basis, c.name, c.library]), [['Button', null, null, 'Reset', 'kit']]);
+  assert.ok(r.unresolved.some(u => /<Button> comes from kit/.test(u.what)));
+});
+
+test('follow: a component that renders itself stops with an unresolved entry', () => {
+  const r = many({
+    'src/Page.tsx': `import { Tree } from './Tree'; export const Page = () => <Tree />;`,
+    'src/Tree.tsx': `export function Tree() { return <ul><button>Open</button><Tree /></ul>; }`,
+  }, ['src/Page.tsx']);
+  assert.deepEqual(r.controls.map(c => c.name), ['Open']);
+  assert.ok(r.unresolved.some(u => /<Tree> was not followed further: it renders itself/.test(u.what)));
 });

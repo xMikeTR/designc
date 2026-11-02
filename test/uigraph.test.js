@@ -29,3 +29,19 @@ test('summary counts controls, roleless and unnamed per screen', () => {
   });
   assert.deepEqual(UiGraph.summary(null), { screens: [], controls: 0, roleless: 0, unnamed: 0, unresolved: 0 });
 });
+
+test('screen: the render tree nests by renders with a depth; followed components are listed', () => {
+  const g = {
+    screens: [{ name: 's', roots: ['p.tsx', 'r.tsx'], components: ['r.tsx#Row', 'p.tsx#Page'], followed: ['f.tsx#Field'] }],
+    components: [
+      { id: 'r.tsx#Row', name: 'Row', file: 'r.tsx', line: 1, renders: [], basis: 'declared' },
+      { id: 'p.tsx#Page', name: 'Page', file: 'p.tsx', line: 1, renders: ['Field', 'Row'], basis: 'declared' },
+      { id: 'f.tsx#Field', name: 'Field', file: 'f.tsx', line: 2, renders: [], basis: 'followed' },
+    ],
+    controls: [{ id: 's:p.tsx:3:1>f.tsx:4:1', screen: 's', component: 'p.tsx#Page', file: 'p.tsx', line: 3, tag: 'input', as: 'Field', role: 'textbox', basis: 'followed', name: 'X', names: [] }],
+    unresolved: [],
+  };
+  const s = UiGraph.screen(g, 's');
+  assert.deepEqual(s.tree.map(c => [c.name, c.depth, c.controls.length]), [['Page', 0, 1], ['Row', 1, 0]]);
+  assert.deepEqual(s.followed.map(c => c.id), ['f.tsx#Field']);
+});

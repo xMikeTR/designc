@@ -3,17 +3,29 @@
 const UiGraph = (() => {
   const byPlace = (a, b) => a.file.localeCompare(b.file) || a.line - b.line;
 
-  // One screen: its components in file order, each with the controls it holds; plus the screen's unresolved entries.
+  // One screen: its components as a render tree (a component no other one renders is at depth 0, what it renders, by
+  // name, below it; siblings in file order; a component rendered twice is listed once, where first reached), each with the
+  // controls it holds (followed controls sit at their usage); plus the screen's followed components and unresolved entries.
   function screen(ui, name) {
     const s = ui && (ui.screens || []).find(x => x.name === name);
     if (!s) return null;
     const controls = (ui.controls || []).filter(c => c.screen === name).sort(byPlace);
     const comps = (ui.components || []).filter(c => s.components.includes(c.id)).sort(byPlace);
-    const tree = comps.map(c => ({ ...c, controls: controls.filter(x => x.component === c.id) }));
+    const rendered = new Set(comps.flatMap(c => c.renders || []));
+    const seen = new Set(), tree = [];
+    const visit = (c, depth) => {
+      if (seen.has(c.id)) return;
+      seen.add(c.id);
+      tree.push({ ...c, depth, controls: controls.filter(x => x.component === c.id) });
+      for (const r of c.renders || []) comps.filter(k => k.name === r).forEach(k => visit(k, depth + 1));
+    };
+    comps.filter(c => !rendered.has(c.name)).forEach(c => visit(c, 0));
+    comps.forEach(c => visit(c, 0));
     const placed = new Set(tree.flatMap(c => c.controls.map(x => x.id)));
     const loose = controls.filter(x => !placed.has(x.id));
-    if (loose.length) tree.push({ id: null, name: '(no component)', file: '', line: 0, renders: [], controls: loose });
-    return { name, roots: s.roots.slice(), tree, controls, unresolved: (ui.unresolved || []).filter(u => u.screen === name) };
+    if (loose.length) tree.push({ id: null, name: '(no component)', file: '', line: 0, renders: [], depth: 0, controls: loose });
+    const followed = (ui.components || []).filter(c => (s.followed || []).includes(c.id)).sort(byPlace);
+    return { name, roots: s.roots.slice(), tree, controls, followed, unresolved: (ui.unresolved || []).filter(u => u.screen === name) };
   }
 
   // Counts per screen: controls, those without a role the source shows, those without a literal name.

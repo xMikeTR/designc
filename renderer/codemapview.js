@@ -240,8 +240,10 @@ function drawUi() {
   const nameCell = c => c.name != null ? esc(c.name)
     : `<span class="muted">${c.names.length ? esc(c.names.map(n => n.from === 't()' ? `t('${n.value}')` : n.value != null ? n.value : n.expr ? `{${n.expr}}` : `#${n.ref}`).join(' · ')) : 'no name in source'}</span>`;
   const roleCell = c => c.role ? `${esc(c.role)} <span class="tag" title="${esc(UiGraph.BASIS[c.basis] || c.basis)}">${esc(c.basis)}</span>` : '<span class="tag warning" title="The source does not show a role; see Unresolved">unknown</span>';
-  const rows = s.tree.map(comp => `<tr class="grp"><td colspan="4"><b>${esc(comp.name)}</b> ${comp.file ? `<span class="desc">${esc(comp.file)}</span>` : ''}${comp.renders && comp.renders.length ? ` <span class="desc">renders ${esc(comp.renders.join(', '))}</span>` : ''}</td></tr>`
-    + comp.controls.map(c => `<tr class="uirow" data-code="${esc(c.file)}" data-line="${c.line}" title="Open ${esc(c.file)}:${c.line}"><td>${roleCell(c)}</td><td>${nameCell(c)}</td><td><code>&lt;${esc(c.tag)}&gt;</code></td><td class="evfile">${esc(c.file)}:${c.line}</td></tr>`).join('')).join('');
+  // The Element cell: the intrinsic tag; inside a followed component also "via" it, linking to the element itself.
+  const elCell = c => `<code>&lt;${esc(c.tag)}&gt;</code>${c.library ? ` <span class="tag" title="From a library whose source is not read">${esc(c.library)}</span>` : ''}${c.as ? ` <span class="desc">via ${esc(c.as)}</span>` : ''}${c.at ? ` <span class="evfile cm-at" data-code="${esc(c.at.file)}" data-line="${c.at.line}" title="Open the element in ${esc((c.via || []).map(v => v.component.split('#')[1]).join(' > '))}">${esc(c.at.file)}:${c.at.line}</span>` : ''}`;
+  const rows = s.tree.map(comp => `<tr class="grp"><td colspan="4" style="padding-left:${8 + 16 * (comp.depth || 0)}px"><b>${esc(comp.name)}</b> ${comp.file ? `<span class="desc">${esc(comp.file)}</span>` : ''}${comp.renders && comp.renders.length ? ` <span class="desc">renders ${esc(comp.renders.join(', '))}</span>` : ''}</td></tr>`
+    + comp.controls.map(c => `<tr class="uirow" data-code="${esc(c.file)}" data-line="${c.line}" title="Open ${esc(c.file)}:${c.line}"><td>${roleCell(c)}</td><td>${nameCell(c)}</td><td>${elCell(c)}</td><td class="evfile">${esc(c.file)}:${c.line}</td></tr>`).join('')).join('');
   box.innerHTML = s.controls.length
     ? `<table class="t" aria-label="Controls on ${esc(s.name)}"><thead><tr><th>Role</th><th>Name</th><th>Element</th><th>Where</th></tr></thead><tbody>${rows}</tbody></table>`
     : `<div class="hint" style="padding:16px">${s.roots.length ? `No controls found in ${plural(s.roots.length, 'file')} of this screen.` : 'The screen\'s patterns match no source file. See Unresolved.'}</div>`;
@@ -254,8 +256,9 @@ function cmUiSide() {
   return `<h3>${esc(A.cmScreen || '')}</h3><div class="muted">Read from source; display only, never a gate input.</div>
     ${sum ? `<p>${plural(sum.controls, 'control')} in ${plural(sum.roots, 'file')}${sum.roleless ? `; ${sum.roleless} without a role` : ''}${sum.unnamed ? `; ${sum.unnamed} without a literal name` : ''}.</p>` : ''}
     ${s && s.roots.length ? `<h4>Files</h4>${s.roots.map(f => `<div class="evrow" data-code="${esc(f)}" data-line="1"><div class="evfile">${esc(f)}</div></div>`).join('')}` : ''}
+    ${s && s.followed.length ? `<h4>Followed components (${s.followed.length})</h4>${s.followed.map(c => `<div class="evrow" data-code="${esc(c.file)}" data-line="${c.line}"><b>${esc(c.name)}</b><div class="evfile">${esc(c.file)}:${c.line}</div></div>`).join('')}` : ''}
     ${un.length ? `<h4>Unresolved (${un.length})</h4>${un.map(u => `<div class="evrow" ${u.file === 'designc.json' ? 'data-open="designc.json" data-line="1"' : `data-code="${esc(u.file)}" data-line="${u.line}"`}>${esc(u.what)}<div class="evfile">${esc(u.file)}:${u.line}</div></div>`).join('')}` : ''}
-    <p class="muted">A role comes from the HTML element or a literal role attribute. A name comes from a literal label, aria-label or text; t('key') and expressions are listed but never taken as the name.</p>`;
+    <p class="muted">A role comes from the HTML element or a literal role attribute; inside an in-repo component the screen renders, from the element it renders with the props passed (followed). A library's components are not read. A name comes from a literal label, aria-label or text; t('key') and expressions are listed but never taken as the name.</p>`;
 }
 const cmCompName = id => { const c = A.asbuiltFull && A.asbuiltFull.elements.get(id); return c ? c.name : ''; };
 function cmTypeSide(t) {

@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import { t } from '../../i18n';
 import { TagRow } from './TagRow';
+import { Field } from '@/components/Field';
+import { IconButton } from '@/components/IconButton';
+import { Button, Badge } from 'ui-lib';
 
 export function TagsPage() {
   const [query, setQuery] = useState('');
@@ -30,6 +33,10 @@ export function TagsPage() {
       <input type="hidden" name="csrf" />
       <span id="filter-label">Filter</span>
       <input type="text" aria-labelledby="filter-label" />
+      <Field label="Tag name" type="text" name="name" />
+      <IconButton label="Refresh" onClick={() => setQuery('')}>↻</IconButton>
+      <Button onClick={() => setQuery('')}>Reset</Button>
+      <Badge>{tags.length}</Badge>
       <ul>{tags.map(tag => <TagRow key={tag} name={tag} onEdit={() => setQuery(tag)} />)}</ul>
     </main>
   );
