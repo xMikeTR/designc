@@ -1,0 +1,10 @@
+id: sort-server-side
+status: bound
+requirement: HRE-7
+supersedes: [old-sort]
+binds: [Tags API]
+statement: "Tags are sorted by the API, not the browser"
+checks:
+  - { id: sort-contract, run: "npm test -- sort" }
+enforced_by: [sort-contract]
+rationale: "The legacy app sorted on the server; the new one keeps it there."

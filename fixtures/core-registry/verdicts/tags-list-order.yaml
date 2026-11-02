@@ -1,0 +1,7 @@
+id: v-tags-list-order
+status: bound
+verdict: matched
+scope: [el:Tags UI, ui:tags/list]
+commit: "1111111"
+evidence: [parity/reports/tags-list.json]
+source: parity

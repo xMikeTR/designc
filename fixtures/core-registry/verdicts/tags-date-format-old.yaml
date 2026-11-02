@@ -1,0 +1,6 @@
+id: v-tags-date-format-diverged
+status: bound
+verdict: diverged
+scope: [ui:tags/list/date]
+commit: "1111111"
+evidence: [parity/reports/tags-date.json]

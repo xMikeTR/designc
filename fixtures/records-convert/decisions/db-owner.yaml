@@ -1,0 +1,9 @@
+id: db-owner
+status: accepted
+requirement: HRE-404
+binds: [QuotesDB, Billing]
+supersedes: [D-9]
+scope: [screen:tags]
+statement: The API owns the quotes store
+checks:
+  - "Model: only the API writes"

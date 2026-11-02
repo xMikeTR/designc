@@ -51,7 +51,7 @@ const TOOLS = {
   read_code: { d: 'Read a file from the codebase (read-only), optionally a line range.', p: obj({ path: { type: 'string' }, from: { type: 'integer' }, to: { type: 'integer' } }, ['path']) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
-  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
+  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
   mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) } }, ['requirement', 'element', 'cases']) },
   read_parity: { d: 'Read the legacy parity recordings: each scenario\'s steps, whether a legacy baseline is recorded, its latest result and the differences the latest report found. Shapes and interface text only, never page data or screenshots. Read-only.', p: obj({ scenario: { type: 'string' } }, []) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
@@ -198,11 +198,19 @@ const WRITERS = {
     if (prose != null) return { error: `Check "${prose}": ${Policy.checkProblem(prose)} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" when none exists yet.` };
     const business = a.kind === 'business';
     if (business) a = { ...a, statement: `PROPOSED: ${String(a.statement).replace(/^PROPOSED:\s*/i, '')}` };
+    // Write-time conflict check: a second answer to one finding must say what it supersedes.
+    const sup = (a.supersedes || []).map(String);
+    const unknownSup = sup.filter(x => !A.decisions.some(d => d.id === x));
+    if (unknownSup.length) return { error: `supersedes names ${unknownSup.join(', ')}, which ${unknownSup.length === 1 ? 'is' : 'are'} not in decisions/. Use ids from list_decisions.` };
+    const over = Knowledge.overlaps({ binds: a.binds, resolves: a.resolves, requirement: a.requirement, kind: a.kind }, A.decisions, { resolve: elResolver() });
+    const same = over.filter(x => x.level === 'same' && !sup.includes(x.id));
+    if (same.length) return { error: `${same.map(x => `${x.id} (${x.status}) already answers ${x.codes.join(', ')} on ${x.elements.join(', ')}`).join('; ')}. Do not add a second answer: if this replaces it, mint again with supersedes: [${same.map(x => x.id).join(', ')}]; otherwise ask the person whether to change that decision.` };
+    const near = over.filter(x => x.level === 'near' && !sup.includes(x.id));
     const id = Core.slugId(a.statement, A.decisions.map(d => d.id));
     const text = `id: ${id}
 status: minted          # minted | checked | bound | superseded
 kind: ${business ? 'business' : 'technical'}
-${(a.relies_on || []).length ? `relies_on: ${yamlList(a.relies_on)}\n` : ''}effect: ${a.effect === 'accept' ? 'accept' : 'fix'}
+${sup.length ? `supersedes: ${yamlList(sup)}          # binding this offers to supersede them\n` : ''}${(a.relies_on || []).length ? `relies_on: ${yamlList(a.relies_on)}\n` : ''}effect: ${a.effect === 'accept' ? 'accept' : 'fix'}
 requirement: ${a.requirement ? yamlStr(a.requirement) : 'null'}
 binds: ${yamlList(a.binds || [])}
 resolves: ${yamlList((a.resolves || []).map(x => String(x).toUpperCase()))}
@@ -212,7 +220,9 @@ ${(a.checks && a.checks.length ? a.checks : ['TODO command that proves it']).map
 rationale: ${yamlStr(a.rationale || '')}
 drafted_by: ide-agent
 `;
-    return { title: `Mint decision ${id}`, detail: a.statement, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
+    const notes = [...(sup.length ? [`Replaces ${sup.join(', ')}: binding it offers to supersede ${sup.length === 1 ? 'that one' : 'them'}.`] : []),
+      ...near.map(x => `Also about ${x.elements.join(', ') || `requirement ${a.requirement}`}: ${x.id} (${x.status})${x.statement ? `, "${x.statement}"` : ''}. Consider superseding it rather than adding.`)];
+    return { title: `Mint decision ${id}`, detail: a.statement, preview: `${notes.map(n => `<div class="note" style="color:var(--warn)">${esc(n)}</div>`).join('')}<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`decisions/${id}.yaml`, Date.now()); await host.write(`decisions/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created decisions/${id}.yaml as minted. Binding it is up to the user.`; } };
   },
   mint_acceptance: a => {
@@ -454,10 +464,21 @@ async function onAcpPermission(key, p) {
   return { optionId: optionId || null };
 }
 // fs/write_text_file → the same write policy as the built-in agent, then a diff to approve.
+// The write-time conflict check for a raw ACP write to decisions/, same rule as mint_decision: a second answer to one
+// finding must list what it supersedes. The file being edited is not its own conflict.
+function acpOverlap(rel, content) {
+  if (!rel || !/^decisions\/[^/]+\.ya?ml$/.test(rel)) return null;
+  let d; try { d = jsyaml.load(content); } catch { return null; }
+  if (!d || typeof d !== 'object') return null;
+  const sup = (Array.isArray(d.supersedes) ? d.supersedes : d.supersedes == null ? [] : [d.supersedes]).map(String);
+  const others = A.decisions.filter(x => x._path !== rel);
+  const same = Knowledge.overlaps(d, others, { resolve: elResolver() }).filter(x => x.level === 'same' && !sup.includes(x.id));
+  return same.length ? `${same.map(x => `${x.id} (${x.status}) already answers ${x.codes.join(', ')} on ${x.elements.join(', ')}`).join('; ')}. Add supersedes: [${same.map(x => x.id).join(', ')}] if this replaces it, or ask the person whether to change that decision instead.` : null;
+}
 async function onAcpWrite(key, w) {
   const c = (AG.turn && AG.turn.c) || chat();
   const rel = w.rel || null, role = (AG.conns[key] && AG.conns[key].role) || AG.role;
-  const error = Policy.writeVerdict(role, rel, w.content, jsyaml.load).error || null;
+  const error = Policy.writeVerdict(role, rel, w.content, jsyaml.load).error || acpOverlap(rel, w.content);
   const chip = { kind: 'tool', acp: true, name: `write ${rel || w.path}`, args: {}, status: error ? 'denied' : 'waiting' };
   c.items.push(chip);
   if (error) { chip.result = error; ledger('agent_tool', { tool: 'fs/write_text_file', path: rel || w.path, verdict: 'deny', outcome: 'denied', via: 'acp' }); renderAgent(); return { ok: false, error }; }
