@@ -108,5 +108,35 @@
       "bug": { "key": "QA-13", "description": "Something is off", "actual": "header row misaligned", "expected": "header row as on legacy" } },
     { "about": "names are compared with volatile parts replaced and case ignored", "bucket": "not_flagged",
       "bug": { "key": "QA-14", "description": "Count wording", "where": { "role": "text", "name": "showing 5 Orders" }, "kind": "text", "state": "list" } }
-  ]
+  ],
+  "code": {
+    "about": "The UI graph join (slice 7f): with the static UI graph of each side (facts.ui), ParityQa.report joins each control to what that side recorded and cites the code in the reasons of bugs it did not catch. role null joins by name only to exactly one recorded role; never guessed.",
+    "ui": {
+      "legacy": {"schema": "designc.ui.graph/1", "repo": "legacy", "screens": [{"name": "orders", "roots": ["src/orders.jsx"], "components": [], "followed": []}], "components": [], "forms": [], "unresolved": [],
+      "controls": [
+        {"id": "orders:src/orders.jsx:8:1", "screen": "orders", "file": "src/orders.jsx", "line": 8, "tag": "input", "role": "textbox", "basis": "native", "name": "Customer", "names": [{"from": "text", "value": "Customer"}], "when": [{"kind": "if-return", "expr": "!(open)", "file": "src/orders.jsx", "line": 5}]}
+      ],
+      "formats": [
+        {"id": "orders:src/orders.jsx:40:9", "screen": "orders", "lib": "toLocale", "call": "toLocaleDateString", "pattern": "'en-GB'", "args": "'en-GB'", "file": "src/orders.jsx", "line": 40}
+      ]},
+      "next": {"schema": "designc.ui.graph/1", "repo": "codebase", "screens": [{"name": "orders", "roots": ["src/orders/Orders.tsx", "src/orders/NewOrder.tsx"], "components": [], "followed": []}], "components": [], "forms": [], "unresolved": [],
+      "controls": [
+        {"id": "orders:src/orders/Orders.tsx:31:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 31, "tag": "button", "role": "button", "basis": "native", "name": "Undo", "names": [{"from": "text", "value": "Undo"}], "when": [{"kind": "and", "expr": "hasHistory", "file": "src/orders/Orders.tsx", "line": 31}]},
+        {"id": "orders:src/orders/NewOrder.tsx:12:1", "screen": "orders", "file": "src/orders/NewOrder.tsx", "line": 12, "tag": "DatePicker", "role": null, "basis": null, "name": "Customer", "names": [{"from": "text", "value": "Customer"}], "library": "ui-lib"},
+        {"id": "orders:src/orders/Orders.tsx:5:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 5, "tag": "Title", "role": null, "basis": null, "name": "Orders", "names": [{"from": "text", "value": "Orders"}]},
+        {"id": "orders:src/orders/Orders.tsx:40:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 40, "tag": "IconButton", "role": null, "basis": null, "name": null, "names": [{"from": "t()", "value": "orders.print"}]},
+        {"id": "orders:src/orders/Orders.tsx:22:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 22, "tag": "button", "role": "button", "basis": "native", "name": "Export", "names": [{"from": "text", "value": "Export"}], "props": {"disabled": "!canExport"}},
+        {"id": "orders:src/orders/Orders.tsx:50:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 50, "tag": "Pager", "role": null, "basis": null, "name": "Next page", "names": [{"from": "text", "value": "Next page"}]}
+      ],
+      "formats": []}
+    },
+    "joins": {"next": {"Undo": "unrecorded", "Customer": "name", "Orders": "ambiguous", "(unnamed)": "unnamed", "Export": "role", "Next page": "unrecorded"}, "legacy": {"Customer": "role"}},
+    "bugs": [
+    {"about": "a control the scenario never reached says which condition shows it in code", "bug_key": "QA-10", "bucket": "state_not_recorded", "cites": ["new src/orders/Orders.tsx:31", "shown when hasHistory", "legacy code has no button \"Undo\""]},
+    {"about": "a rule gap cites both sides' code, the new side joined by name to the recorded textbox", "bucket": "not_flagged", "bug_key": "QA-8", "cites": ["legacy src/orders.jsx:8, shown when !(open)", "new src/orders/NewOrder.tsx:12, <DatePicker> takes role textbox from the recording"]},
+    {"about": "a state prop is cited as source text, never evaluated", "bucket": "not_flagged", "bug_key": "QA-12", "cites": ["new src/orders/Orders.tsx:22, disabled if !canExport"]},
+    {"about": "a format bug on a column in a state that could not run cites the screen's formats in code", "bucket": "state_not_recorded", "bug": {"key": "QA-15", "description": "Placed date in the confirm dialog", "where": {"role": "cell", "name": "Placed"}, "kind": "format", "state": "confirm"}, "cites": ["legacy formats on the screen: toLocaleDateString 'en-GB' at src/orders.jsx:40"]},
+    {"about": "a caught bug carries no code citation", "bucket": "caught", "bug_key": "QA-1", "cites": []}
+    ]
+  }
 }

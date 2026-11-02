@@ -117,6 +117,12 @@ test('user can see the UI graph of a screen @critical', async () => {
   await expect(page.getByText(/^Read 1 screen and 2 controls from legacy/)).toBeVisible();
   expect(fs.existsSync(path.join(reg, 'asbuilt/ui-legacy.json'))).toBe(true);
   await expect(table.getByRole('row').filter({ hasText: 'Add tag' })).toContainText('mapped');
+  // The Parity view joins both graphs to the recording: a control the source cannot give a role takes the recorded one by name.
+  await page.getByRole('button', { name: 'Parity', exact: true }).click();
+  await page.locator('#sbBody').getByText('tags-search', { exact: true }).click();
+  await expect(special.getByRole('heading', { name: 'From code' })).toBeVisible();
+  await expect(special.getByRole('row').filter({ hasText: 'Reset' })).toContainText('role from recording');
+  await expect(special.getByRole('row').filter({ hasText: 'Add tag' })).toContainText('recorded');
 });
 
 test('user can remove a requirement and a bound decision made by mistake', async () => {
