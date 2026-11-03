@@ -1171,7 +1171,8 @@ async function freezeOnce(item) {
   } catch (e) { toast(String(e.message || e), 'error'); return; }
   const already = Core.frozenAs(plan.id, A.handovers);
   if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
-  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
+  const bud = Core.budgetCheck(frozen, A.cfg.budget);
+  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).concat(bud.lines.map(l => (bud.status === 'over' ? 'WARNING: ' : '') + l)).join('\n');
   // Named in the confirmation, not checked: a missing folder never refuses a freeze.
   const refNote = refs && refs.refs.length ? `\n\nRead-only references named in it (paths stay on this machine): ${refs.refs.map(r => `${r.key} (${r.kind}) at ${r.path}`).join('; ')}. designc does not check that they exist.` : '';
   const ask = (item
