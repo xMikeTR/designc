@@ -23,6 +23,13 @@ const SU_FIELDS = {
     ['secretKeyEnv', 'Secret key variable', Setup.DEFAULTS.secretKeyEnv, 'The name of the variable that holds the secret key.']],
 };
 
+// One dispatch target as {label, command, resume}; null when the file names several targets, which this page leaves alone.
+function setupDispatchDraft(d) {
+  if (d && typeof d === 'object' && !Array.isArray(d) && !('command' in d) && !('label' in d) && Object.keys(d).length) return null;
+  const o = d && typeof d === 'object' && !Array.isArray(d) ? d : {};
+  return { label: o.label || '', command: o.command || '', resume: o.resume || '' };
+}
+
 async function openSetup() {
   if (!A.root) return;
   const t = await readText('designc.json');
@@ -30,7 +37,8 @@ async function openSetup() {
   if (t != null) { try { SU.current = JSON.parse(t) || {}; } catch (e) { SU.invalid = e.message; } }
   const c = SU.current, pick = (o, ks) => Object.fromEntries(ks.map(k => [k, (o && o[k]) || '']));
   SU.draft = { kind: Setup.kind(c).kind, model: c.model || 'model/workspace.dsl', llm: pick(c.llm, ['provider', 'baseUrl', 'model', 'apiKeyEnv', 'project', 'region']), langfuse: pick(c.langfuse, ['baseUrl', 'publicKeyEnv', 'secretKeyEnv']),
-    references: Object.entries(c.references && typeof c.references === 'object' ? c.references : {}).map(([key, r]) => ({ key, path: (r && r.path) || '' })) };
+    references: Object.entries(c.references && typeof c.references === 'object' ? c.references : {}).map(([key, r]) => ({ key, path: (r && r.path) || '' })),
+    dispatch: setupDispatchDraft(c.dispatch) };
   SU.skip = { llm: false, langfuse: false }; SU.results = {}; SU.errors = []; SU.busy = '';
   await setupCheckModel();
   await setupRefreshEnv();
@@ -42,7 +50,7 @@ async function setupRefreshEnv() {
   try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; }
   SU.adc = !SU.skip.llm && Llm.provider(SU.draft.llm) === 'vertex' ? await host.setupAdc().catch(e => ({ error: 'no_adc', hint: e.message })) : null;
 }
-const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse, references: SU.draft.references });
+const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse, references: SU.draft.references, dispatch: SU.draft.dispatch });
 
 function setupAdcHtml() {
   const a = SU.adc; if (!a) return '';
@@ -98,6 +106,18 @@ function setupReferencesHtml() {
   return `<div class="block su-sec"><h3>Read-only references</h3><div class="note">Folders a build may read to learn what correct behaviour is, such as a legacy app being replaced. They are never written, and a handover records only the name and kind, not the path. designc does not check that the folder exists or which commit it is at.</div>
     <div class="su-body">${rows}<div class="su-act"><button class="btn" data-su-refadd>Add a legacy reference</button></div></div></div>`;
 }
+// Dispatch: the person's own build command, typed into the Terminal for a frozen handover; never run by designc.
+function setupDispatchHtml() {
+  const d = SU.draft.dispatch;
+  if (!d) return '<div class="block su-sec"><h3>Dispatch</h3><div class="note">designc.json names several dispatch targets. Edit them in the file; this page leaves them as they are. <button class="l" data-su-open>Open designc.json</button></div></div>';
+  const errs = new Map(SU.errors.map(e => [e.field, e.msg]));
+  const row = (f, label, ph, help) => `<label class="su-row${errs.has(`dispatch.${f}`) ? ' bad' : ''}"><span>${esc(label)}</span>
+    <input data-su="dispatch.${f}" ${errs.has(`dispatch.${f}`) ? 'aria-invalid="true"' : ''} value="${esc(d[f])}" placeholder="${esc(ph)}" spellcheck="false"><small>${esc(errs.get(`dispatch.${f}`) || help)}</small></label>`;
+  return `<div class="block su-sec"><h3>Dispatch</h3><div class="note">How a frozen handover is built. designc types this command into the Terminal and stops before Enter: you read it, then run it. Leave it blank until you have a build command. It can use {handover}, {repo}, {registry}, {base}, {run} and {legacy}. {repo} is the codebase set on the Code map.</div>
+    <div class="su-body">${row('command', 'Command', 'my-build --handover {handover} --repo {repo} --registry {registry} --base {base}', 'One line. Leave blank for no Dispatch button.')}
+    ${row('label', 'Button label', 'Build it', 'Shown on the button. Blank reads Dispatch.')}
+    ${row('resume', 'Resume command', 'my-build --handover {handover} --run-id {run}', 'Optional: restarts a parked run.')}</div></div>`;
+}
 function renderSetup() {
   const el = $('#special');
   if (!SU.draft) { el.innerHTML = '<div class="dash"><h1>Set up this folder</h1></div>'; openSetup(); return; }
@@ -112,6 +132,7 @@ function renderSetup() {
     </div></div>
     ${SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : setupModelHtml(modelErr)}
     ${SU.draft.kind === 'design' ? setupReferencesHtml() : ''}
+    ${SU.draft.kind === 'design' ? setupDispatchHtml() : ''}
     ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
     ${setupSection('langfuse', 'Langfuse', 'Where Build reads agent runs from. designc only reads; it needs a project\'s public and secret key.')}
     <div class="su-save"><button class="btn primary" data-su-save ${SU.invalid || SU.busy ? 'disabled' : ''}>${SU.exists ? 'Save designc.json' : 'Create designc.json'}</button>
@@ -122,6 +143,7 @@ function renderSetup() {
 function setupFieldLabel(field) {
   const [kind, f, g] = field.split('.');
   if (kind === 'model') return 'Model file';
+  if (kind === 'dispatch') return `Dispatch ${f === 'command' ? 'command' : f === 'resume' ? 'resume command' : 'label'}`;
   if (kind === 'references') return `Reference ${+f + 1} ${g === 'key' ? 'name' : 'folder'}`;
   if (f === 'provider') return 'Model provider';
   const row = (SU_FIELDS[kind] || []).find(r => r[0] === f);
@@ -163,6 +185,7 @@ document.addEventListener('input', e => {
   const t = e.target.closest('[data-su]'); if (!t || !SU.draft) return;
   const [kind, f, g] = t.dataset.su.split('.');
   if (kind === 'references') SU.draft.references[+f][g] = t.value;
+  else if (kind === 'dispatch') SU.draft.dispatch[f] = t.value;
   else if (f) SU.draft[kind][f] = t.value; else SU.draft.model = t.value;
 });
 // Re-check variables and the model file when a field is left, updating only the status lines so focus stays put.
@@ -173,7 +196,7 @@ document.addEventListener('change', async e => {
   if (t.matches('[data-su-skip]')) { SU.skip[t.dataset.suSkip] = t.checked; return renderSetup(); }
   if (!t.matches('[data-su]') || !SU.draft) return;
   const kind = t.dataset.su.split('.')[0];
-  if (kind === 'references') return;
+  if (kind === 'references' || kind === 'dispatch') return;
   if (kind === 'model') { await setupCheckModel(); return renderSetup(); }
   if (t.dataset.su === 'llm.provider') { SU.results.llm = null; await setupRefreshEnv(); return renderSetup(); }
   await setupRefreshEnv();
