@@ -65,48 +65,9 @@ Each `test(...)` in the folder's Playwright tests becomes one draft scenario. It
 
 ## In the app
 
-The Parity activity lists the scenarios, whether each has a baseline, and its latest result. A scenario's page shows its steps, its ledger results, and the latest report's findings per step. Beside the findings, it shows the legacy and new app screenshots, read through `parity:shot` (a 64-hex name only, confined to `parity/shots/`). A shot missing on this machine says so. Each step shows its state label, and a QA bugs block shows the screen's QA bugs by bucket (see "QA bugs"). A work item card with a `parity` entry shows each scenario's latest result and links to the view. Grill-me can read all of this, except screenshots and page data, with the read-only `read_parity` tool.
+The Parity activity lists the scenarios, whether each has a baseline, and its latest result. A scenario's page shows its steps, its ledger results, and the latest report's findings per step. Beside the findings, it shows the legacy and new app screenshots, read through `parity:shot` (a 64-hex name only, confined to `parity/shots/`). A shot missing on this machine says so. A work item card with a `parity` entry shows each scenario's latest result and links to the view. Grill-me can read all of this, except screenshots and page data, with the read-only `read_parity` tool.
 
 The view has buttons for the commands on this page: Record legacy, Compare new app (each for one scenario or all), Record result for Done, and Draft from legacy tests. Each types its command into the Terminal and stops before Enter, as Dispatch does, so the app itself never records or appends `parity_result`, and the command is never given `--allow-writes` or `--allow-request`. No agent tool reaches them. The app writes two things directly, both at a person's request: a starter scenario (New scenario) and `parity.legacy.baseUrl` / `parity.next.baseUrl` in `designc.json`. The view says what this machine lacks (`parity:tools`). An installer does not include the recorder, so there the buttons are disabled and the view says to run designc from source.
-
-## QA bugs
-
-The question this answers: of the parity bugs QA logged on a screen, how many does the recorded behaviour catch, and why were the rest missed? It reads only what is already stored (scenarios, baselines, latest reports) and matches by fixed rules, never a model. Nothing it says is a gate input, a done_when entry or a ledger row. The cases any implementation must agree with are in `docs/parity-qa-cases.json`; `renderer/parity-qa.js` implements them.
-
-`parity/qa/<screen>.yaml`:
-
-```yaml
-screen: tags                 # optional; defaults to the file name, and must match it
-bugs:
-  - key: TAG-1               # the QA ticket, unique in the file
-    description: ...         # QA's words; never copied into any output
-    actual: ...
-    expected: ...
-    screenshots: [shots/tag-1.png]   # under parity/qa/shots/, git-ignored
-    where: { role: cell, name: Inception }   # the control, by role and accessible name
-    kind: format             # missing | visibility | text | format | state | order | look
-    state: list              # a step's state label; absent means any state
-```
-
-A bug without `where` or `kind` needs triage: a person fills them in. `cell`, `gridcell` and `columnheader` count as one column; names are compared with volatile parts (numbers, dates) replaced and case ignored, and a text finding also matches on what the legacy label was.
-
-Each bug lands in one bucket, in this order:
-
-| Bucket | When |
-| --- | --- |
-| needs triage | no `where` or `kind` |
-| not captured by this layer | `kind: look`; how a screen looks is for the vision checklist |
-| state not recorded | no step on this screen has that state, its steps could not run on both apps, or the control is on neither app in that state (the scenario never reached it; the nearest controls are named) |
-| caught | a failing finding of a fitting kind on that control in that state: missing → missing; visibility → missing, extra, filter; text → text; format → shape; state → state; order → order, sort (the order finding of the control's parent) |
-| captured but not flagged | the control was recorded on both apps but no rule flagged it (a diff rule gap; what each side held is shown), or a requirement covers the difference, so it is covered rather than failing |
-
-The report names the bug key, the bucket and the reason, never QA's description, actual, expected or screenshots. The recordings are also grouped as missing (on legacy only), divergent and new-only, with covered findings apart.
-
-```
-node scripts/parity-qa.js --registry <dir> --screen <screen|all> [--json]
-```
-
-Read-only. Exit: `0` reported, `1` reported but a QA file has problems (a bad kind, a repeated key, a screenshot outside `shots/`, a missing `parity/qa/shots/.gitignore` when bugs list screenshots), `2` an error (no folder, no QA file for that screen). The Parity view shows the same as a "QA bugs" block on each scenario whose `screen` has a QA file.
 
 ### Joining the UI graph (7f)
 
