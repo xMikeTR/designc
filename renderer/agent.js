@@ -3,14 +3,15 @@
 'use strict';
 
 // ---------------------------------------------------------------- roles & policy
-const READ_TOOLS = ['read_model', 'get_findings', 'get_gate', 'list_decisions', 'read_registry_file', 'get_code_map', 'search_codebase', 'read_code', 'get_telemetry'];
+const READ_TOOLS = ['read_model', 'get_findings', 'get_gate', 'list_decisions', 'read_registry_file', 'get_code_map', 'search_codebase', 'read_code', 'get_telemetry', 'get_forecast'];
 const COMMON_RULES = `You work inside designc, a system design IDE. The design (Structurizr DSL with d.* design properties) is the source of truth; code is generated from it.
 Rules:
 - Use tools to look before you answer. Cite evidence as model line numbers ("line 53") or file:line for code.
 - You cannot change anything directly. Tools marked as needing approval show the user a card; nothing happens unless they approve. Never say you changed something unless a tool result says "Applied" or "Created".
 - Prefer one precise proposal over several vague ones. Keep answers short and concrete.
 - A decision check is a shell command run in the registry folder that exits 0 when the decision holds (for example ./checks/playtest-clean.sh or p check -tc tcOptimistic); designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" and say what script is needed.
-- The lint rules: DC001 duplicate processing, DC002 lost update, DC003 compound availability, DC004 retry duplicates side effects, DC005 single point of failure, DC006 trust boundary. Design properties are listed in the model.`;
+- The lint rules: DC001 duplicate processing, DC002 lost update, DC003 compound availability, DC004 retry duplicates side effects, DC005 single point of failure, DC006 trust boundary. Design properties are listed in the model.
+- When the user gives a budget or asks what something costs, call get_forecast. Say which elements are priced and which have no history, plan scope so the expected figure fits and the high figure is named as the risk, and propose what to cut or defer. Never invent a figure the tool did not give; a budget is a constraint you plan around, not something you can enforce.`;
 // How a role that teaches finds sources: web search where it works, web fetch where search is blocked (as at work).
 const RESEARCH_RULE = 'To research, search the web if you can. If web search is not available or is blocked, fetch pages you know directly with web fetch (vendor documentation, standards, well-known articles and books\' sites). If you can do neither, say so and answer from your own knowledge and the model, marked as unsourced. Link only pages you actually read; never invent a link.';
 const DONT_KNOW = "I don't know.";
@@ -49,6 +50,7 @@ const TOOLS = {
   get_code_map: { d: 'The as-built map extracted from the codebase: elements, dependencies with evidence, drift against the design, d.code areas against the files in the codebase, unresolved items.', p: obj({}) },
   search_codebase: { d: 'Case-insensitive text search across the codebase (read-only). Returns file:line matches.', p: obj({ query: { type: 'string' } }, ['query']) },
   read_code: { d: 'Read a file from the codebase (read-only), optionally a line range.', p: obj({ path: { type: 'string' }, from: { type: 'integer' }, to: { type: 'integer' } }, ['path']) },
+  get_forecast: { d: 'What freezing the model on disk would cost against the newest handover (expected and high tokens and cost, per changed element, with how many have history) and the budget in designc.json, if any. Use it to plan scope against a budget; it only reads.', p: obj({}) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
   mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
@@ -132,6 +134,12 @@ const READERS = {
   read_code: async a => {
     if (!A.cfg.codebase) return 'No codebase is configured.';
     try { return cap(numbered(await host.readCode(A.cfg.codebase, a.path), a.from || 1, a.to || Infinity)); } catch (e) { return `Can't read ${a.path}: ${e.message}`; }
+  },
+  get_forecast: async () => {
+    if (!A.modelText) return `No model at ${A.cfg.model} yet.`;
+    const { frozen } = await computeForecast(A.modelText), b = Core.budgetCheck(frozen, A.cfg.budget);
+    return JSON.stringify({ forecast: frozen, budget: A.cfg.budget || null, budgetCheck: { status: b.status, notes: b.lines },
+      note: 'Elements with status "no basis" have fewer than minSamples handovers of history and add nothing to the totals. The figures are estimates from past spend, not a quote.' });
   },
   get_telemetry: () => {
     if (A.tel.error || !A.tel.meta) return `Telemetry unavailable: ${telErrorText(A.tel.error) || 'not loaded'}`;
