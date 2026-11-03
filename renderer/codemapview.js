@@ -131,6 +131,12 @@ function cmUiRepos() {
 }
 const cmUiHasScreens = g => !!(g && g.screens && g.screens.length);
 // The graph shown: facts.ui for the codebase, else asbuilt/ui-<key>.json (null until that repo is extracted).
+// The bar's title: the codebase's name, or the references key while the UI level shows another repo.
+function cmBarHead(f) {
+  const ref = A.cmLevel === 'ui' && A.cmRepo && A.cmRepo !== 'codebase', g = ref ? cmUiGraph() : null;
+  const name = ref ? A.cmRepo : f.repo, at = ref ? g && g.extractedAt : f.extractedAt;
+  return `<b>${esc(name)}</b><span class="desc">${at ? 'extracted ' + esc(new Date(at).toLocaleString()) : ''}</span>`;
+}
 function cmUiGraph() { return A.cmRepo && A.cmRepo !== 'codebase' ? (A.uiRefs || {})[A.cmRepo] || null : A.facts && A.facts.ui; }
 function cmHasUi() { return cmUiHasScreens(A.facts && A.facts.ui) || cmUiRepos().length > 1; }
 function cmHasCode() { return !!(A.facts && A.facts.code && A.facts.code.types && A.facts.code.types.length); }
@@ -194,7 +200,7 @@ function renderCodemap() {
     return;
   }
   const f = A.facts || { repo: '', extractedAt: null };
-  el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
+  el.innerHTML = `<div class="cm"><div class="cm-bar">${cmBarHead(f)}
       ${cmSeg()}
       ${A.cmLevel === 'code' ? '<span class="legend"><i class="lg ghost"></i>type in another component</span>' : ''}
       ${A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
