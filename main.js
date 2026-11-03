@@ -34,7 +34,7 @@ function inside(rel) {
   return confine(root, rel);
 }
 const toRel = abs => path.relative(root, abs).split(path.sep).join('/');
-const { confine, childEnv, isTrusted, trustChoices, registryDir, readPages } = require('./paths');
+const { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages } = require('./paths');
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'bin', 'obj', '.idea', '.vs']);
 
 async function tree(abs, depth = 0) {
@@ -643,6 +643,7 @@ handle('llm:chat', async (messages) => {
 // confirms in a native dialog first, so a draft cannot send any variable anywhere unseen.
 handle('setup:env', async names => Setup.envStatus(Array.isArray(names) ? names : [], process.env));
 // Whether Application Default Credentials are available through gcloud; the token itself never leaves main.
+handle('setup:command', async cmd => (typeof cmd === 'string' && root ? commandCheck(cmd, { cwd: root }) : { error: 'empty' }));
 handle('setup:adc', async () => { const t = await LlmNet.token(); return t.error ? { error: t.error, hint: t.hint } : { ok: true }; });
 handle('setup:test', async (kind, draft) => {
   const d = draft && typeof draft === 'object' ? draft : {};

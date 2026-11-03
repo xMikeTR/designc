@@ -229,3 +229,18 @@ test('dispatch: validate judges the placeholders, merge sets one target and leav
   assert.deepEqual(Setup.merge(several, { dispatch: null }).dispatch, several.dispatch);
   assert.deepEqual(Setup.merge(several, {}).dispatch, several.dispatch);
 });
+
+test('commandCheck finds a program on PATH and the --project folder without running anything', () => {
+  const { commandCheck } = require('../paths.js');
+  const have = new Set(['/bin/dotnet', '/reg/../f/src/Factory.S2'].map(p => require('path').resolve(p)));
+  const exists = f => have.has(f);
+  const env = { PATH: '/x:/bin' };
+  const ok = commandCheck('dotnet run --project ../f/src/Factory.S2 -- run {handover}', { cwd: '/reg', env, platform: 'linux', exists });
+  assert.deepEqual(ok, { program: 'dotnet', programFound: true, project: '../f/src/Factory.S2', projectFound: true });
+  const no = commandCheck('my-build --project "../nope"', { cwd: '/reg', env, platform: 'linux', exists });
+  assert.equal(no.programFound, false);
+  assert.equal(no.projectFound, false);
+  assert.deepEqual(commandCheck('  ', { cwd: '/reg', env, exists }), { error: 'empty' });
+  const win = commandCheck('dotnet run', { cwd: 'C:\\r', env: { Path: 'C:\\tools', PATHEXT: '.EXE' }, platform: 'win32', exists: f => f === 'C:\\tools\\dotnet.EXE' });
+  assert.equal(win.programFound, true);
+});

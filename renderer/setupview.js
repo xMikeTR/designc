@@ -107,6 +107,18 @@ function setupReferencesHtml() {
     <div class="su-body">${rows}<div class="su-act"><button class="btn" data-su-refadd>Add a legacy reference</button></div></div></div>`;
 }
 // Dispatch: the person's own build command, typed into the Terminal for a frozen handover; never run by designc.
+// What Check command found: the program on PATH, and the --project folder when the line names one. Nothing is run.
+function setupCommandHtml() {
+  const r = SU.cmdCheck; if (!r) return '';
+  if (r.error) return '<div class="su-res err">Enter a command first.</div>';
+  const bad = [];
+  if (!r.programFound) bad.push(`<code>${esc(r.program)}</code> was not found on PATH. If it is a program you built, publish it and add its folder to PATH (for factory-s2: <code>dotnet publish src/Factory.S2 -c Release -o &lt;folder&gt;</code>), or use <code>dotnet run --project &lt;folder&gt;/src/Factory.S2 -- run ...</code>. Reopen the Terminal after changing PATH.`);
+  if (r.project && !r.projectFound) bad.push(`The folder <code>${esc(r.project)}</code> after --project does not exist from here (${esc(A.root ? A.root.name : 'this folder')}). Choose the factory folder again.`);
+  return bad.length ? `<div class="su-res err">${bad.join('<br>')}</div>` : `<div class="su-res ok"><code>${esc(r.program)}</code> was found${r.project ? ` and so was <code>${esc(r.project)}</code>` : ''}. Nothing was run.</div>`;
+}
+// The factory-s2 line for a source checkout: dotnet run over src/Factory.S2 in the folder the person chooses.
+const S2_ARGS = 'run --handover {handover} --repo {repo} --registry {registry} --base {base}';
+function s2Command(dir) { const p = `${String(dir).replace(/\\/g, '/').replace(/\/$/, '')}/src/Factory.S2`; return `dotnet run --project ${/\s/.test(p) ? `"${p}"` : p} -- ${S2_ARGS}`; }
 function setupDispatchHtml() {
   const d = SU.draft.dispatch;
   if (!d) return '<div class="block su-sec"><h3>Dispatch</h3><div class="note">designc.json names several dispatch targets. Edit them in the file; this page leaves them as they are. <button class="l" data-su-open>Open designc.json</button></div></div>';
@@ -114,9 +126,10 @@ function setupDispatchHtml() {
   const row = (f, label, ph, help) => `<label class="su-row${errs.has(`dispatch.${f}`) ? ' bad' : ''}"><span>${esc(label)}</span>
     <input data-su="dispatch.${f}" ${errs.has(`dispatch.${f}`) ? 'aria-invalid="true"' : ''} value="${esc(d[f])}" placeholder="${esc(ph)}" spellcheck="false"><small>${esc(errs.get(`dispatch.${f}`) || help)}</small></label>`;
   return `<div class="block su-sec"><h3>Dispatch</h3><div class="note">How a frozen handover is built. designc types this command into the Terminal and stops before Enter: you read it, then run it. Leave it blank until you have a build command. It can use {handover}, {repo}, {registry}, {base}, {run} and {legacy}. {repo} is the codebase set on the Code map.</div>
-    <div class="su-body">${row('command', 'Command', 'my-build --handover {handover} --repo {repo} --registry {registry} --base {base}', 'One line. Leave blank for no Dispatch button.')}
+    <div class="su-body">${row('command', 'Command', '<your build program> --handover {handover} --repo {repo}', 'One line. Leave blank for no Dispatch button.')}
     ${row('label', 'Button label', 'Build it', 'Shown on the button. Blank reads Dispatch.')}
-    ${row('resume', 'Resume command', 'my-build --handover {handover} --run-id {run}', 'Optional: restarts a parked run.')}</div></div>`;
+    ${row('resume', 'Resume command', '<your build program> --handover {handover} --run-id {run}', 'Optional: restarts a parked run.')}
+    <div class="su-act"><button class="btn" data-su-s2>Use factory-s2…</button><button class="btn" data-su-cmdcheck >Check command</button><div id="suRes-dispatch">${setupCommandHtml()}</div></div></div></div>`;
 }
 function renderSetup() {
   const el = $('#special');
@@ -185,7 +198,7 @@ document.addEventListener('input', e => {
   const t = e.target.closest('[data-su]'); if (!t || !SU.draft) return;
   const [kind, f, g] = t.dataset.su.split('.');
   if (kind === 'references') SU.draft.references[+f][g] = t.value;
-  else if (kind === 'dispatch') SU.draft.dispatch[f] = t.value;
+  else if (kind === 'dispatch') { SU.draft.dispatch[f] = t.value; if (f === 'command') SU.cmdCheck = null; }
   else if (f) SU.draft[kind][f] = t.value; else SU.draft.model = t.value;
 });
 // Re-check variables and the model file when a field is left, updating only the status lines so focus stays put.
@@ -204,10 +217,16 @@ document.addEventListener('change', async e => {
 });
 document.addEventListener('click', e => {
   if (A.active !== 'special:setup') return;
-  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open], [data-su-adc], [data-su-refadd], [data-su-refdel], [data-su-refpick]'); if (!t) return;
+  const t = e.target.closest('[data-su-test], [data-su-save], [data-su-open], [data-su-adc], [data-su-refadd], [data-su-refdel], [data-su-refpick], [data-su-s2], [data-su-cmdcheck]'); if (!t) return;
   if (t.matches('[data-su-refadd]')) { SU.draft.references.push({ key: SU.draft.references.length ? '' : 'wpf', path: '' }); return renderSetup(); }
   if (t.matches('[data-su-refdel]')) { SU.draft.references.splice(+t.dataset.suRefdel, 1); return renderSetup(); }
   if (t.matches('[data-su-refpick]')) return host.chooseCodebase().then(p => { if (p) { SU.draft.references[+t.dataset.suRefpick].path = p; renderSetup(); } });
+  if (t.matches('[data-su-s2]')) return host.chooseCodebase().then(async p => {
+    if (!p) return;
+    SU.draft.dispatch.command = s2Command(p); SU.draft.dispatch.label = SU.draft.dispatch.label || 'Build with S2';
+    SU.cmdCheck = await host.setupCommand(SU.draft.dispatch.command).catch(() => null); renderSetup();
+  });
+  if (t.matches('[data-su-cmdcheck]')) return host.setupCommand(SU.draft.dispatch.command).then(r => { SU.cmdCheck = r; renderSetup(); });
   if (t.matches('[data-su-adc]')) return setupRefreshEnv().then(renderSetup);
   if (t.dataset.suTest) return setupTest(t.dataset.suTest);
   if (t.matches('[data-su-save]')) return setupSave();

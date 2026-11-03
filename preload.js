@@ -47,6 +47,7 @@ contextBridge.exposeInMainWorld('host', {
   cancelCheck: id => ipcRenderer.invoke('check:cancel', id),
   chat: messages => ipcRenderer.invoke('llm:chat', messages),
   setupEnv: names => ipcRenderer.invoke('setup:env', names),
+  setupCommand: cmd => ipcRenderer.invoke('setup:command', cmd),
   setupAdc: () => ipcRenderer.invoke('setup:adc'),
   setupTest: (kind, draft) => ipcRenderer.invoke('setup:test', kind, draft),
   registries: () => ipcRenderer.invoke('registry:keys'),
