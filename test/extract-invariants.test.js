@@ -7,6 +7,8 @@ const path = require('path');
 const DIR = path.join(__dirname, '..', 'extract');
 const FORBIDDEN = /Pricing-MaPS|PricingMaPS|Hiscox|AmunRa|maps_pricingjob/i;
 const ALLOWED_REQUIRE = /^(\.{1,2}\/.*|node:.+|fs|path|os)$/;
+// Phase 7 (approved): the UI graph parses with the TypeScript compiler, required lazily and only in extract/ui*.js.
+const allowed = (file, mod) => ALLOWED_REQUIRE.test(mod) || (mod === 'typescript' && /^ui(-[a-z]+)?\.js$/.test(file));
 
 test('extract/ has no app-specific names and requires only built-ins', () => {
   const files = fs.readdirSync(DIR).filter(f => f.endsWith('.js'));
@@ -14,6 +16,6 @@ test('extract/ has no app-specific names and requires only built-ins', () => {
   for (const f of files) {
     const text = fs.readFileSync(path.join(DIR, f), 'utf8');
     assert.ok(!FORBIDDEN.test(text), `${f} names an app`);
-    for (const m of text.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) assert.match(m[1], ALLOWED_REQUIRE, `${f} requires ${m[1]}`);
+    for (const m of text.matchAll(/\brequire\(\s*['"]([^'"]+)['"]\s*\)/g)) assert.ok(allowed(f, m[1]), `${f} requires ${m[1]}`);
   }
 });

@@ -1,0 +1,142 @@
+{
+  "about": "QA bug matching (renderer/parity-qa.js, docs/parity-contract.md 'QA bugs'). One recorded screen, its stored baseline and report, and logged QA bugs with the bucket each must land in. Any implementation of the matching must agree.",
+  "world": {
+    "screen": "orders",
+    "scenarios": [
+      { "id": "orders-list", "screen": "orders", "steps": [
+        { "goto": { "path": "/orders" }, "state": "list" },
+        { "click": { "role": "button", "name": "New" }, "state": "new dialog" },
+        { "click": { "role": "button", "name": "Delete" }, "state": "confirm" }
+      ] },
+      { "id": "other-screen", "screen": "customers", "steps": [
+        { "goto": { "path": "/customers" }, "state": "empty" }
+      ] }
+    ],
+    "baselines": {
+      "orders-list": { "scenario": "orders-list", "side": "legacy", "steps": [
+        { "n": 1, "action": "goto", "status": "ok", "elements": [
+          { "key": "heading:Orders", "role": "heading", "name": "Orders", "enabled": true, "children": [] },
+          { "key": "button:New", "role": "button", "name": "New", "enabled": true, "children": [] },
+          { "key": "button:Refresh", "role": "button", "name": "Refresh", "enabled": true, "children": [] },
+          { "key": "button:Export", "role": "button", "name": "Export", "enabled": true, "children": [] },
+          { "key": "button:Print", "role": "button", "name": "Print", "enabled": true, "children": [] },
+          { "key": "button:Archive", "role": "button", "name": "Archive", "enabled": true, "children": [] },
+          { "key": "text:Showing # orders", "role": "text", "name": "Showing # orders", "enabled": true, "children": [] },
+          { "key": "table:Orders", "role": "table", "name": "Orders", "enabled": true, "columns": [{ "name": "Placed", "shape": "date:dd/0d/dddd" }], "records": 3, "children": [
+            { "key": "row:head", "role": "row", "name": "", "enabled": true, "children": [
+              { "key": "columnheader:Placed", "role": "columnheader", "name": "Placed", "enabled": true, "children": [] } ] },
+            { "key": "row:record", "role": "row", "name": "", "enabled": true, "children": [
+              { "key": "cell[Placed]", "role": "cell", "name": "", "data": true, "column": "Placed", "shape": "date:dd/0d/dddd", "enabled": true, "children": [] } ] }
+          ] }
+        ] },
+        { "n": 2, "action": "click", "status": "ok", "elements": [
+          { "key": "dialog:New order", "role": "dialog", "name": "New order", "enabled": true, "children": [
+            { "key": "textbox:Customer", "role": "textbox", "name": "Customer", "enabled": true, "valueShape": "empty", "children": [] },
+            { "key": "button:Save", "role": "button", "name": "Save", "enabled": true, "children": [] } ] }
+        ] },
+        { "n": 3, "action": "click", "status": "ok", "elements": [
+          { "key": "dialog:Delete order", "role": "dialog", "name": "Delete order", "enabled": true, "children": [] }
+        ] }
+      ] }
+    },
+    "reports": {
+      "orders-list": {
+        "next": { "scenario": "orders-list", "side": "next", "steps": [
+          { "n": 1, "action": "goto", "status": "ok", "elements": [
+            { "key": "heading:Orders", "role": "heading", "name": "Orders", "enabled": true, "children": [] },
+            { "key": "button:Refresh", "role": "button", "name": "Refresh", "enabled": true, "children": [] },
+            { "key": "button:New", "role": "button", "name": "New", "enabled": true, "children": [] },
+            { "key": "button:Export", "role": "button", "name": "Export", "enabled": false, "children": [] },
+            { "key": "button:Print all", "role": "button", "name": "Print all", "enabled": true, "children": [] },
+            { "key": "button:Help", "role": "button", "name": "Help", "enabled": true, "children": [] },
+            { "key": "text:Showing # orders", "role": "text", "name": "Showing # orders", "enabled": true, "children": [] },
+            { "key": "table:Orders", "role": "table", "name": "Orders", "enabled": true, "columns": [{ "name": "Placed", "shape": "date:dddd-0d-dd" }], "records": 3, "children": [
+              { "key": "row:head", "role": "row", "name": "", "enabled": true, "children": [
+                { "key": "columnheader:Placed", "role": "columnheader", "name": "Placed", "enabled": true, "children": [] } ] },
+              { "key": "row:record", "role": "row", "name": "", "enabled": true, "children": [
+                { "key": "cell[Placed]", "role": "cell", "name": "", "data": true, "column": "Placed", "shape": "date:dddd-0d-dd", "enabled": true, "children": [] } ] }
+            ] }
+          ] },
+          { "n": 2, "action": "click", "status": "ok", "elements": [
+            { "key": "dialog:New order", "role": "dialog", "name": "New order", "enabled": true, "children": [
+              { "key": "textbox:Customer", "role": "textbox", "name": "Customer", "enabled": true, "valueShape": "empty", "children": [] },
+              { "key": "button:Save", "role": "button", "name": "Save", "enabled": true, "children": [] } ] }
+          ] },
+          { "n": 3, "action": "click", "status": "could_not_run", "reason": "no button \"Delete\"" }
+        ] },
+        "result": { "scenario": "orders-list", "outcome": "fail", "steps": [
+          { "n": 1, "action": "goto", "status": "compared", "findings": [
+            { "kind": "text", "key": "button:Print all", "severity": "fail", "msg": "button \"Print\" reads \"Print all\"", "role": "button", "name": "Print all", "was": "Print" },
+            { "kind": "missing", "key": "button:Archive", "severity": "covered", "msg": "button \"Archive\" is missing", "by": "drop-archive", "role": "button", "name": "Archive" },
+            { "kind": "extra", "key": "button:Help", "severity": "fail", "msg": "button \"Help\" is not in legacy", "role": "button", "name": "Help" },
+            { "kind": "order", "key": "/", "severity": "fail", "msg": "order differs" },
+            { "kind": "state", "key": "button:Export", "severity": "fail", "msg": "button \"Export\" is disabled; legacy has it enabled", "role": "button", "name": "Export" },
+            { "kind": "shape", "key": "table:Orders/column:Placed", "severity": "fail", "msg": "column \"Placed\" is date:dddd-0d-dd; legacy shows date:dd/0d/dddd", "role": "columnheader", "name": "Placed" }
+          ] },
+          { "n": 2, "action": "click", "status": "compared", "findings": [] },
+          { "n": 3, "action": "click", "status": "could_not_run", "reason": "new app: no button \"Delete\"", "findings": [] }
+        ], "counts": { "fail": 5, "covered": 1, "could_not_run": 1 } }
+      }
+    }
+  },
+  "bugs": [
+    { "about": "a date format bug named on a cell is caught by its column's shape finding", "bucket": "caught",
+      "bug": { "key": "QA-1", "description": "Placed date shows ISO", "where": { "role": "cell", "name": "Placed" }, "kind": "format", "state": "list" } },
+    { "about": "a control disabled on the new app is caught by a state finding", "bucket": "caught",
+      "bug": { "key": "QA-2", "description": "Export greyed out", "where": { "role": "button", "name": "Export" }, "kind": "state", "state": "list" } },
+    { "about": "an order bug on a top-level control is caught by the order finding of its parent", "bucket": "caught",
+      "bug": { "key": "QA-3", "description": "Refresh moved", "where": { "role": "button", "name": "Refresh" }, "kind": "order", "state": "list" } },
+    { "about": "a text bug named by the legacy label is caught by the text finding that says what it was; no state means any state", "bucket": "caught",
+      "bug": { "key": "QA-4", "description": "Print renamed", "where": { "role": "button", "name": "Print" }, "kind": "text" } },
+    { "about": "a visibility bug on a control only the new app has is caught by its extra finding", "bucket": "caught",
+      "bug": { "key": "QA-5", "description": "Help button should not be there", "where": { "role": "button", "name": "Help" }, "kind": "visibility", "state": "list" } },
+    { "about": "a look bug is never this layer's", "bucket": "not_captured",
+      "bug": { "key": "QA-6", "description": "Save is the wrong blue", "where": { "role": "button", "name": "Save" }, "kind": "look", "state": "new dialog" } },
+    { "about": "a difference a requirement allows does not count as caught", "bucket": "not_flagged",
+      "bug": { "key": "QA-7", "description": "Archive is gone", "where": { "role": "button", "name": "Archive" }, "kind": "missing", "state": "list" } },
+    { "about": "a control recorded on both sides with no finding is a diff rule gap", "bucket": "not_flagged",
+      "bug": { "key": "QA-8", "description": "Customer label wrong", "where": { "role": "textbox", "name": "Customer" }, "kind": "text", "state": "new dialog" } },
+    { "about": "a state no step on this screen is labelled with was not recorded, even if another screen has it", "bucket": "state_not_recorded",
+      "bug": { "key": "QA-9", "description": "Empty list message", "where": { "role": "text", "name": "No orders" }, "kind": "text", "state": "empty" } },
+    { "about": "a control on neither side in that state means the scenario never reached it", "bucket": "state_not_recorded",
+      "bug": { "key": "QA-10", "description": "Undo missing", "where": { "role": "button", "name": "Undo" }, "kind": "missing", "state": "new dialog" } },
+    { "about": "a state whose step could not run was not recorded", "bucket": "state_not_recorded",
+      "bug": { "key": "QA-11", "description": "Delete dialog text", "where": { "role": "dialog", "name": "Delete order" }, "kind": "text", "state": "confirm" } },
+    { "about": "a finding of another kind on the same control does not catch it", "bucket": "not_flagged",
+      "bug": { "key": "QA-12", "description": "Export label", "where": { "role": "button", "name": "Export" }, "kind": "text", "state": "list" } },
+    { "about": "a bug without where or kind waits for a person", "bucket": "triage",
+      "bug": { "key": "QA-13", "description": "Something is off", "actual": "header row misaligned", "expected": "header row as on legacy" } },
+    { "about": "names are compared with volatile parts replaced and case ignored", "bucket": "not_flagged",
+      "bug": { "key": "QA-14", "description": "Count wording", "where": { "role": "text", "name": "showing 5 Orders" }, "kind": "text", "state": "list" } }
+  ],
+  "code": {
+    "about": "The UI graph join (slice 7f): with the static UI graph of each side (facts.ui), ParityQa.report joins each control to what that side recorded and cites the code in the reasons of bugs it did not catch. role null joins by name only to exactly one recorded role; never guessed.",
+    "ui": {
+      "legacy": {"schema": "designc.ui.graph/1", "repo": "legacy", "screens": [{"name": "orders", "roots": ["src/orders.jsx"], "components": [], "followed": []}], "components": [], "forms": [], "unresolved": [],
+      "controls": [
+        {"id": "orders:src/orders.jsx:8:1", "screen": "orders", "file": "src/orders.jsx", "line": 8, "tag": "input", "role": "textbox", "basis": "native", "name": "Customer", "names": [{"from": "text", "value": "Customer"}], "when": [{"kind": "if-return", "expr": "!(open)", "file": "src/orders.jsx", "line": 5}]}
+      ],
+      "formats": [
+        {"id": "orders:src/orders.jsx:40:9", "screen": "orders", "lib": "toLocale", "call": "toLocaleDateString", "pattern": "'en-GB'", "args": "'en-GB'", "file": "src/orders.jsx", "line": 40}
+      ]},
+      "next": {"schema": "designc.ui.graph/1", "repo": "codebase", "screens": [{"name": "orders", "roots": ["src/orders/Orders.tsx", "src/orders/NewOrder.tsx"], "components": [], "followed": []}], "components": [], "forms": [], "unresolved": [],
+      "controls": [
+        {"id": "orders:src/orders/Orders.tsx:31:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 31, "tag": "button", "role": "button", "basis": "native", "name": "Undo", "names": [{"from": "text", "value": "Undo"}], "when": [{"kind": "and", "expr": "hasHistory", "file": "src/orders/Orders.tsx", "line": 31}]},
+        {"id": "orders:src/orders/NewOrder.tsx:12:1", "screen": "orders", "file": "src/orders/NewOrder.tsx", "line": 12, "tag": "DatePicker", "role": null, "basis": null, "name": "Customer", "names": [{"from": "text", "value": "Customer"}], "library": "ui-lib"},
+        {"id": "orders:src/orders/Orders.tsx:5:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 5, "tag": "Title", "role": null, "basis": null, "name": "Orders", "names": [{"from": "text", "value": "Orders"}]},
+        {"id": "orders:src/orders/Orders.tsx:40:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 40, "tag": "IconButton", "role": null, "basis": null, "name": null, "names": [{"from": "t()", "value": "orders.print"}]},
+        {"id": "orders:src/orders/Orders.tsx:22:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 22, "tag": "button", "role": "button", "basis": "native", "name": "Export", "names": [{"from": "text", "value": "Export"}], "props": {"disabled": "!canExport"}},
+        {"id": "orders:src/orders/Orders.tsx:50:1", "screen": "orders", "file": "src/orders/Orders.tsx", "line": 50, "tag": "Pager", "role": null, "basis": null, "name": "Next page", "names": [{"from": "text", "value": "Next page"}]}
+      ],
+      "formats": []}
+    },
+    "joins": {"next": {"Undo": "unrecorded", "Customer": "name", "Orders": "ambiguous", "(unnamed)": "unnamed", "Export": "role", "Next page": "unrecorded"}, "legacy": {"Customer": "role"}},
+    "bugs": [
+    {"about": "a control the scenario never reached says which condition shows it in code", "bug_key": "QA-10", "bucket": "state_not_recorded", "cites": ["new src/orders/Orders.tsx:31", "shown when hasHistory", "legacy code has no button \"Undo\""]},
+    {"about": "a rule gap cites both sides' code, the new side joined by name to the recorded textbox", "bucket": "not_flagged", "bug_key": "QA-8", "cites": ["legacy src/orders.jsx:8, shown when !(open)", "new src/orders/NewOrder.tsx:12, <DatePicker> takes role textbox from the recording"]},
+    {"about": "a state prop is cited as source text, never evaluated", "bucket": "not_flagged", "bug_key": "QA-12", "cites": ["new src/orders/Orders.tsx:22, disabled if !canExport"]},
+    {"about": "a format bug on a column in a state that could not run cites the screen's formats in code", "bucket": "state_not_recorded", "bug": {"key": "QA-15", "description": "Placed date in the confirm dialog", "where": {"role": "cell", "name": "Placed"}, "kind": "format", "state": "confirm"}, "cites": ["legacy formats on the screen: toLocaleDateString 'en-GB' at src/orders.jsx:40"]},
+    {"about": "a caught bug carries no code citation", "bucket": "caught", "bug_key": "QA-1", "cites": []}
+    ]
+  }
+}

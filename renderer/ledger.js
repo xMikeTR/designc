@@ -57,6 +57,8 @@ const Ledger = (() => {
     parity_result: 'pipeline.jsonl',
     run_started: 'pipeline.jsonl',
     run_ended: 'pipeline.jsonl',
+    trace: 'pipeline.jsonl',
+    outcome: 'pipeline.jsonl',
     decision_promoted: 'designc.jsonl',
     extraction: 'designc.jsonl',
     agent_turn: 'agents.jsonl',
@@ -74,7 +76,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'trace', 'outcome'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -110,9 +112,10 @@ const Ledger = (() => {
     },
     escape: {
       required: ['id', 'description'],
-      optional: ['code', 'caught_by', 'source', 'traces', 'origin'],
+      optional: ['code', 'caught_by', 'source', 'traces', 'origin', 'ref', 'run'],
       enums: {},
-      rules: ['caught_by_member', 'origin_member'],
+      types: { run: 'string' },
+      rules: ['caught_by_member', 'origin_member', 'ref_shape'],
     },
     escape_classified: {
       required: ['escape', 'caught_by'],
@@ -127,9 +130,9 @@ const Ledger = (() => {
     },
     task: {
       required: ['task', 'status'],
-      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run', 'usage', 'by_role'],
+      optional: ['title', 'element', 'reruns', 'turns', 'tokens', 'tokens_in', 'tokens_out', 'cost', 'model', 'tier', 'handover', 'run', 'usage', 'by_role', 'cause'],
       enums: { status: ['passed', 'failed', 'blocked', 'running'] },
-      rules: ['usage_shape', 'by_role_shape'],
+      rules: ['usage_shape', 'by_role_shape', 'cause_shape'],
     },
     needs_decision: {
       required: ['id', 'question', 'status'],
@@ -242,6 +245,24 @@ const Ledger = (() => {
       types: { run: 'string', handover: 'string', status: 'string', reason: 'string' },
       rules: ['ended_needs_reason'],
     },
+    // One row per run and task (the latest per run and task wins; blocked is not final): what the attempt was given
+    // (bundle_id, the procedures at their versions), which models it used, what it spent and how it ended.
+    trace: {
+      required: ['run', 'task', 'outcome', 'bundle_id', 'models', 'procedures', 'tokens_in', 'tokens_out'],
+      optional: ['cause', 'trace_id', 'jira', 'cost'],
+      enums: { outcome: ['passed', 'failed', 'blocked'] },
+      types: { run: 'string', task: 'string', outcome: 'string', bundle_id: 'string|null', models: 'array', procedures: 'array', tokens_in: 'number', tokens_out: 'number', cause: 'string', trace_id: 'string', jira: 'string', cost: 'number' },
+      rules: ['cause_shape', 'trace_shape'],
+    },
+    // A verdict that arrives after the run (CI, QA, parity, integration) on the whole run, or on one task. The latest
+    // one after a task's trace row is the task's final cause.
+    outcome: {
+      required: ['run', 'cause', 'ref'],
+      optional: ['task', 'commit'],
+      enums: { cause: ['ci_failed', 'qa_failed', 'integration_failed', 'integration_unrunnable', 'parity_failed'] },
+      types: { run: 'string', task: 'string', cause: 'string', commit: 'string' },
+      rules: ['ref_shape'],
+    },
     item_recheck: {
       required: ['item', 'handover', 'stale', 'reasons'],
       optional: [],
@@ -345,6 +366,8 @@ const Ledger = (() => {
     },
   };
 
+  const CAUSE_RE = /^(stalled|abandoned|parked|gate_failed:[a-z0-9_.-]+)$/;
+  const REF_KINDS = { outcome: ['ci', 'qa', 'parity', 'integration'], escape: ['jira'] };
   const isPlainObject = v => v != null && typeof v === 'object' && !Array.isArray(v);
   // Conditional rules named in a kind's `rules`; each returns an error (without the kind prefix) or null.
   // Mirrored by id in python/designc/ledger.py.
@@ -416,6 +439,30 @@ const Ledger = (() => {
       }
       return null;
     },
+    // task.cause / trace.cause: why a task did not pass, consistent with its status (task) or outcome (trace).
+    cause_shape: ev => {
+      if (ev.cause === undefined) return null;
+      const st = ev.kind === 'trace' ? ev.outcome : ev.status;
+      if (typeof ev.cause !== 'string' || !CAUSE_RE.test(ev.cause)) return 'cause: must be stalled, abandoned, parked or gate_failed:<gate> (a-z, 0-9, _ . -)';
+      if ((ev.cause === 'stalled' || ev.cause === 'abandoned') && st !== 'failed') return `cause: ${ev.cause} needs status failed`;
+      if (ev.cause === 'parked' && st !== 'blocked') return 'cause: parked needs status blocked';
+      if (ev.cause.startsWith('gate_failed:') && st !== 'failed' && st !== 'blocked') return 'cause: gate_failed needs status failed or blocked';
+      return null;
+    },
+    trace_shape: ev => {
+      if (Array.isArray(ev.models)) for (const [i, m] of ev.models.entries()) if (typeof m !== 'string' || !m) return `models[${i}]: must be a non-empty string (a model id, else its tier)`;
+      if (Array.isArray(ev.procedures)) for (const [i, p] of ev.procedures.entries()) {
+        if (!isPlainObject(p) || ['id', 'version', 'hash'].some(k => typeof p[k] !== 'string' || !p[k])) return `procedures[${i}]: must be {id, version, hash}`;
+      }
+      for (const k of ['tokens_in', 'tokens_out']) if (ev[k] !== undefined && !(Number.isInteger(ev[k]) && ev[k] >= 0)) return `${k}: must be a whole number of at least 0`;
+      return null;
+    },
+    // ref on outcome ({kind: ci|qa|parity|integration, id}) and escape ({kind: jira, id}).
+    ref_shape: ev => {
+      if (ev.ref === undefined) return null;
+      const kinds = REF_KINDS[ev.kind] || [];
+      return isPlainObject(ev.ref) && kinds.includes(ev.ref.kind) && typeof ev.ref.id === 'string' && ev.ref.id ? null : `ref: must be {kind: ${kinds.join('|')}, id}`;
+    },
     fail_needs_note: ev => (ev.verdict === 'fail' && typeof ev.note === 'string' && !ev.note.trim() ? "note: say what went wrong when verdict is 'fail'" : null),
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
@@ -430,7 +477,8 @@ const Ledger = (() => {
 
   // An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
   // Same rule as the gate in core.js and python/designc (gate.py, verify.py).
-  const acceptWithoutCheck = d => (d.effect === 'accept' || d.effect === 'build') && !(d.checks || []).some(c => c && !/^TODO/.test(String(c)));
+  const checkRuns = d => (d.checks == null ? [] : Array.isArray(d.checks) ? d.checks : [d.checks]).map(c => c && typeof c === 'object' && !Array.isArray(c) ? (typeof c.run === 'string' ? c.run : '') : c == null ? '' : String(c));
+  const acceptWithoutCheck = d => (d.effect === 'accept' || d.effect === 'build') && !checkRuns(d).some(c => c && !/^TODO/.test(c));
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
   // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.
@@ -844,6 +892,47 @@ const Ledger = (() => {
   // after its end reopens it (a parked run resumed), and the latest run_ended wins. A run's tasks are the task
   // rows naming it, else (no `run`) the task rows of its handover since it started and not after it ended,
   // latest status per task. A run with no end is `running`; `ms` runs from its latest start to `now` until it ends.
+  // Slice 1b: one row per run and task from `trace` rows (latest wins), oldest first by first sight. `events` as
+  // Ledger.order gives them. The final cause is the latest `outcome` after the task's trace row (naming the task, or
+  // the whole run), else the trace's own cause. Success is a passed trace, its run's handover closed as delivered, and
+  // no later outcome. A blocked trace is not final. Display and System 3 input only; never a gate input.
+  function taskOutcomes(events) {
+    const handoverOf = new Map();
+    const delivered = new Set();
+    const rows = new Map();
+    events.forEach((e, i) => {
+      if (e.kind === 'run_started' && typeof e.run === 'string') handoverOf.set(e.run, e.handover);
+      else if (e.kind === 'handover_closed' && e.outcome === 'delivered') delivered.add(e.handover);
+      else if (e.kind === 'trace' && typeof e.run === 'string' && typeof e.task === 'string') {
+        const key = `${e.run}\u0000${e.task}`;
+        const prev = rows.get(key);
+        rows.set(key, { at: i, first: prev ? prev.first : i, ev: e });
+      }
+    });
+    // A resumed run re-runs integration and QA, so a later success on the same run (run_ended succeeded, or its
+    // handover closed delivered) overturns an earlier run-level outcome. Task-level outcomes are not overturned.
+    const succeededAt = new Map(), deliveredAt = new Map();
+    events.forEach((e, i) => {
+      if (e.kind === 'run_ended' && e.status === 'succeeded' && typeof e.run === 'string') succeededAt.set(e.run, i);
+      else if (e.kind === 'handover_closed' && e.outcome === 'delivered') deliveredAt.set(e.handover, i);
+    });
+    const outcomes = events.map((e, i) => ({ e, i })).filter(x => x.e.kind === 'outcome');
+    return [...rows.values()].sort((a, b) => a.first - b.first).map(({ at, ev }) => {
+      const handover = handoverOf.get(ev.run) || null;
+      const overturnAt = Math.max(succeededAt.has(ev.run) ? succeededAt.get(ev.run) : -1, handover != null && deliveredAt.has(handover) ? deliveredAt.get(handover) : -1);
+      const later = outcomes.filter(x => x.i > at && x.e.run === ev.run && (x.e.task === undefined ? x.i > overturnAt : x.e.task === ev.task)).pop();
+      const isDelivered = !!handover && delivered.has(handover);
+      return {
+        run: ev.run, task: ev.task, outcome: ev.outcome, final: ev.outcome !== 'blocked',
+        cause: later ? later.e.cause : (ev.cause || null), ref: later ? later.e.ref : null,
+        bundle_id: ev.bundle_id, models: ev.models || [], procedures: ev.procedures || [],
+        tokens_in: ev.tokens_in, tokens_out: ev.tokens_out, cost: ev.cost === undefined ? null : ev.cost,
+        jira: ev.jira || null, trace_id: ev.trace_id || null, handover, delivered: isDelivered,
+        success: ev.outcome === 'passed' && isDelivered && !later,
+      };
+    });
+  }
+
   function liveRuns(events, { now = Date.now() } = {}) {
     const runs = new Map();
     const row = (e) => {
@@ -1265,7 +1354,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

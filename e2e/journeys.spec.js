@@ -89,6 +89,42 @@ test('user can extract the code map @critical', async () => {
   await expect(page.locator('#special svg text', { hasText: 'Pricing.Api' }).first()).toBeVisible();
 });
 
+test('user can see the UI graph of a screen @critical', async () => {
+  const { reg } = copyRegistry('fixtures/ui-registry', { codebase: 'fixtures/ui-app', siblings: ['fixtures/ui-legacy'] });
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.ui.screens.map(s => s.name)).toEqual(['tags']);
+  // The UI level lists the screen's controls by component: role, name, the element and when it is on screen.
+  const special = page.locator('#special');
+  await special.getByRole('button', { name: 'UI', exact: true }).click();
+  const table = special.getByRole('table', { name: 'Controls on tags' });
+  await expect(table).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'Search tags' }).first()).toContainText('searchbox');
+  // A control inside a followed component, named at the usage, and one from a library whose role is not in source.
+  await expect(table.getByRole('row').filter({ hasText: 'via Field' }).first()).toBeVisible();
+  await expect(table.getByRole('row').filter({ hasText: 'ui-lib' }).first()).toBeVisible();
+  // Conditions are source text, never evaluated.
+  await expect(table.getByRole('row').filter({ hasText: 'New tag' })).toContainText('canEdit');
+  // A registered field carries the rules of the one schema naming it, then its register rules.
+  await expect(table.getByRole('row').filter({ hasText: 'TagForm.tsx:17' })).toContainText('min 1, max 40, required');
+  // A references repo is read only when the person extracts it; a tag in ui.roles takes its role from there.
+  await special.getByRole('combobox', { name: 'Repo' }).selectOption('legacy');
+  await special.getByRole('button', { name: 'Extract legacy' }).click();
+  await expect(page.getByText(/^Read 1 screen and 2 controls from legacy/)).toBeVisible();
+  expect(fs.existsSync(path.join(reg, 'asbuilt/ui-legacy.json'))).toBe(true);
+  await expect(table.getByRole('row').filter({ hasText: 'Add tag' })).toContainText('mapped');
+  // The Parity view joins both graphs to the recording: a control the source cannot give a role takes the recorded one by name.
+  await page.getByRole('button', { name: 'Parity', exact: true }).click();
+  await page.locator('#sbBody').getByText('tags-search', { exact: true }).click();
+  await expect(special.getByRole('heading', { name: 'From code' })).toBeVisible();
+  await expect(special.getByRole('row').filter({ hasText: 'Reset' })).toContainText('role from recording');
+  await expect(special.getByRole('row').filter({ hasText: 'Add tag' })).toContainText('recorded');
+});
+
 test('user can remove a requirement and a bound decision made by mistake', async () => {
   const { reg } = copyRegistry('sample-registry');
   fs.writeFileSync(path.join(reg, 'requirements/FAKE-1.yaml'), 'id: FAKE-1\ntitle: Made by mistake\nversion: 1\nelements: []\n');
@@ -330,6 +366,10 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
   await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);
   await expect(special.getByText('Not on this machine (shots are not in git).')).toBeVisible();
+  // QA bugs on the scenario's screen, matched against the recordings: how many were caught, and why the rest were not.
+  await expect(special.getByRole('heading', { name: /^QA bugs/ })).toBeVisible();
+  await expect(special.getByText('Caught 1', { exact: true })).toBeVisible();
+  await expect(special.getByRole('row').filter({ hasText: 'TAG-5' })).toContainText('Captured but not flagged');
   // Compare types the recorder's line into the Terminal and stops: no report is rewritten until the person presses Enter.
   const report = path.join(reg, 'parity/reports/tags-list.json');
   const before = fs.readFileSync(report, 'utf8');

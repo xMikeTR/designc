@@ -1,0 +1,5 @@
+id: HRE-7
+title: Tags list matches the legacy app
+source: https://jira.example.com/browse/HRE-7
+version: 3
+elements: [Tags UI, Tags API]

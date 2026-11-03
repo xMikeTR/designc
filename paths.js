@@ -82,4 +82,26 @@ function registryDir(root, registries, key) {
   return dir;
 }
 
-module.exports = { confine, childEnv, isTrusted, trustChoices, registryDir, readPages };
+// What Set up's Check command can say about a dispatch command without running it: is its program on PATH (or at the
+// path it names), and does the folder after `--project` exist. Read-only (stat only); placeholders are left as written.
+function words(cmd) {
+  const out = []; const re = /"([^"]*)"|'([^']*)'|(\S+)/g; let m;
+  while ((m = re.exec(cmd))) out.push(m[1] !== undefined ? m[1] : m[2] !== undefined ? m[2] : m[3]);
+  return out;
+}
+function commandCheck(cmd, { cwd, env = process.env, platform = process.platform, exists = f => fs.existsSync(f) } = {}) {
+  const w = words(String(cmd || '').trim());
+  if (!w.length) return { error: 'empty' };
+  const prog = w[0], win = platform === 'win32', sep = win ? ';' : ':';
+  const exts = win ? ['', ...String(env.PATHEXT || '.COM;.EXE;.BAT;.CMD').split(';').filter(Boolean)] : [''];
+  const join = (d, f) => (win ? path.win32 : path.posix).join(d, f);
+  const hasPath = /[\\/]/.test(prog);
+  const dirs = hasPath ? [cwd || '.'] : String(env.PATH || env.Path || '').split(sep).filter(Boolean);
+  const found = dirs.some(d => exts.some(x => exists(hasPath ? path.resolve(d, prog + x) : join(d, prog + x))));
+  const out = { program: prog, programFound: found };
+  const i = w.indexOf('--project');
+  if (i >= 0 && w[i + 1] && !/[{}]/.test(w[i + 1])) { out.project = w[i + 1]; out.projectFound = exists(path.resolve(cwd || '.', w[i + 1])); }
+  return out;
+}
+
+module.exports = { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages };

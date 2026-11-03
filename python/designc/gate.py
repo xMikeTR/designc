@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from . import domain
 from .evals import _OPS, parse_threshold
+from .records import runs
 from .rules import fingerprint, get, hash16, interaction, num, structural
 
 
@@ -13,7 +14,7 @@ from .rules import fingerprint, get, hash16, interaction, num, structural
 def accept_without_check(dec):
     """An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
     Same rule as core.js and renderer/ledger.js."""
-    return dec.get('effect') in ('accept', 'build') and not any(c and not str(c).startswith('TODO') for c in (dec.get('checks') or []))
+    return dec.get('effect') in ('accept', 'build') and not any(c and not c.startswith('TODO') for c in runs(dec))
 
 def _s(v):
     """String(v) as JavaScript does it, for ids and versions read from YAML."""
@@ -273,7 +274,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             kind = 'technical' if dec.get('kind') is None else dec['kind']
             if kind not in ('business', 'technical'):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} has kind {_s(kind)}, expected business or technical"})
-            if dec.get('status') == 'superseded': continue
+            if dec.get('status') in ('superseded', 'retired'): continue
             if dec.get('status') != 'bound':
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} is {dec.get('status') or 'minted'}, not bound"}); continue
             business = kind == 'business'
@@ -282,7 +283,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             elif dec.get('effect') == 'accept' and not any(i in bound_business for i in (dec.get('relies_on') or [])):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} accepts a risk without a bound business decision"})
             if not business and not accept_without_check(dec):
-                if not (dec.get('checks') or []):
+                if not runs(dec):
                     clauses.append({'kind': 'decision', 'text': f"{dec['id']} has no check"}); continue
                 last = latest(ledger, 'check', 'decision', dec['id'])
                 if not last: clauses.append({'kind': 'check', 'text': f"{dec['id']}: no check result recorded yet"})

@@ -2,6 +2,7 @@
 const Core = (() => {
   const DM = typeof require === 'function' && typeof module === 'object' ? require('./domain.js') : Domain;
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
+  const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -676,7 +677,7 @@ const Core = (() => {
   // The live decisions that answer one finding: same code, binding one of its elements; bound ones first. Display only.
   function decisionsFor(f, decisions) {
     const arr = v => (Array.isArray(v) ? v : []);
-    return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
+    return decisions.filter(d => d.status !== 'superseded' && d.status !== 'retired' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
   // Why binding a technical decision would leave the gate as it is: names in binds that are not elements, and, for an
@@ -714,7 +715,7 @@ const Core = (() => {
     for (const dec of decisions) {
       const kind = dec.kind == null ? 'technical' : dec.kind;
       if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
-      if (dec.status === 'superseded') continue;
+      if (dec.status === 'superseded' || dec.status === 'retired') continue;
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
       assumptionClauses(dec, today, clauses);
@@ -722,8 +723,8 @@ const Core = (() => {
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
       // An accepted risk rests on its business decision, so it needs no check; a TODO placeholder is not a check.
-      if (!business && !((dec.effect === 'accept' || dec.effect === 'build') && !(dec.checks || []).some(c => c && !/^TODO/.test(String(c))))) {
-        if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
+      if (!business && !((dec.effect === 'accept' || dec.effect === 'build') && !RC.runs(dec).some(c => c && !/^TODO/.test(c)))) {
+        if (!RC.runs(dec).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
         const last = latestCheck(ledger, dec.id);
         if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });
         else if (last.outcome !== 'pass') clauses.push({ kind: 'check', text: `${dec.id}: last check failed`, decision: dec.id });

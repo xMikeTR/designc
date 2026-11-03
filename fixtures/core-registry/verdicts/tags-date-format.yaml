@@ -1,0 +1,6 @@
+id: v-tags-date-format
+status: bound
+verdict: accepted
+scope: [el:Tags UI, ui:tags/list/date]
+evidence: [decisions/sort-server-side.yaml]
+statement: "Dates show ISO format on purpose"

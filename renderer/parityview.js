@@ -3,8 +3,9 @@
    parity_result, and the screenshots (parity/shots/<sha>.png, not in git) are shown only, never compared. The buttons
    type the recorder's line into the Terminal without Enter, like Dispatch; the app writes only a new scenario file and
    the two URLs in designc.json. Every HTML string passes file and ledger content through esc(). */
-const PV = { sel: null, reports: {}, baselines: {}, shots: {}, tools: null };
+const PV = { sel: null, reports: {}, baselines: {}, shots: {}, tools: null, qa: {} };
 const PARITY_DIR = 'parity/scenarios';
+const PARITY_QA_DIR = 'parity/qa';
 
 // The scenarios in parity/scenarios/. A file with no id is a problem, never named after its file (python/designc
 // cli.py parity_scenarios says the same): a scenario is recorded and judged by its id. Problems go to Problems
@@ -24,8 +25,25 @@ async function loadParityScenarios() {
   }
   PV.reports = {}; PV.baselines = {};
   for (const s of A.parity) {
-    try { PV.baselines[s.id] = await host.exists(`parity/baselines/${s.id}/legacy.json`); } catch { PV.baselines[s.id] = false; }
+    // The whole baseline, not just whether it exists: the QA bugs block reads its behaviour table. false when absent.
+    try { PV.baselines[s.id] = (await host.exists(`parity/baselines/${s.id}/legacy.json`)) ? JSON.parse(await host.read(`parity/baselines/${s.id}/legacy.json`)) : false; } catch { PV.baselines[s.id] = false; }
     try { PV.reports[s.id] = JSON.parse(await host.read(`parity/reports/${s.id}.json`)); } catch { PV.reports[s.id] = null; }
+  }
+  await loadParityQa();
+}
+
+// parity/qa/<screen>.yaml: the bugs QA logged on a screen, matched against the recordings (ParityQa). Read-only; the
+// screenshots QA attach stay in parity/qa/shots/, git-ignored, and are never shown here.
+async function loadParityQa() {
+  PV.qa = {};
+  let files = [];
+  try { files = await host.list(PARITY_QA_DIR, ['.yaml', '.yml']); } catch { files = []; }
+  let ignored = false;
+  try { ignored = await host.exists(`${PARITY_QA_DIR}/shots/.gitignore`); } catch { ignored = false; }
+  for (const f of files) {
+    const qa = ParityQa.read(textOf(f.path) ?? f.text, { parseYaml: jsyaml.load, file: f.path });
+    if (!ignored && qa.bugs.some(b => b.screenshots.length)) qa.problems.push(`${PARITY_QA_DIR}/shots/.gitignore is missing; add one containing * so QA screenshots (which may show real data) stay out of git`);
+    PV.qa[qa.screen] = { path: f.path, qa };
   }
 }
 
@@ -183,6 +201,70 @@ function parityReportHtml(s) {
   return `<div class="note">${outcomeTag(res.outcome)} at ${esc(c7(rep.commit))}${rep.item ? ` for ${esc(rep.item)}` : ''} · ${c.fail || 0} failing, ${c.covered || 0} covered by a requirement, ${c.could_not_run || 0} could not run. Screenshots are for looking only; the comparison never reads them.</div>${steps}`;
 }
 
+// The UI graph of each side (slice 7f): the new app's from the code map (facts.ui), the legacy one from the one legacy
+// references repo (asbuilt/ui-<key>.json, Extract <key> on the Code map's UI level). null where not extracted.
+function parityUi() {
+  const r = Dispatch.references(A.cfg.references);
+  const legacy = r && r.refs ? r.refs.filter(x => x.kind === 'legacy') : [];
+  const key = legacy.length === 1 ? legacy[0].key : null;
+  return { legacy: key ? (A.uiRefs || {})[key] || null : null, next: (A.facts && A.facts.ui) || null, legacyKey: key, legacyCount: legacy.length };
+}
+
+const JOIN_LABEL = { role: 'recorded', name: 'role from recording', ambiguous: 'several recorded', unnamed: 'no literal name', unrecorded: 'not recorded' };
+
+// From code: what the source of each side says about this scenario's screen, each control joined to what that side
+// recorded (ParityQa.fromCode). Conditions, state props and formats are source text, never evaluated. A row opens the file.
+function parityCodeHtml(s) {
+  if (!s.screen) return '<div class="note">This scenario has no screen, so its code cannot be found. Add screen: to the scenario.</div>';
+  const u = parityUi();
+  const qa = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines: Object.fromEntries(Object.entries(PV.baselines).filter(([, v]) => v)), reports: Object.fromEntries(Object.entries(PV.reports).filter(([, v]) => v)), ui: { legacy: u.legacy, next: u.next } });
+  const code = qa.code || {};
+  const side = (k, label, ref, missing) => {
+    const g = code[k];
+    if (!g) return `<div class="runhead"><b>${esc(label)}</b></div><div class="note">${esc(missing)}</div>`;
+    const j = g.joined;
+    const rows = g.controls.map(c => {
+      const role = c.role || (c.recorded ? c.recorded.role : '');
+      const state = Object.entries(c.props).map(([p, v]) => (v === true ? p : `${p} if ${v}`)).join(', ');
+      return `<tr data-code="${esc(c.file)}" data-line="${esc(String(c.line))}"${ref ? ` data-ref="${esc(ref)}"` : ''} style="cursor:pointer"><td>${esc(role || '?')} ${c.name != null ? `"${esc(c.name)}"` : '<span class="desc">no literal name</span>'} <span class="desc">&lt;${esc(c.tag)}&gt;</span></td>
+        <td><span class="tag ${c.join === 'role' || c.join === 'name' ? 'pass' : 'open'}">${esc(JOIN_LABEL[c.join])}</span>${c.candidates ? ` <span class="desc">${esc(c.candidates.join(', '))}</span>` : ''}</td>
+        <td class="code">${esc(c.when.map(w => w.expr).join(' && '))}</td><td class="code">${esc(state)}</td><td class="code">${esc(c.format ? UiGraph.formatText(c.format) : '')}</td><td class="code">${esc(`${c.file}:${c.line}`)}</td></tr>`;
+    }).join('');
+    const fmts = g.formats.length ? `<div class="note">Formats on the screen: ${g.formats.map(f => `<button class="lnk" data-code="${esc(f.file)}" data-line="${esc(String(f.line))}"${ref ? ` data-ref="${esc(ref)}"` : ''}>${esc(UiGraph.formatText(f))}</button> <span class="desc">${esc(`${f.file}:${f.line}`)}</span>`).join(' · ')}</div>` : '';
+    return `<div class="runhead"><b>${esc(label)}</b> <span class="desc">${g.controls.length} controls: ${j.role + j.name} joined to the recording (${j.name} by name alone), ${j.ambiguous} under a name several recorded controls share, ${j.unnamed} with no literal name, ${j.unrecorded} not recorded</span></div>
+      ${rows ? `<div class="tw2"><table class="t"><tr><th>Control</th><th>Recording</th><th>Shown when</th><th>State</th><th>Format</th><th>Where</th></tr>${rows}</table></div>` : '<div class="note">No controls on this screen in code.</div>'}${fmts}`;
+  };
+  const legacyMissing = u.legacyCount > 1 ? 'More than one references entry is legacy, so the legacy code is not known. Keep one.' : !u.legacyKey ? 'No legacy repo: add one to designc.json references with kind legacy.' : `No UI graph of screen ${s.screen} from ${u.legacyKey}. Name its files under ui.screens.${s.screen}.${u.legacyKey} in designc.json, then Extract ${u.legacyKey} on the Code map's UI level.`;
+  const nextMissing = `No UI graph of screen ${s.screen} from the codebase. Name its files under ui.screens.${s.screen}.codebase in designc.json, then extract the code map.`;
+  return `<div class="note">What the source says, beside what was recorded. A control whose role the source cannot show takes the recorded role only when exactly one recorded control has its name. Conditions and state are source text, never run.</div>
+    ${side('legacy', `Legacy${u.legacyKey ? ` (${u.legacyKey})` : ''}`, u.legacyKey, legacyMissing)}${side('next', 'New app (codebase)', null, nextMissing)}`;
+}
+
+const QA_LABEL = { caught: 'Caught', not_captured: 'Not captured by this layer', state_not_recorded: 'State not recorded', not_flagged: 'Captured but not flagged', triage: 'Needs triage' };
+
+// The QA bugs on this scenario's screen against everything recorded for that screen: how many the recordings catch,
+// and for each one missed, why. Keys, where and reasons only, never QA's descriptions or screenshots.
+function parityQaHtml(s) {
+  const entry = s.screen ? PV.qa[s.screen] : null;
+  if (!entry) return `<div class="note">${s.screen ? `No QA bugs for screen ${esc(s.screen)}. Put them in ${PARITY_QA_DIR}/${esc(s.screen)}.yaml to see which the recordings catch.` : 'This scenario has no screen, so QA bugs cannot be matched to it. Add screen: to the scenario.'} See docs/parity-contract.md.</div>`;
+  const reports = {};
+  for (const id of Object.keys(PV.reports)) if (PV.reports[id]) reports[id] = PV.reports[id];
+  const baselines = {};
+  for (const id of Object.keys(PV.baselines)) if (PV.baselines[id]) baselines[id] = PV.baselines[id];
+  const u = parityUi();
+  const r = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines, reports, qa: entry.qa, ui: { legacy: u.legacy, next: u.next } });
+  const counts = ParityQa.BUCKETS.map(k => `<span class="tag ${k === 'caught' ? 'pass' : k === 'triage' ? 'open' : 'fail'}">${esc(QA_LABEL[k])} ${r.counts[k]}</span>`).join(' ');
+  const rows = r.bugs.map(b => {
+    const bug = entry.qa.bugs.find(x => x.key === b.key) || {};
+    const w = bug.where && typeof bug.where.role === 'string' ? `${bug.where.role} "${bug.where.name}"` : '';
+    return `<tr><td class="code">${esc(b.key)}</td><td>${esc(QA_LABEL[b.bucket])}</td><td>${esc(w)}${bug.state ? ` <span class="desc">in ${esc(bug.state)}</span>` : ''}</td><td>${esc(b.reason)}</td></tr>`;
+  }).join('');
+  const probs = r.problems.map(p => `<div class="note" style="color:var(--err)">${esc(p)}</div>`).join('');
+  return `<div class="note">${r.bugs.length} QA bugs on screen ${esc(s.screen)} · ${counts}</div>
+    <div class="note">States recorded: ${esc(r.states.join(', ') || 'none')}. Name a step's state with state: in the scenario.</div>${probs}
+    ${rows ? `<div class="tw2"><table class="t"><tr><th>Bug</th><th>Bucket</th><th>Where</th><th>Why</th></tr>${rows}</table></div>` : ''}`;
+}
+
 function renderParity() {
   const el = $('#special');
   if (!PV.sel || !(A.parity || []).some(s => s.id === PV.sel)) PV.sel = A.parity && A.parity.length ? A.parity[0].id : null;
@@ -194,9 +276,11 @@ function renderParity() {
   el.innerHTML = `<div class="dash">${head}
     <div class="block"><h3>${esc(s.id)}${s.title ? ` · ${esc(s.title)}` : ''}<span class="spacer"></span><button class="btn" data-file="${esc(s._path)}">Open file</button></h3>
       <div class="note">${s.screen ? `Screen ${esc(s.screen)}. ` : ''}${PV.baselines[s.id] ? 'Baseline recorded.' : 'No baseline yet: record the legacy app first.'}${s.problems.length ? ` <span style="color:var(--err)">${esc(s.problems.join('; '))}</span>` : ''}</div>
-      <ol class="pvsteps">${(s.steps || []).map(st => `<li>${esc(stepText(st))}</li>`).join('')}</ol></div>
+      <ol class="pvsteps">${(s.steps || []).map(st => `<li>${esc(stepText(st))}${st && typeof st.state === 'string' ? ` <span class="desc">state ${esc(st.state)}</span>` : ''}</li>`).join('')}</ol></div>
     <div class="block"><h3>Results in the ledger</h3>${results ? `<div class="tw2"><table class="t"><tr><th>Outcome</th><th>Commit</th><th>Item</th><th>When</th><th>Failures</th></tr>${results}</table></div>` : '<div class="note">No parity_result yet.</div>'}</div>
     <div class="block"><h3>Latest report</h3>${parityReportHtml(s)}</div>
+    <div class="block"><h3>QA bugs${s.screen && PV.qa[s.screen] ? `<span class="spacer"></span><button class="btn" data-file="${esc(PV.qa[s.screen].path)}">Open file</button>` : ''}</h3>${parityQaHtml(s)}</div>
+    <div class="block"><h3>From code</h3>${parityCodeHtml(s)}</div>
     <div class="block"><h3>Record</h3>${parityCommands(s)}</div></div>`;
   loadShots(el);
 }

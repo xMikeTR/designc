@@ -1,0 +1,124 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.ui.graph/1",
+  "title": "UI graph",
+  "description": "facts.ui in asbuilt/facts.json, or asbuilt/ui-<key>.json for a designc.json references repo: the controls of each screen named in designc.json ui.screens, read from source with the TypeScript compiler (extract/ui.js). Display only: never a gate input, finding, DSL line or fingerprint input. Nothing is guessed: what the source cannot show is null and listed in unresolved. docs/ui-graph.example.json is the fixture output, pinned in test/extract-ui.test.js.",
+  "type": "object",
+  "required": ["schema", "repo", "screens", "components", "controls", "formats", "forms", "unresolved"],
+  "additionalProperties": false,
+  "$defs": {
+    "format": {
+      "type": "object", "required": ["lib", "call", "pattern", "args", "file", "line"],
+      "properties": {
+        "lib": { "enum": ["Intl", "toLocale", "date-fns", "dayjs", "moment"], "description": "Decided by the call's shape and, for date-fns, dayjs and moment, by the file's own import of that package." },
+        "call": { "type": "string", "description": "Intl.<X>Format, toLocaleDateString, toLocaleTimeString, toLocaleString, or format." },
+        "pattern": { "type": ["string", "null"], "description": "date-fns: the literal second argument; dayjs/moment: the literal first argument; Intl and toLocale*: the argument source text when every argument is a literal. Null otherwise; never evaluated." },
+        "args": { "type": "string", "description": "Source text of the arguments, whitespace squashed." },
+        "file": { "type": "string" }, "line": { "type": "integer" }
+      }
+    },
+    "rule": {
+      "type": "object", "required": ["rule", "value", "file", "line"],
+      "properties": {
+        "rule": { "type": "string", "description": "type (the zod/yup base: string, number, ...), then each chained call (min, max, regex, optional, ...), or a react-hook-form rule (required, maxLength, pattern, validate, ...)." },
+        "value": { "description": "A literal number, string, boolean or regex source; true for a call with no argument or required: 'message'; otherwise source text." },
+        "message": { "type": "string", "description": "A react-hook-form rule's message, when literal." },
+        "file": { "type": "string" }, "line": { "type": "integer" }
+      }
+    },
+    "unresolved": {
+      "type": "object",
+      "required": ["where", "what", "file", "line", "text"],
+      "properties": {
+        "where": { "const": "ui" }, "what": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer" },
+        "text": { "type": "string" }, "screen": { "type": "string", "description": "Absent for problems that concern no one screen (tsconfig, compiler)." }
+      }
+    }
+  },
+  "properties": {
+    "schema": { "const": "designc.ui.graph/1" },
+    "extractedAt": { "type": "string", "description": "Only in asbuilt/ui-<key>.json: when the references repo was read (ISO time). facts.ui has it on facts instead." },
+    "repo": { "type": "string", "description": "Which repository: codebase (facts.ui), or the designc.json references key whose patterns were read (asbuilt/ui-<key>.json). One repo per build." },
+    "screens": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["name", "roots", "components", "followed"], "additionalProperties": false,
+        "properties": {
+          "name": { "type": "string" },
+          "roots": { "type": "array", "items": { "type": "string" }, "description": "Repo-relative source files the screen's patterns match, sorted." },
+          "components": { "type": "array", "items": { "type": "string" }, "description": "Component ids declared in the roots." },
+          "followed": { "type": "array", "items": { "type": "string" }, "description": "Component ids outside the roots that a root renders and that were followed (in-repo source, not a library's .d.ts), sorted." }
+        }
+      }
+    },
+    "components": {
+      "type": "array",
+      "items": {
+        "type": "object", "required": ["id", "name", "file", "line", "renders", "basis"], "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "<file>#<name>" },
+          "name": { "type": "string", "description": "The capitalised function, arrow const or class; a default export with no name, or JSX outside any component, takes the module name (file, or folder for index)." },
+          "file": { "type": "string" }, "line": { "type": "integer" },
+          "renders": { "type": "array", "items": { "type": "string" }, "description": "Capitalised JSX tags it renders, sorted (declared components only; a followed one has an empty list)." },
+          "basis": { "enum": ["declared", "followed"], "description": "declared: in a root file. followed: outside the roots, read because a root renders it." }
+        }
+      }
+    },
+    "controls": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "screen", "component", "file", "line", "tag", "role", "basis", "name", "names"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "description": "<screen>:<file>:<line>:<column>, and for a followed control the usage chain: <screen>:<usage file>:<l>:<c>>...><file>:<l>:<c>" },
+          "screen": { "type": "string" }, "component": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer" },
+          "tag": { "type": "string", "description": "The intrinsic element, or for an unfollowed component (library or unresolved) its name." },
+          "as": { "type": "string", "description": "For a control inside a followed component: the component name used at the outermost usage site (file and line are that site)." },
+          "via": { "type": "array", "items": { "type": "object", "required": ["component", "file", "line"], "properties": { "component": { "type": "string" }, "file": { "type": "string" }, "line": { "type": "integer" } } }, "description": "The followed components from the usage site to the element, outermost first." },
+          "at": { "type": "object", "required": ["file", "line"], "properties": { "file": { "type": "string" }, "line": { "type": "integer" } }, "description": "Where the element itself is, when it sits in a followed component." },
+          "library": { "type": "string", "description": "The package an unfollowed component comes from; its role is not in source." },
+          "role": { "type": ["string", "null"], "description": "Null when the source cannot show it; an unresolved entry says why." },
+          "basis": { "enum": ["native", "aria", "followed", "mapped", null], "description": "native: the HTML element's implicit role. aria: a literal role attribute. followed: the role of an element inside a followed component. mapped: from designc.json ui.roles ({Tag: {role, name?}}), for a library or unresolvable tag. Null for a library or unresolved component." },
+          "name": { "type": ["string", "null"], "description": "The accessible name when a literal decides it: the first source present in the order aria-labelledby, aria-label, label, alt, text, value, title, placeholder. Null when that source is an expression or t('key')." },
+          "names": {
+            "type": "array",
+            "items": {
+              "type": "object", "required": ["from", "value"],
+              "properties": {
+                "from": { "enum": ["aria-labelledby", "aria-label", "label", "alt", "text", "t()", "value", "title", "placeholder"] },
+                "value": { "type": ["string", "null"], "description": "Literal text, the i18n key for t(), or null for an expression." },
+                "expr": { "type": "string", "description": "Source text of the expression when value is null." },
+                "ref": { "type": "string", "description": "The id aria-labelledby names." }
+              }
+            }
+          },
+          "spreads": { "type": "integer", "description": "How many {...props} spreads the element has whose attributes could not be read (a spread of a followed component's props is read)." },
+          "when": { "type": "array", "description": "The conditions under which the control is rendered, outermost first (the usage chain of a followed component, then its own), never evaluated. Absent when always rendered.", "items": { "type": "object", "required": ["kind", "expr", "file", "line"], "additionalProperties": false, "properties": {
+            "kind": { "enum": ["and", "or", "ternary", "if", "if-return"], "description": "and: c && <x/>. or: c || <x/> (expr !(c)). ternary: c ? <x/> : y (else branch !(c)). if: if (c) { return <x/> } (else !(c)). if-return: an earlier if (c) return ...; (expr !(c))." },
+            "expr": { "type": "string", "description": "Source text, whitespace squashed." }, "file": { "type": "string" }, "line": { "type": "integer" } } } },
+          "props": { "type": "object", "additionalProperties": false, "description": "State props the element carries (or its aria- form). true for a bare or literal attribute; source text for an expression; absent when false or not given.", "properties": {
+            "disabled": { "type": ["boolean", "string"] }, "readOnly": { "type": ["boolean", "string"] }, "hidden": { "type": ["boolean", "string"] }, "required": { "type": ["boolean", "string"] } } },
+          "format": { "allOf": [{ "$ref": "#/$defs/format" }], "description": "The first formatting call inside the element (its text or attributes). Absent when there is none." },
+          "field": { "type": "object", "required": ["form", "name", "rules"], "description": "A react-hook-form register(name, rules) spread on the element. Absent when there is none.", "properties": {
+            "form": { "type": ["string", "null"], "description": "The one zod or yup schema on the screen that names the field; null when none does, or several do (then an unresolved entry)." },
+            "name": { "type": ["string", "null"], "description": "Null when the name is not a literal." },
+            "expr": { "type": "string", "description": "Source text of the name when not a literal." },
+            "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "description": "The schema's rules for the field, then the register rules." } } }
+        }
+      }
+    },
+    "formats": {
+      "type": "array", "description": "Every formatting call in the screen's components (declared and followed, each file once), sorted by screen, file, line. Includes calls outside controls, such as a date in a table cell.",
+      "items": { "allOf": [{ "$ref": "#/$defs/format" }], "required": ["id", "screen", "component"], "properties": { "id": { "type": "string", "description": "<screen>:<file>:<line>:<column>" }, "screen": { "type": "string" }, "component": { "type": "string" } } }
+    },
+    "forms": {
+      "type": "array", "description": "zod z.object({...}) and yup yup.object({...}) / yup.object().shape({...}) schemas assigned to a const in the screen's files, sorted by screen, file, line.",
+      "items": { "type": "object", "required": ["id", "screen", "form", "lib", "file", "line", "fields"], "properties": {
+        "id": { "type": "string", "description": "<screen>:<file>#<form>" }, "screen": { "type": "string" }, "form": { "type": "string" }, "lib": { "enum": ["zod", "yup"] },
+        "file": { "type": "string" }, "line": { "type": "integer" },
+        "fields": { "type": "array", "items": { "type": "object", "required": ["name", "rules"], "properties": { "name": { "type": "string" }, "rules": { "type": "array", "items": { "$ref": "#/$defs/rule" }, "description": "Empty when the value is not a chain." } } } } } }
+    },
+    "unresolved": { "type": "array", "items": { "$ref": "#/$defs/unresolved" } }
+  }
+}

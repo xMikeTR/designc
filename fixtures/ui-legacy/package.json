@@ -1,0 +1,1 @@
+{ "name": "ui-legacy", "private": true, "dependencies": { "react": "^16.0.0" } }

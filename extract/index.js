@@ -13,6 +13,7 @@ const components = require('./components');
 const code = require('./code');
 const coverage = require('./coverage');
 const intent = require('./intent');
+const ui = require('./ui');
 
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', '.idea', 'packages', 'TestResults', 'artifacts', '.venv',
   'dist', 'build', 'coverage', 'out', '.next', 'playwright-report', 'test-results', 'junit-results']);
@@ -118,9 +119,22 @@ async function extract(repo, opts = {}) {
     componentEdges: comp.componentEdges,
     code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges, ...(covStats ? { coverage: covStats } : {}) },
     ...(opts.intent ? { intent: intent.read(repo, opts.intent) } : {}),
+    // designc.json ui.screens: the UI graph of each named screen (extract/ui.js). Opt-in; absent means no `ui` key.
+    ...(opts.ui && opts.ui.screens ? { ui: ui.build({ repo, files: files.map(rel), ui: opts.ui, keys: opts.uiKeys || [] }) } : {}),
     files: listed.map(rel).sort(), // every file walked, what d.code areas are judged against (Core.codeAreaDrift)
   };
   return { dsl: renderedDsl, facts, stats: { projects: projects.length, deployables: projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, tests: projects.filter(p => p.kind === 'test').length, elements: els.length, edges: edges.length, unresolved: unresolved.length } };
 }
 
-module.exports = { extract };
+/* The UI graph of one repo and nothing else (phase 7e): a `references` repo (legacy) may hold no project or container,
+   so it does not go through extract(). opts: {ui (designc.json ui), key (the references key), keys (all of them)}.
+   {ui} or {error}. Read-only, like extract(). */
+async function extractUi(repo, opts = {}) {
+  const key = opts.key, screens = opts.ui && opts.ui.screens && typeof opts.ui.screens === 'object' ? opts.ui.screens : {};
+  if (!Object.values(screens).some(d => d && d[key] != null)) return { error: `no screen names "${key}" in designc.json ui.screens; add its patterns there, for example "${key}": ["src/pages/Tags/**"]` };
+  const files = await walk(repo, [], []);
+  const rel = f => path.relative(repo, f).split(path.sep).join('/');
+  return { ui: { ...ui.build({ repo, files: files.map(rel), ui: opts.ui, key, keys: opts.keys || [] }), extractedAt: new Date().toISOString() } };
+}
+
+module.exports = { extract, extractUi };

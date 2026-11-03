@@ -12,6 +12,7 @@ const CRITICAL = [
   'user can bind a decision @critical',
   'user can freeze a handover @critical',
   'user can extract the code map @critical',
+  'user can see the UI graph of a screen @critical',
   'user can track a work item @critical',
   'user can study a topic and decide from it @critical',
   'user can pin a domain pack and see it checked @critical',

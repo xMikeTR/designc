@@ -34,8 +34,10 @@ A covered difference is reported as `covered` and does not fail.
 | `parity/baselines/<id>/legacy.json` | the normalised legacy snapshot | yes |
 | `parity/reports/<id>.json` | the latest comparison: the new app's snapshot and every finding | yes |
 | `parity/shots/<sha256>.png` | screenshots, by content hash | no (`parity/shots/.gitignore`) |
+| `parity/qa/<screen>.yaml` | the bugs QA logged on a screen (see "QA bugs") | yes |
+| `parity/qa/shots/*` | screenshots QA attached; may show real data | no (`parity/qa/shots/.gitignore`) |
 
-A step has exactly one action: `goto {path}`, `click`, `fill` or `select` `{role, name, index?, value?}`. `index` picks the nth match (records by position, never by value). A value may be `{param: name}`, taken from the side's params, so each app gets its own test data. `expect` is optional: `sorted: <column>` or `filtered: {column, contains}`. A mask is `{column | role, name, mode}` with mode `ignore` (no shape kept), `shape` (treat as data) or `exact` (a vocabulary word: compare the text).
+A step has exactly one action: `goto {path}`, `click`, `fill` or `select` `{role, name, index?, value?}`. `index` picks the nth match (records by position, never by value). A value may be `{param: name}`, taken from the side's params, so each app gets its own test data. `state` is optional: a name for the screen state the step leaves the app in (`list`, `apply dialog`), so QA bugs can say where they happen; without one the state is `<scenario id> step <n>`. `expect` is optional: `sorted: <column>` or `filtered: {column, contains}`. A mask is `{column | role, name, mode}` with mode `ignore` (no shape kept), `shape` (treat as data) or `exact` (a vocabulary word: compare the text).
 
 ## The recorder CLI
 
@@ -66,6 +68,10 @@ Each `test(...)` in the folder's Playwright tests becomes one draft scenario. It
 The Parity activity lists the scenarios, whether each has a baseline, and its latest result. A scenario's page shows its steps, its ledger results, and the latest report's findings per step. Beside the findings, it shows the legacy and new app screenshots, read through `parity:shot` (a 64-hex name only, confined to `parity/shots/`). A shot missing on this machine says so. A work item card with a `parity` entry shows each scenario's latest result and links to the view. Grill-me can read all of this, except screenshots and page data, with the read-only `read_parity` tool.
 
 The view has buttons for the commands on this page: Record legacy, Compare new app (each for one scenario or all), Record result for Done, and Draft from legacy tests. Each types its command into the Terminal and stops before Enter, as Dispatch does, so the app itself never records or appends `parity_result`, and the command is never given `--allow-writes` or `--allow-request`. No agent tool reaches them. The app writes two things directly, both at a person's request: a starter scenario (New scenario) and `parity.legacy.baseUrl` / `parity.next.baseUrl` in `designc.json`. The view says what this machine lacks (`parity:tools`). An installer does not include the recorder, so there the buttons are disabled and the view says to run designc from source.
+
+### Joining the UI graph (7f)
+
+When `designc.json` `ui.screens` names the scenario's screen, `ParityQa.report` also takes `ui = {legacy, next}` (the UI graphs of each side) and `ParityQa.fromCode` joins their controls to the recording: by role and name when the source gives a role; by name alone, taking the recorded role, when it does not and exactly one recorded role has that name (`name`); `ambiguous` when several do; `unnamed` for a control with no literal name (a `t('key')` is not recorded text); `unrecorded` when nothing matches. Nothing is guessed. For the buckets `state_not_recorded` and `not_flagged` the reason then adds "in code: ..." per side: the file and line, the conditions it is shown under, its disabled, readOnly, hidden or required props, and its format, as source text, never evaluated. Buckets do not change, and no bug text is copied. The Parity scenario page shows the same joins in a "From code" block.
 
 ## Done
 
