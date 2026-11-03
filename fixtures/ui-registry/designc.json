@@ -1,0 +1,10 @@
+{
+  "model": "model/workspace.dsl",
+  "codebase": "../designc-ui-app",
+  "references": { "legacy": { "kind": "legacy", "path": "../designc-ui-legacy", "label": "Legacy app" } },
+  "ui": {
+    "tsconfig": { "codebase": "tsconfig.json" },
+    "screens": { "tags": { "codebase": ["src/pages/Tags/**"], "legacy": ["src/tags/**"] } },
+    "roles": { "KitButton": { "role": "button", "name": "label" } }
+  }
+}

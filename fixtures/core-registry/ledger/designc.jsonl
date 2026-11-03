@@ -1,0 +1,2 @@
+{"kind":"handover","by":"mike","handover":"20261102-abcd1234","revision":"r-0badc0de","commit":"1111111","dirty":false,"item":"W-tags","schema_version":1,"event_id":"00000000-0000-4000-8000-000000000001","ts":1793617260000}
+{"kind":"handover_closed","by":"mike","handover":"20261102-abcd1234","outcome":"delivered","schema_version":1,"event_id":"00000000-0000-4000-8000-000000000008","ts":1793617680000}

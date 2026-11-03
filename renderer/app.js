@@ -47,7 +47,7 @@ if (typeof Ledger !== 'undefined') {
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
-const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('study/') || p.startsWith('domain/');
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -378,10 +378,17 @@ async function loadAsbuilt() {
   A.asbuiltFull = dsl ? Core.parse(dsl) : null;
   A.asbuilt = A.asbuiltFull ? Core.atLevel(A.asbuiltFull, 'container') : null;
   try { A.facts = facts ? JSON.parse(facts) : null; } catch { A.facts = null; }
+  // UI graphs of references repos (7e), read only when a person extracted them.
+  A.uiRefs = {};
+  for (const key of cmUiRepos().slice(1)) {
+    const t = await readText(`asbuilt/ui-${key}.json`);
+    try { if (t) A.uiRefs[key] = JSON.parse(t); } catch { /* unreadable: shown as not read yet */ }
+  }
   if (A.cmSel && (!A.asbuilt || !A.asbuilt.elements.has(A.cmSel))) A.cmSel = null;
   if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
   if (A.cmLevel === 'code' && !cmHasCode()) { A.cmLevel = 'container'; A.cmScope = null; }
+  if (A.cmLevel === 'ui' && !cmHasUi()) A.cmLevel = 'container';
 }
 // Code quality (QC rules): warnings only, judged from designc.json `quality`. Never reaches the gate.
 let QMEMO = null;
@@ -604,11 +611,14 @@ async function openFile(path, line) {
   if (line) revealLine(line);
   setMarkers();
 }
-async function openCode(rel, line) {
-  const id = 'code:' + rel;
+// A codebase file, read-only; with `ref` (a designc.json references key) a file of that repo instead.
+async function openCode(rel, line, ref) {
+  const r = ref ? Dispatch.references(A.cfg.references) : null, refPath = r && r.refs ? (r.refs.find(x => x.key === ref) || {}).path : null;
+  if (ref && !refPath) { toast(`${ref} is not a references key in designc.json.`, 'error'); return; }
+  const id = ref ? `code:@${ref}/${rel}` : 'code:' + rel;
   if (!A.buffers.has(id)) {
-    let text; try { text = await host.readCode(A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
-    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(rel)));
+    let text; try { text = await host.readCode(ref ? refPath : A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
+    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(ref ? `@${ref}/${rel}` : rel)));
     A.buffers.set(id, { model, dirty: false, disk: text, view: null, ro: true });
   }
   if (!A.tabs.includes(id)) A.tabs.push(id);
@@ -671,7 +681,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -1062,6 +1072,9 @@ async function bindDecision(d, { confirmed = false } = {}) {
   await editYaml(d._path, t => setField(setField(setField(setField(t, 'status', 'bound          # minted | checked | bound | superseded'), 'promoted_by', A.user), 'promoted_at', new Date().toISOString().slice(0, 10)), 'promoted_against', JSON.stringify(against)));
   await recordEvent('decision_promoted', { decision: d.id, fingerprints: against });
   if (!confirmed) toast(`${d.id} is bound.`);
+  // It says what it replaces: offer to supersede those still live, each with its own confirmation (supersedeDecision).
+  const replaced = (d.supersedes || []).map(x => A.decisions.find(o => o.id === String(x))).filter(o => o && ['minted', 'checked', 'bound'].includes(o.status));
+  if (replaced.length) { await loadRegistry(); for (const o of replaced) await supersedeDecision(A.decisions.find(x => x.id === o.id) || o); }
 }
 // Human-only, like bindDecision: one confirmation for every decision the gate blocks on promotion.
 async function rebindAll() {
@@ -1158,7 +1171,8 @@ async function freezeOnce(item) {
   } catch (e) { toast(String(e.message || e), 'error'); return; }
   const already = Core.frozenAs(plan.id, A.handovers);
   if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
-  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
+  const bud = Core.budgetCheck(frozen, A.cfg.budget);
+  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).concat(bud.lines.map(l => (bud.status === 'over' ? 'WARNING: ' : '') + l)).join('\n');
   // Named in the confirmation, not checked: a missing folder never refuses a freeze.
   const refNote = refs && refs.refs.length ? `\n\nRead-only references named in it (paths stay on this machine): ${refs.refs.map(r => `${r.key} (${r.kind}) at ${r.path}`).join('; ')}. designc does not check that they exist.` : '';
   const ask = (item
@@ -1178,15 +1192,25 @@ async function freezeOnce(item) {
   }
 }
 
+// ---------------------------------------------------------------- records
+// The record converter's dry run (renderer/records-convert.js) over the loaded decisions, shown in Output. Writes nothing.
+function checkRecords() {
+  const out = RecordsConvert.convert(A.decisions.map(d => ({ path: d._path, doc: d })), { elements: [...A.model.elements.values()].map(e => e.name), requirements: A.requirements.map(r => String(r.id)) });
+  appendOutput(`\n── ${new Date().toLocaleTimeString()}  record check for ${A.root.name}\n${RecordsConvert.describe(out)}\n`);
+  showPanel('output');
+  const n = out.filter(r => r.flags.length).length;
+  toast(n ? `${plural(n, 'decision')} need a choice before converting to records. See Output.` : 'Every decision converts to a record cleanly.', n ? 'warning' : 'info');
+}
+
 // ---------------------------------------------------------------- checks
 function appendOutput(s) { A.output += s; if (A.panel === 'output' && A.panelOpen) { const pre = $('#panelBody pre'); if (pre) { pre.textContent = A.output; $('#panelBody').scrollTop = 1e9; } else renderPanel(); } }
 async function runChecks(list) {
   if (A.running) { toast('Checks are already running.'); return; }
   // A check written as a description is reported and not run: the shell could only fail it, and that failure would say nothing about the decision.
-  const written = d => (d.checks || []).filter(c => c && !/^TODO/.test(String(c)));
+  const written = d => Records.runs(d).filter(c => c && !/^TODO/.test(c));
   const targets = (list || A.decisions).filter(d => written(d).length);
   if (!targets.length) {
-    const todo = (list || A.decisions).filter(d => (d.checks || []).some(c => /^TODO/.test(String(c))));
+    const todo = (list || A.decisions).filter(d => Records.runs(d).some(c => /^TODO/.test(c)));
     toast(todo.length ? `${todo.map(d => d.id).join(', ')} only ${todo.length === 1 ? 'has' : 'have'} a TODO check. Replace it in the decision file with a command that exits 0 when the decision holds.` : 'No decision has a runnable check yet.', 'warning');
     return;
   }
@@ -1328,6 +1352,7 @@ function renderTabs() {
 function renderCrumbs() {
   const id = A.active;
   $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:parity': 'Parity (new app against legacy)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+    : id.startsWith('code:@') ? id.slice(6).split('/').map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1545,7 +1570,7 @@ function designSidebar() {
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
-      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
@@ -1581,7 +1606,7 @@ function designSidebar() {
   return (look ? section('look', `Since last look${look.count ? ` (${look.count})` : ''}`, look.body,
       look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
     + section('gate', 'Ready gate', gate)
-    + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button>`)
+    + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button><button title="Check records: what converting these decisions to the record format would flag. A dry run: nothing is written." data-a="checkrecords">≡</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
@@ -1988,7 +2013,7 @@ function buildDash() {
   h += `<div class="stats"><div class="stat"><div class="v">${passed.length ? fmtN(tokens / passed.length) : 'n/a'}</div><div class="l">Tokens per passing task</div></div><div class="stat"><div class="v">${passed.length} of ${tasks.length}</div><div class="l">Tasks passed</div></div><div class="stat"><div class="v">${tasks.length ? (reruns / tasks.length).toFixed(1) : '0'}</div><div class="l">Reruns per task</div></div><div class="stat"><div class="v">${needs.filter(n => n.status === 'open').length}</div><div class="l">Waiting on a decision</div></div>${totalCost != null ? `<div class="stat"><div class="v">${money(totalCost)}</div><div class="l">Total task cost</div></div>` : ''}</div>`;
   h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
-  h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
+  h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc(Records.runs(d)[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
   h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}</div></td><td>${esc(n.question)}${n.status === 'open' ? ndOptionsHtml(n.id) : ''}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span>${n.resolution ? `<div style="color:var(--fg3)">${esc(ndAnswerText(n.resolution))}</div>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
   const acFail = [...L.filter(e => e.kind === 'ui_acceptance_failed').reduce((m, e) => m.set(`${e.task}\0${e.ac}`, e), new Map()).values()];
   if (acFail.length) h += `<div class="block"><h3>UI acceptance failures</h3><div class="tw2"><table class="t"><tr><th>Criterion</th><th>Element</th><th>Task</th><th>Commit</th></tr>${acFail.map(f => `<tr><td><span class="id">${esc(f.ac)}</span></td><td>${esc(elementLabel(f.element))}</td><td>${esc(f.task)}</td><td><span class="code">${esc(String(f.commit).slice(0, 7))}</span>${f.trace_id ? ` · trace ${esc(f.trace_id)}` : ''}</td></tr>`).join('')}</table></div><div class="note">Reported by the pipeline. The spec is generated from the criterion, so fix the code, not the spec.</div></div>`;
@@ -2019,7 +2044,7 @@ function improveDash() {
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
   h += reviewSummaryHtml() + escapeMetricsHtml(L);
-  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
+  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml() + proceduresHtml() + knowledgeHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
@@ -2107,6 +2132,7 @@ document.addEventListener('click', async e => {
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
+  if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
@@ -2129,7 +2155,7 @@ document.addEventListener('click', async e => {
     if (c.kind === 'eval' && c.evalId != null) { const x = A.evals.find(y => String(y.id) === String(c.evalId)); if (x) return openFile(x._path); }
     return;
   }
-  if (d.code) return openCode(d.code, d.line ? +d.line : undefined);
+  if (d.code) return openCode(d.code, d.line ? +d.line : undefined, d.ref);
   if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
@@ -2161,6 +2187,7 @@ document.addEventListener('click', async e => {
   if (a === 'compilecontracts') return compileContracts();
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
+  if (a === 'checkrecords') return checkRecords();
   if (a === 'newdecstudy') return newDecisionFromStudy();
   if (a === 'newreq') return newRequirement();
   if (a === 'importreq') return importRequirements();
@@ -2181,6 +2208,7 @@ document.addEventListener('click', async e => {
   if (a === 'improvedash') return openSpecial('special:improve');
   if (a === 'design') return setActivity('design');
   if (a === 'extract') return extractCodebase();
+  if (a === 'extractrefui') return extractReferenceUi(d.key);
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
@@ -2200,6 +2228,8 @@ document.addEventListener('change', async e => {
     const esc0 = A.ledger.find(x => x.kind === 'escape' && x.id === d.origin);
     await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
   }
+  if (d.cmscreen !== undefined) { A.cmScreen = e.target.value; return renderCodemap(); }
+  if (d.cmrepo !== undefined) { A.cmRepo = e.target.value; return cmGo('ui'); }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });

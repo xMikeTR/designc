@@ -214,3 +214,33 @@ test('summary names the fields that need fixing', () => {
   assert.equal(Setup.summary(errs, f => ({ 'llm.apiKeyEnv': 'API key variable', 'langfuse.baseUrl': 'Langfuse: Base URL' })[f]), 'Fix 2 fields first: API key variable, Langfuse: Base URL.');
   assert.equal(Setup.summary([{ field: 'model' }]), 'Fix 1 field first: model.');
 });
+
+test('dispatch: validate judges the placeholders, merge sets one target and leaves several alone', () => {
+  assert.deepEqual(Setup.validate({ dispatch: { label: '', command: '', resume: '' } }), []);
+  assert.match(Setup.validate({ dispatch: { label: 'Build it', command: '' } })[0].msg, /command/);
+  assert.match(Setup.validate({ dispatch: { command: 'build {nope}' } })[0].msg, /\{nope\}/);
+  assert.match(Setup.validate({ dispatch: { command: 'build {handover}\nrm -rf x' } })[0].msg, /one line/);
+  assert.equal(Setup.validate({ dispatch: { command: 'b {handover} {repo}', resume: 'b {run}' } }).length, 0);
+  assert.equal(Setup.validate({ dispatch: { command: 'b {handover}', resume: 'b {zzz}' } })[0].field, 'dispatch.resume');
+  const out = Setup.merge({ model: 'm.dsl' }, { dispatch: { label: ' Build it ', command: ' b {handover} ', resume: '' } });
+  assert.deepEqual(out.dispatch, { label: 'Build it', command: 'b {handover}' });
+  assert.equal(Setup.merge(out, { dispatch: { label: '', command: '', resume: '' } }).dispatch, undefined);
+  const several = { dispatch: { a: { command: 'x' }, b: { command: 'y' } } };
+  assert.deepEqual(Setup.merge(several, { dispatch: null }).dispatch, several.dispatch);
+  assert.deepEqual(Setup.merge(several, {}).dispatch, several.dispatch);
+});
+
+test('commandCheck finds a program on PATH and the --project folder without running anything', () => {
+  const { commandCheck } = require('../paths.js');
+  const have = new Set(['/bin/dotnet', '/reg/../f/src/Factory.S2'].map(p => require('path').resolve(p)));
+  const exists = f => have.has(f);
+  const env = { PATH: '/x:/bin' };
+  const ok = commandCheck('dotnet run --project ../f/src/Factory.S2 -- run {handover}', { cwd: '/reg', env, platform: 'linux', exists });
+  assert.deepEqual(ok, { program: 'dotnet', programFound: true, project: '../f/src/Factory.S2', projectFound: true });
+  const no = commandCheck('my-build --project "../nope"', { cwd: '/reg', env, platform: 'linux', exists });
+  assert.equal(no.programFound, false);
+  assert.equal(no.projectFound, false);
+  assert.deepEqual(commandCheck('  ', { cwd: '/reg', env, exists }), { error: 'empty' });
+  const win = commandCheck('dotnet run', { cwd: 'C:\\r', env: { Path: 'C:\\tools', PATHEXT: '.EXE' }, platform: 'win32', exists: f => f === 'C:\\tools\\dotnet.EXE' });
+  assert.equal(win.programFound, true);
+});

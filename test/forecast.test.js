@@ -146,3 +146,17 @@ test('a name two elements share stays unpriced even when the history keys are id
   assert.equal(row(f, 'Shared').status, 'no basis');
   assert.equal(row(f, 'Shared').ambiguous, true);
 });
+
+test('budgetCheck compares expected and high with the limits and says what is unpriced', () => {
+  const Core = require('../renderer/core.js');
+  const f = { currency: 'GBP', tokens: { expected: 1000, high: 1800 }, cost: { expected: 4, high: 7 }, coverage: { priced: 2, changed: 3 } };
+  assert.equal(Core.budgetCheck(f, null).status, 'none');
+  assert.equal(Core.budgetCheck(f, { tokens: 'x' }).status, 'none');
+  assert.equal(Core.budgetCheck(f, { tokens: 2000 }).status, 'within');
+  assert.equal(Core.budgetCheck(f, { tokens: 1500 }).status, 'risk');
+  const over = Core.budgetCheck(f, { tokens: 1500, cost: 3 });
+  assert.equal(over.status, 'over');
+  assert.equal(over.unpriced, 1);
+  assert.match(over.lines.join('\n'), /GBP 3\.00.*over budget/);
+  assert.match(over.lines.join('\n'), /1 changed element has no history/);
+});

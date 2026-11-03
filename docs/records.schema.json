@@ -1,0 +1,66 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.records/1",
+  "title": "designc record envelope",
+  "description": "One envelope for decisions, requirements, verdicts and procedures (intelligence plane phase 2). renderer/records.js validates it and python/designc/records.py mirrors it. Lint across records (repeated ids, unknown or superseded references) is in Records.lint. A string check's id is 'chk-' plus the first 8 hex digits of hash16 of the trimmed command. minted and checked read as proposed.",
+  "$defs": {
+    "strings": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "array", "items": { "type": "string", "minLength": 1 } } ] },
+    "ref": { "type": "string", "description": "A bare id is another record. A prefixed id points outside: ui:, req:, el:, test:, jira:", "pattern": "^([^:\\s]+|(ui|req|el|test|jira):.+)$" },
+    "envelope": {
+      "type": "object",
+      "required": ["id"],
+      "properties": {
+        "id": { "type": "string", "pattern": "^\\S+$" },
+        "status": { "enum": ["proposed", "bound", "superseded", "retired", "minted", "checked"] },
+        "scope": { "oneOf": [ { "$ref": "#/$defs/ref" }, { "type": "array", "items": { "$ref": "#/$defs/ref" } } ] },
+        "supersedes": { "$ref": "#/$defs/strings" },
+        "evidence": { "$ref": "#/$defs/strings" },
+        "source": { "type": "string" }
+      }
+    },
+    "check": {
+      "oneOf": [
+        { "type": "string", "minLength": 1, "description": "A shell command run in the registry folder" },
+        { "type": "object", "required": ["run"], "additionalProperties": false,
+          "properties": { "id": { "type": "string", "pattern": "^[A-Za-z0-9._-]+$" }, "run": { "type": "string", "minLength": 1 } } }
+      ]
+    }
+  },
+  "oneOf": [
+    {
+      "title": "decision",
+      "allOf": [ { "$ref": "#/$defs/envelope" } ],
+      "required": ["status", "statement"],
+      "properties": {
+        "statement": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string" },
+        "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
+        "enforced_by": { "oneOf": [ { "type": "string" }, { "type": "array", "items": { "type": "string" } } ],
+          "description": "Check ids (chk-..., or an {id, run} check's id), gate:<clause kind>, or mlang:<rule id>" }
+      }
+    },
+    {
+      "title": "requirement",
+      "allOf": [ { "$ref": "#/$defs/envelope" } ],
+      "required": ["title"],
+      "properties": { "title": { "type": "string", "minLength": 1 }, "version": {}, "elements": { "type": "array", "items": { "type": "string" } } }
+    },
+    {
+      "title": "verdict",
+      "allOf": [ { "$ref": "#/$defs/envelope" } ],
+      "required": ["status", "verdict", "scope"],
+      "properties": { "verdict": { "enum": ["matched", "diverged", "accepted"] }, "commit": { "type": "string" } }
+    },
+    {
+      "title": "procedure",
+      "description": "procedures/*.yaml, written by a person. The bound ones whose el: scope touches an agent's elements go into its context bundle; a trace row names those used as {id, version, hash}, hash being hash16 of the file text with CRLF read as LF.",
+      "allOf": [ { "$ref": "#/$defs/envelope" } ],
+      "required": ["status", "title", "version", "scope", "steps"],
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "version": { "oneOf": [ { "type": "integer", "minimum": 1 }, { "type": "string", "minLength": 1 } ] },
+        "steps": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } ] }
+      }
+    }
+  ]
+}

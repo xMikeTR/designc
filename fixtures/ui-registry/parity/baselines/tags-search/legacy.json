@@ -1,0 +1,34 @@
+{
+  "scenario": "tags-search",
+  "side": "legacy",
+  "adapter": "fixture",
+  "steps": [
+    {
+      "n": 1,
+      "action": "goto",
+      "status": "ok",
+      "viewport": {
+        "width": 1280,
+        "height": 800
+      },
+      "elements": [
+        {
+          "role": "searchbox",
+          "enabled": true,
+          "box": null,
+          "name": "Find tag",
+          "children": [],
+          "key": "searchbox:Find tag"
+        },
+        {
+          "role": "button",
+          "enabled": true,
+          "box": null,
+          "name": "Add tag",
+          "children": [],
+          "key": "button:Add tag"
+        }
+      ]
+    }
+  ]
+}

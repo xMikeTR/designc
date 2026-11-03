@@ -32,6 +32,8 @@ async function loadWork() {
     } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
   }
   A.work.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  await loadVerdicts();
+  await loadProcedures();
   const ids = A.work.map(i => String(i.id));
   const seen = new Set();
   for (const it of A.work) {
@@ -202,6 +204,137 @@ function judgeNote(itemId, judge, doneCommit) {
   return ` <span class="desc">score ${esc(String(j.score))} against ${esc(String(j.threshold))}, ${esc(j.outcome)}${j.stale ? ' (taken at another commit, stale)' : ''}; shown, never required</span>`;
 }
 
+// verdicts/*.yaml (records of kind verdict, docs/records.schema.json): read for the Work card's verdict line only.
+// Never a gate input; a file that does not parse or validate goes to Problems through A.workErrors and is not counted.
+async function loadVerdicts() {
+  A.verdicts = [];
+  let files = [];
+  try { files = await host.list('verdicts', ['.yaml', '.yml']); } catch { files = []; }
+  for (const f of files) {
+    try {
+      const o = jsyaml.load(textOf(f.path) ?? f.text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
+      A.verdicts.push({ rec: o, path: f.path });
+    } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
+  }
+  for (const v of A.verdicts) for (const m of Records.validate('verdict', v.rec)) A.workErrors.push({ path: v.path, line: 1, msg: `verdict not counted: ${m}` });
+}
+
+// Element refs to hierarchical ids (System/Container) through the open model, as the headless core reads them.
+function elResolver() {
+  const m = A.model;
+  return m ? Object.assign(ref => { const e = Core.resolveElement(m, ref); return e ? m.label(e.id) : null; }, { nameOf: id => { const e = Core.resolveElement(m, id); return e ? e.name : null; } }) : null;
+}
+
+// procedures/*.yaml (records of kind procedure, written by a person): the steps a coding agent receives in its context
+// bundle. Read for the Work card's memory line only; never a gate input. Problems go to Problems through A.workErrors.
+async function loadProcedures() {
+  A.procedures = [];
+  let files = [];
+  try { files = await host.list('procedures', ['.yaml', '.yml']); } catch { files = []; }
+  for (const f of files) {
+    const text = textOf(f.path) ?? f.text;
+    try {
+      const o = jsyaml.load(text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
+      A.procedures.push({ rec: o, path: f.path, text });
+    } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
+  }
+  for (const p of A.procedures) for (const m of Records.validate('procedure', p.rec)) A.workErrors.push({ path: p.path, line: 1, msg: `procedure not given to agents: ${m}` });
+}
+
+// One line on a card: the bound procedures an agent building this item receives, and how past runs on its elements
+// ended (Memory.episodes from the ledger's trace and outcome rows). Display only.
+function memoryHtml(it) {
+  if (!(it.elements || []).length) return '';
+  const resolve = elResolver();
+  const procs = Memory.procedures(A.procedures || [], it.elements, resolve).procedures;
+  const eps = Memory.recall(Memory.episodes(A.ledger || [], { items: A.work }), it.elements, { resolve, limit: 50 });
+  if (!procs.length && !eps.length) return '';
+  const c = Memory.summary(eps);
+  const causes = Object.entries(c.causes).map(([k, n]) => `${k.replace(/_/g, ' ')} ${n}`).join(', ');
+  const runs = eps.length ? `Past tasks on these elements: ${c.passed} passed, ${c.failed} failed${c.open ? `, ${c.open} not finished` : ''}${causes ? ` (${causes})` : ''}.` : '';
+  const pl = procs.length ? `Procedures given to agents: ${procs.map(p => `${p.title} (v${p.version})`).join(', ')}.` : '';
+  return `<div class="note">${esc([pl, runs].filter(Boolean).join(' '))}</div>`;
+}
+
+// Improve: System 3 over procedures (ProcLoop.review). Each procedure's version in the file now, judged from the trace
+// rows that gave it to an agent; the person binds or retires. Display and suggestions only, never a gate input.
+const PROC_TAG = { proposed: 'minted', untested: '', proven: 'bound', mixed: 'warning', struggling: 'fail', retired: 'superseded' };
+function proceduresHtml() {
+  const s = ProcLoop.settings(A.cfg);
+  const stats = Memory.procedureStats(Memory.episodes(A.ledger || [], { items: A.work }));
+  if (!(A.procedures || []).length && !stats.some(x => String(x.id).includes(':'))) return '';
+  const r = ProcLoop.review({ procedures: (A.procedures || []).map(p => ({ ...p, text: textOf(p.path) ?? p.text })), stats, settings: s });
+  const pct = x => (x == null ? '—' : `${Math.round(x * 100)}%`);
+  const notes = [...s.problems.map(m => `designc.json: ${m}`), ...r.invalid.map(x => `${x.path}: not judged (${x.errors.join('; ')})`)];
+  const btn = x => x.action === 'bind' ? `<button class="btn" data-procstatus="bound" data-procpath="${esc(x.path)}">Bind</button>`
+    : x.action === 'retire' ? `<button class="btn" data-procstatus="retired" data-procpath="${esc(x.path)}">Retire</button>` : '';
+  return `<div class="block"><h3>Procedures<span class="spacer"></span><span class="note-i">${[...r.rows, ...r.external].filter(x => x.judgement === 'struggling').length} struggling</span></h3>
+    <div class="note">How tasks ended when an agent was given each procedure, from <code>procedures/</code> and the pipeline's <code>trace</code> rows. Given means it was in the agent's context, not that the agent followed it. Judged on the version in the file now once it was given in ${s.minUses} finished tasks: proven at ${pct(s.proven)} passed or more, struggling at ${pct(s.struggling)} or less. Thresholds are <code>improve.procedures</code> in designc.json. These are suggestions: only you bind or retire a procedure.</div>
+    ${notes.map(w => `<div class="note" style="color:var(--warn)">${esc(w)}</div>`).join('')}
+    <div class="tw2"><table class="t"><tr><th>Procedure</th><th>Version</th><th class="num">Given in</th><th class="num">Passed</th><th class="num">Delivered</th><th>Earlier versions</th><th>Judgement</th><th></th></tr>${r.rows.map(x => `<tr><td><span class="id">${esc(x.id)}</span> ${esc(x.title)}</td><td>v${esc(x.version)}</td><td class="num">${fmtN(x.uses)}</td><td class="num">${pct(x.rate)}</td><td class="num">${fmtN(x.delivered)}</td><td>${x.older.length ? esc(x.older.map(o => `v${o.version}: ${pct(o.rate)} of ${o.uses}`).join(', ')) : '<span style="color:var(--fg3)">none</span>'}</td><td><span class="tag ${PROC_TAG[x.judgement] || ''}">${esc(x.judgement)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.reason)}</div></td><td>${btn(x)}<button class="lnk" data-file="${esc(x.path)}">Open</button></td></tr>`).join('')}</table></div>
+    ${r.external.length ? `<h4>The pipeline's own prompts and policies</h4>
+    <div class="note">Named in trace rows as <code>prompt:</code>, <code>policy:</code> or <code>target:policy</code>. Their source of truth is the pipeline's repository, so a struggling one is a change to propose there, made as a git change and merged by a person. A new hash is a new version even when the declared version is the same.</div>
+    <div class="tw2"><table class="t"><tr><th>Entry</th><th>Version</th><th class="num">Given in</th><th class="num">Passed</th><th class="num">Delivered</th><th>Earlier hashes</th><th>Judgement</th></tr>${r.external.map(x => `<tr><td><span class="id">${esc(x.id)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.source)}</div></td><td>v${esc(x.version)} <span style="color:var(--fg3)">${esc(trunc(x.hash, 18))}</span></td><td class="num">${fmtN(x.uses)}</td><td class="num">${pct(x.rate)}</td><td class="num">${fmtN(x.delivered)}</td><td>${x.older.length ? esc(x.older.map(o => `${trunc(o.hash, 18)}: ${pct(o.rate)} of ${o.uses}`).join(', ')) : '<span style="color:var(--fg3)">none</span>'}</td><td><span class="tag ${PROC_TAG[x.judgement] || ''}">${esc(x.judgement)}</span><div style="color:var(--fg3);font-size:11.5px">${esc(x.reason)}</div></td></tr>`).join('')}</table></div>` : ''}
+    ${r.ignored ? `<div class="note">${esc(plural(r.ignored, 'other trace entry'))} name no file in procedures/ and are not judged.</div>` : ''}</div>`;
+}
+// Improve: System 3 knowledge health (Knowledge.health) beside parity coverage, which is counted here from the Parity
+// view's scenarios so the core keeps no parity logic. Display only, never a gate input; nothing here writes.
+function knowledgeHtml() {
+  const decs = (A.decisions || []).filter(d => d && d.id != null);
+  const scen = A.parity || [];
+  if (!decs.length && !scen.length) return '';
+  const h = Knowledge.health({ decisions: decs, episodes: Memory.episodes(A.ledger || [], { items: A.work }), events: A.ledger || [], resolve: elResolver() });
+  const latest = id => parityResults(id).reduce((a, e) => (!a || (e._ts || 0) >= (a._ts || 0) ? e : a), null);
+  const pass = scen.filter(x => { const l = latest(x.id); return l && l.outcome === 'pass'; }).length;
+  const t = h.tokens, mean = x => (x.mean == null ? '—' : `${fmtN(x.mean)} <span style="color:var(--fg3)">over ${fmtN(x.rows)}</span>`);
+  const row = (k, v) => `<tr><td>${k}</td><td>${v}</td></tr>`;
+  const ids = xs => xs.length ? xs.map(x => `<span class="id">${esc(x)}</span>`).join(' ') : '<span style="color:var(--fg3)">none</span>';
+  return `<div class="block"><h3>Knowledge health<span class="spacer"></span><span class="note-i">${fmtN(h.live)} live decisions</span></h3>
+    <div class="note">Keep the live set small: a decision a check or rule enforces can be cited by its id, one no task touches may be retired, and a new one should supersede an old one rather than add to it. Live means bound and not superseded or retired. These are suggestions; nothing here changes a file.</div>
+    <div class="tw2"><table class="t"><tr><th>Area</th><th class="num">Live</th><th class="num">Enforced</th></tr>${h.areas.map(a => `<tr><td>${esc(a.area)}</td><td class="num">${fmtN(a.live)}</td><td class="num">${fmtN(a.enforced)}</td></tr>`).join('') || '<tr><td colspan="3" style="color:var(--fg3)">No bound decisions</td></tr>'}</table></div>
+    <div class="tw2"><table class="t">
+      ${row('Could graduate (enforced, cite by id)', ids(h.graduate.map(g => g.id)))}
+      ${row('No recorded task touched their elements', h.unused == null ? '<span style="color:var(--fg3)">unknown: no tasks recorded yet</span>' : ids(h.unused))}
+      ${row('Failure causes', h.recurrence.length ? h.recurrence.map(c => `${esc(c.cause)} ${fmtN(c.count)} in ${esc(plural(c.runs, 'run'))}${c.recurring ? ' <span class="tag warning">recurring</span>' : ''}`).join(', ') : '<span style="color:var(--fg3)">none</span>')}
+      ${row('Tokens per task with a context bundle', `${mean(t.withBundle)}${t.bundles ? ` <span style="color:var(--fg3)">(${esc(plural(t.bundles, 'bundle'))})</span>` : ''}`)}
+      ${row('Tokens per task without one', mean(t.withoutBundle))}
+      ${row('Parity coverage', scen.length ? `${fmtN(pass)} of ${esc(plural(scen.length, 'scenario'))} pass on the latest result` : '<span style="color:var(--fg3)">no parity scenarios</span>')}
+    </table></div></div>`;
+}
+// Human only: Bind or Retire changes the one top-level status line of the procedure file, after a confirmation.
+async function setProcedureStatus(path, status) {
+  const p = (A.procedures || []).find(x => x.path === path);
+  if (!p) return;
+  const b = A.buffers.get(path);
+  if (b && b.dirty) return toast(`${path} has unsaved edits. Save it first, so you ${status === 'bound' ? 'bind' : 'retire'} the file you reviewed.`, 'warning');
+  const text = textOf(path) ?? p.text;
+  const next = ProcLoop.setStatus(text, status);
+  if (next == null) return toast(`${path} has no single top-level status line to change. Edit it by hand.`, 'warning');
+  const msg = status === 'bound'
+    ? `Bind procedure ${p.rec.id} v${p.rec.version}? From now on coding agents working on its elements get it in their context.`
+    : `Retire procedure ${p.rec.id} v${p.rec.version}? Coding agents stop getting it. To improve it instead, edit the steps, raise the version and keep it bound.`;
+  if (!confirm(msg)) return;
+  await host.write(path, next);
+  await loadProcedures(); renderAll({ keepEditor: true });
+  toast(`${p.rec.id} is ${status}.`, 'info');
+}
+
+// One line on a card: what bound verdicts say about the item's elements (and the ui:/test: ids beside them).
+function verdictsHtml(it) {
+  if (!(A.verdicts || []).length || !(it.elements || []).length) return '';
+  const resolve = elResolver();
+  const r = Verdicts.query({ verdicts: A.verdicts, items: A.work }, { scope: { work_item: it.id }, resolve });
+  if (r.error) return '';
+  const c = Verdicts.summary(r);
+  if (c.none === r.nodes.length) return '';
+  const parts = ['matched', 'accepted', 'diverged', 'conflict', 'none'].filter(k => c[k]).map(k => `${c[k]} ${k === 'none' ? 'without a verdict' : k === 'conflict' ? 'in conflict' : k}`);
+  const warn = c.diverged || c.conflict;
+  const list = r.nodes.filter(n => n.verdict !== 'matched').map(n => `<li>${esc(n.name || n.node_id)}: ${n.conflict ? `conflict (${esc(n.conflict.join(', '))})` : esc(n.verdict || 'no verdict')}</li>`).join('');
+  return `<div class="note"${warn ? ' style="color:var(--warn)"' : ''}>Verdicts: ${esc(parts.join(', '))}.${list ? `<ul>${list}</ul>` : ''}</div>`;
+}
+
 function workItemHtml(it, st, active) {
   const state = st[it.id] || 'backlog';
   const problems = A.workErrors.filter(e => e.path === it._path).map(e => e.msg);
@@ -233,6 +366,8 @@ function workItemHtml(it, st, active) {
     ${problems.map(m => `<div class="note" style="color:var(--err)">${esc(m)}</div>`).join('')}
     ${outOfScope(it).map(el => `<div class="note"><button class="btn" data-work="addreq" data-id="${esc(it.id)}" data-el="${esc(el)}">Add ${esc(el)} to ${esc(Work.reqs(it).length === 1 ? Work.reqs(it)[0] : 'a requirement')}</button></div>`).join('')}
     ${recheckHtml(it, froze)}
+    ${verdictsHtml(it)}
+    ${memoryHtml(it)}
     ${froze ? `<div class="note">Frozen as <button class="lnk" data-file="handovers/${esc(froze.handover)}/handover.yaml">${esc(froze.handover)}</button> at ${esc(froze.revision)}.</div>` : ''}
     ${sg && state !== 'done' ? (sg.ready
       ? `<div class="note">Gate for this item: ready.${sg.outside ? ` ${plural(sg.outside, 'blocking clause')} elsewhere in the design ${sg.outside === 1 ? 'does' : 'do'} not touch it.` : ''}</div>`

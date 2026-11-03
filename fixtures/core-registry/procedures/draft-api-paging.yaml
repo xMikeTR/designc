@@ -1,0 +1,6 @@
+id: draft-api-paging
+status: proposed
+title: Add paging to an API list
+version: 1
+scope: [el:Tags API]
+steps: Page with a cursor, never an offset.

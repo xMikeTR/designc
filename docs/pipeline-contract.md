@@ -25,6 +25,9 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 | `handover_closed` | `handover`, `outcome` | Ends spend counting for that handover (`delivered` or `abandoned`) |
 | `item_gate` | `item`, `gate`, `outcome`, `source`, `commit` (`dirty` false) | Evidence for a work item's `gate` entry in `done_when`. Counts only when `outcome` is pass, the tree was clean, and `commit` is the commit the item is declared done at |
 
+| `trace` | `run`, `task`, `outcome`, `bundle_id` (string or null), `models`, `procedures`, `tokens_in`, `tokens_out` | One row per run and task; the latest per run and task wins, and `blocked` is not final. `outcome` is `passed`, `failed` or `blocked`; optional `cause` as on `task`, `trace_id`, `jira`, `cost`. `models` are model ids (a tier name when the id is unknown); `procedures` are `[{id, version, hash}]`, what the attempt was given. Input to System 3 (Improve) |
+| `outcome` | `run`, `cause`, `ref` | A verdict that arrives after the run, on the whole run or on one `task`: `cause` is `ci_failed`, `qa_failed`, `integration_failed`, `integration_unrunnable` or `parity_failed`, `ref` is `{kind: ci\|qa\|parity\|integration, id}`, optional `commit`. The latest `outcome` after a task's `trace` row is that task's final cause |
+
 `ledger verify` rule V9: `pipeline.jsonl` may hold only these kinds. Other files are not judged, so a pipeline kind may also sit in its home stream.
 
 ## Live progress
@@ -38,6 +41,10 @@ To be resumable from designc, say how in `designc.json`: a dispatch target may c
 A `task` row that carries `run` is a running total: its `tokens`, `tokens_in`, `tokens_out` and `cost` are what the task has spent in that run so far, and only the latest row per handover, task and run counts toward spend (Build's actuals and the cost forecast). Rows from different runs of the same handover add up. A `task` row with no `run` counts as written, so a pipeline that leaves out `run` must write each task's spend once.
 
 A `task` row may also carry `usage`, the same running total split by model: `[{model, tier?, turns, tokens_in, tokens_out, cost?, cache_read?, cache_write?}]`, one entry per model the task used. `model` is a non-empty string; `turns`, `tokens_in` and `tokens_out` are whole numbers of at least 0; `cache_read` and `cache_write`, whole numbers too, are the part of `tokens_in` read from or written to a prompt cache (so together at most `tokens_in`; report `tokens_in` as all input, cached or not), and Build shows reads, writes and uncached input separately; `tier` is your own word for the model's class (for example `frontier`), shown only. Build's Runs shows each task's split and each run's total per tier (else per model). The row's own `tokens_in`, `tokens_out` and `cost` stay the task's totals and are what spend counts.
+
+## Why a task did not pass
+
+A `task` or `trace` row may carry `cause`: `stalled` or `abandoned` (status failed), `parked` (blocked) or `gate_failed:<gate>` (failed or blocked; the gate name in `a-z 0-9 _ . -`). No cause means unknown, never "fine". `Ledger.taskOutcomes(events)` gives each run and task its final cause (the latest `outcome` after its `trace` row, else the trace's own cause) and whether it succeeded: a passed trace, its run's handover closed as `delivered`, and no later `outcome`. An `escape` may carry `ref {kind: jira, id}` and the `run` it came from.
 
 ## Item scope
 
