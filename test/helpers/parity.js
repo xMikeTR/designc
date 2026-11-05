@@ -44,7 +44,7 @@ function nodeState(root) {
   const ledger = Ledger.derive(Ledger.order(raw));
   const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
   const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos });
-  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals });
+  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: listDir(root, 'contracts/openapi', ['.yaml', '.yml']).map(f => f.path) });
   return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
 }
 function nodeReport(root) {

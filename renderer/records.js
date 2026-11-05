@@ -20,7 +20,7 @@
   const ALIASES = { minted: 'proposed', checked: 'proposed' };
   const VERDICTS = ['matched', 'diverged', 'accepted'];
   // enforced_by: a check id (chk-...), a gate clause kind (gate:<kind>) or an mlang rule id (mlang:<id>).
-  const GATE_KINDS = ['parse', 'registry', 'duplicate', 'finding', 'decision', 'evidence', 'check', 'promotion', 'assumption', 'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'contracts'];
+  const GATE_KINDS = ['parse', 'registry', 'duplicate', 'finding', 'decision', 'evidence', 'check', 'promotion', 'assumption', 'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'contracts', 'unpinned_contract'];
 
   function fnv(str, seed) {
     let h = seed >>> 0;

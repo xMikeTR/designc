@@ -707,7 +707,7 @@ const Core = (() => {
     if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
     return out;
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -767,6 +767,16 @@ const Core = (() => {
     for (const req of requirements) {
       const traced = decisions.some(d => d.requirement === req.id) || (req.elements || []).some(n => [...model.elements.values()].some(e => e.name === n));
       if (!traced) clauses.push({ kind: 'requirement', text: `${req.id} is not traced to any element or decision`, requirement: req.id });
+    }
+    // Split repos: a requirement that reaches more than one declared repo needs the seam written down (OpenAPI) before it is ready.
+    const declared = Object.keys(repos || {});
+    if (declared.length && !(apiContracts || []).length) {
+      const repoOf = e => { for (let c = e; c; c = c.parent ? model.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+      for (const req of requirements) {
+        const names = req.elements || [], span = new Set();
+        for (const e of model.elements.values()) if (names.includes(e.name)) { const r = repoOf(e); if (r) span.add(r); }
+        if (span.size > 1) clauses.push({ kind: 'unpinned_contract', text: `${req.id} spans ${[...span].sort().join(', ')}: pin an OpenAPI contract in contracts/openapi/ first`, requirement: req.id, about: names.map(String) });
+      }
     }
     for (const nd of ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open'))
       clauses.push({ kind: 'needs', text: `open needs-decision ${nd.id || ''}: ${nd.question}`.trim(), needs: nd, ...(nd.element ? { about: [String(nd.element)] } : {}) });

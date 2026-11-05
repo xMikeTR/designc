@@ -34,7 +34,7 @@ def state(root):
     if domains:
         pinned = domain.pins(led)
         domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
-    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led))
+    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led), repos=cfg.get('repos') or {}, api_contracts=api_contracts(root))
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 
@@ -271,6 +271,11 @@ def who(by):
     if os.environ.get('DESIGNC_BY'): return os.environ['DESIGNC_BY']
     try: return getpass.getuser()
     except Exception: return 'unknown'
+
+
+def api_contracts(root):
+    d = os.path.join(root, 'contracts', 'openapi')
+    return sorted(n for n in os.listdir(d) if n.endswith(('.yaml', '.yml'))) if os.path.isdir(d) else []
 
 
 def record_gate(root, s, source, by, out):

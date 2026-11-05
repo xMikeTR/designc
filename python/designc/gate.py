@@ -239,7 +239,7 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=()):
     work_states = work_states or {}
     clauses = []
     if model.errors:
@@ -316,6 +316,19 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     for req in requirements:
         traced = any(d.get('requirement') == req['id'] for d in decisions) or any(n in names for n in (req.get('elements') or []))
         if not traced: clauses.append({'kind': 'requirement', 'text': f"{req['id']} is not traced to any element or decision", 'requirement': req['id']})
+    if (repos or {}) and not api_contracts:
+        def repo_of(e):
+            c = e
+            while c is not None:
+                v = c.props.get('d.repo')
+                if v is not None: return str(v).strip()
+                c = model.elements.get(c.parent) if c.parent else None
+            return None
+        for req in requirements:
+            names = [str(n) for n in (req.get('elements') or [])]
+            span = {r for r in (repo_of(e) for e in model.elements.values() if e.name in names) if r}
+            if len(span) > 1:
+                clauses.append({'kind': 'unpinned_contract', 'text': f"{req['id']} spans {', '.join(sorted(span))}: pin an OpenAPI contract in contracts/openapi/ first", 'requirement': req['id'], 'about': names})
     for nd in (e for e in ledger if e.get('kind') == 'needs_decision' and e.get('status') == 'open'):
         clauses.append({'kind': 'needs', 'text': f"open needs-decision {nd.get('id') or ''}: {nd.get('question')}".strip(),
                         **({'about': [_s(nd['element'])]} if nd.get('element') else {})})

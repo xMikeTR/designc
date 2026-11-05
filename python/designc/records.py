@@ -10,7 +10,7 @@ STATUSES = ['proposed', 'bound', 'superseded', 'retired']
 ALIASES = {'minted': 'proposed', 'checked': 'proposed'}
 VERDICTS = ['matched', 'diverged', 'accepted']
 GATE_KINDS = ['parse', 'registry', 'duplicate', 'finding', 'decision', 'evidence', 'check', 'promotion', 'assumption',
-              'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'contracts']
+              'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'contracts', 'unpinned_contract']
 
 _REF = re.compile(r'([a-z]+):(.+)')
 _CHECK_ID = re.compile(r'[A-Za-z0-9._-]+')
