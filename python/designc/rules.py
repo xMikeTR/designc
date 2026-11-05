@@ -1,4 +1,4 @@
-"""Design properties, validation (DC000) and rules DC001 to DC009. A port of renderer/core.js."""
+"""Design properties, validation (DC000) and rules DC001 to DC010. A port of renderer/core.js."""
 import json
 import math
 import os
@@ -21,7 +21,7 @@ SPECS = {
         'd.availability': ('float', None), 'd.owns': ('list', None), 'd.store': ('enum', YN),
         'd.latency.max': ('int', None), 'd.fanout': ('enum', ['sequential', 'parallel']), 'd.retry.budget': ('int', None),
         'd.aka': ('list', None), 'd.suppress': ('suppress', None),
-        'd.code': ('list', None), 'd.risk': ('enum', ['low', 'medium', 'high']),
+        'd.code': ('list', None), 'd.repo': ('str', None), 'd.risk': ('enum', ['low', 'medium', 'high']),
     },
 }
 
@@ -431,7 +431,25 @@ def dc009(m, o):
     return out
 
 
-RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006), ('DC007', dc007), ('DC008', dc008), ('DC009', dc009)]
+def dc010(m, o):
+    repos = list((o.get('repos') or {}).keys())
+    if not repos: return []
+    out = []
+    def repo_of(e):
+        c = e
+        while c is not None:
+            if c.props.get('d.repo') is not None: return str(c.props['d.repo']).strip()
+            c = m.elements.get(c.parent) if c.parent else None
+        return None
+    for e in m.elements.values():
+        if e.props.get('d.code') is None: continue
+        r = repo_of(e)
+        if not r: out.append(D('DC010', 'error', f'"{e.name}" has d.code but no d.repo', m.loc_el(e), hint=f'set d.repo on it or its container: {", ".join(repos)}'))
+        elif r not in repos: out.append(D('DC010', 'error', f'"{e.name}": d.repo "{r}" is not a declared repo', m.loc_el(e), hint=f'declared repos: {", ".join(repos)} (designc.json repos)'))
+    return out
+
+
+RULES = [('DC001', dc001), ('DC002', dc002), ('DC003', dc003), ('DC004', dc004), ('DC005', dc005), ('DC006', dc006), ('DC007', dc007), ('DC008', dc008), ('DC009', dc009), ('DC010', dc010)]
 
 
 def _collate(s):
@@ -439,9 +457,9 @@ def _collate(s):
     return (s.casefold(), s.swapcase())
 
 
-def check(m, chain_hops=4, retry_amplification=4):
+def check(m, chain_hops=4, retry_amplification=4, repos=None):
     diags = validate(m)
-    for _, fn in RULES: diags += fn(m, {'chainHops': chain_hops, 'retryAmplification': retry_amplification})
+    for _, fn in RULES: diags += fn(m, {'chainHops': chain_hops, 'retryAmplification': retry_amplification, 'repos': repos or {}})
     for d in diags:
         if d['code'] == 'DC000': continue
         obj = m.elements.get(d['loc']['id']) if d['loc']['kind'] == 'element' else m.rel_by_id.get(d['loc']['id'])

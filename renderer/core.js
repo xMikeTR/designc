@@ -264,7 +264,7 @@ const Core = (() => {
       'd.availability': { k: 'float' }, 'd.owns': { k: 'list' }, 'd.store': { k: 'enum', v: YN },
       'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
-      'd.code': { k: 'list' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
+      'd.code': { k: 'list' }, 'd.repo': { k: 'str' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
     },
   };
   function parseSuppress(raw) {
@@ -622,6 +622,20 @@ const Core = (() => {
               { hint: 'make the areas disjoint: a file in both areas has no single owner', related: [m.locEl(a.e)] }));
           }
           areas.push({ e, pats });
+        }
+        return out;
+      } },
+    { code: 'DC010', title: 'Code area outside a declared repo', source: 'Split repos: designc.json repos {Api, Ui}',
+      doc: 'When designc.json declares repos, every element with d.code must live in one of them: d.repo names it on the container (components inherit it). With no repos declared the registry is a single repo and nothing is checked.',
+      fn(m, o) {
+        const repos = Object.keys((o && o.repos) || {});
+        if (!repos.length) return [];
+        const out = [], repoOf = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+        for (const e of m.elements.values()) {
+          if (e.props['d.code'] == null) continue;
+          const r = repoOf(e);
+          if (!r) out.push(D('DC010', 'error', `"${e.name}" has d.code but no d.repo`, m.locEl(e), { hint: `set d.repo on it or its container: ${repos.join(', ')}` }));
+          else if (!repos.includes(r)) out.push(D('DC010', 'error', `"${e.name}": d.repo "${r}" is not a declared repo`, m.locEl(e), { hint: `declared repos: ${repos.join(', ')} (designc.json repos)` }));
         }
         return out;
       } },
