@@ -8,6 +8,14 @@ The machine contract is `python/designc/ledger_schema.json` (generated from `ren
 
 A frozen handover (`handovers/<id>/`, listed and hashed in `handover.yaml`) is everything the pipeline needs: `elements.json` (`docs/handover-elements.schema.json`), the model, requirements, bound decisions, `evals/*.yaml`, `behaviour/*.p`, `vocabulary/*.yaml`, and `scenarios/*.yaml` with their ids under `scenarios:`. A scenario's `fitness:` entries may be `TODO ...`: the architect has stated what done means but the fitness function is not written yet, so writing it is part of the build. Verify each file's hash before use; a file changed after the freeze is not the handover.
 
+### Split repos (Api and Ui)
+
+When `designc.json` declares `repos` (for example `{ "Api": "../api", "Ui": "../ui" }`), each element with `d.code` names its repo with `d.repo` (inherited from the container; lint DC010). `elements.json` then carries `repo` per element (additive, optional, both schema versions). A task works in one repo only.
+
+The cross-repo seam is an OpenAPI 3.x YAML file under `contracts/openapi/` in the registry. A freeze copies each file verbatim to `contracts/openapi/<name>.yaml` in the handover, hash-pinned and inside the handover id, and lists the paths in `handover.yaml` under `contracts_api:` (a list of paths; absent when there are none). It is not the `contracts:` key, which holds compiled agent policies. A handover without `contracts_api:` has no pinned API contract.
+
+The gate raises `unpinned_contract` (about the requirement's elements) for a requirement whose elements span more than one declared repo while `contracts/openapi/` holds no file. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
+
 ## Kinds a pipeline writes
 
 Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and `handover_closed`, their usual stream: `checks.jsonl`, `designc.jsonl`). Every line carries `schema_version`, `by` and `kind`; `event_id` and `ts` are stamped if missing.
