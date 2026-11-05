@@ -1154,6 +1154,8 @@ async function freezeOnce(item) {
     plan = Core.handoverPlan({
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
+      // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
+      apiContracts: await read('contracts/openapi', ['.yaml', '.yml']),
       item: item ? { id: item.id, requirement: Work.reqs(item), elements: item.elements || [] } : null,
       model: { path: A.cfg.model, text: modelText },
       requirements: item ? only(reqs, A.requirements, r => Work.reqs(item).includes(r.id)) : reqs,
