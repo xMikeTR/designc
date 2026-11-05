@@ -225,9 +225,10 @@ const Ledger = (() => {
     // at an item's done commit decides a done_when parity entry; could_not_run is not a failure, and not a pass.
     parity_result: {
       required: ['scenario', 'commit', 'outcome', 'failures'],
-      optional: ['item', 'report'],
+      optional: ['item', 'report', 'visual'],
       enums: { outcome: ['pass', 'fail', 'could_not_run'] },
-      types: { scenario: 'string', commit: 'string|null', outcome: 'string', failures: 'array', item: 'string', report: 'string' },
+      // visual (tier 2, additive): {ratio, threshold, outcome: pass | fail | skipped}. The outcome above is tier 1 only.
+      types: { scenario: 'string', commit: 'string|null', outcome: 'string', failures: 'array', item: 'string', report: 'string', visual: 'object' },
       rules: ['failures_shape'],
     },
     // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own

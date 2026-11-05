@@ -4,7 +4,7 @@
 // them) with each node's box and data-testid. Playwright is required lazily, so loading this file costs nothing where
 // it is not installed. Runs on a machine that can reach the apps (the work VM).
 //
-// params: { baseUrl, viewport?: {width, height}, locale?, timezoneId?, headless? }
+// params: { baseUrl, viewport?: {width, height}, locale?, timezoneId?, clock?: ISO time, headless? }
 const IGNORED = new Set(['InlineTextBox', 'LineBreak']);
 
 async function settle(page, ms) {
@@ -96,6 +96,8 @@ function create(name = 'web', { timeout = 10000 } = {}) {
       const browser = await chromium.launch({ headless: params.headless !== false });
       const viewport = params.viewport || { width: 1280, height: 800 };
       const ctx = await browser.newContext({ viewport, locale: params.locale || 'en-GB', timezoneId: params.timezoneId || 'Europe/London' });
+      // Tier 2 needs the same pixels twice: a frozen clock (params.clock, an ISO time) so dates and "x minutes ago" do not move.
+      await ctx.clock.setFixedTime(new Date(params.clock || '2024-01-15T10:00:00Z'));
       const page = await ctx.newPage();
       let blocked = [];
       if (readOnly) {
@@ -133,7 +135,7 @@ function create(name = 'web', { timeout = 10000 } = {}) {
           if (blocked.length) { out.blockedRequests = blocked; blocked = []; }
           return out;
         },
-        async screenshot() { return page.screenshot({ fullPage: true }); },
+        async screenshot(opts) { return page.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', mask: ((opts && opts.mask) || []).map(sel => page.locator(sel)) }); },
         async close() { await browser.close(); },
       };
     },

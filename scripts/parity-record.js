@@ -5,7 +5,8 @@
 //   --side legacy   writes parity/baselines/<id>/legacy.json (the baseline the new app is held to)
 //   --side next     compares with that baseline, writes parity/reports/<id>.json and, with --ledger, appends a
 //                   parity_result through the one ledger append path (ledger-store.js)
-// Screenshots go to parity/shots/<sha256>.png, which git ignores; the gallery shows them, the diff never reads them.
+// Screenshots go to parity/shots/<sha256>.png, which git ignores; the gallery shows them, tier 1 never reads them and tier 2
+// (renderer/parity-visual.js) compares them: the report and the parity_result row carry visual {ratio, threshold, outcome}.
 // Read-only by default: committing clicks are blocked and the web adapter aborts any request that is not GET, HEAD or
 // OPTIONS. Only the person running this can relax that (--allow-writes, --allow-request <url part>).
 //
@@ -14,6 +15,7 @@ const fs = require('fs');
 const path = require('path');
 const yaml = require('js-yaml');
 const Parity = require('../renderer/parity.js');
+const Visual = require('../renderer/parity-visual.js');
 const Recorder = require('../recorder/index.js');
 const { appendEvent } = require('../ledger-store.js');
 
@@ -90,6 +92,24 @@ function writeShots(registry, shots) {
   }
 }
 
+// Tier 2: legacy and new app screenshots of each step that ran on both, from parity/shots/ (images stay out of git, so a
+// shot missing on this machine skips the step: never a pass). Identical bytes need no decoding.
+function visualStage(registry, scenario, result) {
+  const file = sha => path.join(registry, 'parity', 'shots', `${sha}.png`);
+  let PNG = null;
+  const steps = result.steps.map(s => {
+    if (s.status !== 'compared') return { n: s.n, skipped: 'step did not run on both sides' };
+    if (!s.legacyShot || !s.nextShot) return { n: s.n, skipped: 'no screenshot recorded' };
+    if (s.legacyShot === s.nextShot) return { n: s.n, ratio: 0 };
+    if (!fs.existsSync(file(s.legacyShot)) || !fs.existsSync(file(s.nextShot))) return { n: s.n, skipped: 'screenshot not on this machine' };
+    PNG = PNG || require('playwright-core/lib/utilsBundle').PNG; // the decoder Playwright ships: no extra dependency
+    const a = PNG.sync.read(fs.readFileSync(file(s.legacyShot)));
+    const b = PNG.sync.read(fs.readFileSync(file(s.nextShot)));
+    return { n: s.n, ratio: Visual.diff(a, b).ratio };
+  });
+  return Visual.summarise(steps, { threshold: scenario.threshold == null ? Visual.DEFAULT_THRESHOLD : scenario.threshold });
+}
+
 const writeJson = (f, v) => { fs.mkdirSync(path.dirname(f), { recursive: true }); fs.writeFileSync(f, JSON.stringify(v, null, 2) + '\n'); };
 
 // Exceptions from the registry: acceptance criterion locators cover what the new app adds or changes, bound business
@@ -122,10 +142,12 @@ async function runOne(o, entry, settings, adapter) {
   }
   const result = Parity.compare({ scenario, legacy: baseline, next: snap, exceptions: loadExceptions(o.registry) });
   const report = path.posix.join('parity', 'reports', `${scenario.id}.json`);
-  writeJson(path.join(o.registry, report), { commit: o.commit || null, item: o.item || null, next: snap, result });
-  const out = { scenario: scenario.id, outcome: result.outcome, counts: result.counts, report, failures: Parity.failures(result) };
+  const visualFull = visualStage(o.registry, scenario, result);
+  const visual = { ratio: visualFull.ratio, threshold: visualFull.threshold, outcome: visualFull.outcome };
+  writeJson(path.join(o.registry, report), { commit: o.commit || null, item: o.item || null, next: snap, result, visual: visualFull });
+  const out = { scenario: scenario.id, outcome: result.outcome, counts: result.counts, report, failures: Parity.failures(result), visual };
   if (o.ledger) {
-    const ev = { ...Parity.resultEvent(result, { commit: o.commit || null, item: o.item, report }), by: o.by || process.env.USER || 'parity-record' };
+    const ev = { ...Parity.resultEvent(result, { commit: o.commit || null, item: o.item, report, visual }), by: o.by || process.env.USER || 'parity-record' };
     const r = await appendEvent(o.registry, ev);
     out.ledger = r.ok ? 'recorded' : `not recorded: ${r.errors.join('; ')}`;
   }

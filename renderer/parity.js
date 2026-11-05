@@ -292,6 +292,9 @@ const Parity = (() => {
       else s.masks.forEach((m, i) => { if (!m || !MASK_MODES.includes(m.mode)) out.push(`mask ${i + 1}: mode must be ${MASK_MODES.join(', ')}`); });
     }
     if (s.params != null && (typeof s.params !== 'object' || Array.isArray(s.params))) out.push('params must be a mapping of side to values');
+    // Tier 2 (pixels): CSS selectors painted over in both apps' screenshots, and the mismatch ratio the scenario tolerates.
+    if (s.mask != null && (!Array.isArray(s.mask) || s.mask.some(m => typeof m !== 'string' || !m.trim()))) out.push('mask must be a list of CSS selectors');
+    if (s.threshold != null && (typeof s.threshold !== 'number' || !(s.threshold >= 0 && s.threshold <= 1))) out.push('threshold must be a ratio from 0 to 1');
     return out;
   }
 
@@ -458,10 +461,11 @@ const Parity = (() => {
   }
 
   // The parity_result event a recorder writes after comparing (ledger kind, pipeline.jsonl).
-  function resultEvent(result, { commit, item, report } = {}) {
+  function resultEvent(result, { commit, item, report, visual } = {}) {
     const ev = { kind: 'parity_result', scenario: result.scenario, commit: commit == null ? null : String(commit), outcome: result.outcome, failures: failures(result) };
     if (item) ev.item = item;
     if (report) ev.report = report;
+    if (visual) ev.visual = visual; // tier 2, additive: {ratio, threshold, outcome}; the outcome above stays tier 1
     return ev;
   }
 

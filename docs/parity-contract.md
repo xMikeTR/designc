@@ -17,7 +17,19 @@ Shape, never data. A snapshot keeps the accessibility tree (role and name), inte
 | `spacing` | a height or gap differs by more than 2 px, only when both viewports are the same |
 | `step` | a step ran on legacy but failed or was blocked on the new app |
 
-A step that could not run (missing element or param, an earlier step stopped) makes the scenario `could_not_run`: not a failure, and never a pass. Out of scope: colours, fonts, keyboard, and empty, error and loading states (acceptance criteria cover those). Screenshots are kept for people (the gallery) and never compared.
+A step that could not run (missing element or param, an earlier step stopped) makes the scenario `could_not_run`: not a failure, and never a pass. Out of scope for tier 1: colours, fonts, keyboard, and empty, error and loading states (acceptance criteria cover those). Tier 1 never reads a screenshot.
+
+### Tier 2: pixels
+
+`renderer/parity-visual.js` (pure, dual-loaded) compares the legacy and the new app's screenshot of each step that ran on both sides. A pixel is changed when a channel differs by more than 8 (anti-aliasing is not a finding); the ratio is changed pixels over all pixels, and the scenario's worst step decides. Images of different sizes never match. It is judged against `threshold` (default 0.001, 0.1%).
+
+Scenario fields: `threshold: <0..1>`, and `mask: [<CSS selector>, ...]`, which Playwright paints over in both apps' screenshots (volatile areas: a clock, the signed-in user, anything that is data). Pixels see data, which tier 1 does not, so a screen whose records differ between the two apps needs those regions in `mask:`. Do not confuse it with `masks:` (tree masks, tier 1).
+
+To get the same pixels twice the web adapter freezes the clock (`parity.<side>.clock`, an ISO time, default 2024-01-15T10:00:00Z), disables animations, hides the caret, and already pins viewport, locale and timezone. Fonts are the machine's: compare on the machine that recorded the baseline.
+
+The result is `visual {ratio, threshold, outcome}` with outcome `pass`, `fail` or `skipped`, in the report (with `failedSteps`) and on the `parity_result` row. **It is additive: the row's `outcome` stays tier 1.** A step with no shot on either side, or whose shot is not on this machine (shots are not in git), is skipped, and a scenario with nothing compared is `skipped`: never a pass. Tier 3 (the vision checklist) is the advisory `item_judge` / `ux_judge`.
+
+Not done yet: a person-approved exception for a scenario that is meant to look different. It needs a new key on a bound business decision, which touches `records.js`, `records.py` and the schema.
 
 ## What covers a difference
 
@@ -79,4 +91,4 @@ A work item may list `parity: <id>` or `parity: all` in `done_when` (repo items 
 
 ## The ledger row
 
-`parity_result {scenario, commit, outcome, failures[≤50 {step, key, kind, msg}], item?, report?}` in `pipeline.jsonl`; a fail names at least one failure. Schema: `python/designc/ledger_schema.json` (rule `failures_shape`).
+`parity_result {scenario, commit, outcome, failures[≤50 {step, key, kind, msg}], item?, report?, visual? {ratio, threshold, outcome}}` in `pipeline.jsonl`; a fail names at least one failure. Schema: `python/designc/ledger_schema.json` (rule `failures_shape`).
