@@ -242,6 +242,19 @@ test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree',
   same(root, 'd.code');
 });
 
+test('DC010 repos: JS and Python agree', { skip }, () => {
+  const dsl = `workspace { model { s = softwareSystem "S" {
+    a = container "A" { properties { "d.repo" "Api" "d.code" "src/A/**" "d.risk" "low" }
+      h = component "H" { properties { "d.code" "src/A/H/**" "d.risk" "low" } }
+    }
+    b = container "B" { properties { "d.code" "src/B/**" "d.risk" "low" } }
+    c = container "C" { properties { "d.repo" "Billing" "d.code" "src/C/**" "d.risk" "low" } }
+  } } }`;
+  const root = tmpRegistry({ 'model/workspace.dsl': dsl, 'designc.json': JSON.stringify({ repos: { Api: '../api', Ui: '../ui' } }) });
+  assert.equal(nodeReport(root).findings.filter(f => f.code === 'DC010').length, 2);
+  same(root, 'DC010');
+});
+
 test('DC009 reserved acceptance path: JS and Python agree', { skip }, () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" } }
