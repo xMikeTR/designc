@@ -20,6 +20,7 @@
         return r.value;
       });
       if (e.props['d.risk'] != null) out.risk = e.props['d.risk'];
+      for (let c = e; c && !out.repo; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) out.repo = String(c.props['d.repo']).trim();
       if (inScope) out.in_scope = inScope.includes(e.name);
       return out;
     });
