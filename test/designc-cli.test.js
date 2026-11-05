@@ -255,6 +255,20 @@ test('DC010 repos: JS and Python agree', { skip }, () => {
   same(root, 'DC010');
 });
 
+test('unpinned_contract: JS and Python agree, and a pinned OpenAPI file clears it', { skip }, () => {
+  const dsl = `workspace { model { s = softwareSystem "S" {
+    a = container "A" { properties { "d.repo" "Api" "d.code" "src/A/**" "d.risk" "low" } }
+    b = container "B" { properties { "d.repo" "Ui" "d.code" "web/**" "d.risk" "low" } }
+  } } }`;
+  const files = { 'model/workspace.dsl': dsl, 'designc.json': JSON.stringify({ repos: { Api: '../api', Ui: '../ui' } }), 'requirements/REQ-1.yaml': 'id: REQ-1\nelements: [A, B]\n' };
+  const root = tmpRegistry(files);
+  assert.equal(nodeReport(root).gate.clauses.filter(c => c.kind === 'unpinned_contract').length, 1);
+  same(root, 'unpinned');
+  const pinned = tmpRegistry({ ...files, 'contracts/openapi/x.yaml': 'openapi: 3.0.3\n' });
+  assert.equal(nodeReport(pinned).gate.clauses.filter(c => c.kind === 'unpinned_contract').length, 0);
+  same(pinned, 'pinned');
+});
+
 test('DC009 reserved acceptance path: JS and Python agree', { skip }, () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" } }

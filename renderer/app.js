@@ -159,6 +159,7 @@ async function loadYamlDir(dir, keepText = false) {
 async function loadRegistry() {
   A.yamlErrors = [];
   [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
+  A.apiContractPaths = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => f.path);
   A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
   A.contractsText = await readText(Contracts.PATHS.result);
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
@@ -406,7 +407,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -1416,7 +1417,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
