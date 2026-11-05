@@ -16,6 +16,8 @@ this marking is a reading of how the files are written and checked.
 | Term | Type | Definition |
 |------|------|-----------|
 | Registry | Aggregate root (folder) | The folder designc opens. Plain files; git provides review and history. Everything below lives in it |
+| Repo | Value (name) | A code repository an element's code lives in, named by `d.repo` on the element or its container and declared in `designc.json` `repos` (`Api`, `Ui`). Not the Registry: the registry holds the design, a repo holds code built from it. A requirement that reaches more than one repo needs a pinned API contract (gate clause `unpinned_contract`) |
+| API contract | Value (file) | An OpenAPI 3.x YAML file in `contracts/openapi/` that the Api and Ui repos share. Frozen into the handover under `contracts_api:`. Distinct from an agent contract (`contracts:`), which is a compiled agent policy |
 | Design | Aggregate | The model in `model/workspace.dsl`: the source of truth. Code is a build output of it |
 | Model | Value | The parsed form of a design or as-built DSL text: elements, rels, errors |
 | Element | Entity (inside a model) | A `person`, `softwareSystem`, `container` or `component`. Has a name, optionally an identifier, a parent, tags and properties |
@@ -123,7 +125,7 @@ this marking is a reading of how the files are written and checked.
 
 | Avoid | Use instead | Reason |
 |-------|-------------|--------|
-| Workspace, project, repo (for the opened folder) | Registry | The codebase is a separate, read-only folder |
+| Workspace, project, repo (for the opened folder) | Registry | The codebase is a separate, read-only folder. "Repo" is kept for the code repositories named by `d.repo` |
 | Architecture, diagram (for the source) | Design, model | The drawing is a view; the DSL is the source |
 | Relationship, link, connection | Rel (design), edge (code map) | The two sides are kept distinct on purpose |
 | Node, box, service | Element, or its kind | "Node" is reserved for deployment nodes |
