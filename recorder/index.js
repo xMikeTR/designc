@@ -4,7 +4,7 @@
 // raw tree; normalising and diffing are renderer/parity.js's job, so a capture stays as the adapter saw it.
 //
 // Adapter: { name, open({params}) -> session }
-// Session: { act(step) -> {ok: true} | {missing: reason} | {wall: reason}, capture() -> {tree, viewport, url?}, screenshot() -> Buffer | null, close() }
+// Session: { act(step) -> {ok: true} | {missing: reason} | {wall: reason}, capture() -> {tree, viewport, url?}, screenshot({mask?: selectors} | undefined) -> Buffer | null, close() }
 // Raw tree node: { role, name, value?, testId?, disabled?, box: {x, y, w, h} | null, children[] }
 const crypto = require('crypto');
 const Parity = require('../renderer/parity.js');
@@ -70,7 +70,7 @@ async function record({ scenario, side, adapter, params = {}, screenshots = true
       row.status = 'ok';
       row.capture = await session.capture();
       if (screenshots) {
-        const png = await session.screenshot();
+        const png = await session.screenshot(scenario.mask && scenario.mask.length ? { mask: scenario.mask } : undefined);
         if (png) { row.shot = sha256(png); out.shots[row.shot] = png; }
       }
     }
