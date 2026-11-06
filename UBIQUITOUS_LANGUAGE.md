@@ -35,7 +35,8 @@ this marking is a reading of how the files are written and checked.
 | Fingerprint | Value object | Hash of an element's own definition and incident rels; what a bound decision is promoted against (`promoted_against`) |
 | Effect | Value Object | What a decision does about a finding: `fix` (the model changes) or `accept` (keep the risk) |
 | Check | Value Object | A shell command on a decision whose latest result must pass for the gate |
-| Requirement | Aggregate | A file in `requirements/`: id (the Jira id), title, source, version, elements |
+| Requirement | Aggregate | A file in `requirements/`: id (the Jira id), title, source, version, elements; optionally `risk`, `data_class`, `repo` (mapped from Jira by `jira-mapping.yaml`) and the raw `jira:` block |
+| Inbox item | Aggregate | A file in `inbox/<KEY>.yaml` written by `scripts/sweep-jira.py`: a Jira issue assigned to you that is new or changed (id, title, `jira:`, `target: {jira: KEY}`, swept date). A suggestion only: the Work view's Accept makes the work item, Dismiss moves it to `inbox/dismissed/` |
 | Proposal | Aggregate | A file in `proposals/`: a suggested change to the rules, from the improvement loop |
 | Handover | Aggregate | The frozen package any coding agent consumes, in `handovers/`: the model, its resolved `elements.json`, requirements, bound decisions and behaviour. Immutable once written |
 | Ledger | Aggregate (append-only streams) | `ledger/*.jsonl`. One event per line. Never rewritten; state changes are later events |

@@ -32,6 +32,7 @@ async function loadWork() {
     } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
   }
   A.work.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+  await loadInbox();
   await loadVerdicts();
   await loadProcedures();
   const ids = A.work.map(i => String(i.id));
@@ -46,6 +47,44 @@ async function loadWork() {
     A.workWarnings.push({ ...u, path: r && r._path || `requirements/${u.requirement}.yaml`, msg: `Requirement ${u.requirement} lists ${u.element} but no work item covers it. Add it to an item or make a new item.` });
   }
   refreshDigest();
+}
+
+// inbox/<KEY>.yaml: Jira issues swept by scripts/sweep-jira.py, suggestions only. Accept makes the work item (a human
+// action, through the New item flow); Dismiss moves the entry to inbox/dismissed/ so a later sweep does not offer it again.
+async function loadInbox() {
+  A.inbox = [];
+  let files = [];
+  try { files = await host.list('inbox', ['.yaml', '.yml']); } catch { files = []; }
+  for (const f of files) {
+    try {
+      const o = jsyaml.load(textOf(f.path) ?? f.text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) continue;
+      A.inbox.push({ ...o, id: o.id || f.path.split('/').pop().replace(/\.ya?ml$/, ''), _path: f.path });
+    } catch { /* an unreadable entry is not offered; the file is still there to fix */ }
+  }
+  A.inbox.sort((a, b) => String(a.id).localeCompare(String(b.id)));
+}
+function inboxHtml() {
+  const rows = Work.inboxPending(A.inbox, A.work);
+  if (!rows.length) return '';
+  const li = e => {
+    const k = Work.inboxKey(e), j = e.jira && typeof e.jira === 'object' ? e.jira : {};
+    const tags = [j.type, ...(Array.isArray(j.labels) ? j.labels : []), ...(Array.isArray(j.components) ? j.components : [])].filter(x => typeof x === 'string');
+    return `<li><span class="id">${esc(k)}</span> ${esc(e.title || '')}${tags.length ? ` <span class="desc">${esc(tags.join(', '))}</span>` : ''}${e.swept ? ` <span class="desc">swept ${esc(e.swept instanceof Date ? e.swept.toISOString().slice(0, 10) : String(e.swept).slice(0, 10))}</span>` : ''}
+      <button class="btn primary" data-work="inboxaccept" data-key="${esc(k)}">Accept</button> <button class="btn" data-work="inboxdismiss" data-key="${esc(k)}">Dismiss</button></li>`;
+  };
+  return `<div class="block" data-inbox><h3>Inbox (${rows.length})</h3><div class="note">Jira issues assigned to you that scripts/sweep-jira.py found. Accept opens New item with the Jira target filled in; Dismiss keeps the issue from coming back.</div><ul>${rows.map(li).join('')}</ul></div>`;
+}
+async function workInboxAccept(key) {
+  const e = Work.inboxPending(A.inbox, A.work).find(x => Work.inboxKey(x) === key); if (!e) return;
+  await workNew({ jira: key, title: e.title || '' });
+}
+async function workInboxDismiss(key) {
+  const e = (A.inbox || []).find(x => Work.inboxKey(x) === key && x._path && !x._path.startsWith('inbox/dismissed/')); if (!e) return;
+  const text = textOf(e._path) ?? await host.read(e._path);
+  await host.write(`inbox/dismissed/${e._path.split('/').pop()}`, text);
+  await host.remove(e._path);
+  A.tree = await host.tree(); await loadInbox(); renderAll({ keepEditor: true });
 }
 
 const workStates = () => Work.states(A.work || [], A.ledger || []);
@@ -391,16 +430,17 @@ function renderWork() {
   };
   el.innerHTML = `<div class="dash"><div class="block"><h3>Work<span class="spacer"></span><button class="btn primary" data-work="new">New item</button></h3>
     <div class="note">One file per request in <code>work/</code>. Start pulls an item into active work and warns about clashes. Done is accepted only when the commit is on <code>${esc((A.cfg.work || {}).mainBranch || 'main')}</code> and every gate passed at that commit: what an agent says is never evidence.</div></div>
-    ${digestHtml()}${scopeBlockHtml()}${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
+    ${digestHtml()}${inboxHtml()}${scopeBlockHtml()}${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
   refreshRecheck();
   refreshDigest();
 }
 
 async function workNew(prefill) {
-  const title = await askText('What is this work? (a short title)', prefill ? `Build ${prefill.elements.join(', ')}` : ''); if (title == null) return;
+  const title = await askText('What is this work? (a short title)', prefill ? (prefill.jira ? prefill.title : `Build ${prefill.elements.join(', ')}`) : ''); if (title == null) return;
   const id = Core.slugId(`W ${title}`.trim(), new Set((A.work || []).map(i => i.id)));
   let text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`);
-  if (prefill) text = text.replace('requirement: TODO', `requirement: ${prefill.requirement}`).replace('elements: []', `elements: ${JSON.stringify(prefill.elements)}`);
+  if (prefill && prefill.jira) text = Work.fromInbox(text, prefill.jira);
+  else if (prefill) text = text.replace('requirement: TODO', `requirement: ${prefill.requirement}`).replace('elements: []', `elements: ${JSON.stringify(prefill.elements)}`);
   await host.write(`work/${id}.yaml`, text); A.tree = await host.tree();
   await openFile(`work/${id}.yaml`); await loadWork(); recompile(); renderAll({ keepEditor: true });
 }
@@ -514,5 +554,7 @@ document.addEventListener('click', e => {
   else if (t.dataset.work === 'seen') { markLooked(); WK.digest = null; refreshDigest(); }
   else if (t.dataset.work === 'addreq') workAddToRequirement(id, t.dataset.el);
   else if (t.dataset.work === 'additem') workAddToItem(t.dataset.req, t.dataset.el);
+  else if (t.dataset.work === 'inboxaccept') workInboxAccept(t.dataset.key);
+  else if (t.dataset.work === 'inboxdismiss') workInboxDismiss(t.dataset.key);
   else if (t.dataset.work === 'newfor') workNew({ requirement: t.dataset.req, elements: [t.dataset.el] });
 });
