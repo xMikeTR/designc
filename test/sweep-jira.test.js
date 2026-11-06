@@ -21,7 +21,7 @@ function serve(seen) {
     seen.push({ method: req.method, url: req.url, auth: req.headers.authorization });
     const u = new URL(req.url, 'http://x');
     res.writeHead(200, { 'content-type': 'application/json' });
-    if (u.pathname === '/rest/api/2/search') {
+    if (u.pathname === '/rest/api/3/search/jql') {
       return res.end(JSON.stringify({ total: Object.keys(issues).length, issues: Object.keys(issues).map(key => ({ key, fields: issues[key] })) }));
     }
     res.end('{}');

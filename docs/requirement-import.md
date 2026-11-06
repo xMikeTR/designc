@@ -37,13 +37,11 @@ JIRA_TOKEN=<personal access token> python3 scripts/fetch-jira.py <base-url> <new
 JIRA_TOKEN=<token> python3 scripts/fetch-jira.py <base-url> --discover [--jql "<query>"] [--max N]
 ```
 
-Standard library only, GET requests only. `<base-url>` is the site root (Data Center `https://jira.example.com`, Cloud
-`https://example.atlassian.net`); https is required, http only for localhost. Auth is the same as for Confluence, from
+Standard library only, GET requests only. `<base-url>` is the Jira Cloud site root (`https://example.atlassian.net`; the REST v3 API, so Data Center is not supported); https is required, http only for localhost. Auth is the same as for Confluence, from
 `JIRA_TOKEN` and `JIRA_USER` (`--token-env`, `--user-env`). Name issues by key, or give a JQL query such as
 `project = HRE AND component = Quotes` (at most `--max`, default 500; the report says when it stopped there). Each issue
 is saved as `<KEY>.md` in the markdown shape below: `id` is the key, `title` the summary, `source` the browse URL,
-`version` the issue's `updated` time (so any edit to the issue reads as changed on re-import), then the description as
-wiki markup. The report prints counts and HTTP status reasons only, never issue text or the token.
+`version` the issue's `updated` time (so any edit to the issue reads as changed on re-import), then the description, converted from the v3 API's Atlassian Document Format to plain markdown-style text (headings, lists, code, links). The report prints counts and HTTP status reasons only, never issue text or the token.
 
 Each file also carries `jira:` in the front matter, one line of JSON: `{"type":"Story","labels":[...],"components":[...],"priority":"High"}`
 (the assignee is never written). On import the raw `jira:` block is kept on the requirement, and
