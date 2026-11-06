@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
 const RI = require('../renderer/requirement-import.js');
 
 const md = (front, body = '# Heading\n\nText.\n') => `---\n${front}\n---\n${body}`;
@@ -172,4 +173,17 @@ test('the optional mapped fields on a requirement are validated the same in the 
   const R = require('../renderer/records.js');
   assert.deepEqual(R.validate('requirement', { id: 'a', title: 't', risk: 'high', data_class: 'pii', repo: 'r', jira: { labels: [] } }), []);
   assert.deepEqual(R.validate('requirement', { id: 'a', title: 't', risk: '', jira: [] }), ['risk: must be a non-empty string', 'jira: must be a mapping']);
+});
+
+test('the Python records validator agrees with the JS one on the optional requirement fields', () => {
+  const { execFileSync } = require('child_process');
+  const R = require('../renderer/records.js');
+  const cases = [
+    { id: 'a', title: 't', risk: 'high', data_class: 'pii', repo: 'r', jira: { labels: [] } },
+    { id: 'a', title: 't', risk: '', jira: [] },
+    { id: 'a', title: 't', data_class: 3, repo: ' ' },
+    { id: 'a', title: 't' },
+  ];
+  const py = JSON.parse(execFileSync('python3', ['-I', '-c', 'import sys,json\nsys.path.insert(0, sys.argv[1])\nfrom designc import records\nprint(json.dumps([records.validate("requirement", c) for c in json.load(sys.stdin)]))', path.join(__dirname, '..', 'python')], { input: JSON.stringify(cases), encoding: 'utf8' }));
+  assert.deepEqual(py, cases.map(c => R.validate('requirement', c)));
 });
