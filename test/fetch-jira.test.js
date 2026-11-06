@@ -10,8 +10,10 @@ const RI = require('../renderer/requirement-import.js');
 const script = path.join(__dirname, '..', 'scripts', 'fetch-jira.py');
 
 const issues = {
-  'DEMO-100': { summary: 'Quote edits:  keep\nunderwriter changes', description: 'SECRET BODY\r\nh2. Acceptance', updated: '2026-10-01T10:00:00.000+0000' },
-  'DEMO-101': { summary: 'Referral status', description: null, updated: '2026-10-02T09:00:00.000+0000' },
+  'DEMO-100': { summary: 'Quote edits:  keep\nunderwriter changes', description: 'SECRET BODY\r\nh2. Acceptance', updated: '2026-10-01T10:00:00.000+0000',
+    issuetype: { name: 'Story' }, labels: ['lbl-alpha', 'lbl-beta'], components: [{ name: 'comp-one' }], priority: { name: 'High' }, assignee: { displayName: 'SECRET PERSON' } },
+  'DEMO-101': { summary: 'Referral status', description: null, updated: '2026-10-02T09:00:00.000+0000',
+    issuetype: { name: 'Bug' }, labels: ['lbl-alpha'], components: [] },
 };
 
 function serve(seen, { cloud } = {}) {
@@ -27,11 +29,11 @@ function serve(seen, { cloud } = {}) {
     const keys = Object.keys(issues);
     if (u.pathname === '/rest/api/2/search' && !cloud) {
       const start = Number(u.searchParams.get('startAt'));
-      return send(200, { total: keys.length, issues: keys.slice(start, start + 1).map(key => ({ key })) });
+      return send(200, { total: keys.length, issues: keys.slice(start, start + 1).map(key => ({ key, fields: issues[key] })) });
     }
     if (u.pathname === '/rest/api/2/search/jql' && cloud) {
       const i = Number(u.searchParams.get('nextPageToken') || 0);
-      return send(200, { issues: [{ key: keys[i] }], ...(i + 1 < keys.length ? { nextPageToken: String(i + 1) } : { isLast: true }) });
+      return send(200, { issues: [{ key: keys[i], fields: issues[keys[i]] }], ...(i + 1 < keys.length ? { nextPageToken: String(i + 1) } : { isLast: true }) });
     }
     send(cloud ? 410 : 404, {});
   });
@@ -107,4 +109,34 @@ test('refuses a missing token, a plain-http remote host, a bad key and nothing t
   assert.equal((await run(['http://jira.example.com', d, 'DEMO-1'], { JIRA_TOKEN: 't' })).code, 2);
   assert.equal((await run(['https://jira.example.com', d, '../x'], { JIRA_TOKEN: 't' })).code, 2);
   assert.equal((await run(['https://jira.example.com', d], { JIRA_TOKEN: 't' })).code, 2);
+});
+
+test('front matter carries a one-line jira block of type, labels, components and priority, and the importer reads it', async () => {
+  const seen = [];
+  const server = await serve(seen);
+  const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jira-')), 'issues');
+  await run([`http://127.0.0.1:${server.address().port}`, out, 'DEMO-100', 'DEMO-101'], { JIRA_TOKEN: 't' });
+  server.close();
+  assert.match(seen.find(s => s.url.includes('/issue/DEMO-100')).url, /fields=summary%2Cdescription%2Cupdated%2Cissuetype%2Clabels%2Ccomponents%2Cassignee%2Cpriority/);
+  const text = fs.readFileSync(path.join(out, 'DEMO-100.md'), 'utf8');
+  assert.equal(text.includes('SECRET PERSON'), false, 'assignee is requested but never written');
+  const read = RI.read({ name: 'DEMO-100.md', text });
+  assert.deepEqual(read.jira, { type: 'Story', labels: ['lbl-alpha', 'lbl-beta'], components: ['comp-one'], priority: 'High' });
+  const bare = RI.read({ name: 'DEMO-101.md', text: fs.readFileSync(path.join(out, 'DEMO-101.md'), 'utf8') });
+  assert.deepEqual(bare.jira, { type: 'Bug', labels: ['lbl-alpha'], components: [] });
+});
+
+test('--discover lists labels, components and issue types with counts, GET only, and prints no issue text or token', async () => {
+  for (const cloud of [false, true]) {
+    const seen = [];
+    const server = await serve(seen, { cloud });
+    const r = await run([`http://127.0.0.1:${server.address().port}`, '--discover', '--jql', 'project = DEMO'], { JIRA_TOKEN: 'tok-9' });
+    server.close();
+    assert.equal(r.code, 0, r.out);
+    assert.match(r.out, /labels:\n\s+lbl-alpha 2\n\s+lbl-beta 1/);
+    assert.match(r.out, /components:\n\s+comp-one 1/);
+    assert.match(r.out, /issue types:\n\s+Bug 1\n\s+Story 1/);
+    assert.equal(/SECRET|tok-9|Quote edits/.test(r.out), false);
+    assert.equal(seen.every(s => s.method === 'GET' && !s.url.includes('/issue/')), true);
+  }
 });

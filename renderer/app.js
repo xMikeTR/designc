@@ -858,9 +858,10 @@ function importReview(plan, skipped) {
     const row = i => `<div class="item"><div class="l1"><span class="id">${esc(i.id || i.file)}</span><span class="tag ${i.status === 'invalid' ? 'open' : ''}">${esc(i.status)}</span></div>`
       + `<div class="l2">${esc(i.status === 'invalid' ? i.problems.join(' ') : `${i.title}${i.status === 'changed' ? ` (version ${i.from} to ${i.version}: bound business decisions will need re-binding)` : ''}`)}</div></div>`;
     const s = plan.summary;
+    const um = plan.unmappedNames ? `<div class="hint">${esc(`${plan.unmappedNames} unmapped label or component name${plan.unmappedNames === 1 ? '' : 's'}: kept as they are under jira: (add them to jira-mapping.yaml to map them).`)}</div>` : '';
     const sk = skipped.length ? `<div class="hint">Skipped: ${esc(skipped.map(k => `${k.name} (${k.reason})`).join(', '))}</div>` : '';
     el.innerHTML = `<div class="askcard" style="width:620px"><label>${esc(`${s.new} new, ${s.changed} changed, ${s.unchanged} unchanged, ${s.invalid} not importable.`)}</label>`
-      + `<div style="max-height:46vh;overflow:auto">${plan.items.filter(i => i.status !== 'unchanged').map(row).join('') || '<div class="hint">Nothing to import.</div>'}</div>${sk}`
+      + `<div style="max-height:46vh;overflow:auto">${plan.items.filter(i => i.status !== 'unchanged').map(row).join('') || '<div class="hint">Nothing to import.</div>'}</div>${um}${sk}`
       + `<div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button>`
       + (s.changed ? `<button type="button" class="btn" data-go="new" ${s.new ? '' : 'disabled'}>Import ${s.new} new only</button>` : '')
       + `<button type="button" class="btn primary" data-go="all" ${s.new + s.changed ? '' : 'disabled'}>${s.changed ? `Import ${s.new} new and update ${s.changed}` : `Import ${s.new} new`}</button></div></div>`;
@@ -870,6 +871,11 @@ function importReview(plan, skipped) {
     document.body.appendChild(el); el.querySelector('.primary').focus();
   });
 }
+// jira-mapping.yaml in the registry root; missing, empty or unreadable means "map nothing" (never an error).
+async function loadJiraMapping() {
+  const t = await readText('jira-mapping.yaml'); if (t == null) return null;
+  try { return jsyaml.load(t) || null; } catch { return null; }
+}
 async function importRequirements() {
   const dir = await host.chooseImportFolder(); if (!dir) return;
   A.importDir = dir;
@@ -877,7 +883,7 @@ async function importRequirements() {
   if (r.error) return toast(r.error, 'warning');
   if (!r.pages.length) return toast('That folder has no .html or .md files. Export the pages as HTML, or convert them first (docs/requirement-import.md).', 'warning');
   const existing = A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source }));
-  const plan = RequirementImport.plan(r.pages, { existing });
+  const plan = RequirementImport.plan(r.pages, { existing, mapping: await loadJiraMapping() });
   const choice = await importReview(plan, r.skipped || []); if (!choice) return;
   let n = 0;
   for (const i of plan.items) {

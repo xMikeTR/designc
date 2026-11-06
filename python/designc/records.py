@@ -97,6 +97,10 @@ def validate(kind, rec):
             ok = e[5:] in GATE_KINDS if e.startswith('gate:') else (e.startswith('chk-') or _MLANG.match(e) or _CHECK_ID.fullmatch(e))
             if not ok: errs.append(f'enforced_by: {e} is not a check id, gate:<clause kind> or mlang:<rule id>')
     if kind == 'requirement' and not _str(rec.get('title')): errs.append('title: required')
+    if kind == 'requirement':
+        for f in ('risk', 'data_class', 'repo'):
+            if rec.get(f) is not None and not _str(rec[f]): errs.append(f'{f}: must be a non-empty string')
+        if rec.get('jira') is not None and not isinstance(rec['jira'], dict): errs.append('jira: must be a mapping')
     if kind == 'verdict':
         if rec.get('verdict') not in VERDICTS: errs.append(f"verdict: must be one of {'|'.join(VERDICTS)}")
         if not _list(rec.get('scope')): errs.append('scope: a verdict names what it judges')

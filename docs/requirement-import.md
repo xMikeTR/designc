@@ -34,6 +34,7 @@ prints counts and HTTP status reasons only, never page text or the token.
 
 ```
 JIRA_TOKEN=<personal access token> python3 scripts/fetch-jira.py <base-url> <new-output-folder> [<issue-key>...] [--jql "<query>"] [--max N]
+JIRA_TOKEN=<token> python3 scripts/fetch-jira.py <base-url> --discover [--jql "<query>"] [--max N]
 ```
 
 Standard library only, GET requests only. `<base-url>` is the site root (Data Center `https://jira.example.com`, Cloud
@@ -43,6 +44,23 @@ Standard library only, GET requests only. `<base-url>` is the site root (Data Ce
 is saved as `<KEY>.md` in the markdown shape below: `id` is the key, `title` the summary, `source` the browse URL,
 `version` the issue's `updated` time (so any edit to the issue reads as changed on re-import), then the description as
 wiki markup. The report prints counts and HTTP status reasons only, never issue text or the token.
+
+Each file also carries `jira:` in the front matter, one line of JSON: `{"type":"Story","labels":[...],"components":[...],"priority":"High"}`
+(the assignee is never written). On import the raw `jira:` block is kept on the requirement, and
+`jira-mapping.yaml` (registry root) turns labels and components into the optional requirement fields `risk`, `data_class`
+and `repo`:
+
+```yaml
+labels:     { my-label: { risk: high, data_class: personal } }
+components: { my-component: { repo: my-repo } }
+```
+
+Nothing is built in: a missing or empty file maps nothing. Where several entries match, the highest `risk`
+(low < medium < high < critical) wins and the first `data_class` and `repo` win. Labels and components with no entry are
+not an error; the import review says how many there were ("N unmapped label or component names"). To write the mapping, run
+`--discover`: it lists the labels, components and issue types in use among the issues the query finds (default: updated in
+the last 30 days), with counts, and prints no page text. The handover carries a requirement's `risk` and `data_class`;
+S2's task spec should prefer them over its own guess (a follow-up, not part of the import).
 
 ## Markdown (the converter contract)
 
