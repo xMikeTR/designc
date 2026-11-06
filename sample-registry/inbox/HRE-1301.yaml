@@ -1,0 +1,5 @@
+id: HRE-1301
+title: "Referral worker should retry a failed quote update once"
+jira: {"type": "Story", "labels": ["sample-label"], "components": ["sample-component"], "priority": "Medium"}
+target: { jira: HRE-1301 }
+swept: 2026-11-05
