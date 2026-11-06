@@ -78,6 +78,10 @@
       }
     }
     if (kind === 'requirement' && !str(rec.title)) errs.push('title: required');
+    if (kind === 'requirement') {
+      for (const f of ['risk', 'data_class', 'repo']) if (rec[f] != null && !str(rec[f])) errs.push(`${f}: must be a non-empty string`);
+      if (rec.jira != null && (typeof rec.jira !== 'object' || Array.isArray(rec.jira))) errs.push('jira: must be a mapping');
+    }
     if (kind === 'verdict') {
       if (!VERDICTS.includes(rec.verdict)) errs.push(`verdict: must be one of ${VERDICTS.join('|')}`);
       if (!list(rec.scope).length) errs.push('scope: a verdict names what it judges');
