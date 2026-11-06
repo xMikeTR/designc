@@ -47,7 +47,7 @@ if (typeof Ledger !== 'undefined') {
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
-const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -682,7 +682,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });

@@ -56,7 +56,7 @@ C4Container
     Container(renderer, "Renderer", "Classic scripts, Monaco", "Design compiler, views, canvas, agent panel and all agent policy decisions")
     Container(mcp, "designc MCP server", "Node stdio", "Proxies tools/list and tools/call from ACP agents to the main process")
   }
-  ContainerDb(registry, "Registry folder", "Plain files", "model, decisions, requirements, proposals, handovers, asbuilt, ledger, designc.json; a study registry holds study/ topics instead of a model")
+  ContainerDb(registry, "Registry folder", "Plain files", "model, decisions, requirements, proposals, inbox, handovers, asbuilt, ledger, designc.json, jira-mapping.yaml; a study registry holds study/ topics instead of a model")
   ContainerDb(codebase, "Codebase", "Source tree", "Read-only: extracted, searched, read")
   System_Ext(gateway, "LLM gateway", "OpenAI-compatible, e.g. LiteLLM")
   System_Ext(langfuse, "Langfuse", "Observations v2, Scores v3")
@@ -86,7 +86,7 @@ C4Container
 | `git.js` | The only caller of the git binary: hardened read-only status, refs, log, show, confined to the registry | `findRepo, status, refs, log, show, head, isAncestor` | `main.js`, `test/git.test.js` | git binary |
 | `renderer/gitview.js` | Git UI: status bar item, History, Compare tab | `G`, `gitRefresh`, `renderCompare` | `renderer/app.js` hooks | — |
 | `renderer/work.js` | Work item rules: validate, states, conflicts, what is missing before Done. Pure, dual-loaded | `Work.validate, states, conflicts, doneProblems, coverage, addToList` | `renderer/workview.js`, `test/work.test.js` | `renderer/pathpattern.js` |
-| `renderer/workview.js` | Work view: backlog, Start, Run gates, Done | `loadWork`, `renderWork` | `renderer/app.js` hooks | `host.work*` |
+| `renderer/workview.js` | Work view: Inbox (accept, dismiss), backlog, Start, Run gates, Done | `loadWork`, `renderWork` | `renderer/app.js` hooks | `host.work*` |
 | `renderer/parity.js` | Legacy parity contract: shapes, normalise, exceptions from acceptance and business decisions, diff, compare, `parity_result`. Pure, dual-loaded | `Parity.normalise, snapshot, diff, compare, resultEvent, scenarioProblems, detect` | `renderer/parityview.js`, `renderer/agent.js`, `recorder/`, `scripts/parity-record.js`, tests | none |
 | `renderer/parity-qa.js` | QA bugs against recorded parity: behaviour table, grouped diff (missing, divergent, new-only), `parity/qa/<screen>.yaml` reader, buckets (caught, not captured, state not recorded, not flagged, triage), and the join of UI-graph controls to the recording (7f). Pure, dual-loaded, fixed rules | `ParityQa.behaviour, group, read, report, fromCode` | `renderer/parityview.js`, `scripts/parity-qa.js`, tests | none |
 | `renderer/parityview.js` | Parity view: scenarios, ledger results, report findings, screenshots | `loadParityScenarios`, `renderParity`, `parityNote` | `renderer/workview.js`, `renderer/app.js` hooks | `host.parityShot`, `host.list`, `host.read` |
@@ -207,7 +207,7 @@ Used by structural-centrality-guard to determine escalation threshold.
 | The gate never checks that a name in `binds` or `elements` exists in the model | `renderer/core.js:360` | Implicit invariant | See Known Risks |
 | Only the designc `needs_decision` kind with `status: open` blocks the gate | `renderer/core.js:385` | Business rule | Harness `NeedsDecision` never does |
 | Drift matches elements by `key(name)`: lowercase, alphanumerics only, plus `d.aka` | `renderer/core.js:394` | Business rule | The existing "normalised name" |
-| Registry YAML is loaded from four flat folders (`decisions`, `requirements`, `proposals`, `handovers`), one level deep, open buffers taking precedence over disk, sorted by `id` | `renderer/app.js:94` `loadYamlDir`, `main.js:166` `fs:list` | Implicit invariant | A subfolder is never read |
+| Registry YAML is loaded from four flat folders (`decisions`, `requirements`, `proposals`, `handovers`), one level deep (`work/` and `inbox/` are read the same way by the Work view; `inbox/dismissed/` is never read), open buffers taking precedence over disk, sorted by `id` | `renderer/app.js:94` `loadYamlDir`, `main.js:166` `fs:list` | Implicit invariant | A subfolder is never read |
 | A registry file's `id` is its `id:` field, else its file name; nothing checks that the two agree or that ids are unique | `renderer/app.js:101` | Implicit invariant | Lookups use `find(x => x.id === …)`: first match wins |
 | A decision with no `status` is `minted`; with no `effect` it is `fix` | `renderer/app.js:109` | Business rule | |
 | New decision, proposal, handover and escape ids are `<prefix>-<max+1, 4 digits>` over the loaded list | `renderer/app.js:72` `nextId`; also `renderer/agent.js:124`, `:141` | Business rule | Reads the number after the first `-` |

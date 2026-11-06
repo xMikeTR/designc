@@ -17,6 +17,7 @@ const CRITICAL = [
   'user can study a topic and decide from it @critical',
   'user can pin a domain pack and see it checked @critical',
   'user can see legacy parity and what it holds a work item to @critical',
+  'user can accept or dismiss a swept Jira issue @critical',
 ];
 const specs = () => fs.readdirSync(DIR).filter(f => f.endsWith('.spec.js'))
   .map(f => ({ f, text: fs.readFileSync(path.join(DIR, f), 'utf8') }));

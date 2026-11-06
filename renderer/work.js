@@ -325,6 +325,20 @@ const Work = (() => {
     return JSON.stringify([d.needs.map(n => [n.kind, n.id, n.item, n.ts]), d.failed.map(f => [f.item, f.kind, f.ts])]);
   }
 
-  return { KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
+  // Inbox entries (inbox/<KEY>.yaml, written by scripts/sweep-jira.py) still waiting for a person: not already the target of
+  // a work item. The key is target.jira, else the id; an entry whose key is not a Jira key is not offered.
+  const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,30}-\d{1,10}$/;
+  const inboxKey = e => String((e && e.target && e.target.jira) || (e && e.id) || '');
+  function inboxPending(inbox, items) {
+    const taken = new Set((items || []).map(i => i.target && i.target.jira).filter(Boolean).map(String));
+    return (inbox || []).filter(e => JIRA_KEY.test(inboxKey(e)) && !taken.has(inboxKey(e)));
+  }
+  // The work-item template with its requirement and elements lines replaced by a Jira target.
+  function fromInbox(template, key) {
+    return String(template).split('\n').filter(l => !/^(requirement|elements):/.test(l)).join('\n')
+      .replace(/\n*$/, '') + `\ntarget: { jira: ${JSON.stringify(key)} }\n`;
+  }
+
+  return { inboxKey, inboxPending, fromInbox, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

@@ -378,3 +378,34 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   await expect(page.locator('#termBody')).toContainText('tags-list');
   expect(fs.readFileSync(report, 'utf8')).toBe(before);
 });
+
+test('user can accept or dismiss a swept Jira issue @critical', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.mkdirSync(path.join(reg, 'inbox'));
+  for (const [k, t] of [['ZZ-1', 'Accept me'], ['ZZ-2', 'Dismiss me']]) {
+    fs.writeFileSync(path.join(reg, 'inbox', `${k}.yaml`), `id: ${k}\ntitle: ${JSON.stringify(t)}\njira: {"type": "Story", "labels": ["lbl-a"], "components": []}\ntarget: { jira: ${k} }\nswept: 2026-11-05\n`);
+  }
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const inbox = page.locator('[data-inbox]');
+  await expect(inbox.getByText('Accept me')).toBeVisible();
+
+  // Dismiss moves the entry out of the way, never deletes it.
+  await inbox.locator('li', { hasText: 'Dismiss me' }).getByRole('button', { name: 'Dismiss' }).click();
+  await expect(inbox.getByText('Dismiss me')).toHaveCount(0);
+  expect(fs.existsSync(path.join(reg, 'inbox/dismissed/ZZ-2.yaml'))).toBe(true);
+  expect(fs.existsSync(path.join(reg, 'inbox/ZZ-2.yaml'))).toBe(false);
+
+  // Accept goes through New item: the person confirms the title, and the item targets the Jira issue.
+  await inbox.locator('li', { hasText: 'Accept me' }).getByRole('button', { name: 'Accept' }).click();
+  await page.locator('.askcard input').fill('Accept me');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => fs.readdirSync(path.join(reg, 'work')).filter(f => f.endsWith('.yaml')).length).toBe(1);
+  const file = fs.readdirSync(path.join(reg, 'work')).find(f => f.endsWith('.yaml'));
+  expect(fs.readFileSync(path.join(reg, 'work', file), 'utf8')).toMatch(/^target: \{ jira: "ZZ-1" \}$/m);
+  // Back on the Work tab, the accepted issue is gone from the inbox and the new item is in the backlog.
+  await page.getByRole('tab', { name: /^WK Work/ }).click();
+  await expect(page.locator('[data-workitem]')).toHaveCount(1);
+  await expect(page.locator('[data-inbox]')).toHaveCount(0);
+});
