@@ -1,0 +1,167 @@
+{
+  "commit": "1111111111111111111111111111111111111111",
+  "item": "W-parity",
+  "next": {
+    "scenario": "tags-list",
+    "side": "next",
+    "adapter": "fixture",
+    "steps": [
+      {
+        "n": 1,
+        "action": "goto",
+        "status": "ok",
+        "shot": "3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a",
+        "viewport": {
+          "width": 1280,
+          "height": 800
+        },
+        "elements": [
+          {
+            "role": "heading",
+            "enabled": true,
+            "box": null,
+            "name": "Adhoc tags",
+            "children": [],
+            "key": "heading:Adhoc tags"
+          },
+          {
+            "role": "textbox",
+            "enabled": true,
+            "box": null,
+            "testId": "program-search",
+            "name": "Program",
+            "children": [],
+            "key": "textbox:Program"
+          },
+          {
+            "role": "table",
+            "enabled": true,
+            "box": null,
+            "name": "Programs",
+            "columns": [
+              {
+                "name": "Program",
+                "shape": "text:Aa"
+              },
+              {
+                "name": "Inception",
+                "shape": "date:dddd-0d-dd"
+              }
+            ],
+            "records": 3,
+            "children": [
+              {
+                "role": "row",
+                "name": "",
+                "enabled": true,
+                "box": null,
+                "key": "row:head",
+                "children": [
+                  {
+                    "role": "columnheader",
+                    "enabled": true,
+                    "box": null,
+                    "name": "Program",
+                    "children": [],
+                    "key": "columnheader:Program"
+                  },
+                  {
+                    "role": "columnheader",
+                    "enabled": true,
+                    "box": null,
+                    "name": "Inception",
+                    "children": [],
+                    "key": "columnheader:Inception"
+                  }
+                ]
+              },
+              {
+                "role": "row",
+                "name": "",
+                "enabled": true,
+                "box": null,
+                "key": "row:record",
+                "children": [
+                  {
+                    "role": "cell",
+                    "enabled": true,
+                    "box": null,
+                    "column": "Program",
+                    "name": "",
+                    "data": true,
+                    "shape": "text:Aa",
+                    "children": [],
+                    "key": "cell[Program]"
+                  },
+                  {
+                    "role": "cell",
+                    "enabled": true,
+                    "box": null,
+                    "column": "Inception",
+                    "name": "",
+                    "data": true,
+                    "shape": "date:dddd-0d-dd",
+                    "children": [],
+                    "key": "cell[Inception]"
+                  }
+                ]
+              }
+            ],
+            "checks": [
+              {
+                "kind": "sort",
+                "column": "Inception",
+                "dir": "asc"
+              }
+            ],
+            "key": "table:Programs"
+          },
+          {
+            "role": "button",
+            "enabled": true,
+            "box": null,
+            "name": "Bulk apply",
+            "children": [],
+            "key": "button:Bulk apply"
+          },
+          {
+            "role": "button",
+            "enabled": false,
+            "box": null,
+            "name": "Export",
+            "children": [],
+            "key": "button:Export"
+          }
+        ]
+      }
+    ]
+  },
+  "result": {
+    "scenario": "tags-list",
+    "outcome": "fail",
+    "steps": [
+      {
+        "n": 1,
+        "action": "goto",
+        "legacyShot": "87bb1f5c685a7d0efb5bdc27d0d9d0e08e5f896b7cab7891fb688dbf050476c4",
+        "nextShot": "3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a",
+        "findings": [
+          {
+            "kind": "shape",
+            "key": "table:Programs/column:Inception",
+            "severity": "fail",
+            "msg": "column \"Inception\" is date:dddd-0d-dd; legacy shows date:dd/0d/dddd",
+            "role": "columnheader",
+            "name": "Inception"
+          }
+        ],
+        "status": "compared"
+      }
+    ],
+    "counts": {
+      "fail": 1,
+      "covered": 0,
+      "could_not_run": 0
+    }
+  }
+}

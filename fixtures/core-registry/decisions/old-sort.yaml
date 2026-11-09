@@ -1,0 +1,4 @@
+id: old-sort
+status: superseded
+binds: [Tags API]
+statement: "Tags are sorted in the browser"

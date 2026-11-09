@@ -6,6 +6,7 @@ from urllib.parse import urlparse
 
 from . import domain
 from .evals import _OPS, parse_threshold
+from .records import runs
 from .rules import fingerprint, get, hash16, interaction, num, structural
 
 
@@ -13,7 +14,7 @@ from .rules import fingerprint, get, hash16, interaction, num, structural
 def accept_without_check(dec):
     """An accepted risk rests on its business decision and needs no check; a TODO placeholder is not a check.
     Same rule as core.js and renderer/ledger.js."""
-    return dec.get('effect') in ('accept', 'build') and not any(c and not str(c).startswith('TODO') for c in (dec.get('checks') or []))
+    return dec.get('effect') in ('accept', 'build') and not any(c and not c.startswith('TODO') for c in runs(dec))
 
 def _s(v):
     """String(v) as JavaScript does it, for ids and versions read from YAML."""
@@ -238,7 +239,7 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=()):
     work_states = work_states or {}
     clauses = []
     if model.errors:
@@ -264,7 +265,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     for f in diags:
         if f['suppressed'] or f['sev'] == 'note': continue
         if any(covers(d, f) for d in bound): continue
-        clauses.append({'kind': 'finding', 'text': f"{f['code']} on {f['loc']['label']} is neither fixed nor accepted",
+        clauses.append({'kind': 'finding', 'sev': f['sev'], 'text': f"{f['code']} on {f['loc']['label']} is neither fixed nor accepted",
                         'about': list(f['loc']['names']) + [n for r in f.get('related') or [] for n in r.get('names', [])]})
     bound_business = {d['id'] for d in decisions if d.get('status') == 'bound' and d.get('kind') == 'business'}
     for dec in decisions:
@@ -273,6 +274,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             kind = 'technical' if dec.get('kind') is None else dec['kind']
             if kind not in ('business', 'technical'):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} has kind {_s(kind)}, expected business or technical"})
+            if dec.get('status') in ('superseded', 'retired'): continue
             if dec.get('status') != 'bound':
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} is {dec.get('status') or 'minted'}, not bound"}); continue
             business = kind == 'business'
@@ -281,7 +283,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
             elif dec.get('effect') == 'accept' and not any(i in bound_business for i in (dec.get('relies_on') or [])):
                 clauses.append({'kind': 'decision', 'text': f"{dec['id']} accepts a risk without a bound business decision"})
             if not business and not accept_without_check(dec):
-                if not (dec.get('checks') or []):
+                if not runs(dec):
                     clauses.append({'kind': 'decision', 'text': f"{dec['id']} has no check"}); continue
                 last = latest(ledger, 'check', 'decision', dec['id'])
                 if not last: clauses.append({'kind': 'check', 'text': f"{dec['id']}: no check result recorded yet"})
@@ -314,6 +316,19 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     for req in requirements:
         traced = any(d.get('requirement') == req['id'] for d in decisions) or any(n in names for n in (req.get('elements') or []))
         if not traced: clauses.append({'kind': 'requirement', 'text': f"{req['id']} is not traced to any element or decision", 'requirement': req['id']})
+    if (repos or {}) and not api_contracts:
+        def repo_of(e):
+            c = e
+            while c is not None:
+                v = c.props.get('d.repo')
+                if v is not None: return str(v).strip()
+                c = model.elements.get(c.parent) if c.parent else None
+            return None
+        for req in requirements:
+            names = [str(n) for n in (req.get('elements') or [])]
+            span = {r for r in (repo_of(e) for e in model.elements.values() if e.name in names) if r}
+            if len(span) > 1:
+                clauses.append({'kind': 'unpinned_contract', 'text': f"{req['id']} spans {', '.join(sorted(span))}: pin an OpenAPI contract in contracts/openapi/ first", 'requirement': req['id'], 'about': names})
     for nd in (e for e in ledger if e.get('kind') == 'needs_decision' and e.get('status') == 'open'):
         clauses.append({'kind': 'needs', 'text': f"open needs-decision {nd.get('id') or ''}: {nd.get('question')}".strip(),
                         **({'about': [_s(nd['element'])]} if nd.get('element') else {})})
@@ -356,7 +371,8 @@ def domain_clauses(model, ledger, domains):
 def scoped_gate(g, model, elements, requirement, decisions):
     """The gate as one work item sees it (Core.scopedGate): model-wide clauses always count, a decision clause
     when the decision binds an in-scope element, a requirement clause when it is one of the item's requirements (one id or a list), any
-    other clause when `about` names one. A clause that names nothing counts."""
+    other clause when `about` names one. A clause that names nothing counts. A warning on an in-scope element does not
+    block: it comes back as `warnings`."""
     scope = set(elements)
     for e in model.elements.values():
         if e.name in scope: scope.add(model.label(e.id))
@@ -372,7 +388,9 @@ def scoped_gate(g, model, elements, requirement, decisions):
             ok = d is None or touches(d.get('binds') or [])
         else: ok = touches(c['about']) if c.get('about') else True
         if ok: keep.append(c)
-    return {'ready': not keep, 'clauses': keep, 'scoped': True, 'outside': len(g['clauses']) - len(keep)}
+    warnings = [c for c in keep if c['kind'] == 'finding' and c.get('sev') == 'warning']
+    blocking = [c for c in keep if c not in warnings]
+    return {'ready': not blocking, 'clauses': blocking, 'warnings': warnings, 'scoped': True, 'outside': len(g['clauses']) - len(keep)}
 
 
 # ---------- agent evals (Core.evalReport, Core.evalClauses) ----------

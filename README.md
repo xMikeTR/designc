@@ -4,7 +4,7 @@ A system design IDE in which **the design is the source and code is a build outp
 
 The rule behind every feature: **probabilistic components propose; deterministic components and humans decide.** Agents (LLMs) can draft and suggest. Nothing they produce is written without a policy check and your explicit approval, and the gate that says "ready for handover" is plain code, not a model.
 
-New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthrough of designc and the S2 pipeline.
+New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthrough of designc and the S2 pipeline. Trying one module first? [docs/test-drive.md](docs/test-drive.md) takes it from code map to parity to a build without clearing the whole gate.
 
 ![Explorer](docs/explorer.png)
 
@@ -14,6 +14,7 @@ New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthro
 - [The views](#the-views), one by one
 - [Code map](#code-map), its levels, code quality and coverage
 - [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
+- [Recording legacy parity](#recording-legacy-parity), including login and mock mode
 - [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
 - Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
@@ -26,11 +27,12 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
 | **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC009) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
+| **Parity** | Does the new app match the legacy one | Scenarios replayed on both apps by the recorder (`scripts/parity-record.js`), compared on structure, interface text and the shape of data, never the data; findings per step with legacy and new screenshots side by side. A work item can require a pass with `done_when: - parity: all` (see `docs/parity-contract.md`) |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
 | **Code map** | What the code actually is (as built) | Extract a .NET, TS/JS or F# codebase into a C4 map with evidence, down to **types and methods**, overlaid on the design as drift, with code quality warnings. See [Code map](#code-map) |
 | **Build** | The coding pipeline | Agent runs from Langfuse plus ledger events: tokens per passing task, reruns, decision checks, needs-decision items, drift, handover cost forecast against actual |
-| **Work** | Work items for the build | Backlog and active items, New item, Start, Run gates, Freeze item (against a scoped gate), Done (needs evidence for every `done_when` entry and, for a repo item, a passing gate at a commit on main). A digest at the top says what needs you, what failed a gate, what is done since you last looked and what is waiting, including items over budget. Cards show the pipeline's judge score as a gradient that never decides Done |
+| **Work** | Work items for the build | Backlog and active items, New item, Start, Run gates, Freeze item (against a scoped gate), Done (needs evidence for every `done_when` entry and, for a repo item, a passing gate at a commit on main). A digest at the top says what needs you, what failed a gate, what is done since you last looked and what is waiting, including items over budget. Cards show the pipeline's judge score as a gradient that never decides Done. Swept Jira issues wait in an **Inbox** for you to accept or dismiss |
 | **Source control** | Git, daily loop | Branch, fetch, pull (fast-forward only), push (never forces), stage, commit. Freezing a handover pre-fills the commit. Compare tab shows a meaning-level diff of the model |
 | **Improve** | Evals and the improvement loop | Escapes by the stage that should have caught them, rule health, proposals, agent activity, ledger integrity, agent evals, factory suite runs, failure modes, eval tasks, judge calibration, escapes in other registries |
 | **Set up** | First-run settings page | Model file, LLM provider and Langfuse; each skippable, with Test connection. Keys stay in environment variables |
@@ -65,6 +67,14 @@ The installers are unsigned. On a managed Windows machine SmartScreen or Intune 
 ## Code map
 
 Set `"codebase"` in `designc.json` (or use the Code map view's "Choose codebase folder"), then Run > Extract Code Map (Ctrl+Shift+R). The codebase is only read, never changed. The result is written to `asbuilt/workspace.dsl` and `asbuilt/facts.json` in the registry, so extractions are versioned with everything else, and an `extraction` event goes to the ledger.
+
+**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), declare them in `designc.json` and leave `codebase` out:
+
+```json
+"repos": { "Api": "../api", "Ui": "../ui" }
+```
+
+Extract Code Map then reads each repo on its own and draws one map. A call the UI makes to a route the API provides becomes an edge across the repos, and every file path in the map starts with its repo key (`Api/src/Orders.cs`), which is also how files open and search. Name the repo on each container with `d.repo` and keep `d.code` relative to that repo. Two repos that each hold a container of the same name are kept apart as `Orders (Api)` and `Orders (Ui)`. Not yet supported with `repos`: the UI screen graph (`ui.screens`), `extract.coverage` and `extract.intent`; each says so in the map's unresolved list. Only calls over HTTP, SignalR and queues link across repos, not a package one repo publishes and the other installs.
 
 ![Code map](docs/codemap.png)
 
@@ -277,7 +287,9 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `behaviour/*.p` | P models, one per protocol |
 | `requirements/*.yaml` | Jira keys the design answers |
 | `decisions/*.yaml` | Decisions: `minted`, then `bound` by a human, each with `checks` |
-| `requirements/*.yaml` from import | Requirement stubs made from exported pages (`.html`, `.md`) with the ⇩ button in the Requirements section: a review shows new, changed, unchanged and not importable pages, and page text is never stored. Word, PDF, Confluence and Jira converters are in `scripts/` (`convert-pages.py`, `fetch-confluence.py`, `fetch-jira.py`); see `docs/requirement-import.md` |
+| `requirements/*.yaml` from import | Requirement stubs made from exported pages (`.html`, `.md`) with the ⇩ button in the Requirements section: a review shows new, changed, unchanged and not importable pages, and page text is never stored. Word, PDF, Confluence and Jira converters are in `scripts/` (`convert-pages.py`, `fetch-confluence.py`, `fetch-jira.py`, `sweep-jira.py`); see `docs/requirement-import.md` |
+| `jira-mapping.yaml` | Optional. Maps Jira labels and components to a requirement's `risk`, `data_class` and `repo` at import (highest risk wins). Ships empty; `fetch-jira.py --discover` lists the names in use. See `docs/requirement-import.md` |
+| `inbox/<KEY>.yaml` | Jira issues swept by `scripts/sweep-jira.py` (yours, created or updated recently), waiting in the Work view for you to accept (becomes a new work item) or dismiss (`inbox/dismissed/`, never swept again). Nothing is written to `work/` without you |
 | `work/*.yaml` | Work items: a requirement with elements, or a target of `document`, `jira` or `investigation`, plus `repo`, `writes`, `depends_on` and `done_when`. Human-written (Work view, New item) |
 | `acceptance/*.yaml` | UI acceptance criteria per element: states, locators and cases. Gate input; a handover turns them into Playwright spec skeletons |
 | `design-tokens/tokens.json` | W3C design tokens, judged by the gate for text size and copied into every handover |
@@ -287,6 +299,7 @@ For offline demos, `node dev/mock-gateway.js` serves a scripted session: set `ll
 | `handovers/*.yaml` | Frozen handovers, written by Run > Freeze Handover |
 | `asbuilt/` | The last code-map extraction: `workspace.dsl` and `facts.json` with evidence |
 | `telemetry/` | Sample Langfuse data (sample registry only) |
+| `parity/` | Legacy parity: `scenarios/*.yaml` (role and name steps; write them or draft them from legacy Playwright tests with `scripts/parity-import.js`), `baselines/`, `reports/` and `shots/` written by the recorder. Shots are not in git |
 | `ledger/*.jsonl` | Append-only events, one JSON object per line: `checks.jsonl`, `pipeline.jsonl`, `designc.jsonl`, `agents.jsonl` hold designc envelope v1 events; `sessions.jsonl` holds harness envelope v1 records (grill-me / MAF session and charter events, adopted as-is) |
 | `study/*.yaml` | Study topics, in a study notebook only (`designc.json` `kind: study`): a question, sources, findings, your questions, PoCs, your opinion and status |
 | `designc.json` | Settings |
@@ -313,6 +326,20 @@ The pipeline appends lines like these; the app watches the folder and updates li
 
 The app itself only appends: check results to `ledger/checks.jsonl`, and handovers, escape classifications and resolved needs-decisions to `ledger/designc.jsonl`. It never rewrites a ledger line.
 
+## Recording legacy parity
+
+Run designc from source (`npm start`), because an installer does not include the recorder. Start the legacy app with sign-in off, such as a local copy in mock mode; an agent can do this with your start tool. Then in **Parity**:
+
+1. Set the legacy address when asked.
+2. Press **Record legacy** on one scenario. The command is typed into the Terminal; press Enter.
+3. Check that scenario's screenshot, then record the rest.
+
+An agent can run the recorder instead (`scripts/parity-record.js`, see `docs/parity-contract.md`), from the Terminal or a separate session. An agent in the panel writing to `parity/` is flagged as an unapproved change.
+
+**Login.** The recorder does not sign in. It stops at a login wall: a redirect to another host, or a page with exactly one visible password field. On legacy this is an error and any existing baseline stays as it was; on the new app the scenario is `could_not_run`, which never counts as a pass. It cannot see an email-first sign-in page on the same host, which is why step 3 checks the screenshot.
+
+**Mock mode.** Recording is read-only even against a mock: clicks such as Save or Apply and requests other than GET, HEAD and OPTIONS are blocked. To record past them, add `--allow-writes` to the typed line yourself, against a mock only and never a live legacy app. If the mock uses a service worker such as Mock Service Worker, its POSTs may not be blocked, because Playwright's request blocking does not see what a service worker handles (from Playwright's docs, not tested here). They could change the mock's data between scenarios, so restart the mock if baselines look inconsistent.
+
 ## Settings (`designc.json`)
 
 Opening a folder with no `designc.json` starts at **Set up this folder** (also Help → Open settings, or click LLM or Langfuse in the status bar while they are not configured). It asks for the model file, the LLM gateway and Langfuse, each skippable, shows whether each named environment variable is set and the `export` line to add to `~/.profile` if not, tests each connection, and saves `designc.json`. Keys stay in your environment: the file holds only variable names. Test connection asks before sending a key to a host that is not already in `designc.json`.
@@ -326,6 +353,10 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
   "llm": { "baseUrl": "https://your-gateway/v1", "model": "claude-sonnet", "apiKeyEnv": "DESIGNC_LLM_API_KEY" }
 }
 ```
+
+`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and one OpenAPI file in `contracts/openapi/` pins the contract between them for the handover.
+
+To use your Claude subscription instead of an API key, set `"llm": { "provider": "claude-code" }` (model optional) and run `claude login` once. Designc runs the local `claude` CLI in print mode with tools off, and drops `ANTHROPIC_API_KEY` from its environment so it cannot bill the API. Designc's own tools (read_model and the rest) are offered to the model as text and it asks for them with a JSON reply, so the agent panel, its roles (Grill-me included) and the permission prompts work as they do with any provider. Each turn starts a fresh CLI process, so replies take a few seconds.
 
 `llm.provider` is `openai` (default, any OpenAI-compatible gateway), `anthropic` (key in the env var named by `apiKeyEnv`, default `ANTHROPIC_API_KEY`) or `vertex` (Claude on Vertex AI using your own `gcloud auth application-default login`; set `project` and `region`).
 
@@ -395,6 +426,8 @@ api = container "Pricing API" {
 ```
 
 Patterns are repo-relative and comma-separated: `*` and `?` match within one folder name, `**` matches any number of folders and must be a whole segment. Backslashes become `/`, and a leading `./` and trailing `/` are dropped. `src/Api` is one file, not a folder: write `src/Api/**`.
+
+With split repos (`repos` in `designc.json`) a pattern is relative to the repo that `d.repo` names, on the element or its nearest container: `d.code` `src/Orders/**` with `d.repo` `Ui` means `Ui/src/Orders/**` in the code map's file list. An element with no `d.repo` is matched against the whole prefixed path.
 
 - **DC000 (error).** A pattern the contract rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
@@ -531,7 +564,8 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `dev/mock-acp-agent.js` | Scripted ACP agent for demos and tests |
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
-| `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score; the Work view |
+| `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score, parity done_when; the Work view |
+| `renderer/parity.js`, `renderer/parityview.js`, `recorder/` | Legacy parity: the comparison contract, the Parity view, and the recorder run outside the app |
 | `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
 | `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |
 | `renderer/app.js` | Workbench: Monaco setup, views, panels, sheet, dashboards |

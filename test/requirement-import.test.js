@@ -1,5 +1,6 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
+const path = require('path');
 const RI = require('../renderer/requirement-import.js');
 
 const md = (front, body = '# Heading\n\nText.\n') => `---\n${front}\n---\n${body}`;
@@ -131,4 +132,58 @@ test('setElements refuses a shape it cannot edit safely and an empty or non-stri
   assert.equal(RI.setElements('id: R\nelements: &x [a]\n', ['A']), null);
   assert.equal(RI.setElements('id: R\nelements: []\n', []), null);
   assert.equal(RI.setElements('id: R\nelements: []\n', ['A', 3]), null);
+});
+
+const jmd = (jira, id = 'ZZ-1') => ({ name: `${id}.md`, text: md(`id: ${id}\ntitle: Thing ${id}\nsource: https://j.example/browse/${id}\nversion: 1\njira: ${JSON.stringify(jira)}`) });
+const mapping = { labels: { 'lbl-hot': { risk: 'high', data_class: 'pii' }, 'lbl-low': { risk: 'low' } }, components: { 'comp-x': { repo: 'repo-x' } } };
+
+test('mapJira applies the mapping, takes the highest risk, and lists what it did not map', () => {
+  const r = RI.mapJira({ labels: ['lbl-low', 'lbl-hot', 'lbl-new'], components: ['comp-x', 'comp-new'] }, mapping);
+  assert.deepEqual(r.fields, { risk: 'high', data_class: 'pii', repo: 'repo-x' });
+  assert.deepEqual(r.unmapped, ['lbl-new', 'comp-new']);
+});
+
+test('a missing, empty or malformed mapping maps nothing and everything is unmapped, never an error', () => {
+  for (const m of [undefined, null, {}, 'junk', { labels: 3, components: [] }]) {
+    const r = RI.mapJira({ labels: ['a'], components: ['b'] }, m);
+    assert.deepEqual(r.fields, {});
+    assert.deepEqual(r.unmapped, ['a', 'b']);
+  }
+});
+
+test('plan carries the mapped fields and counts unmapped names once; toYaml writes them with the raw jira block', () => {
+  const p = RI.plan([jmd({ type: 'Story', labels: ['lbl-hot', 'lbl-new'], components: [] }, 'ZZ-1'), jmd({ labels: ['lbl-new'], components: ['comp-x'] }, 'ZZ-2')], { mapping });
+  assert.equal(p.unmappedNames, 1);
+  assert.deepEqual(p.items[0].mapped, { risk: 'high', data_class: 'pii' });
+  assert.deepEqual(p.items[1].mapped, { repo: 'repo-x' });
+  const y = RI.toYaml(p.items[0]);
+  assert.match(y, /^risk: high$/m);
+  assert.match(y, /^data_class: pii$/m);
+  assert.match(y, /^jira: \{"type":"Story","labels":\["lbl-hot","lbl-new"\],"components":\[\]\}$/m);
+  assert.doesNotMatch(RI.toYaml(p.items[1]), /^risk:/m);
+});
+
+test('without a jira block or a mapping the written requirement is unchanged from before', () => {
+  const p = RI.plan([{ name: 'a.md', text: md('id: ZZ-3\ntitle: Plain\nsource: s\nversion: 1') }]);
+  assert.equal(p.unmappedNames, 0);
+  assert.equal(RI.toYaml(p.items[0]), 'id: ZZ-3\ntitle: Plain\nsource: "s"\nversion: 1\nelements: []\n');
+});
+
+test('the optional mapped fields on a requirement are validated the same in the JS and Python records', () => {
+  const R = require('../renderer/records.js');
+  assert.deepEqual(R.validate('requirement', { id: 'a', title: 't', risk: 'high', data_class: 'pii', repo: 'r', jira: { labels: [] } }), []);
+  assert.deepEqual(R.validate('requirement', { id: 'a', title: 't', risk: '', jira: [] }), ['risk: must be a non-empty string', 'jira: must be a mapping']);
+});
+
+test('the Python records validator agrees with the JS one on the optional requirement fields', () => {
+  const { execFileSync } = require('child_process');
+  const R = require('../renderer/records.js');
+  const cases = [
+    { id: 'a', title: 't', risk: 'high', data_class: 'pii', repo: 'r', jira: { labels: [] } },
+    { id: 'a', title: 't', risk: '', jira: [] },
+    { id: 'a', title: 't', data_class: 3, repo: ' ' },
+    { id: 'a', title: 't' },
+  ];
+  const py = JSON.parse(execFileSync('python3', ['-I', '-c', 'import sys,json\nsys.path.insert(0, sys.argv[1])\nfrom designc import records\nprint(json.dumps([records.validate("requirement", c) for c in json.load(sys.stdin)]))', path.join(__dirname, '..', 'python')], { input: JSON.stringify(cases), encoding: 'utf8' }));
+  assert.deepEqual(py, cases.map(c => R.validate('requirement', c)));
 });

@@ -1,0 +1,11 @@
+# How Jira labels and components become requirement fields on import (docs/requirement-import.md).
+# Empty means "map nothing": the raw labels and components are still kept under jira: on each requirement.
+# Each entry sets any of risk (low | medium | high | critical), data_class and repo. Where several match, the highest
+# risk wins and the first data_class and repo win. Names below are examples only; find yours with
+#   python3 scripts/fetch-jira.py <base-url> --discover --jql "<query>"
+labels: {}
+components: {}
+# labels:
+#   my-label: { risk: high, data_class: personal }
+# components:
+#   my-component: { repo: my-repo }

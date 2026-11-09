@@ -2,6 +2,7 @@
 const Core = (() => {
   const DM = typeof require === 'function' && typeof module === 'object' ? require('./domain.js') : Domain;
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
+  const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -263,7 +264,7 @@ const Core = (() => {
       'd.availability': { k: 'float' }, 'd.owns': { k: 'list' }, 'd.store': { k: 'enum', v: YN },
       'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
-      'd.code': { k: 'list' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
+      'd.code': { k: 'list' }, 'd.repo': { k: 'str' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
     },
   };
   function parseSuppress(raw) {
@@ -344,6 +345,8 @@ const Core = (() => {
   const isStore = e => (e.props['d.store'] != null ? get(e, 'd.store') === 'yes' : e.tags.has('Database'));
   function zone(m, id) { let c = m.elements.get(id); while (c) { const z = get(c, 'd.zone'); if (z) return z; c = c.parent ? m.elements.get(c.parent) : null; } return null; }
   const structural = (m, r) => m.isAncestor(r.src, r.dst) || m.isAncestor(r.dst, r.src);
+  // Two components of the same container run in one process: they are up or down together.
+  const inProcess = (m, r) => { const a = m.elements.get(r.src), b = m.elements.get(r.dst); return a.kind === 'component' && b.kind === 'component' && a.parent === b.parent; };
 
   // ---------- timing and retry amplification (slice 16) ----------
   // Sync calls only (async, structural pairs and calls from a person are out). A timeout bounds the wait, so a
@@ -458,9 +461,9 @@ const Core = (() => {
         return out;
       } },
     { code: 'DC003', title: 'Compound availability', source: 'concept note (not yet incident-backed)',
-      doc: 'A long synchronous chain is only as available as the product of every hop. Undeclared interactions count as sync.',
+      doc: 'A long synchronous chain is only as available as the product of every hop. Undeclared interactions count as sync. A call between two components of one container stays in one process, so it is not a hop.',
       fn(m, o) {
-        const rels = m.rels.filter(r => !(interaction(r) === 'async' || structural(m, r) || m.elements.get(r.src).kind === 'person'));
+        const rels = m.rels.filter(r => !(interaction(r) === 'async' || structural(m, r) || inProcess(m, r) || m.elements.get(r.src).kind === 'person'));
         // Elements that call each other in a cycle are one strongly connected component, reported once, not once per way through it.
         const order = [], out0 = new Map();
         for (const r of rels) { for (const n of [r.src, r.dst]) if (!out0.has(n)) { out0.set(n, []); order.push(n); } out0.get(r.src).push(r.dst); }
@@ -622,6 +625,20 @@ const Core = (() => {
         }
         return out;
       } },
+    { code: 'DC010', title: 'Code area outside a declared repo', source: 'Split repos: designc.json repos {Api, Ui}',
+      doc: 'When designc.json declares repos, every element with d.code must live in one of them: d.repo names it on the container (components inherit it). With no repos declared the registry is a single repo and nothing is checked.',
+      fn(m, o) {
+        const repos = Object.keys((o && o.repos) || {});
+        if (!repos.length) return [];
+        const out = [], repoOf = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+        for (const e of m.elements.values()) {
+          if (e.props['d.code'] == null) continue;
+          const r = repoOf(e);
+          if (!r) out.push(D('DC010', 'error', `"${e.name}" has d.code but no d.repo`, m.locEl(e), { hint: `set d.repo on it or its container: ${repos.join(', ')}` }));
+          else if (!repos.includes(r)) out.push(D('DC010', 'error', `"${e.name}": d.repo "${r}" is not a declared repo`, m.locEl(e), { hint: `declared repos: ${repos.join(', ')} (designc.json repos)` }));
+        }
+        return out;
+      } },
   ];
 
   const SEV = { error: 2, warning: 1, note: 0 };
@@ -674,10 +691,23 @@ const Core = (() => {
   // The live decisions that answer one finding: same code, binding one of its elements; bound ones first. Display only.
   function decisionsFor(f, decisions) {
     const arr = v => (Array.isArray(v) ? v : []);
-    return decisions.filter(d => d.status !== 'superseded' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
+    return decisions.filter(d => d.status !== 'superseded' && d.status !== 'retired' && arr(d.resolves).includes(f.code) && arr(d.binds).some(b => (f.loc.names || []).includes(b)))
       .sort((a, b) => (b.status === 'bound') - (a.status === 'bound'));
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, now = Date.now() }) {
+  // Why binding a technical decision would leave the gate as it is: names in binds that are not elements, and, for an
+  // accept or build decision, no finding it answers (resolves names no code, or no live finding has that code on a bound
+  // element). Shown before the bind is confirmed; never a gate clause. Business decisions bind a requirement, not elements.
+  function bindProblems(dec, model, diags) {
+    if (dec.kind === 'business') return [];
+    const arr = v => (Array.isArray(v) ? v : []), names = new Set([...model.elements.values()].map(e => e.name));
+    const out = arr(dec.binds).filter(b => !names.has(b)).map(b => `binds "${b}", which is not an element name in the model`);
+    if (dec.effect !== 'accept' && dec.effect !== 'build') return out;
+    if (!arr(dec.resolves).length) return [...out, 'resolves lists no finding code, so it answers no finding'];
+    const live = diags.filter(f => !f.suppressed && f.sev !== 'note');
+    if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
+    return out;
+  }
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -699,6 +729,7 @@ const Core = (() => {
     for (const dec of decisions) {
       const kind = dec.kind == null ? 'technical' : dec.kind;
       if (kind !== 'business' && kind !== 'technical') clauses.push({ kind: 'decision', text: `${dec.id} has kind ${kind}, expected business or technical`, decision: dec.id });
+      if (dec.status === 'superseded' || dec.status === 'retired') continue;
       if (dec.status !== 'bound') { clauses.push({ kind: 'decision', text: `${dec.id} is ${dec.status || 'minted'}, not bound`, decision: dec.id }); continue; }
       const business = kind === 'business';
       assumptionClauses(dec, today, clauses);
@@ -706,8 +737,8 @@ const Core = (() => {
       else if (dec.effect === 'accept' && !(dec.relies_on || []).some(id => boundBusiness.has(id)))
         clauses.push({ kind: 'decision', text: `${dec.id} accepts a risk without a bound business decision`, decision: dec.id });
       // An accepted risk rests on its business decision, so it needs no check; a TODO placeholder is not a check.
-      if (!business && !((dec.effect === 'accept' || dec.effect === 'build') && !(dec.checks || []).some(c => c && !/^TODO/.test(String(c))))) {
-        if (!(dec.checks || []).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
+      if (!business && !((dec.effect === 'accept' || dec.effect === 'build') && !RC.runs(dec).some(c => c && !/^TODO/.test(c)))) {
+        if (!RC.runs(dec).length) { clauses.push({ kind: 'decision', text: `${dec.id} has no check`, decision: dec.id }); continue; }
         const last = latestCheck(ledger, dec.id);
         if (!last) clauses.push({ kind: 'check', text: `${dec.id}: no check result recorded yet`, decision: dec.id });
         else if (last.outcome !== 'pass') clauses.push({ kind: 'check', text: `${dec.id}: last check failed`, decision: dec.id });
@@ -736,6 +767,16 @@ const Core = (() => {
     for (const req of requirements) {
       const traced = decisions.some(d => d.requirement === req.id) || (req.elements || []).some(n => [...model.elements.values()].some(e => e.name === n));
       if (!traced) clauses.push({ kind: 'requirement', text: `${req.id} is not traced to any element or decision`, requirement: req.id });
+    }
+    // Split repos: a requirement that reaches more than one declared repo needs the seam written down (OpenAPI) before it is ready.
+    const declared = Object.keys(repos || {});
+    if (declared.length && !(apiContracts || []).length) {
+      const repoOf = e => { for (let c = e; c; c = c.parent ? model.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+      for (const req of requirements) {
+        const names = req.elements || [], span = new Set();
+        for (const e of model.elements.values()) if (names.includes(e.name)) { const r = repoOf(e); if (r) span.add(r); }
+        if (span.size > 1) clauses.push({ kind: 'unpinned_contract', text: `${req.id} spans ${[...span].sort().join(', ')}: pin an OpenAPI contract in contracts/openapi/ first`, requirement: req.id, about: names.map(String) });
+      }
     }
     for (const nd of ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open'))
       clauses.push({ kind: 'needs', text: `open needs-decision ${nd.id || ''}: ${nd.question}`.trim(), needs: nd, ...(nd.element ? { about: [String(nd.element)] } : {}) });
@@ -880,18 +921,22 @@ const Core = (() => {
   // binds an in-scope element; a requirement clause when it is one of the item's requirements (one id or a list); any other clause when its
   // `about` names one. A clause that names nothing counts: it is never hidden because it cannot be placed.
   // `elements` are element names; the hierarchical label of each also matches (a needs-decision names either).
+  // A warning on an in-scope element does not block an item: it often only says a property is undeclared. It comes back
+  // as `warnings` for the person to check. Errors still block, and the whole gate still counts both.
   function scopedGate(g, { model, elements = [], requirement = null, decisions = [] }) {
     const inScope = new Set(elements);
     for (const e of model.elements.values()) if (inScope.has(e.name)) inScope.add(model.label(e.id));
     const touches = names => names.some(n => inScope.has(n));
     const wanted = [].concat(requirement);
-    const clauses = g.clauses.filter(c => {
+    const kept = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
       if (c.kind === 'requirement') return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });
-    return { ready: clauses.length === 0, clauses, scoped: true, outside: g.clauses.length - clauses.length };
+    const isWarning = c => c.kind === 'finding' && c.finding && c.finding.sev === 'warning';
+    const clauses = kept.filter(c => !isWarning(c));
+    return { ready: clauses.length === 0, clauses, warnings: kept.filter(isWarning), scoped: true, outside: g.clauses.length - kept.length };
   }
   // A business decision rests on evidence: an https URL on a host the registry allows (designc.json evidenceHosts).
   // Bound by one of designc.json businessOwners, the bind itself is the record, so no link is needed.
@@ -1044,7 +1089,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, RATINGS }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, RATINGS }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;

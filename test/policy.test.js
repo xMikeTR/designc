@@ -126,6 +126,16 @@ test('map_requirement and read_import_page are offered to Grill-me only, and the
   assert.equal(/requirements\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
 });
 
+test('read_parity is a read-only tool offered to Grill-me only', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'agent.js'), 'utf8');
+  const roleLine = key => src.split('\n').find(l => l.startsWith(`  ${key}: { label:`));
+  for (const k of ['architect', 'analyst', 'tutor']) assert.equal(/read_parity/.test(roleLine(k)), false, k);
+  assert.match(roleLine('grill'), /allow: \[[^\]]*'read_parity'/);
+  assert.equal(/read_parity/.test(roleLine('grill').split('ask:')[1].split(']')[0]), false);
+  assert.equal(Policy.WRITE_TOOLS.includes('read_parity'), false);
+  assert.equal(/parity\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
+});
+
 test('the Researcher appends to study topics only through its approved tools; a raw write to study/ is refused', () => {
   const src = require('fs').readFileSync(require('path').join(__dirname, '../renderer/agent.js'), 'utf8');
   const line = src.split('\n').find(l => l.startsWith('  researcher: { label:'));
@@ -140,4 +150,13 @@ test('the Researcher appends to study topics only through its approved tools; a 
 test('no role may write domain/: a pack is pinned by a person from its registry', () => {
   assert.equal(/domain\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
   for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'domain/pricing.yaml', 'id: pricing\n').ok, false, role);
+});
+
+test('checkFailHint names what the shell got wrong, not the decision', () => {
+  assert.match(Policy.checkFailHint('./checks/in-process-only.sh', 1, 'win32'), /cmd\.exe.*"bash checks\/in-process-only\.sh"/);
+  assert.match(Policy.checkFailHint('checks\\x.sh --fast', 9009, 'win32'), /"bash checks\\x\.sh"/);
+  assert.match(Policy.checkFailHint('pcheck -tc t', 9009, 'win32'), /could not find the program "pcheck"/);
+  assert.match(Policy.checkFailHint('pcheck -tc t', 127, 'linux'), /could not find the program "pcheck"/);
+  assert.equal(Policy.checkFailHint('./checks/x.sh', 1, 'linux'), null);
+  assert.equal(Policy.checkFailHint('bash checks/x.sh', 1, 'win32'), null);
 });

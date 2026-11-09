@@ -27,14 +27,14 @@ def state(root):
     except OSError:
         raise SystemExit(f'designc: cannot read {cfg.get("model") or "model/workspace.dsl"} in {root}. Open a registry folder, or set "model" in designc.json.') from None
     model = parse(src)
-    diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4)
+    diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4, cfg.get('repos') or {})
     reg = load_registry(root)
     led = load_ledger(root)
     domains = load_domains(root, cfg)
     if domains:
         pinned = domain.pins(led)
         domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
-    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led))
+    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led), repos=cfg.get('repos') or {}, api_contracts=api_contracts(root))
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 
@@ -129,10 +129,12 @@ def main(argv):
         reg = load_registry(root)
         s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], work.reqs(it), reg['decisions'])}
         r = report_of(s)
-        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside']}, ensure_ascii=False, indent=2))
+        warned = [c['text'] for c in s['gate']['warnings']]
+        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside'], 'warnings': warned}, ensure_ascii=False, indent=2))
         else:
             print(f"Gate for work item {args.item} ({s['gate']['outside']} clause{'' if s['gate']['outside'] == 1 else 's'} outside its elements not counted)")
             print(render(r))
+            if warned: print(f"{len(warned)} warning{'' if len(warned) == 1 else 's'} on its elements to check, not blocking.")
         return 0 if r['gate']['ready'] else 1
     r = report_of(s)
     note = sys.stderr if args.json else sys.stdout
@@ -202,6 +204,23 @@ def record_cmd(root, by, as_json):
     return 0 if r['ok'] else 1
 
 
+def parity_scenarios(root, errors):
+    """The ids in parity/scenarios/ (renderer/parityview.js loadParityScenarios). A file with no id is a problem, not
+    named after its file: a scenario is recorded and judged by its id."""
+    ids = []
+    sdir = os.path.join(root, 'parity', 'scenarios')
+    for n in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
+        if not n.endswith(('.yaml', '.yml')): continue
+        rel = f'parity/scenarios/{n}'
+        try:
+            with open(os.path.join(sdir, n), encoding='utf-8') as f: o = yaml_load(f.read())
+        except Exception as e:  # unreadable or not YAML: named, never skipped
+            errors.append({'path': rel, 'msg': str(e).split('\n')[0]}); continue
+        if isinstance(o, dict) and isinstance(o.get('id'), str) and o['id'].strip(): ids.append(o['id'].strip())
+        else: errors.append({'path': rel, 'msg': f'{rel} has no id; a parity scenario is recorded and judged by its id.'})
+    return ids
+
+
 def work_cmd(root, as_json):
     """Exit 0 when every work item file is sound, 1 when one has a problem, 2 when the folder cannot be read."""
     if not os.path.isdir(root):
@@ -209,7 +228,7 @@ def work_cmd(root, as_json):
     errors = []
     items = load_yaml_dir(root, 'work', errors)
     reg = load_registry(root)
-    r = work.report(items, reg['requirements'], load_ledger(root), errors)
+    r = work.report(items, reg['requirements'], load_ledger(root), errors, parity_scenarios(root, errors))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         for row in r['items']:
@@ -252,6 +271,11 @@ def who(by):
     if os.environ.get('DESIGNC_BY'): return os.environ['DESIGNC_BY']
     try: return getpass.getuser()
     except Exception: return 'unknown'
+
+
+def api_contracts(root):
+    d = os.path.join(root, 'contracts', 'openapi')
+    return sorted(n for n in os.listdir(d) if n.endswith(('.yaml', '.yml'))) if os.path.isdir(d) else []
 
 
 def record_gate(root, s, source, by, out):

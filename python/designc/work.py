@@ -3,7 +3,7 @@ A work item is a file in work/. Done is judged in the app, from recorded evidenc
 lets an agent session ask what is active and what clashes: `designc work <registry>`."""
 from . import pathpattern
 
-KINDS = ('gate', 'checklist', 'review', 'judge')
+KINDS = ('gate', 'checklist', 'review', 'judge', 'parity')
 TARGETS = ('document', 'jira', 'investigation')
 
 
@@ -27,8 +27,9 @@ def reqs(item):
     return [s for s in (_str(v).strip() for v in vals) if s]
 
 
-def validate(item, requirements, item_ids):
-    """What is wrong with this item. The sentences are identical to Work.validate in work.js."""
+def validate(item, requirements, item_ids, scenarios=None):
+    """What is wrong with this item. The sentences are identical to Work.validate in work.js.
+    scenarios: the ids in parity/scenarios/, when known; a parity entry naming another id is then a problem."""
     out = []
     if not isinstance(item, dict): return ['The work item is not a mapping.']
     iid = _str(item.get('id')) or '(no id)'
@@ -67,10 +68,16 @@ def validate(item, requirements, item_ids):
         known = [k for k in ks if k in KINDS]
         unknown = [k for k in ks if k not in KINDS]
         n = i + 1
-        if unknown: out.append(f"{iid}: done_when entry {n} has unknown kind {', '.join(unknown)}; use gate, checklist, review or judge.")
-        elif len(known) != 1: out.append(f'{iid}: done_when entry {n} must have exactly one of gate, checklist, review or judge.')
+        if unknown: out.append(f"{iid}: done_when entry {n} has unknown kind {', '.join(unknown)}; use gate, checklist, review, judge or parity.")
+        elif len(known) != 1: out.append(f'{iid}: done_when entry {n} must have exactly one of gate, checklist, review, judge or parity.')
         elif not _str(e[known[0]]).strip(): out.append(f'{iid}: done_when entry {n} ({known[0]}) is empty.')
-        else: kinds.append(known[0])
+        else:
+            kinds.append(known[0])
+            v = _str(e[known[0]]).strip()
+            if known[0] == 'parity' and not has_req:
+                out.append(f'{iid}: done_when entry {n} (parity) is allowed only on a repo item: parity is judged at the commit that finished it.')
+            elif known[0] == 'parity' and isinstance(scenarios, list) and v != 'all' and v not in scenarios:
+                out.append(f'{iid}: done_when entry {n} names parity scenario {v}, which is not in parity/scenarios/.')
     if 'judge' in kinds and all(k == 'judge' for k in kinds):
         out.append(f'{iid}: a judge cannot be the only done_when entry; add a gate, checklist or review (a judge is a gradient, not a decision).')
     if has_req and dw and 'gate' not in kinds and not (kinds and all(k == 'judge' for k in kinds)):
@@ -122,14 +129,14 @@ def coverage(items, requirements):
     return out
 
 
-def report(items, requirements, events, parse_errors=()):
+def report(items, requirements, events, parse_errors=(), scenarios=None):
     """One row per item: state, problems, and clashes with the other active items."""
     ids = [i['id'] for i in items]
     st = states(items, events)
     active = [i for i in items if st[i['id']] == 'active']
     rows, seen = [], set()
     for it in items:
-        problems = validate(it, requirements, [x for x in ids if x != it['id']])
+        problems = validate(it, requirements, [x for x in ids if x != it['id']], scenarios)
         if it['id'] in seen: problems.append(f"{it['id']}: duplicate work item id")
         seen.add(it['id'])
         rows.append({'id': it['id'], 'path': it.get('_path'), 'state': st[it['id']], 'problems': problems,

@@ -47,7 +47,7 @@ if (typeof Ledger !== 'undefined') {
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
-const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('study/') || p.startsWith('domain/');
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -159,6 +159,7 @@ async function loadYamlDir(dir, keepText = false) {
 async function loadRegistry() {
   A.yamlErrors = [];
   [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
+  A.apiContractPaths = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => f.path);
   A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
   A.contractsText = await readText(Contracts.PATHS.result);
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
@@ -378,10 +379,17 @@ async function loadAsbuilt() {
   A.asbuiltFull = dsl ? Core.parse(dsl) : null;
   A.asbuilt = A.asbuiltFull ? Core.atLevel(A.asbuiltFull, 'container') : null;
   try { A.facts = facts ? JSON.parse(facts) : null; } catch { A.facts = null; }
+  // UI graphs of references repos (7e), read only when a person extracted them.
+  A.uiRefs = {};
+  for (const key of cmUiRepos().slice(1)) {
+    const t = await readText(`asbuilt/ui-${key}.json`);
+    try { if (t) A.uiRefs[key] = JSON.parse(t); } catch { /* unreadable: shown as not read yet */ }
+  }
   if (A.cmSel && (!A.asbuilt || !A.asbuilt.elements.has(A.cmSel))) A.cmSel = null;
   if (A.cmScope && !(A.asbuiltFull && A.asbuiltFull.elements.has(A.cmScope))) A.cmScope = null;
   if (A.cmLevel === 'component' && !cmHasComponents()) { A.cmLevel = 'container'; A.cmScope = null; }
   if (A.cmLevel === 'code' && !cmHasCode()) { A.cmLevel = 'container'; A.cmScope = null; }
+  if (A.cmLevel === 'ui' && !cmHasUi()) A.cmLevel = 'container';
 }
 // Code quality (QC rules): warnings only, judged from designc.json `quality`. Never reaches the gate.
 let QMEMO = null;
@@ -398,8 +406,8 @@ function cmQualityBadge(e) {
 }
 function recompile() {
   A.model = Core.parse(A.modelText);
-  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4 }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
+  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -419,7 +427,7 @@ async function loadTelemetry() {
   if (r.error) { A.tel = { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: r, loading: false }; }
   else A.tel = { runs: r.runs, tasks: r.tasks || { spans: [], empty: 0 }, meta: r.meta, error: null, loading: false };
   renderStatus(); renderSheet(); renderBadges();
-  if (['special:build', 'special:improve', 'special:review'].includes(A.active)) renderSpecial();
+  if (['special:build', 'special:improve', 'special:review', 'special:parity'].includes(A.active)) renderSpecial();
   if (A.activity === 'build' || A.activity === 'improve') renderSidebar();
 }
 setInterval(() => { if (A.root && A.tel.meta && A.tel.meta.source === 'langfuse' && document.visibilityState === 'visible') loadTelemetry(); }, 5 * 60 * 1000);
@@ -604,11 +612,14 @@ async function openFile(path, line) {
   if (line) revealLine(line);
   setMarkers();
 }
-async function openCode(rel, line) {
-  const id = 'code:' + rel;
+// A codebase file, read-only; with `ref` (a designc.json references key) a file of that repo instead.
+async function openCode(rel, line, ref) {
+  const r = ref ? Dispatch.references(A.cfg.references) : null, refPath = r && r.refs ? (r.refs.find(x => x.key === ref) || {}).path : null;
+  if (ref && !refPath) { toast(`${ref} is not a references key in designc.json.`, 'error'); return; }
+  const id = ref ? `code:@${ref}/${rel}` : 'code:' + rel;
   if (!A.buffers.has(id)) {
-    let text; try { text = await host.readCode(A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
-    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(rel)));
+    let text; try { text = await host.readCode(ref ? refPath : A.cfg.codebase, rel); } catch (e) { toast(`Can't open ${rel}: ${e.message}`, 'error'); return; }
+    const model = monacoRef.editor.createModel(text, langFor(rel), monacoRef.Uri.parse('code:///' + encodeURI(ref ? `@${ref}/${rel}` : rel)));
     A.buffers.set(id, { model, dirty: false, disk: text, view: null, ro: true });
   }
   if (!A.tabs.includes(id)) A.tabs.push(id);
@@ -671,7 +682,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('study') || any('domain') || any('behaviour')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -809,10 +820,10 @@ async function buildIt(f) {
 // A proposal made by mistake can go while nobody has acted on it; a bound, rejected or superseded one stays as the record.
 const propDeletable = p => !!p._path && ['minted', 'checked', undefined].includes(p.status);
 // Human only, from the Explorer, the Decisions list and the Proposals lists. The ledger and handovers are refused by the main process as well.
-async function deleteFile(path) {
+async function deleteFile(path, note = '') {
   if (/^(ledger|handovers)\//.test(path)) { toast(`${path} cannot be deleted: the ledger is append-only and handovers are frozen.`, 'warning'); return; }
   const b = A.buffers.get(path);
-  if (!confirm(`Delete ${path}?${b && b.dirty ? ' It has unsaved changes.' : ''} Git history keeps it if it was committed.`)) return;
+  if (!confirm(`Delete ${path}?${b && b.dirty ? ' It has unsaved changes.' : ''} Git history keeps it if it was committed.${note}`)) return;
   if (typeof AG !== 'undefined') AG.approved.set(path, Date.now() + 2000);
   try { await host.remove(path); } catch (err) { toast(`${path} was not deleted: ${err.message.replace(/^Error invoking remote method '[^']+': (Error: )?/, '')}`, 'error'); return; }
   if (b) { b.model.dispose(); A.buffers.delete(path); }
@@ -820,6 +831,20 @@ async function deleteFile(path) {
   A.tree = await host.tree();
   if (path === A.cfg.model) await loadModel(); else await loadRegistry();
   recompile(); renderAll({ keepEditor: A.active !== null }); toast(`Deleted ${path}.`);
+}
+// What still names a requirement, so its Delete confirmation can say what will start complaining. Handovers keep their own copy.
+function deleteRequirement(r) {
+  const uses = [...(A.work || []).filter(w => Work.reqs(w).includes(r.id)).map(w => `work item ${w.id}`),
+    ...A.decisions.filter(d => d.requirement === r.id).map(d => `decision ${d.id}`),
+    ...(A.acceptance || []).filter(c => c.requirement === r.id).map(c => `acceptance criterion ${c.id}`)];
+  return deleteFile(r._path, uses.length ? `\n\nStill named by ${uses.join(', ')}. ${uses.length === 1 ? 'It' : 'They'} will report a missing requirement until changed.` : '');
+}
+// Human only, like bindDecision: a bound decision made by mistake stops counting, and its file stays as the record.
+async function supersedeDecision(d) {
+  const relying = A.decisions.filter(x => (x.relies_on || []).includes(d.id)).map(x => x.id);
+  if (!confirm(`Supersede ${d.id}? It stops counting in the gate, and anything it answered counts as unanswered again.${relying.length ? `\n\n${relying.join(', ')} ${relying.length === 1 ? 'relies' : 'rely'} on it and will block until changed.` : ''}`)) return;
+  await editYaml(d._path, t => setField(t, 'status', 'superseded     # minted | checked | bound | superseded'));
+  await loadRegistry(); recompile(); renderAll({ keepEditor: true }); toast(`${d.id} is superseded.`);
 }
 async function newRequirement() {
   const id = (await askText('Jira key for the requirement', 'DEMO-')) || ''; if (!id.trim() || id.trim() === 'DEMO-') return;
@@ -833,9 +858,10 @@ function importReview(plan, skipped) {
     const row = i => `<div class="item"><div class="l1"><span class="id">${esc(i.id || i.file)}</span><span class="tag ${i.status === 'invalid' ? 'open' : ''}">${esc(i.status)}</span></div>`
       + `<div class="l2">${esc(i.status === 'invalid' ? i.problems.join(' ') : `${i.title}${i.status === 'changed' ? ` (version ${i.from} to ${i.version}: bound business decisions will need re-binding)` : ''}`)}</div></div>`;
     const s = plan.summary;
+    const um = plan.unmappedNames ? `<div class="hint">${esc(`${plan.unmappedNames} unmapped label or component name${plan.unmappedNames === 1 ? '' : 's'}: kept as they are under jira: (add them to jira-mapping.yaml to map them).`)}</div>` : '';
     const sk = skipped.length ? `<div class="hint">Skipped: ${esc(skipped.map(k => `${k.name} (${k.reason})`).join(', '))}</div>` : '';
     el.innerHTML = `<div class="askcard" style="width:620px"><label>${esc(`${s.new} new, ${s.changed} changed, ${s.unchanged} unchanged, ${s.invalid} not importable.`)}</label>`
-      + `<div style="max-height:46vh;overflow:auto">${plan.items.filter(i => i.status !== 'unchanged').map(row).join('') || '<div class="hint">Nothing to import.</div>'}</div>${sk}`
+      + `<div style="max-height:46vh;overflow:auto">${plan.items.filter(i => i.status !== 'unchanged').map(row).join('') || '<div class="hint">Nothing to import.</div>'}</div>${um}${sk}`
       + `<div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button>`
       + (s.changed ? `<button type="button" class="btn" data-go="new" ${s.new ? '' : 'disabled'}>Import ${s.new} new only</button>` : '')
       + `<button type="button" class="btn primary" data-go="all" ${s.new + s.changed ? '' : 'disabled'}>${s.changed ? `Import ${s.new} new and update ${s.changed}` : `Import ${s.new} new`}</button></div></div>`;
@@ -845,6 +871,11 @@ function importReview(plan, skipped) {
     document.body.appendChild(el); el.querySelector('.primary').focus();
   });
 }
+// jira-mapping.yaml in the registry root; missing, empty or unreadable means "map nothing" (never an error).
+async function loadJiraMapping() {
+  const t = await readText('jira-mapping.yaml'); if (t == null) return null;
+  try { return jsyaml.load(t) || null; } catch { return null; }
+}
 async function importRequirements() {
   const dir = await host.chooseImportFolder(); if (!dir) return;
   A.importDir = dir;
@@ -852,7 +883,7 @@ async function importRequirements() {
   if (r.error) return toast(r.error, 'warning');
   if (!r.pages.length) return toast('That folder has no .html or .md files. Export the pages as HTML, or convert them first (docs/requirement-import.md).', 'warning');
   const existing = A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source }));
-  const plan = RequirementImport.plan(r.pages, { existing });
+  const plan = RequirementImport.plan(r.pages, { existing, mapping: await loadJiraMapping() });
   const choice = await importReview(plan, r.skipped || []); if (!choice) return;
   let n = 0;
   for (const i of plan.items) {
@@ -1034,7 +1065,9 @@ async function chooseRequirement(d) {
   return A.requirements.find(r => r.id === id) || null;
 }
 async function bindDecision(d, { confirmed = false } = {}) {
-  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.`)) return;
+  const probs = Core.bindProblems(d, A.model, A.diags);
+  const warn = probs.length ? `\n\nThis will not clear anything in the gate:\n- ${probs.join('\n- ')}\n\nFix the decision file first, or bind it anyway.` : '';
+  if (!confirmed && !confirm(`${d.status === 'bound' ? 'Re-bind' : 'Bind'} ${d.id}? Binding means you, ${A.user}, accept it as part of the design.${warn}`)) return;
   let against;
   if (d.kind === 'business') {
     let req = A.requirements.find(r => r.id === d.requirement);
@@ -1046,6 +1079,9 @@ async function bindDecision(d, { confirmed = false } = {}) {
   await editYaml(d._path, t => setField(setField(setField(setField(t, 'status', 'bound          # minted | checked | bound | superseded'), 'promoted_by', A.user), 'promoted_at', new Date().toISOString().slice(0, 10)), 'promoted_against', JSON.stringify(against)));
   await recordEvent('decision_promoted', { decision: d.id, fingerprints: against });
   if (!confirmed) toast(`${d.id} is bound.`);
+  // It says what it replaces: offer to supersede those still live, each with its own confirmation (supersedeDecision).
+  const replaced = (d.supersedes || []).map(x => A.decisions.find(o => o.id === String(x))).filter(o => o && ['minted', 'checked', 'bound'].includes(o.status));
+  if (replaced.length) { await loadRegistry(); for (const o of replaced) await supersedeDecision(A.decisions.find(x => x.id === o.id) || o); }
 }
 // Human-only, like bindDecision: one confirmation for every decision the gate blocks on promotion.
 async function rebindAll() {
@@ -1087,7 +1123,7 @@ async function freezeHandover(item) {
 async function freezeOnce(item) {
   const scoped = item ? Core.scopedGate(A.gate, { model: A.model, elements: item.elements || [], requirement: Work.reqs(item), decisions: A.decisions }) : null;
   if (item && scoped && !scoped.ready) { toast(`${item.id} is not ready: ${plural(scoped.clauses.length, 'blocking item')} touch its elements. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
-  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }]); return; }
+  if (!item && (!A.gate || !A.gate.ready)) { toast(`Not ready: ${plural(A.gate ? A.gate.clauses.length : 0, 'blocking item')}. See the gate in Design, or freeze a work item, which is checked only against its own elements.`, 'warning', [{ label: 'Show gate', run: () => setActivity('design') }, { label: 'Open Work', run: () => setActivity('work') }]); return; }
   if (dirtyBuffers()) { toast('Save your open files before freezing: a handover copies what is on disk.', 'warning'); return; }
   let st = await host.gitStatus();
   if (st.repo && !st.trusted) {
@@ -1125,6 +1161,8 @@ async function freezeOnce(item) {
     plan = Core.handoverPlan({
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
+      // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
+      apiContracts: await read('contracts/openapi', ['.yaml', '.yml']),
       item: item ? { id: item.id, requirement: Work.reqs(item), elements: item.elements || [] } : null,
       model: { path: A.cfg.model, text: modelText },
       requirements: item ? only(reqs, A.requirements, r => Work.reqs(item).includes(r.id)) : reqs,
@@ -1142,11 +1180,12 @@ async function freezeOnce(item) {
   } catch (e) { toast(String(e.message || e), 'error'); return; }
   const already = Core.frozenAs(plan.id, A.handovers);
   if (already) { toast(`This design is already frozen as ${already}: nothing a handover copies has changed since. A frozen handover is never rewritten.`, 'info', [{ label: 'Open handover', run: () => openFile(`handovers/${already}/handover.yaml`) }]); return; }
-  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).join('\n');
+  const bud = Core.budgetCheck(frozen, A.cfg.budget);
+  const priced = Core.forecastSummary({ id: 'this handover', created: '', forecast: frozen, actual: null }).split('\n').filter(l => /^(Forecast|Covers)/.test(l)).concat(bud.lines.map(l => (bud.status === 'over' ? 'WARNING: ' : '') + l)).join('\n');
   // Named in the confirmation, not checked: a missing folder never refuses a freeze.
   const refNote = refs && refs.refs.length ? `\n\nRead-only references named in it (paths stay on this machine): ${refs.refs.map(r => `${r.key} (${r.kind}) at ${r.path}`).join('; ')}. designc does not check that they exist.` : '';
   const ask = (item
-    ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.`
+    ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
   if (!confirm(ask)) return;
   for (const f of plan.files) await host.write(f.path, f.text);
@@ -1162,15 +1201,25 @@ async function freezeOnce(item) {
   }
 }
 
+// ---------------------------------------------------------------- records
+// The record converter's dry run (renderer/records-convert.js) over the loaded decisions, shown in Output. Writes nothing.
+function checkRecords() {
+  const out = RecordsConvert.convert(A.decisions.map(d => ({ path: d._path, doc: d })), { elements: [...A.model.elements.values()].map(e => e.name), requirements: A.requirements.map(r => String(r.id)) });
+  appendOutput(`\n── ${new Date().toLocaleTimeString()}  record check for ${A.root.name}\n${RecordsConvert.describe(out)}\n`);
+  showPanel('output');
+  const n = out.filter(r => r.flags.length).length;
+  toast(n ? `${plural(n, 'decision')} need a choice before converting to records. See Output.` : 'Every decision converts to a record cleanly.', n ? 'warning' : 'info');
+}
+
 // ---------------------------------------------------------------- checks
 function appendOutput(s) { A.output += s; if (A.panel === 'output' && A.panelOpen) { const pre = $('#panelBody pre'); if (pre) { pre.textContent = A.output; $('#panelBody').scrollTop = 1e9; } else renderPanel(); } }
 async function runChecks(list) {
   if (A.running) { toast('Checks are already running.'); return; }
   // A check written as a description is reported and not run: the shell could only fail it, and that failure would say nothing about the decision.
-  const written = d => (d.checks || []).filter(c => c && !/^TODO/.test(String(c)));
+  const written = d => Records.runs(d).filter(c => c && !/^TODO/.test(c));
   const targets = (list || A.decisions).filter(d => written(d).length);
   if (!targets.length) {
-    const todo = (list || A.decisions).filter(d => (d.checks || []).some(c => /^TODO/.test(String(c))));
+    const todo = (list || A.decisions).filter(d => Records.runs(d).some(c => /^TODO/.test(c)));
     toast(todo.length ? `${todo.map(d => d.id).join(', ')} only ${todo.length === 1 ? 'has' : 'have'} a TODO check. Replace it in the decision file with a command that exits 0 when the decision holds.` : 'No decision has a runnable check yet.', 'warning');
     return;
   }
@@ -1188,7 +1237,8 @@ async function runChecks(list) {
         if (r.cancelled) { appendOutput('Cancelled: folder not trusted.\n'); return; }
         const ok = r.code === 0; pass = pass && ok; ran++;
         appendOutput(`${ok ? '✓ passed' : `✗ failed (exit ${r.code})`} in ${(r.ms / 1000).toFixed(1)}s\n`);
-        if (r.code === 127) appendOutput(`The shell could not find the program "${String(cmd).trim().split(/\s+/)[0]}". A check runs as a command in ${A.root.name}; check the name and that it is on PATH.\n`);
+        const hint = ok ? null : Policy.checkFailHint(cmd, r.code, A.platform);
+        if (hint) appendOutput(`${hint} A check runs as a command in ${A.root.name}.\n`);
         await recordEvent('check', { decision: d.id, check: cmd, outcome: ok ? 'pass' : 'fail', source: 'local', ms: r.ms, exit_code: r.code });
       }
       appendOutput(ran ? `${pass ? '●' : '○'} ${d.id} ${pass ? 'passing' : 'failing'}\n` : `○ ${d.id} not checked: no check is a command yet\n`);
@@ -1276,6 +1326,7 @@ function setActivity(a) {
   if (a === 'topology' && A.sidebarOpen && A.root) openSpecial('special:topology');
   if (a === 'work' && A.sidebarOpen && A.root) openSpecial('special:work');
   if (a === 'study' && A.sidebarOpen && A.root) openSpecial('special:study');
+  if (a === 'parity' && A.sidebarOpen && A.root) openSpecial('special:parity');
   renderSidebar();
 }
 function showPanel(p) { A.panel = p; A.panelOpen = true; $('#workbench').classList.remove('nopanel'); renderPanel(); }
@@ -1299,17 +1350,18 @@ function renderBadges() {
   const wd = typeof WK !== 'undefined' && WK.digest ? WK.digest.needs.length + WK.digest.failed.length : 0;
   const b6 = $('#badge-work'); b6.textContent = wd || ''; b6.className = 'badge' + (wd ? ' on bad' : '');
 }
-function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id.split('/').pop(); }
+function tabTitle(id) { return id === 'special:setup' ? 'Set up' : id === 'special:compare' ? 'Compare' : id === 'special:build' ? 'Build' : id === 'special:improve' ? 'Improve' : id === 'special:codemap' ? 'Code map' : id === 'special:canvas' ? 'Canvas' : id === 'special:deployment' ? 'Deployment' : id === 'special:topology' ? 'Agent topology' : id === 'special:work' ? 'Work' : id === 'special:review' ? 'Review' : id === 'special:study' ? 'Study' : id === 'special:parity' ? 'Parity' : id.split('/').pop(); }
 function renderTabs() {
   $('#tabs').innerHTML = A.tabs.map(id => {
-    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : 'IM'] : iconFor(id.replace(/^code:/, ''));
+    const b = A.buffers.get(id); const [cls, ch] = id.startsWith('special:') ? ['special', id === 'special:setup' ? 'SET' : id === 'special:compare' ? 'GIT' : id === 'special:build' ? 'BD' : id === 'special:codemap' ? 'AB' : id === 'special:canvas' ? 'CV' : id === 'special:deployment' ? 'DP' : id === 'special:topology' ? 'AT' : id === 'special:work' ? 'WK' : id === 'special:review' ? 'RV' : id === 'special:study' ? 'ST' : id === 'special:parity' ? 'PY' : 'IM'] : iconFor(id.replace(/^code:/, ''));
     return `<div class="tab ${id === A.active ? 'active' : ''} ${b && b.dirty ? 'dirty' : ''}" data-tab="${esc(id)}" title="${esc(id)}" role="tab" aria-selected="${id === A.active}"><span class="ticon ${cls}">${esc(ch)}</span>${esc(tabTitle(id))}<button class="x" data-close="${esc(id)}" aria-label="Close ${esc(tabTitle(id))}">✕</button></div>`;
   }).join('');
   const on = $('#tabs .tab.active'); if (on) on.scrollIntoView({ block: 'nearest', inline: 'nearest' });
 }
 function renderCrumbs() {
   const id = A.active;
-  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+  $('#crumbs').innerHTML = !id ? '' : id.startsWith('special:') ? `<span>${esc(A.root ? A.root.name : '')}</span>›<span>${{ 'special:build': 'Build (coding pipeline)', 'special:improve': 'Improve (evals and improvement)', 'special:codemap': 'Code map (as built)', 'special:canvas': 'Canvas (draw the design)', 'special:deployment': 'Deployment (where it runs)', 'special:topology': 'Agent topology (who calls what)', 'special:work': 'Work (items in progress)', 'special:review': 'Review (error analysis)', 'special:study': 'Study (learn before deciding)', 'special:parity': 'Parity (new app against legacy)', 'special:compare': 'Compare with revision', 'special:setup': 'Set up this folder' }[id]}</span>`
+    : id.startsWith('code:@') ? id.slice(6).split('/').map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : id.startsWith('code:') ? [String(A.cfg.codebase || '').split('/').pop(), ...id.slice(5).split('/')].map(esc).join(' › ') + ' <span style="margin-left:8px">(read-only)</span>'
     : [A.root ? A.root.name : '', ...id.split('/')].map(esc).join(' › ');
 }
@@ -1340,7 +1392,7 @@ function section(key, title, body, actions = '') {
   return `<div class="sec ${closed ? 'closed' : ''}" data-sec="${key}"><div class="sec-h" data-toggle="${key}"><span class="tw">${closed ? '▸' : '▾'}</span>${esc(title)}<span class="acts">${actions}</span></div><div class="sec-b">${body}</div></div>`;
 }
 function renderSidebar() {
-  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study' };
+  const titles = { explorer: 'Explorer', design: 'Design', codemap: 'Code map · as built', build: 'Build', improve: 'Improve', scm: 'Source control', deployment: 'Deployment', topology: 'Agent topology', work: 'Work', study: 'Study', parity: 'Parity' };
   $('#sbTitle').textContent = titles[A.activity];
   const body = $('#sbBody');
   if (!A.root) { body.innerHTML = `<div class="hint">You have not opened a folder yet.</div><button class="btn primary block" data-a="open">Open design folder</button><button class="btn block" data-a="sample">Try the sample project</button><button class="btn block" data-a="tour">Take the tour</button>`; return; }
@@ -1353,6 +1405,7 @@ function renderSidebar() {
   else if (A.activity === 'topology') body.innerHTML = topologySidebar();
   else if (A.activity === 'work') body.innerHTML = workSidebar();
   else if (A.activity === 'study') body.innerHTML = studySidebar();
+  else if (A.activity === 'parity') body.innerHTML = paritySidebar();
   else body.innerHTML = improveSidebar();
   if (A.activity === 'explorer') body.innerHTML += gitHistorySection();
   if (A.activity === 'explorer') body.innerHTML += handoverCompareSection();
@@ -1370,7 +1423,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
@@ -1512,20 +1565,23 @@ async function suggestCodeAreas() {
   await host.write(A.cfg.model, r.text); await loadModel(); recompile(); await openFile(A.cfg.model); renderAll();
   toast(`Added ${plural(r.areas.length, 'code area')}. Review them in the model before you freeze.`);
 }
+// Label for a finding raised only by what the code map wrote into the model (Core.fromExtraction). Display only.
+const EXTRACTED_TITLE = 'Everything this finding looks at is exactly what the code map extracted: nobody has declared anything here yet. Declare what is true (for example d.interaction or d.availability), or accept it.';
+const extractedTag = f => (Core.fromExtraction(f, A.model, A.asbuiltFull) ? ` <span class="tag" title="${esc(EXTRACTED_TITLE)}">from code map</span>` : '');
 function designSidebar() {
   const g = A.gate, hasModel = A.model && A.model.elements.size;
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
-  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` +
-    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
+  else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` + (g.ready ? '' : itemFreezeHint()) +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
-      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${(d.checks || []).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}</div></div>`).join('')
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -1559,7 +1615,7 @@ function designSidebar() {
   return (look ? section('look', `Since last look${look.count ? ` (${look.count})` : ''}`, look.body,
       look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
     + section('gate', 'Ready gate', gate)
-    + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button>`)
+    + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button><button title="Check records: what converting these decisions to the record format would flag. A dry run: nothing is written." data-a="checkrecords">≡</button>`)
     + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
@@ -1636,7 +1692,7 @@ function renderPanel() {
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
   const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line })),
-    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0] }))];
+    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
   if (mrows.length) groups.push([A.cfg.model, mrows]);
   const byPath = new Map();
   for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
@@ -1651,7 +1707,7 @@ function renderPanel() {
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}</span>
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
       ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
@@ -1855,7 +1911,7 @@ function renderSheet() {
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
-function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
+function renderSpecial() { const el = $('#special'); if (A.active === 'special:setup') return renderSetup(); if (A.active === 'special:codemap') return renderCodemap(); if (A.active === 'special:canvas') return renderCanvasView(); if (A.active === 'special:deployment') return renderDeployment(); if (A.active === 'special:topology') return renderTopology(); if (A.active === 'special:work') return renderWork(); if (A.active === 'special:review') return renderReview(); if (A.active === 'special:study') return renderStudy(); if (A.active === 'special:parity') return renderParity(); if (A.active === 'special:compare') return renderCompare(); el.innerHTML = A.active === 'special:build' ? buildDash() : improveDash(); }
 
 // ---------------------------------------------------------------- views: canvas (designc-canvas)
 function ensureModelBuffer() {
@@ -1966,7 +2022,7 @@ function buildDash() {
   h += `<div class="stats"><div class="stat"><div class="v">${passed.length ? fmtN(tokens / passed.length) : 'n/a'}</div><div class="l">Tokens per passing task</div></div><div class="stat"><div class="v">${passed.length} of ${tasks.length}</div><div class="l">Tasks passed</div></div><div class="stat"><div class="v">${tasks.length ? (reruns / tasks.length).toFixed(1) : '0'}</div><div class="l">Reruns per task</div></div><div class="stat"><div class="v">${needs.filter(n => n.status === 'open').length}</div><div class="l">Waiting on a decision</div></div>${totalCost != null ? `<div class="stat"><div class="v">${money(totalCost)}</div><div class="l">Total task cost</div></div>` : ''}</div>`;
   h += handoversBlock();
   const decs = A.decisions.filter(d => d.status === 'bound' || Core.latestCheck(L, d.id));
-  h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc((d.checks || [])[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
+  h += `<div class="grid2"><div class="block"><h3>Decision checks</h3>${decs.length ? `<div class="tw2"><table class="t"><tr><th>Decision</th><th>Check</th><th>Latest</th></tr>${decs.map(d => `<tr><td><span class="id">${esc(d.id)}</span> ${esc(trunc(d.statement || '', 56))}</td><td><span class="code">${esc(Records.runs(d)[0] || '')}</span></td><td>${latestTag(d.id)}</td></tr>`).join('')}</table></div>` : '<div class="note">No bound decisions have results yet.</div>'}</div>`;
   h += `<div class="block"><h3>Waiting on a decision</h3>${needs.length ? `<div class="tw2"><table class="t"><tr><th>Item</th><th>Question</th><th>Status</th></tr>${needs.map(n => `<tr><td><span class="id">${esc(n.id)}</span><div style="color:var(--fg3)">${esc(n.task || '')} · ${esc(elementLabel(n.element))}</div></td><td>${esc(n.question)}${n.status === 'open' ? ndOptionsHtml(n.id) : ''}</td><td><span class="tag ${n.status === 'open' ? 'open' : 'pass'}">${esc(n.status)}</span>${n.resolution ? `<div style="color:var(--fg3)">${esc(ndAnswerText(n.resolution))}</div>` : ''}</td></tr>`).join('')}</table></div>` : '<div class="note">Nothing is blocked.</div>'}</div></div>`;
   const acFail = [...L.filter(e => e.kind === 'ui_acceptance_failed').reduce((m, e) => m.set(`${e.task}\0${e.ac}`, e), new Map()).values()];
   if (acFail.length) h += `<div class="block"><h3>UI acceptance failures</h3><div class="tw2"><table class="t"><tr><th>Criterion</th><th>Element</th><th>Task</th><th>Commit</th></tr>${acFail.map(f => `<tr><td><span class="id">${esc(f.ac)}</span></td><td>${esc(elementLabel(f.element))}</td><td>${esc(f.task)}</td><td><span class="code">${esc(String(f.commit).slice(0, 7))}</span>${f.trace_id ? ` · trace ${esc(f.trace_id)}` : ''}</td></tr>`).join('')}</table></div><div class="note">Reported by the pipeline. The spec is generated from the criterion, so fix the code, not the spec.</div></div>`;
@@ -1997,7 +2053,7 @@ function improveDash() {
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
   if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
   h += reviewSummaryHtml() + escapeMetricsHtml(L);
-  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml();
+  h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml() + proceduresHtml() + knowledgeHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
   const trends = Ledger.evalTrends(L);
@@ -2059,6 +2115,8 @@ document.addEventListener('click', async e => {
   if (d.toggle && !e.target.closest('.acts')) { A.collapsed.has(d.toggle) ? A.collapsed.delete(d.toggle) : A.collapsed.add(d.toggle); renderSidebar(); return; }
   if (d.dir) { A.expanded.has(d.dir) ? A.expanded.delete(d.dir) : A.expanded.add(d.dir); renderSidebar(); return; }
   if (d.delfile) { e.stopPropagation(); return deleteFile(d.delfile); }
+  if (d.delreq) { e.stopPropagation(); return deleteRequirement(A.requirements.find(r => r.id === d.delreq)); }
+  if (d.supersede) { e.stopPropagation(); return supersedeDecision(A.decisions.find(x => x.id === d.supersede)); }
   if (d.file) return openFile(d.file);
   if (d.askfi) { e.stopPropagation(); const f = A.diags[+d.askfi]; return f && askTutor(`Explain finding ${f.code} on ${f.loc.label}: "${f.msg}". Why does it matter, and what does a good answer look like?`); }
   if (d.fixfi) { e.stopPropagation(); return decisionForFinding(A.diags[+d.fixfi]); }
@@ -2083,6 +2141,7 @@ document.addEventListener('click', async e => {
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
+  if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
@@ -2105,7 +2164,7 @@ document.addEventListener('click', async e => {
     if (c.kind === 'eval' && c.evalId != null) { const x = A.evals.find(y => String(y.id) === String(c.evalId)); if (x) return openFile(x._path); }
     return;
   }
-  if (d.code) return openCode(d.code, d.line ? +d.line : undefined);
+  if (d.code) return openCode(d.code, d.line ? +d.line : undefined, d.ref);
   if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
@@ -2131,11 +2190,13 @@ document.addEventListener('click', async e => {
   if (a === 'tour-done') return endTour();
   if (a === 'guide') return host.openGuide();
   if (a === 'freeze') return freezeHandover();
+  if (a === 'work') return setActivity('work');
   if (a === 'suggestcode') return suggestCodeAreas();
   if (a === 'dispatch') return dispatchHandover(d.id);
   if (a === 'compilecontracts') return compileContracts();
   if (a === 'rebindall') return rebindAll();
   if (a === 'newdec') return newDecision();
+  if (a === 'checkrecords') return checkRecords();
   if (a === 'newdecstudy') return newDecisionFromStudy();
   if (a === 'newreq') return newRequirement();
   if (a === 'importreq') return importRequirements();
@@ -2156,6 +2217,7 @@ document.addEventListener('click', async e => {
   if (a === 'improvedash') return openSpecial('special:improve');
   if (a === 'design') return setActivity('design');
   if (a === 'extract') return extractCodebase();
+  if (a === 'extractrefui') return extractReferenceUi(d.key);
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
@@ -2175,6 +2237,8 @@ document.addEventListener('change', async e => {
     const esc0 = A.ledger.find(x => x.kind === 'escape' && x.id === d.origin);
     await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
   }
+  if (d.cmscreen !== undefined) { A.cmScreen = e.target.value; return renderCodemap(); }
+  if (d.cmrepo !== undefined) { A.cmRepo = e.target.value; return cmGo('ui'); }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });
 });
 document.addEventListener('input', e => { if (e.target.dataset.ans != null) A.grill.questions[+e.target.dataset.ans].answer = e.target.value; });

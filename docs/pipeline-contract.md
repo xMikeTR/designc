@@ -8,6 +8,14 @@ The machine contract is `python/designc/ledger_schema.json` (generated from `ren
 
 A frozen handover (`handovers/<id>/`, listed and hashed in `handover.yaml`) is everything the pipeline needs: `elements.json` (`docs/handover-elements.schema.json`), the model, requirements, bound decisions, `evals/*.yaml`, `behaviour/*.p`, `vocabulary/*.yaml`, and `scenarios/*.yaml` with their ids under `scenarios:`. A scenario's `fitness:` entries may be `TODO ...`: the architect has stated what done means but the fitness function is not written yet, so writing it is part of the build. Verify each file's hash before use; a file changed after the freeze is not the handover.
 
+### Split repos (Api and Ui)
+
+When `designc.json` declares `repos` (for example `{ "Api": "../api", "Ui": "../ui" }`), each element with `d.code` names its repo with `d.repo` (inherited from the container; lint DC010). `elements.json` then carries `repo` per element (additive, optional, both schema versions). A task works in one repo only.
+
+The cross-repo seam is an OpenAPI 3.x YAML file under `contracts/openapi/` in the registry. A freeze copies each file verbatim to `contracts/openapi/<name>.yaml` in the handover, hash-pinned and inside the handover id, and lists the paths in `handover.yaml` under `contracts_api:` (a list of paths; absent when there are none). It is not the `contracts:` key, which holds compiled agent policies. A handover without `contracts_api:` has no pinned API contract.
+
+The gate raises `unpinned_contract` (about the requirement's elements) for a requirement whose elements span more than one declared repo while `contracts/openapi/` holds no file. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
+
 ## Kinds a pipeline writes
 
 Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and `handover_closed`, their usual stream: `checks.jsonl`, `designc.jsonl`). Every line carries `schema_version`, `by` and `kind`; `event_id` and `ts` are stamped if missing.
@@ -25,6 +33,9 @@ Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and 
 | `handover_closed` | `handover`, `outcome` | Ends spend counting for that handover (`delivered` or `abandoned`) |
 | `item_gate` | `item`, `gate`, `outcome`, `source`, `commit` (`dirty` false) | Evidence for a work item's `gate` entry in `done_when`. Counts only when `outcome` is pass, the tree was clean, and `commit` is the commit the item is declared done at |
 
+| `trace` | `run`, `task`, `outcome`, `bundle_id` (string or null), `models`, `procedures`, `tokens_in`, `tokens_out` | One row per run and task; the latest per run and task wins, and `blocked` is not final. `outcome` is `passed`, `failed` or `blocked`; optional `cause` as on `task`, `trace_id`, `jira`, `cost`. `models` are model ids (a tier name when the id is unknown); `procedures` are `[{id, version, hash}]`, what the attempt was given. Input to System 3 (Improve) |
+| `outcome` | `run`, `cause`, `ref` | A verdict that arrives after the run, on the whole run or on one `task`: `cause` is `ci_failed`, `qa_failed`, `integration_failed`, `integration_unrunnable` or `parity_failed`, `ref` is `{kind: ci\|qa\|parity\|integration, id}`, optional `commit`. The latest `outcome` after a task's `trace` row is that task's final cause |
+
 `ledger verify` rule V9: `pipeline.jsonl` may hold only these kinds. Other files are not judged, so a pipeline kind may also sit in its home stream.
 
 ## Live progress
@@ -39,6 +50,10 @@ A `task` row that carries `run` is a running total: its `tokens`, `tokens_in`, `
 
 A `task` row may also carry `usage`, the same running total split by model: `[{model, tier?, turns, tokens_in, tokens_out, cost?, cache_read?, cache_write?}]`, one entry per model the task used. `model` is a non-empty string; `turns`, `tokens_in` and `tokens_out` are whole numbers of at least 0; `cache_read` and `cache_write`, whole numbers too, are the part of `tokens_in` read from or written to a prompt cache (so together at most `tokens_in`; report `tokens_in` as all input, cached or not), and Build shows reads, writes and uncached input separately; `tier` is your own word for the model's class (for example `frontier`), shown only. Build's Runs shows each task's split and each run's total per tier (else per model). The row's own `tokens_in`, `tokens_out` and `cost` stay the task's totals and are what spend counts.
 
+## Why a task did not pass
+
+A `task` or `trace` row may carry `cause`: `stalled` or `abandoned` (status failed), `parked` (blocked) or `gate_failed:<gate>` (failed or blocked; the gate name in `a-z 0-9 _ . -`). No cause means unknown, never "fine". `Ledger.taskOutcomes(events)` gives each run and task its final cause (the latest `outcome` after its `trace` row, else the trace's own cause) and whether it succeeded: a passed trace, its run's handover closed as `delivered`, and no later `outcome`. An `escape` may carry `ref {kind: jira, id}` and the `run` it came from.
+
 ## Item scope
 
 A work item names the elements it changes (`in_scope`). A pipeline works only those elements. Before touching any other element, ask: write a `needs_decision` with `element` set to the element and wait for a person. A change outside the item's elements that was not asked about is an escape with origin `translation_error` . designc flags an item that names an element its requirement does not list, and a requirement element no item covers, so scope is settled before work starts.
@@ -48,6 +63,8 @@ A work item names the elements it changes (`in_scope`). A pipeline works only th
 `item_awaiting_human {item, reason?}` says an item waits for a person (open until the item is pulled, gated or done again). `item_conflict_deferred {item, reason?, with?}` says a backlog item was held back for a conflict. `wip_limit_changed {limit}` sets the WIP limit shown in the digest. designc folds these into the Work view's Digest; it never schedules. The ledger is the queue's source of truth; Jira is a one-way mirror.
 
 `item_budget {item, status, limit_tokens?, spent_tokens?, reason?}` reports an item's token budget; `status` is `within`, `exceeded` or `waiting`, and anything other than `within` needs both numbers (whole numbers, at least 0). The latest row per item wins. `exceeded` and `waiting` show under Waiting as "budget" until a `within` row or a later `item_pulled`; they never enter Needs you or Failed, so write `item_awaiting_human` as well when a person must act. designc never sets or enforces the limit.
+
+`parity_result {scenario, commit, outcome, failures, item?, report?}` reports one legacy parity scenario compared at a commit. Write it with `scripts/parity-record.js --side next --ledger` rather than by hand: the CLI builds the row with `Parity.resultEvent` and appends it through the one append path. `outcome` is `pass`, `fail` or `could_not_run` (not a failure, and not a pass); `failures` holds at most 50 `{step, key, kind, msg}` and at least one on a fail; `report` is the registry-relative report with the rest. The latest row per scenario at an item's done commit decides a `parity` done_when entry. See `docs/parity-contract.md`.
 
 `item_judge {item, judge, score, threshold, outcome, commit, judge_version?, rubric_hash?, trace_id?}` reports one judge score for an item. `judge` is the value of the item's `judge` done_when entry, `outcome` is `pass` or `fail`, and `commit` is a string or null. designc shows the latest score on that entry and marks it stale when `commit` differs from the commit the item was declared done at. A judge is a gradient: a fail never enters Failed and never decides Done.
 

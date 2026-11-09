@@ -157,3 +157,27 @@ test('extraction keeps every repo-relative file it walked as facts.files', async
   assert.ok(r.facts.files.every(f => !f.includes('\\') && !f.startsWith('/') && !/(^|\/)(obj|bin|node_modules)\//.test(f)));
   assert.deepEqual(r.facts.files, [...r.facts.files].sort());
 });
+
+// Split repos: facts.files carry the repo key, d.code stays relative to the repo that d.repo names.
+test('codeAreaDrift matches d.code inside the repo d.repo names, and an element with no d.repo against the whole path', () => {
+  const files = ['Api/src/Orders/O.cs', 'Api/tests/T.cs', 'Ui/src/Orders/O.tsx', 'Ui/src/app.tsx'];
+  const m = Core.parse(model(
+    el('Api', { 'd.code': 'src/**', 'd.repo': 'Api', 'd.risk': 'low' }),
+    el('Ui', { 'd.code': 'src/Orders/**', 'd.repo': 'Ui', 'd.risk': 'low' }),
+    el('Whole', { 'd.code': 'Api/tests/**', 'd.risk': 'low' })));
+  const r = Core.codeAreaDrift(m, files);
+  assert.deepEqual(r.areas.map(a => [a.name, a.repo || null, a.matched]), [['Api', 'Api', 1], ['Ui', 'Ui', 1], ['Whole', null, 1]]);
+  assert.deepEqual(r.unclaimed, ['Ui/src/app.tsx']);
+});
+
+test('codeAreaDrift does not let one repo claim another repo\'s identical path', () => {
+  const files = ['Api/src/x.cs', 'Ui/src/x.cs'];
+  const r = Core.codeAreaDrift(Core.parse(model(el('Api', { 'd.code': 'src/**', 'd.repo': 'Api', 'd.risk': 'low' }))), files);
+  assert.equal(r.areas[0].matched, 1);
+  assert.deepEqual(r.unclaimed, ['Ui/src/x.cs']);
+});
+
+test('codeAreaDrift hints at a folder inside the named repo', () => {
+  const r = Core.codeAreaDrift(Core.parse(model(el('Api', { 'd.code': 'src', 'd.repo': 'Api', 'd.risk': 'low' }))), ['Api/src/a.cs', 'Api/src/b.cs']);
+  assert.match(r.areas[0].hint, /folder with 2 files/);
+});

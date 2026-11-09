@@ -100,5 +100,26 @@
   }
 
 
-  Object.assign(Core, { forecast, freezeForecast, forecastSummary });
+  // A budget is a limit on the expected and high figures of a frozen forecast: `{tokens?, cost?}` (cost in the forecast's
+  // currency), from designc.json `budget`. Pure and display only: it warns, never refuses a freeze. `status`: `none` (no
+  // valid limit), `within` (high is under every limit), `risk` (expected fits, the high end does not), `over` (expected
+  // does not fit). Elements with no history add nothing to the figures, so `unpriced` says how many are missing.
+  function budgetCheck(frozen, budget) {
+    const lim = ['tokens', 'cost'].filter(k => budget && typeof budget[k] === 'number' && budget[k] > 0);
+    if (!frozen || !lim.length) return { status: 'none', lines: [], unpriced: 0 };
+    const money = n => `${frozen.currency || 'GBP'} ${n.toFixed(2)}`, num = n => String(Math.round(n)).replace(/\B(?=(\d{3})+(?!\d))/g, ',');
+    const fmt = { tokens: num, cost: money };
+    let status = 'within'; const lines = [];
+    for (const k of lim) {
+      const e = frozen[k].expected, h = frozen[k].high, b = budget[k];
+      const st = e > b ? 'over' : h > b ? 'risk' : 'within';
+      if (st === 'over' || (st === 'risk' && status !== 'over')) status = st;
+      lines.push(`Budget ${k}: ${fmt[k](b)}. Expected ${fmt[k](e)}, high ${fmt[k](h)}: ${st === 'over' ? 'over budget' : st === 'risk' ? 'fits on average, the high end does not' : 'within budget'}.`);
+    }
+    const unpriced = frozen.coverage.changed - frozen.coverage.priced;
+    if (unpriced > 0) lines.push(`${unpriced} changed ${unpriced === 1 ? 'element has' : 'elements have'} no history yet, so the figures leave ${unpriced === 1 ? 'it' : 'them'} out.`);
+    return { status, lines, unpriced };
+  }
+
+  Object.assign(Core, { forecast, freezeForecast, forecastSummary, budgetCheck });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

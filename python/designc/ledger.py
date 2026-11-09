@@ -2,6 +2,7 @@
 stamp the designc_v1 envelope and append to the kind's stream file. One validated append path per runtime:
 this module is the only code in python/ that writes ledger/*.jsonl."""
 import json
+import re
 import os
 import time
 import uuid
@@ -10,6 +11,10 @@ with open(os.path.join(os.path.dirname(__file__), 'ledger_schema.json'), encodin
     SCHEMA = json.load(_f)
 
 _TYPE_NAMES = {'boolean': 'a boolean', 'string': 'a string', 'array': 'an array', 'object': 'an object', 'number': 'a number', 'string|null': 'a string or null'}
+
+
+_CAUSE_RE = re.compile(r'^(stalled|abandoned|parked|gate_failed:[a-z0-9_.-]+)$')
+_REF_KINDS = {'outcome': ['ci', 'qa', 'parity', 'integration'], 'escape': ['jira']}
 
 
 def _is_type(v, t):
@@ -30,6 +35,15 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'failures_shape':
+        fs = ev.get('failures')
+        if not isinstance(fs, list): return None
+        if len(fs) > 50: return 'failures: at most 50 (the report holds the rest)'
+        for i, f in enumerate(fs):
+            if not (isinstance(f, dict) and _is_num(f.get('step')) and float(f['step']).is_integer() and not isinstance(f.get('step'), bool)
+                    and isinstance(f.get('key'), str) and isinstance(f.get('kind'), str) and isinstance(f.get('msg'), str)):
+                return f'failures[{i}]: must be {{step, key, kind, msg}}'
+        if ev.get('outcome') == 'fail' and not fs: return "failures: name at least one when outcome is 'fail'"
     elif rid == 'budget_shape':
         for k in ('limit_tokens', 'spent_tokens'):
             if k in ev and not (_is_num(ev[k]) and float(ev[k]).is_integer() and ev[k] >= 0):
@@ -83,6 +97,28 @@ def _rule(rid, ev):
             if 'gradients' in task and not names(task['gradients']): return f'tasks.{tid}: gradients must be a list of grader names'
     elif rid == 'ended_needs_reason':
         if 'status' in ev and ev['status'] != 'succeeded' and not ev.get('reason'): return "reason: required when status is not 'succeeded'"
+    elif rid == 'cause_shape':
+        if 'cause' not in ev: return None
+        c = ev['cause']
+        st = ev.get('outcome') if ev.get('kind') == 'trace' else ev.get('status')
+        if not isinstance(c, str) or not _CAUSE_RE.fullmatch(c): return 'cause: must be stalled, abandoned, parked or gate_failed:<gate> (a-z, 0-9, _ . -)'
+        if c in ('stalled', 'abandoned') and st != 'failed': return f'cause: {c} needs status failed'
+        if c == 'parked' and st != 'blocked': return 'cause: parked needs status blocked'
+        if c.startswith('gate_failed:') and st not in ('failed', 'blocked'): return 'cause: gate_failed needs status failed or blocked'
+    elif rid == 'trace_shape':
+        if isinstance(ev.get('models'), list):
+            for i, m in enumerate(ev['models']):
+                if not isinstance(m, str) or not m: return f'models[{i}]: must be a non-empty string (a model id, else its tier)'
+        if isinstance(ev.get('procedures'), list):
+            for i, p in enumerate(ev['procedures']):
+                if not isinstance(p, dict) or any(not isinstance(p.get(k), str) or not p[k] for k in ('id', 'version', 'hash')): return f'procedures[{i}]: must be {{id, version, hash}}'
+        for k in ('tokens_in', 'tokens_out'):
+            if k in ev and not (_is_num(ev[k]) and float(ev[k]).is_integer() and ev[k] >= 0): return f'{k}: must be a whole number of at least 0'
+    elif rid == 'ref_shape':
+        if 'ref' not in ev: return None
+        kinds = _REF_KINDS.get(ev.get('kind'), [])
+        r = ev['ref']
+        if not (isinstance(r, dict) and r.get('kind') in kinds and isinstance(r.get('id'), str) and r['id']): return f"ref: must be {{kind: {'|'.join(kinds)}, id}}"
     elif rid == 'fail_needs_note':
         if ev.get('verdict') == 'fail' and isinstance(ev.get('note'), str) and not ev['note'].strip():
             return "note: say what went wrong when verdict is 'fail'"

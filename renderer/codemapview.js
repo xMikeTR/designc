@@ -7,9 +7,12 @@ async function chooseCodebase() {
   cfg.model = cfg.model || A.cfg.model; cfg.codebase = p;
   await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n'); A.cfg.codebase = p; return true;
 }
+// Split repos: designc.json repos {Key: folder}. When declared, the map reads each one (main.js ignores `codebase`).
+function cmRepos() { const r = A.cfg.repos; return r && typeof r === 'object' && !Array.isArray(r) && Object.keys(r).length ? r : null; }
+function cmCodeLabel() { return cmRepos() ? 'Repos: ' + Object.keys(cmRepos()).join(', ') : A.cfg.codebase; }
 async function extractCodebase() {
   if (!A.root || A.extracting) return;
-  if (!A.cfg.codebase && !(await chooseCodebase())) return;
+  if (!A.cfg.codebase && !cmRepos() && !(await chooseCodebase())) return;
   A.extracting = true; renderSidebar(); if (A.active === 'special:codemap') renderCodemap();
   const r = await host.extract(A.cfg.codebase);
   A.extracting = false;
@@ -42,11 +45,11 @@ async function adoptComponents(builtId, designId) {
   toast(`Adopted ${plural(n, 'component')} into ${want.name}.`);
 }
 function codemapSidebar() {
-  const cb = A.cfg.codebase, f = A.facts, d = A.drift;
+  const cb = cmCodeLabel(), f = A.facts, d = A.drift;
   let h = section('cb', 'Codebase', cb
     ? `<div class="hint"><b>${esc(cb)}</b>${f ? `<br>Extracted ${esc(new Date(f.extractedAt).toLocaleString())}` : '<br>Not extracted yet'}</div>
        <button class="btn ${A.asbuilt ? '' : 'primary'} block" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : A.asbuilt ? 'Re-extract' : 'Extract the as-built map'}</button>
-       <div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button></div>`
+       ${cmRepos() ? '' : '<div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button></div>'}`
     : `<div class="hint">Point designc at a repository to map what exists today. It only reads the folder.</div><button class="btn primary block" data-a="choosecode">Choose codebase folder</button>`);
   if (f) h += section('cbstats', 'Found', `<div class="hint">${plural(f.projects.length, 'project')}: ${plural(f.projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, 'deployable')}, ${plural(f.projects.filter(p => p.kind === 'library').length, 'library')}, ${plural(f.projects.filter(p => p.kind === 'test').length, 'test project')} (not mapped). ${plural(f.edges.length, 'dependency', )} with evidence.</div>`);
   if (A.asbuilt && !A.model.elements.size) h += `<button class="btn primary block" data-a="adopt">Start the design from this map</button>`;
@@ -123,6 +126,22 @@ function cmAdoptBtn(builtId) {
   return a ? `<div style="padding:0 20px 8px"><button class="btn block" data-a="adoptcomp" data-built="${esc(a.built)}" data-design="${esc(a.design)}">Adopt these components</button></div>` : '';
 }
 function cmHasComponents() { return !!A.asbuiltFull && [...A.asbuiltFull.elements.values()].some(e => e.kind === 'component'); }
+// The UI level's repos (7e): the codebase, then each designc.json references key that a ui.screens entry names.
+function cmUiRepos() {
+  const refs = Dispatch.references(A.cfg.references), screens = (A.cfg.ui && A.cfg.ui.screens) || {};
+  const named = k => Object.values(screens).some(d => d && typeof d === 'object' && d[k] != null);
+  return ['codebase', ...(refs && refs.refs ? refs.refs.map(r => r.key).filter(named) : [])];
+}
+const cmUiHasScreens = g => !!(g && g.screens && g.screens.length);
+// The graph shown: facts.ui for the codebase, else asbuilt/ui-<key>.json (null until that repo is extracted).
+// The bar's title: the codebase's name, or the references key while the UI level shows another repo.
+function cmBarHead(f) {
+  const ref = A.cmLevel === 'ui' && A.cmRepo && A.cmRepo !== 'codebase', g = ref ? cmUiGraph() : null;
+  const name = ref ? A.cmRepo : f.repo, at = ref ? g && g.extractedAt : f.extractedAt;
+  return `<b>${esc(name)}</b><span class="desc">${at ? 'extracted ' + esc(new Date(at).toLocaleString()) : ''}</span>`;
+}
+function cmUiGraph() { return A.cmRepo && A.cmRepo !== 'codebase' ? (A.uiRefs || {})[A.cmRepo] || null : A.facts && A.facts.ui; }
+function cmHasUi() { return cmUiHasScreens(A.facts && A.facts.ui) || cmUiRepos().length > 1; }
 function cmHasCode() { return !!(A.facts && A.facts.code && A.facts.code.types && A.facts.code.types.length); }
 // The component the Code level opens on: the scope if it is one, else the selected component, else the first with types.
 function cmCodeScope() {
@@ -137,6 +156,13 @@ function cmModel() {
 }
 function cmGo(level, scope) {
   if (level === 'component' && !cmHasComponents()) return;
+  if (level === 'ui') {
+    if (!cmHasUi()) return; A.cmSel = null; A.cmLevel = 'ui';
+    const repos = cmUiRepos();
+    if (!repos.includes(A.cmRepo)) A.cmRepo = cmUiHasScreens(A.facts && A.facts.ui) ? 'codebase' : repos[1];
+    const g = cmUiGraph(); if (cmUiHasScreens(g) && !UiGraph.screen(g, A.cmScreen)) A.cmScreen = g.screens[0].name;
+    return renderCodemap();
+  }
   if (level === 'code') { if (!cmHasCode()) return; if (scope === undefined || scope === null) scope = cmCodeScope(); }
   A.cmLevel = level; if (scope !== undefined) A.cmScope = scope;
   A.cmZoom = 'fit';
@@ -144,23 +170,24 @@ function cmGo(level, scope) {
   renderCodemap();
 }
 function cmUp() {
+  if (A.cmLevel === 'ui') return cmGo('container');
   if (A.cmLevel === 'code') { const c = A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope); A.cmSel = null; return cmGo('component', c ? c.parent : null); }
   if (A.cmLevel === 'component') cmGo('container'); else if (A.cmLevel === 'container') cmGo('context'); }
 function cmSeg() {
   const has = cmHasComponents();
-  const hasCode = cmHasCode();
-  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''} ${lv === 'code' && !hasCode ? 'disabled title="No types were found. Re-extract to read them."' : ''}>${name}</button>`;
+  const hasCode = cmHasCode(), hasUi = cmHasUi();
+  const b = (lv, name) => `<button class="${A.cmLevel === lv ? 'on' : ''}" data-a="cmlevel" data-level="${lv}" ${lv === 'component' && !has ? 'disabled title="No components were found"' : ''} ${lv === 'code' && !hasCode ? 'disabled title="No types were found. Re-extract to read them."' : ''} ${lv === 'ui' && !hasUi ? 'disabled title="No screens were read. Name them in designc.json ui.screens, then re-extract."' : ''}>${name}</button>`;
   const sc = A.cmScope && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope);
   const cc = A.cmLevel === 'code' && A.asbuiltFull && A.asbuiltFull.elements.get(A.cmScope), cp = cc && A.asbuiltFull.elements.get(cc.parent);
   const crumb = A.cmLevel === 'code' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${cp ? ` ▸ <button class="cm-all" data-a="cmcontainer" data-id="${esc(cp.id)}">${esc(cp.name)}</button>` : ''}${cc ? ` ▸ <b>${esc(cc.name)}</b>` : ''}</span>` : A.cmLevel === 'component' ? `<span class="cm-crumb"><button class="cm-all" data-a="cmscope">All</button>${sc ? ` ▸ <b>${esc(sc.name)}</b>` : ''}</span>` : '';
-  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}${b('code', 'Code')}</span>${crumb}`;
+  return `<span class="cm-seg">${b('context', 'Context')}${b('container', 'Containers')}${b('component', 'Components')}${b('code', 'Code')}${b('ui', 'UI')}</span>${crumb}`;
 }
 function renderCodemap() {
   const el = $('#special');
   if (A.active !== 'special:codemap') return;
   if (!A.asbuilt) {
     el.innerHTML = `<div class="dash"><h1>Code map</h1><p class="lede">A C4 map of the codebase as it exists, extracted from project files, configuration and code. Every box and arrow links to the lines that prove it. Once there is a design, the map shows where code and design disagree.</p>
-      ${A.cfg.codebase ? `<p>Codebase: <span class="code">${esc(A.cfg.codebase)}</span></p><button class="btn primary" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Extract the as-built map'}</button>` : '<button class="btn primary" data-a="choosecode">Choose codebase folder</button>'}
+      ${cmCodeLabel() ? `<p>${cmRepos() ? '' : 'Codebase: '}<span class="code">${esc(cmCodeLabel())}</span></p><button class="btn primary" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Extract the as-built map'}</button>` : '<button class="btn primary" data-a="choosecode">Choose codebase folder</button>'}
       <div class="block" style="margin-top:22px"><h3>What the extractor reads</h3><div class="tw2"><table class="t">
       <tr><td>Web, Worker and Exe projects, and SPA/Node package.json</td><td>Containers. Libraries fold into the deployables that reference them; test projects are skipped.</td></tr>
       <tr><td>EF Core <span class="code">DbContext</span> classes</td><td>Stores, with the provider from <span class="code">UseSqlServer</span> and friends, linked to the deployables that use them.</td></tr>
@@ -176,16 +203,19 @@ function renderCodemap() {
     return;
   }
   const f = A.facts || { repo: '', extractedAt: null };
-  el.innerHTML = `<div class="cm"><div class="cm-bar"><b>${esc(f.repo)}</b><span class="desc">${f.extractedAt ? 'extracted ' + esc(new Date(f.extractedAt).toLocaleString()) : ''}</span>
+  el.innerHTML = `<div class="cm"><div class="cm-bar">${cmBarHead(f)}
       ${cmSeg()}
       ${A.cmLevel === 'code' ? '<span class="legend"><i class="lg ghost"></i>type in another component</span>' : ''}
-      ${A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
-      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' && A.cmLevel !== 'code' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
-      <button class="btn" data-a="cmfit">Fit</button><button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
-    <div class="cm-main"><div class="cm-canvas sheetscroll" id="cmcanvas"></div><aside class="cm-side" id="cmside"></aside></div></div>`;
+      ${A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
+      ${A.cmLevel === 'ui' ? cmUiBar() : ''}
+      ${A.cmLevel === 'ui' && cmUiHasScreens(cmUiGraph()) ? `<label class="chk">Screen <select data-cmscreen aria-label="Screen">${cmUiGraph().screens.map(s => `<option value="${esc(s.name)}" ${s.name === A.cmScreen ? 'selected' : ''}>${esc(s.name)}</option>`).join('')}</select></label>` : ''}
+      <span class="spacer"></span>${A.drift && A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<label class="chk"><input type="checkbox" data-a="ghost" ${A.showGhost ? 'checked' : ''}> Show designed-only edges</label>` : ''}
+      ${A.cmLevel === 'ui' ? '' : '<button class="btn" data-a="cmfit">Fit</button>'}<button class="btn" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Re-extract'}</button></div>
+    <div class="cm-main">${A.cmLevel === 'ui' ? '<div class="cm-ui" id="cmui"></div>' : '<div class="cm-canvas sheetscroll" id="cmcanvas"></div>'}<aside class="cm-side" id="cmside"></aside></div></div>`;
   requestAnimationFrame(drawCodemap);
 }
 function drawCodemap() {
+  if (A.cmLevel === 'ui') return drawUi();
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
   if (A.cmLevel === 'code') return drawCode(host_);
   const lvl = A.cmLevel, m = cmModel(), L = layout(m, { groupEdges: lvl === 'component' });
@@ -227,6 +257,76 @@ function drawCode(host_) {
   });
   renderCmSide();
 }
+// The UI level: one screen's controls by component, read from source (facts.ui, extract/ui.js). A row opens file:line.
+// The Repo picker and, for a references repo, its own read-only extraction (human only; main writes asbuilt/ui-<key>.json).
+function cmUiBar() {
+  const repos = cmUiRepos(); if (repos.length < 2) return '';
+  const ref = A.cmRepo !== 'codebase', busy = A.extractingRef === A.cmRepo;
+  return `<label class="chk">Repo <select data-cmrepo aria-label="Repo">${repos.map(k => `<option value="${esc(k)}" ${k === A.cmRepo ? 'selected' : ''}>${esc(k)}</option>`).join('')}</select></label>`
+    + (ref ? `<button class="btn" data-a="extractrefui" data-key="${esc(A.cmRepo)}" ${busy ? 'disabled' : ''}>${busy ? 'Extracting…' : `${cmUiGraph() ? 'Re-extract' : 'Extract'} ${esc(A.cmRepo)}`}</button>` : '');
+}
+async function extractReferenceUi(key) {
+  if (A.extractingRef) return;
+  A.extractingRef = key; renderCodemap();
+  const r = await host.extractReferenceUi(key);
+  A.extractingRef = null;
+  if (r.error) { toast(r.error, 'error'); return renderCodemap(); }
+  A.uiRefs = { ...(A.uiRefs || {}), [key]: r.ui };
+  const n = r.ui.controls.length;
+  toast(`Read ${plural(r.ui.screens.length, 'screen')} and ${plural(n, 'control')} from ${key} into ${r.path}${r.ui.unresolved.length ? `; ${r.ui.unresolved.length} could not be resolved` : ''}.`);
+  cmGo('ui');
+}
+// Rows of a references repo open its files, not the codebase's.
+function cmUiTagRef() {
+  if (A.cmRepo === 'codebase' || !A.cmRepo) return;
+  document.querySelectorAll('#cmui [data-code], #cmside [data-code]').forEach(n => { n.dataset.ref = A.cmRepo; });
+}
+function drawUi() {
+  const box = $('#cmui'); if (!box || !cmHasUi()) return;
+  const g = cmUiGraph();
+  if (!cmUiHasScreens(g)) {
+    box.innerHTML = `<div class="hint" style="padding:16px">${g ? `No screen names ${esc(A.cmRepo)} in designc.json ui.screens.` : `${esc(A.cmRepo)} has not been read yet. Extract ${esc(A.cmRepo)} reads its screens from source, read-only, into asbuilt/ui-${esc(A.cmRepo)}.json.`}</div>`;
+    return renderCmSide();
+  }
+  const s = UiGraph.screen(g, A.cmScreen);
+  if (!s) { box.innerHTML = ''; return renderCmSide(); }
+  const nameCell = c => c.name != null ? esc(c.name)
+    : `<span class="muted">${c.names.length ? esc(c.names.map(n => n.from === 't()' ? `t('${n.value}')` : n.value != null ? n.value : n.expr ? `{${n.expr}}` : `#${n.ref}`).join(' · ')) : 'no name in source'}</span>`;
+  const roleCell = c => c.role ? `${esc(c.role)} <span class="tag" title="${esc(UiGraph.BASIS[c.basis] || c.basis)}">${esc(c.basis)}</span>` : '<span class="tag warning" title="The source does not show a role; see Unresolved">unknown</span>';
+  // The Element cell: the intrinsic tag; inside a followed component also "via" it, linking to the element itself.
+  const elCell = c => `<code>&lt;${esc(c.tag)}&gt;</code>${c.library ? ` <span class="tag" title="From a library whose source is not read">${esc(c.library)}</span>` : ''}${c.as ? ` <span class="desc">via ${esc(c.as)}</span>` : ''}${c.at ? ` <span class="evfile cm-at" data-code="${esc(c.at.file)}" data-line="${c.at.line}" title="Open the element in ${esc((c.via || []).map(v => v.component.split('#')[1]).join(' > '))}">${esc(c.at.file)}:${c.at.line}</span>` : ''}`;
+  // The When cell: conditions (source text, never evaluated) and state props, each opening where it is written.
+  const whenCell = c => (c.when || []).map(w => `<div class="cm-when" data-code="${esc(w.file)}" data-line="${w.line}" title="${esc(w.kind)} at ${esc(w.file)}:${w.line}"><code>${esc(trunc(w.expr, 48))}</code></div>`).join('')
+    + Object.entries(c.props || {}).map(([k, v]) => `<span class="tag" title="${v === true ? `Always ${esc(k)}` : `${esc(k)} when ${esc(v)}`}">${esc(k)}${v === true ? '' : ` if ${esc(trunc(v, 24))}`}</span> `).join('');
+  // The Value cell: how its value is formatted and the form field it registers, each opening where it is written.
+  const valueCell = c => (c.format ? `<div class="cm-when cm-value" data-code="${esc(c.format.file)}" data-line="${c.format.line}" title="${esc(c.format.lib)} ${esc(c.format.call)}(${esc(c.format.args)})"><span class="tag">format</span> <code>${esc(trunc(UiGraph.formatText(c.format), 40))}</code></div>` : '')
+    + (c.field ? `<div class="cm-when cm-value" title="${c.field.form ? `Rules from ${esc(c.field.form)} and register` : 'No single form schema names this field; rules from register only'}"><span class="tag">field</span> <code>${esc(c.field.name != null ? c.field.name : `{${c.field.expr || ''}}`)}</code>${c.field.rules.length ? ` <span class="desc">${esc(trunc(UiGraph.rulesText(c.field.rules), 48))}</span>` : ''}</div>` : '');
+  const rows = s.tree.map(comp => `<tr class="grp"><td colspan="6" style="padding-left:${8 + 16 * (comp.depth || 0)}px"><b>${esc(comp.name)}</b> ${comp.file ? `<span class="desc">${esc(comp.file)}</span>` : ''}${comp.renders && comp.renders.length ? ` <span class="desc">renders ${esc(comp.renders.join(', '))}</span>` : ''}</td></tr>`
+    + comp.controls.map(c => `<tr class="uirow" data-code="${esc(c.file)}" data-line="${c.line}" title="Open ${esc(c.file)}:${c.line}"><td>${roleCell(c)}</td><td>${nameCell(c)}</td><td>${elCell(c)}</td><td>${whenCell(c)}</td><td>${valueCell(c)}</td><td class="evfile">${esc(c.file)}:${c.line}</td></tr>`).join('')).join('');
+  box.innerHTML = s.controls.length
+    ? `<table class="t" aria-label="Controls on ${esc(s.name)}"><thead><tr><th>Role</th><th>Name</th><th>Element</th><th>When</th><th>Value</th><th>Where</th></tr></thead><tbody>${rows}</tbody></table>`
+    : `<div class="hint" style="padding:16px">${s.roots.length ? `No controls found in ${plural(s.roots.length, 'file')} of this screen.` : 'The screen\'s patterns match no source file. See Unresolved.'}</div>`;
+  renderCmSide();
+  cmUiTagRef();
+}
+function cmUiSide() {
+  const g = cmUiGraph();
+  if (!cmUiHasScreens(g)) return `<h3>${esc(A.cmRepo || '')}</h3><p class="muted">A references repo is read only when you extract it. Its screens are the ui.screens entries that name ${esc(A.cmRepo || '')}.</p>${cmUiHelp()}`;
+  const s = UiGraph.screen(g, A.cmScreen), sum = UiGraph.summary(g).screens.find(x => x.name === A.cmScreen);
+  const general = (g.unresolved || []).filter(u => !u.screen);
+  const un = s ? s.unresolved.concat(general) : general;
+  return `<h3>${esc(A.cmScreen || '')}</h3><div class="muted">${A.cmRepo && A.cmRepo !== 'codebase' ? `From ${esc(A.cmRepo)}${g.extractedAt ? ', read ' + esc(new Date(g.extractedAt).toLocaleString()) : ''}. ` : ''}Read from source; display only, never a gate input.</div>
+    ${sum ? `<p>${plural(sum.controls, 'control')} in ${plural(sum.roots, 'file')}${sum.roleless ? `; ${sum.roleless} without a role` : ''}${sum.unnamed ? `; ${sum.unnamed} without a literal name` : ''}.</p>` : ''}
+    ${s && s.roots.length ? `<h4>Files</h4>${s.roots.map(f => `<div class="evrow" data-code="${esc(f)}" data-line="1"><div class="evfile">${esc(f)}</div></div>`).join('')}` : ''}
+    ${s && s.followed.length ? `<h4>Followed components (${s.followed.length})</h4>${s.followed.map(c => `<div class="evrow" data-code="${esc(c.file)}" data-line="${c.line}"><b>${esc(c.name)}</b><div class="evfile">${esc(c.file)}:${c.line}</div></div>`).join('')}` : ''}
+    ${s && s.formats.length ? `<h4>Formats (${s.formats.length})</h4>${s.formats.map(f => `<div class="evrow" data-code="${esc(f.file)}" data-line="${f.line}"><b>${esc(trunc(UiGraph.formatText(f), 40))}</b> <span class="tag">${esc(f.lib)}</span><div class="evfile">${esc(f.file)}:${f.line}</div></div>`).join('')}` : ''}
+    ${s && s.forms.length ? `<h4>Forms (${s.forms.length})</h4>${s.forms.map(f => `<div class="evrow" data-code="${esc(f.file)}" data-line="${f.line}"><b>${esc(f.form)}</b> <span class="tag">${esc(f.lib)}</span>${f.fields.map(x => `<div class="desc">${esc(x.name)}: ${esc(trunc(UiGraph.rulesText(x.rules) || 'no rules', 60))}</div>`).join('')}<div class="evfile">${esc(f.file)}:${f.line}</div></div>`).join('')}` : ''}
+    ${un.length ? `<h4>Unresolved (${un.length})</h4>${un.map(u => `<div class="evrow" ${u.file === 'designc.json' ? 'data-open="designc.json" data-line="1"' : `data-code="${esc(u.file)}" data-line="${u.line}"`}>${esc(u.what)}<div class="evfile">${esc(u.file)}:${u.line}</div></div>`).join('')}` : ''}
+    ${cmUiHelp()}`;
+}
+function cmUiHelp() {
+  return `<p class="muted">A role comes from the HTML element or a literal role attribute; inside an in-repo component the screen renders, from the element it renders with the props passed (followed); for a tag listed in designc.json ui.roles, from that entry (mapped). Other library components are not read. A references repo (another key in a ui.screens entry) is read only when you extract it. When lists the conditions that render it and its state props as written; nothing is evaluated. Value shows a formatting call inside it (Intl, toLocale*, date-fns, dayjs, moment; the pattern only when literal) and the react-hook-form field it registers, with the rules of the one zod or yup schema naming that field. A name comes from a literal label, aria-label or text; t('key') and expressions are listed but never taken as the name.</p>`;
+}
 const cmCompName = id => { const c = A.asbuiltFull && A.asbuiltFull.elements.get(id); return c ? c.name : ''; };
 function cmTypeSide(t) {
   const code = A.facts.code, rows = CodeLevel.methodsOf(code, t.id).sort((a, b) => b.cc - a.cc || a.name.localeCompare(b.name));
@@ -242,6 +342,7 @@ function cmTypeSide(t) {
 function renderCmSide() {
   const side = $('#cmside'); if (!side) return;
   const f = A.facts; const d = A.cmLevel === 'container' ? A.drift : null;
+  if (A.cmLevel === 'ui') { side.innerHTML = cmUiSide(); return; }
   if (A.cmLevel === 'code') {
     const t = A.cmSel && f.code.types.find(x => x.id === A.cmSel);
     side.innerHTML = t ? cmTypeSide(t) : `<h3>${esc(cmCompName(A.cmScope))}</h3><p class="muted">Select a type to see its methods. Dashed boxes belong to other components.</p>`;

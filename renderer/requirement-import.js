@@ -66,6 +66,22 @@ const RequirementImport = (() => {
     };
   }
 
+  // `jira:` is one line of JSON (valid YAML flow) written by fetch-jira.py; anything else is ignored.
+  function jiraMeta(v) {
+    if (!v) return null;
+    try {
+      const o = JSON.parse(v);
+      if (!o || typeof o !== 'object' || Array.isArray(o)) return null;
+      const list = x => (Array.isArray(x) ? x.filter(y => typeof y === 'string') : []);
+      const out = {};
+      if (typeof o.type === 'string') out.type = o.type;
+      out.labels = list(o.labels);
+      out.components = list(o.components);
+      if (typeof o.priority === 'string') out.priority = o.priority;
+      return out;
+    } catch (e) { return null; }
+  }
+
   function readMarkdown(text) {
     const { meta, body } = front(norm(text));
     const h = /^#\s+(.+?)\s*#*\s*$/m.exec(body);
@@ -74,6 +90,7 @@ const RequirementImport = (() => {
       source: meta.source || null,
       version: meta.version || null,
       id: meta.id || null,
+      jira: jiraMeta(meta.jira),
       text: body.replace(/\s+/g, ' ').trim(),
     };
   }
@@ -85,7 +102,7 @@ const RequirementImport = (() => {
     const r = isHtml ? readHtml(String(text)) : readMarkdown(String(text));
     if (!r.title) return fail(`${name}: no title (no <title> or <h1> in HTML, no front matter title or # heading in markdown)`);
     const key = r.id || (KEY.exec(r.title) || KEY.exec(name) || [null])[0];
-    return {
+    const out = {
       ok: true,
       id: key || null,
       title: r.title,
@@ -93,6 +110,8 @@ const RequirementImport = (() => {
       version: r.version != null ? String(r.version) : hash16(r.text),
       problems: [],
     };
+    if (r.jira) out.jira = r.jira;
+    return out;
   }
 
   function slug(title, taken) {
@@ -105,12 +124,38 @@ const RequirementImport = (() => {
     return id;
   }
 
+  const RISK_ORDER = ['low', 'medium', 'high', 'critical'];
+  const isObj = o => o && typeof o === 'object' && !Array.isArray(o);
+  const str = v => typeof v === 'string' && v.trim() !== '';
+
+  // jira-mapping.yaml: { labels: { <label>: {risk, data_class, repo} }, components: { <component>: {...} } }. Nothing here
+  // names a label or component; a missing, empty or malformed mapping maps nothing. Risk: the highest of the matches (by
+  // low < medium < high < critical, an unknown value counts as lowest); data_class and repo: the first match.
+  function mapJira(jira, mapping) {
+    const j = jira || {};
+    const m = isObj(mapping) ? mapping : {};
+    const fields = {}, unmapped = [];
+    const rank = v => RISK_ORDER.indexOf(String(v).toLowerCase());
+    const apply = (names, table) => {
+      for (const n of names || []) {
+        const e = isObj(table) && isObj(table[n]) ? table[n] : null;
+        if (!e) { unmapped.push(n); continue; }
+        if (str(e.risk) && (fields.risk === undefined || rank(e.risk) > rank(fields.risk))) fields.risk = e.risk;
+        for (const k of ['data_class', 'repo']) if (str(e[k]) && fields[k] === undefined) fields[k] = e[k];
+      }
+    };
+    apply(j.labels, m.labels);
+    apply(j.components, m.components);
+    return { fields, unmapped };
+  }
+
   // existing: [{id, version, source?}]. Items keep file order; status is new | unchanged | changed | invalid.
-  function plan(files, { existing = [] } = {}) {
+  function plan(files, { existing = [], mapping } = {}) {
     const byId = new Map(existing.map(e => [String(e.id).toLowerCase(), e]));
     const bySource = new Map(existing.filter(e => e.source).map(e => [String(e.source), e]));
     const taken = new Set(byId.keys());
     const seen = new Set();
+    const unmapped = new Set();
     const items = [];
     for (const f of files) {
       const r = read(f);
@@ -132,6 +177,12 @@ const RequirementImport = (() => {
       seen.add(key);
       const prev = byId.get(key);
       const item = { file: f.name, id, title: r.title, source: r.source, version: r.version, problems: [] };
+      if (r.jira) {
+        const m = mapJira(r.jira, mapping);
+        item.jira = r.jira;
+        item.mapped = m.fields;
+        for (const n of m.unmapped) unmapped.add(n);
+      }
       if (!prev) item.status = 'new';
       else if (String(prev.version) === r.version) item.status = 'unchanged';
       else { item.status = 'changed'; item.from = String(prev.version); }
@@ -139,7 +190,7 @@ const RequirementImport = (() => {
     }
     const summary = { new: 0, unchanged: 0, changed: 0, invalid: 0 };
     for (const i of items) summary[i.status]++;
-    return { items, summary, problems: items.flatMap(i => i.problems) };
+    return { items, summary, unmappedNames: unmapped.size, problems: items.flatMap(i => i.problems) };
   }
 
   const scalar = s => (/^[A-Za-z0-9][A-Za-z0-9 ,.'()/&-]*$/.test(s) ? s : JSON.stringify(s));
@@ -147,8 +198,10 @@ const RequirementImport = (() => {
 
   // One requirement file. `elements` is kept when a changed page updates an existing requirement.
   function toYaml(item, { elements = [] } = {}) {
+    const mapped = Object.entries(item.mapped || {}).map(([k, v]) => `${k}: ${scalar(v)}\n`).join('');
+    const jira = item.jira ? `jira: ${JSON.stringify(item.jira)}\n` : '';
     return `id: ${scalar(item.id)}\ntitle: ${scalar(item.title)}\nsource: ${JSON.stringify(item.source)}\n`
-      + `version: ${ver(item.version)}\nelements: ${JSON.stringify(elements)}\n`;
+      + `version: ${ver(item.version)}\n${mapped}${jira}elements: ${JSON.stringify(elements)}\n`;
   }
 
   // The requirement file's text with only the `elements` list replaced (flow or block form); every other line is
@@ -168,6 +221,6 @@ const RequirementImport = (() => {
     return lines.join('\n');
   }
 
-  return { read, plan, toYaml, setElements, hash16 };
+  return { read, plan, toYaml, setElements, mapJira, hash16 };
 })();
 if (typeof module !== 'undefined' && module.exports) module.exports = RequirementImport;

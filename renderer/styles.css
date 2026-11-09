@@ -242,6 +242,14 @@ table.t .num{text-align:right;font-variant-numeric:tabular-nums}
 .chk{display:flex;align-items:center;gap:5px;font-size:12px;color:var(--fg2)}
 .cm-main{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 340px;min-height:0}
 .cm-canvas{position:relative;background-color:var(--paper)}
+.cm-ui{overflow:auto;background:var(--editor)}
+.cm-ui tr.grp td{background:var(--chrome);padding-top:8px}
+.cm-ui tr.uirow{cursor:pointer}
+.cm-ui tr.uirow:hover td{background:var(--hover, var(--chrome))}
+.cm-ui .cm-when{cursor:pointer;white-space:nowrap}
+.cm-ui .cm-when code{font-size:11px}
+.cm-ui .cm-when:hover code{text-decoration:underline}
+.cm-ui .cm-value{white-space:normal;min-width:180px;max-width:280px}
 .cm-side{border-left:1px solid var(--edge);overflow:auto;padding:12px 14px;background:var(--editor);font-size:12.5px}
 .cm-side h3{margin:0 0 4px;font-size:15px}
 .cm-side h4{margin:16px 0 6px;font-size:12px;color:var(--fg2);font-weight:600}
@@ -388,9 +396,9 @@ h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
 .rvwarn{color:var(--warn)}
 /* Study (step 0): a study registry shows its topics and hides what needs a model; elsewhere the Study button is hidden */
 #activity button[data-act="study"]{display:none}
-.shell.kind-domain #activity button:is([data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
+.shell.kind-domain #activity button:is([data-act="parity"],[data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
 .shell.kind-study #activity button[data-act="study"]{display:grid}
-.shell.kind-study #activity button:is([data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
+.shell.kind-study #activity button:is([data-act="parity"],[data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
 .st{padding:16px 20px;max-width:980px}
 .st h2{margin:0 0 4px;font-size:16px}
 .st .stq{color:var(--fg2);margin-bottom:12px}
@@ -398,3 +406,11 @@ h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
 .st ol.stl li{margin:4px 0}
 .st .stopinion{width:100%;min-height:90px;border:1px solid var(--edge);border-radius:3px;background:var(--editor);padding:6px;resize:vertical;user-select:text}
 .st .stcorr{color:var(--fg3);font-size:12px}
+/* Parity view: steps, findings and the legacy and new screenshots side by side */
+.pvsteps{margin:4px 14px 12px 34px;padding:0}
+.pvfind{margin:4px 14px 8px 30px;padding:0}
+.pvshots{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:6px 14px 14px}
+.pvshot{margin:0;min-width:0}
+.pvshot figcaption{font-size:12px;color:var(--fg2);margin-bottom:4px}
+.pvshot img{max-width:100%;border:1px solid var(--edge);display:block}
+.pvshot.none{color:var(--fg3);font-size:12px}

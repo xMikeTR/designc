@@ -20,7 +20,8 @@
     "@xterm/xterm": "^6.0.0",
     "js-yaml": "^4.1.0",
     "monaco-editor": "0.52.0",
-    "node-pty": "^1.1.0"
+    "node-pty": "^1.1.0",
+    "typescript": "~6.0.3"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
@@ -55,6 +56,8 @@
       "node_modules/@xterm/xterm/css/**",
       "node_modules/@xterm/addon-fit/lib/**",
       "node_modules/node-pty/**",
+      "node_modules/typescript/package.json",
+      "node_modules/typescript/lib/typescript.js",
       "package.json"
     ],
     "asarUnpack": [

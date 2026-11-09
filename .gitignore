@@ -17,3 +17,4 @@ python/build/
 designc-canvas.zip
 
 Evaluation Bible*.md
+!fixtures/ui-app/node_modules/

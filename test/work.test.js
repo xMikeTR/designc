@@ -183,3 +183,21 @@ test('re-check: the same requirements in another order are no change; adding one
   assert.deepEqual(Core.workRecheck({ item, frozen: { model: m, inScope: ['A'], requirements: ['R-1'] }, model: m }).reasons.map(r => r.text),
     ['The item moved from requirement R-1 to requirements R-1, R-2 since it was frozen.']);
 });
+
+test('inboxPending hides entries a work item already targets, and ones with no usable key', () => {
+  const inbox = [{ id: 'ZZ-1', title: 'a' }, { id: 'ZZ-2', title: 'b' }, { id: 'ZZ-3', title: 'c', target: { jira: 'ZZ-9' } }, { id: 'bad id' }];
+  const items = [{ id: 'W-1', target: { jira: 'ZZ-2' } }, { id: 'W-2', requirement: 'DEMO-1' }];
+  assert.deepEqual(Work.inboxPending(inbox, items).map(e => e.id), ['ZZ-1', 'ZZ-3']);
+  assert.equal(Work.inboxKey({ id: 'ZZ-3', target: { jira: 'ZZ-9' } }), 'ZZ-9');
+  assert.equal(Work.inboxKey({ id: 'ZZ-1' }), 'ZZ-1');
+});
+
+test('fromInbox turns the item template into a jira-target item that validates', () => {
+  const tpl = 'id: W-x\ntitle: ""\n# a comment\nrequirement: TODO\nelements: []\nwrites: []\ndepends_on: []\ndone_when:\n  - gate: "TODO a command"\n# target: { jira: "DEMO-123" }\n';
+  const text = Work.fromInbox(tpl, 'ZZ-1');
+  assert.match(text, /^target: \{ jira: "ZZ-1" \}$/m);
+  assert.doesNotMatch(text, /^requirement:/m);
+  assert.doesNotMatch(text, /^elements:/m);
+  const item = require('js-yaml').load(text.replace('title: ""', 'title: t').replace('TODO a command', 'true'));
+  assert.deepEqual(Work.validate(item, { requirements: [], items: [] }), []);
+});

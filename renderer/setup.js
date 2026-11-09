@@ -93,6 +93,16 @@ const Setup = (() => {
         if (got && got.error) errs.push({ field: `references.${i}.${blank(r.path) ? 'path' : 'key'}`, msg: blank(k) ? 'Give this reference a short name, like wpf.' : blank(r.path) ? 'Choose the folder, or remove this row.' : got.error });
       });
     }
+    // Dispatch (one target): a command typed into the Terminal for a frozen handover. All blank means none. Judged by the one
+    // reader of the placeholders, with every value filled in, so only an unknown name or a second line is reported.
+    if (draft.dispatch && typeof draft.dispatch === 'object') {
+      const d = draft.dispatch, full = { handover: 'h', repo: 'r', registry: 'g', base: 'b', run: 'n', legacy: 'l' };
+      if (!blank(d.command) || !blank(d.label) || !blank(d.resume)) {
+        if (blank(d.command)) errs.push({ field: 'dispatch.command', msg: 'Enter the command that builds a handover, like my-build --handover {handover} --repo {repo}.' });
+        else { const c = D.command(String(d.command), full); if (c && c.error) errs.push({ field: 'dispatch.command', msg: c.error }); }
+        if (!blank(d.resume)) { const c = D.command(String(d.resume), full); if (c && c.error) errs.push({ field: 'dispatch.resume', msg: c.error }); }
+      }
+    }
     urlField(draft.llm, 'llm'); envField(draft.llm, 'llm', 'apiKeyEnv');
     urlField(draft.langfuse, 'langfuse'); envField(draft.langfuse, 'langfuse', 'publicKeyEnv'); envField(draft.langfuse, 'langfuse', 'secretKeyEnv');
     return errs;
@@ -130,6 +140,13 @@ const Setup = (() => {
         next[k] = { ...(old[k] || {}), kind: 'legacy', path: String(r.path).trim() };
       }
       if (Object.keys(next).length) out.references = next; else delete out.references;
+    }
+    // One dispatch target. A null draft (the file names several targets) leaves the section as it is.
+    if (draft.dispatch && typeof draft.dispatch === 'object') {
+      const d = draft.dispatch, old = out.dispatch && typeof out.dispatch === 'object' && !Array.isArray(out.dispatch) && 'command' in out.dispatch ? out.dispatch : {};
+      const next = { ...old };
+      for (const f of ['label', 'command', 'resume']) { if (blank(d[f])) delete next[f]; else next[f] = String(d[f]).trim(); }
+      if (next.command) out.dispatch = next; else if (!out.dispatch || 'command' in (out.dispatch || {})) delete out.dispatch;
     }
     return out;
   }

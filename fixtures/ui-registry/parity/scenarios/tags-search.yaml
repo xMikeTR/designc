@@ -1,0 +1,7 @@
+# Synthetic (slice 7f): the tags screen recorded on both apps, so the Parity view can join it to the UI graph of each.
+id: tags-search
+title: The tags screen as it opens
+screen: tags
+steps:
+  - goto: { path: /tags }
+    state: list

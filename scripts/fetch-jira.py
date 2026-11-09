@@ -2,15 +2,18 @@
 """Save Jira issues as .md files designc can import.
 
     JIRA_TOKEN=... python3 scripts/fetch-jira.py <base-url> <output-folder> [<issue-key>...] [--jql "<query>"] [--max N]
+    JIRA_TOKEN=... python3 scripts/fetch-jira.py <base-url> --discover [--jql "<query>"] [--max N]
 
-<base-url> is the site root (Data Center: https://jira.example.com, Cloud: https://example.atlassian.net). Each issue
+<base-url> is the Jira Cloud site root (https://example.atlassian.net). Each issue
 named, and each issue the JQL query finds (at most --max, default 500), is read from
-/rest/api/2/issue/<key>?fields=summary,description,updated and written as `<KEY>.md` with front matter id (the key),
-title (the summary), source (the browse url) and version (the `updated` time), then the description as it comes from
-the v2 API (wiki markup). The query uses /rest/api/2/search, or /rest/api/2/search/jql where the older endpoint is gone
-(Cloud). Auth comes from the environment, never an argument: a personal access token in JIRA_TOKEN (Bearer), or, when
+/rest/api/3/issue/<key>?fields=summary,description,updated,issuetype,labels,components,assignee,priority and written as
+`<KEY>.md` with front matter id (the key), title (the summary), source (the browse url), version (the `updated` time)
+and `jira:` (one line of JSON: type, labels, components, priority; the assignee is never written), then the description, which the v3
+API returns as Atlassian Document Format and is written as plain markdown-style text (headings, lists, code, links). The query
+uses /rest/api/3/search/jql. Auth comes from the environment, never an argument: a personal access token in JIRA_TOKEN (Bearer), or, when
 JIRA_USER is also set, that user and the token as basic auth (Cloud API token). `--token-env` and `--user-env` name
-other variables. Standard library only. Read-only: the script only issues GET requests. Issue text is never printed:
+other variables. `--discover` lists the labels, components and issue types in use (with counts) among the issues the
+query finds, so a jira-mapping.yaml can be written; it saves nothing and prints no page text. Standard library only. Read-only: the script only issues GET requests. Issue text is never printed:
 the report is counts and reasons only, so it is safe to paste back from a work machine. Contract:
 docs/requirement-import.md.
 """
@@ -53,43 +56,87 @@ class Fetcher:
 
     def issue(self, key):
         q = urllib.parse.quote(key, safe='')
-        return self.get(f'/rest/api/2/issue/{q}', {'fields': 'summary,description,updated'})
+        return self.get(f'/rest/api/3/issue/{q}', {'fields': 'summary,description,updated,issuetype,labels,components,assignee,priority'})
 
-    def search(self, jql, limit):
-        try:
-            return self._search_paged(jql, limit)
-        except HttpError as e:
-            if e.code not in (404, 410):
-                raise
-            return self._search_token(jql, limit)
-
-    def _search_paged(self, jql, limit):
-        keys, start = [], 0
-        while len(keys) < limit:
-            r = self.get('/rest/api/2/search', {'jql': jql, 'fields': 'summary', 'startAt': start, 'maxResults': PAGE})
-            rows = r.get('issues') or []
-            keys += [x['key'] for x in rows if 'key' in x]
-            start += len(rows)
-            if not rows or start >= (r.get('total') or 0):
-                break
-        return keys[:limit]
-
-    def _search_token(self, jql, limit):
-        keys, token = [], None
-        while len(keys) < limit:
-            params = {'jql': jql, 'fields': 'summary', 'maxResults': PAGE}
+    def search(self, jql, limit, fields='summary'):
+        """The issues (dicts with key and fields) the query finds, at most limit."""
+        found, token = [], None
+        while len(found) < limit:
+            params = {'jql': jql, 'fields': fields, 'maxResults': PAGE}
             if token:
                 params['nextPageToken'] = token
-            r = self.get('/rest/api/2/search/jql', params)
-            keys += [x['key'] for x in (r.get('issues') or []) if 'key' in x]
+            r = self.get('/rest/api/3/search/jql', params)
+            found += [x for x in (r.get('issues') or []) if 'key' in x]
             token = r.get('nextPageToken')
             if not token or r.get('isLast'):
                 break
-        return keys[:limit]
+        return found[:limit]
 
 
 def one_line(s):
     return re.sub(r'\s+', ' ', str(s or '')).strip()
+
+
+def adf_text(node):
+    """Atlassian Document Format to plain markdown-style text. Unknown nodes keep their children's text."""
+    if isinstance(node, str):
+        return node
+    if not isinstance(node, dict):
+        return ''
+    t, kids, attrs = node.get('type'), node.get('content') or [], node.get('attrs') or {}
+    inner = ''.join(adf_text(k) for k in kids)
+    if t == 'text':
+        text = node.get('text') or ''
+        for m in node.get('marks') or []:
+            if m.get('type') == 'link' and (m.get('attrs') or {}).get('href'):
+                text = f'[{text}]({m["attrs"]["href"]})'
+        return text
+    if t == 'hardBreak':
+        return '\n'
+    if t == 'mention':
+        return attrs.get('text') or ''
+    if t in ('inlineCard', 'blockCard'):
+        return attrs.get('url') or ''
+    if t == 'emoji':
+        return attrs.get('text') or attrs.get('shortName') or ''
+    if t == 'heading':
+        return '#' * int(attrs.get('level') or 1) + ' ' + inner + '\n\n'
+    if t == 'paragraph':
+        return inner + '\n\n'
+    if t == 'codeBlock':
+        return '```\n' + inner + '\n```\n\n'
+    if t == 'blockquote':
+        return ''.join('> ' + ln + '\n' for ln in inner.strip().split('\n')) + '\n'
+    if t in ('bulletList', 'orderedList'):
+        out = []
+        for i, k in enumerate(kids):
+            mark = f'{i + 1}. ' if t == 'orderedList' else '- '
+            out.append(mark + adf_text(k).strip().replace('\n\n', '\n').replace('\n', '\n  '))
+        return '\n'.join(out) + '\n\n'
+    if t == 'rule':
+        return '---\n\n'
+    if t == 'tableRow':
+        return ' | '.join(adf_text(k).strip().replace('\n', ' ') for k in kids) + '\n'
+    if t == 'table':
+        return inner + '\n'
+    return inner
+
+
+def names(items, field='name'):
+    return [one_line(x.get(field)) for x in (items or []) if isinstance(x, dict) and x.get(field)]
+
+
+def jira_block(fields):
+    out = {}
+    t = (fields.get('issuetype') or {}).get('name')
+    if t:
+        out['type'] = one_line(t)
+    out['labels'] = [one_line(x) for x in (fields.get('labels') or []) if x]
+    out['components'] = names(fields.get('components'))
+    p = (fields.get('priority') or {}).get('name')
+    if p:
+        out['priority'] = one_line(p)
+    return out
 
 
 def render(issue, base):
@@ -99,8 +146,10 @@ def render(issue, base):
     head = ['---', f'id: {key}', f'title: {title}', f'source: {base.rstrip("/")}/browse/{key}']
     if fields.get('updated'):
         head.append(f'version: {one_line(fields["updated"])}')
+    head.append('jira: ' + json.dumps(jira_block(fields), ensure_ascii=False, separators=(', ', ': ')))
     head.append('---')
-    desc = str(fields.get('description') or '').replace('\r\n', '\n')
+    d = fields.get('description')
+    desc = (adf_text(d) if isinstance(d, dict) else str(d or '')).replace('\r\n', '\n').strip()
     return '\n'.join(head) + f'\n# {title}\n\n' + desc + '\n'
 
 
@@ -115,15 +164,50 @@ def headers_from_env(token_env, user_env):
     return {'Authorization': 'Bearer ' + token, 'Accept': 'application/json'}
 
 
+def discover(f, jql, limit):
+    try:
+        rows = f.search(jql, limit, 'labels,components,issuetype')
+    except RuntimeError as e:
+        print(f'discover failed: {e}')
+        return 1
+    labels, comps, types = {}, {}, {}
+    for r in rows:
+        fl = r.get('fields') or {}
+        for x in set(fl.get('labels') or []):
+            labels[x] = labels.get(x, 0) + 1
+        for x in set(names(fl.get('components'))):
+            comps[x] = comps.get(x, 0) + 1
+        t = (fl.get('issuetype') or {}).get('name')
+        if t:
+            types[t] = types.get(t, 0) + 1
+    print(f'{len(rows)} issues')
+    for title, d in (('labels', labels), ('components', comps), ('issue types', types)):
+        print(f'{title}:')
+        for k in sorted(d, key=lambda k: (-d[k], k)):
+            print(f'  {one_line(k)} {d[k]}')
+        if not d:
+            print('  (none)')
+    if len(rows) == limit:
+        print(f'stopped at --max {limit}; there may be more')
+    return 0
+
+
 def main(argv):
     args, opts = [], {}
     it = iter(argv[1:])
     for a in it:
-        if a in ('--jql', '--max', '--token-env', '--user-env'):
+        if a == '--discover':
+            opts[a] = True
+        elif a in ('--jql', '--max', '--token-env', '--user-env'):
             opts[a] = next(it, '')
         else:
             args.append(a)
     jql = opts.get('--jql', '').strip()
+    disc = bool(opts.get('--discover'))
+    if disc:
+        if len(args) == 1:
+            args.append('-')  # no output folder in discover mode
+            jql = jql or 'updated >= -30d ORDER BY updated DESC'
     if len(args) < 2 or (len(args) < 3 and not jql):
         print(__doc__.strip().split('\n\n')[0] + '\n', file=sys.stderr)
         return 2
@@ -146,12 +230,14 @@ def main(argv):
     if headers is None:
         print(f'Set {token_env} to a personal access token (and {user_env} for Cloud basic auth).', file=sys.stderr)
         return 2
-    os.makedirs(out, exist_ok=True)
     f = Fetcher(base, headers)
+    if disc:
+        return discover(f, jql, limit)
+    os.makedirs(out, exist_ok=True)
     todo, skipped = list(keys), []
     if jql:
         try:
-            found = f.search(jql, limit)
+            found = [x['key'] for x in f.search(jql, limit)]
             todo += found
             if len(found) == limit:
                 skipped.append(('query', f'stopped at --max {limit}; there may be more'))
