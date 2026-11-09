@@ -4,11 +4,11 @@ const Core = require('../renderer/core.js');
 
 const dsl = (deploy) => `workspace {
  model {
-  u = person "Underwriter"
-  sys = softwareSystem "Pricing" {
+  u = person "Traveller"
+  sys = softwareSystem "Fares" {
    web = container "Web"
-   api = container "Pricing API"
-   db = container "Quotes DB"
+   api = container "Fares API"
+   db = container "Bookings DB"
    q = container "Queue"
    audit = container "Audit"
   }
@@ -38,24 +38,24 @@ const names = l => l.map(x => x.name).sort();
 
 test('an element is lost only when every instance sits inside the failed node', () => {
   const r = run('Azure/Zone A');
-  assert.deepEqual(names(r.lost), ['Pricing API', 'Quotes DB']);
+  assert.deepEqual(names(r.lost), ['Bookings DB', 'Fares API']);
   assert.deepEqual(names(r.survivors), ['Web']);
 });
 
 test('dependents of a lost element go down (sync) or degraded (async), as for misbehaves', () => {
   const r = run('Azure/Zone A');
-  assert.deepEqual(names(r.down), ['Underwriter', 'Web']); // Web has an instance in Zone B, but its sync calls to the lost API fail
-  assert.ok(!names(r.down).includes('Pricing API'));
+  assert.deepEqual(names(r.down), ['Traveller', 'Web']); // Web has an instance in Zone B, but its sync calls to the lost API fail
+  assert.ok(!names(r.down).includes('Fares API'));
 });
 
 test('a node containing every instance loses the lot, and an async consumer is degraded', () => {
   const r = run('Azure/Zone B');
   assert.deepEqual(names(r.lost), ['Queue']);
-  assert.deepEqual(names(r.degraded), ['Audit', 'Pricing API']);
+  assert.deepEqual(names(r.degraded), ['Audit', 'Fares API']);
 });
 
 test('failing a parent node fails everything beneath it', () => {
-  assert.deepEqual(names(run('Azure').lost), ['Pricing API', 'Queue', 'Quotes DB', 'Web']);
+  assert.deepEqual(names(run('Azure').lost), ['Bookings DB', 'Fares API', 'Queue', 'Web']);
 });
 
 test('unknown node path, unknown environment and no deployment all return an error', () => {

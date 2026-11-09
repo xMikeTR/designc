@@ -142,6 +142,24 @@ async function commit(root, message) {
   return h.error ? { error: h.error } : { ok: true, hash: h.out.trim() };
 }
 
+// A folder a coding agent can build into: its own .git (not a parent's) and at least one commit (a base to branch from).
+async function repoState(dir) {
+  if (!fs.existsSync(dir)) return { exists: false, repo: false, base: false };
+  if (!fs.existsSync(path.join(dir, '.git'))) return { exists: true, repo: false, base: false };
+  return { exists: true, repo: true, base: !(await run(dir, ['rev-parse', '--verify', 'HEAD'])).error };
+}
+// Make dir a repo on `main` with one empty commit, so a build has a base branch. Never stages or commits any file already there.
+async function initRepo(dir) {
+  fs.mkdirSync(dir, { recursive: true });
+  const s = await repoState(dir);
+  if (!s.repo) { const r = await run(dir, ['init', '-b', 'main']); if (r.error) return { error: r.error }; }
+  if (s.base) return { ok: true };
+  const msg = ['commit', '--allow-empty', '-m', 'Initial commit'];
+  let r = await run(dir, msg);
+  if (r.error) r = await run(dir, ['-c', 'user.name=designc', '-c', 'user.email=designc@localhost', ...msg]);
+  return r.error ? { error: r.error } : { ok: true };
+}
+
 async function branch(root, name) {
   if (typeof name !== 'string' || !name || name.startsWith('-')) return { error: `${name} is not a valid branch name` };
   const c = await run(root, ['check-ref-format', '--branch', name]);
@@ -245,4 +263,4 @@ async function isAncestor(dir, commit, branch) {
   return { onMain: !r.error, commit: c };
 }
 
-module.exports = { head, isAncestor, findRepo, status, refs, log, show, stage, unstage, discard, commit, branch, switchTo, fetch, pull, push, publish, stashPush, stashList, stashApply, stashDrop, stashPop, hasLedgerUnion, addLedgerUnion, run, within, HASH };
+module.exports = { repoState, initRepo, head, isAncestor, findRepo, status, refs, log, show, stage, unstage, discard, commit, branch, switchTo, fetch, pull, push, publish, stashPush, stashList, stashApply, stashDrop, stashPop, hasLedgerUnion, addLedgerUnion, run, within, HASH };

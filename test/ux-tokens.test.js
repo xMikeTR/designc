@@ -9,8 +9,8 @@ const Core = require('../renderer/core.js');
 
 const DSL = `workspace "Q" {
   model {
-    s = softwareSystem "Quotes" {
-      ui = container "Quote UI" {
+    s = softwareSystem "Bookings" {
+      ui = container "Booking UI" {
         tags "UI"
       }
     }
@@ -18,9 +18,9 @@ const DSL = `workspace "Q" {
 }
 `;
 const cases = ['ready', 'loading', 'empty', 'error'].map(state => ({ state, given: 'g', then: 't' }));
-const ac = (ux) => ({ id: 'AC-1', requirement: 'R-1', element: 'Quotes/Quote UI', states: ['ready', 'loading', 'empty', 'error'], _path: 'acceptance/AC-1.yaml', _text: 'id: AC-1\n',
-  locators: { save: { role: 'button', name: 'Save' }, title: { role: 'heading', name: 'Quote' } }, cases, ux });
-const clauses = ux => Core.acceptanceClauses({ model: Core.parse(DSL), acceptance: [ac(ux)], requirements: [{ id: 'R-1', elements: ['Quote UI'] }], decisions: [] }).map(c => c.text);
+const ac = (ux) => ({ id: 'AC-1', requirement: 'R-1', element: 'Bookings/Booking UI', states: ['ready', 'loading', 'empty', 'error'], _path: 'acceptance/AC-1.yaml', _text: 'id: AC-1\n',
+  locators: { save: { role: 'button', name: 'Save' }, title: { role: 'heading', name: 'Booking' } }, cases, ux });
+const clauses = ux => Core.acceptanceClauses({ model: Core.parse(DSL), acceptance: [ac(ux)], requirements: [{ id: 'R-1', elements: ['Booking UI'] }], decisions: [] }).map(c => c.text);
 
 test('a criterion without ux needs nothing; a sound ux block is clean', () => {
   assert.deepEqual(clauses(undefined), []);
@@ -50,9 +50,9 @@ test('a text size token below the minimum is a clause; other tokens are not judg
 
 test('the skeleton adds axe, keyboard, focus and breakpoint checks only for what ux declares', () => {
   const model = Core.parse(DSL);
-  const plain = Core.acceptanceSpecs({ model, criteria: [ac(undefined)] }).files[1].text;
+  const plain = Core.acceptanceSpecs({ model, criteria: [ac(undefined)] }).files[0].text;
   assert.doesNotMatch(plain, /AxeBuilder|ux:/);
-  const t = Core.acceptanceSpecs({ model, criteria: [ac({ keyboard: true, focus_order: ['title', 'save'], focus_return: 'save', breakpoints: [375] })] }).files[1].text;
+  const t = Core.acceptanceSpecs({ model, criteria: [ac({ keyboard: true, focus_order: ['title', 'save'], focus_return: 'save', breakpoints: [375] })] }).files[0].text;
   assert.match(t, /import AxeBuilder from '@axe-core\/playwright'/);
   assert.match(t, /ux: no accessibility violations/);
   assert.match(t, /ux: reachable by keyboard/);
@@ -78,16 +78,16 @@ test('Python reports the same ux and token clauses', { skip }, () => {
   const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
   put('designc.json', '{ "ux": { "minTextSize": 14 } }');
   put('model/workspace.dsl', DSL);
-  put('requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quote UI]\n');
+  put('requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Booking UI]\n');
   const tokens = JSON.stringify({ font: { size: { body: { $value: '16px' }, small: { $value: '12px' }, odd: { $value: 'huge' } } } });
   put('design-tokens/tokens.json', tokens);
-  const text = 'id: AC-1\nrequirement: R-1\nelement: Quotes/Quote UI\nstates: [ready, loading, empty, error]\nlocators:\n  save: { role: button, name: Save }\n'
+  const text = 'id: AC-1\nrequirement: R-1\nelement: Bookings/Booking UI\nstates: [ready, loading, empty, error]\nlocators:\n  save: { role: button, name: Save }\n'
     + 'ux:\n  keyboard: 1\n  focus_order: [save, nope]\n  focus_return: gone\n  breakpoints: [10, 375]\ncases:\n'
     + ['ready', 'loading', 'empty', 'error'].map(s => `  - { state: ${s}, given: g, then: t }\n`).join('');
   put('acceptance/AC-1.yaml', text);
   const yaml = require('js-yaml');
   const model = Core.parse(DSL);
-  const js = Core.gate({ model, diags: Core.check(model, {}), decisions: [], requirements: [{ id: 'R-1', elements: ['Quote UI'] }], ledger: [], acceptance: [yaml.load(text)], tokens, minTextSize: 14 })
+  const js = Core.gate({ model, diags: Core.check(model, {}), decisions: [], requirements: [{ id: 'R-1', elements: ['Booking UI'] }], ledger: [], acceptance: [yaml.load(text)], tokens, minTextSize: 14 })
     .clauses.filter(c => c.kind === 'acceptance' || c.kind === 'tokens');
   assert.equal(js.length, 6, js.map(c => c.text).join('; '));
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });

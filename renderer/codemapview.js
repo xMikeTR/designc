@@ -2,17 +2,20 @@
    after boot, so nothing here runs at load). */
 async function chooseCodebase() {
   const p = await host.chooseCodebase(); if (!p) return false;
+  return setCodebase(p);
+}
+async function setCodebase(p) {
   let cfg = {}; const t = await readText('designc.json');
   if (t) { try { cfg = JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return false; } }
   cfg.model = cfg.model || A.cfg.model; cfg.codebase = p;
   await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n'); A.cfg.codebase = p; return true;
 }
-async function extractCodebase() {
-  if (!A.root || A.extracting) return;
-  if (!A.cfg.codebase && !cmRepos() && !(await chooseCodebase())) return;
 // Split repos: designc.json repos {Key: folder}. When declared, the map reads each one (main.js ignores `codebase`).
 function cmRepos() { const r = A.cfg.repos; return r && typeof r === 'object' && !Array.isArray(r) && Object.keys(r).length ? r : null; }
 function cmCodeLabel() { return cmRepos() ? 'Repos: ' + Object.keys(cmRepos()).join(', ') : A.cfg.codebase; }
+async function extractCodebase() {
+  if (!A.root || A.extracting) return;
+  if (!A.cfg.codebase && !cmRepos() && !(await chooseCodebase())) return;
   A.extracting = true; renderSidebar(); if (A.active === 'special:codemap') renderCodemap();
   const r = await host.extract(A.cfg.codebase);
   A.extracting = false;

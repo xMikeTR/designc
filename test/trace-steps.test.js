@@ -15,14 +15,14 @@ const rows = [
   ob('t1', 'run', 'SPAN', 'task T-001', 1, 50, { metadata: { 'attributes.factory.task': 'T-001', 'attributes.factory.run_id': 'r1', 'attributes.factory.attempt': 2, 'attributes.factory.score.task_passed': 0, 'attributes.factory.element': ['Sys/Api'] } }),
   ob('g1', 't1', 'GENERATION', 'chat m', 2, 5, { model: 'm', inputUsage: 100, outputUsage: 20, metadata: {
     'attributes.gen_ai.system_instructions': JSON.stringify([{ type: 'text', content: 'You are the implementer.' }]),
-    'attributes.gen_ai.input.messages': JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Add QuoteStatus' }] }]),
+    'attributes.gen_ai.input.messages': JSON.stringify([{ role: 'user', parts: [{ type: 'text', content: 'Add BookingStatus' }] }]),
     'attributes.gen_ai.output.messages': JSON.stringify([{ role: 'assistant', parts: [{ type: 'text', content: 'Plan: write it' }, { type: 'tool_call', id: 'c1', name: 'write_file', arguments: { path: 'a.cs' } }] }]),
   } }),
   ob('x1', 't1', 'SPAN', 'orchestrate_tools', 5, 7),
   ob('k1', 'x1', 'TOOL', 'write_file', 5, 6, { level: 'ERROR', statusMessage: 'missing content', metadata: { 'attributes.gen_ai.tool.call.arguments': '{"path":"a.cs"}' } }),
   ob('g2', 't1', 'GENERATION', 'chat m', 8, 9, { model: 'm', inputUsage: 150, outputUsage: 10, metadata: {
     'attributes.gen_ai.input.messages': JSON.stringify([
-      { role: 'user', parts: [{ type: 'text', content: 'Add QuoteStatus' }] },
+      { role: 'user', parts: [{ type: 'text', content: 'Add BookingStatus' }] },
       { role: 'assistant', parts: [{ type: 'tool_call', id: 'c1', name: 'write_file', arguments: { path: 'a.cs' } }] },
       { role: 'tool', parts: [{ type: 'tool_call_response', id: 'c1', response: 'missing content' }] },
       { role: 'user', parts: [{ type: 'text', content: 'Checks failed: build' }] }]),
@@ -63,7 +63,7 @@ test('traceSteps: model turns and tool calls in order, new instructions only, co
   assert.deepEqual(r.steps.map(s => [s.kind, s.name, s.depth]), [['model', 'chat m', 0], ['span', 'orchestrate_tools', 0], ['tool', 'write_file', 1], ['model', 'chat m', 0], ['tool', 'read_file', 1]]);
   const [g1, , k1, g2, k2] = r.steps;
   assert.equal(r.system, 'You are the implementer.');
-  assert.deepEqual(g1.fresh, [{ role: 'user', parts: [{ type: 'text', text: 'Add QuoteStatus' }] }], 'the brief');
+  assert.deepEqual(g1.fresh, [{ role: 'user', parts: [{ type: 'text', text: 'Add BookingStatus' }] }], 'the brief');
   assert.deepEqual(g1.output, [{ role: 'assistant', parts: [{ type: 'text', text: 'Plan: write it' }, { type: 'tool_call', name: 'write_file', arguments: '{"path":"a.cs"}' }] }]);
   assert.equal(g1.tokensIn, 100);
   assert.equal(g1.ms, 3000);

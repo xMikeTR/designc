@@ -26,7 +26,7 @@ test('derive folds the latest origin into the escape and keeps caught_by', () =>
 test('escapeMetrics: by origin, UI share, acceptance first pass, tamper attempts', () => {
   const ev = [
     { kind: 'escape', id: 'E-1', element: 'Portal', origin: 'spec_gap' },
-    { kind: 'escape', id: 'E-2', element: 'Pricing API' },
+    { kind: 'escape', id: 'E-2', element: 'Fares API' },
     { kind: 'item_done', item: 'W-a' }, { kind: 'item_done', item: 'W-b' },
     { kind: 'ui_acceptance_failed', task: 'W-b', ac: 'AC-1' },
     { kind: 'unapproved_change', path: 'tests/acceptance/portal/AC-1.spec.ts' },

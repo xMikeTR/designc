@@ -39,7 +39,7 @@ JIRA_TOKEN=<token> python3 scripts/fetch-jira.py <base-url> --discover [--jql "<
 
 Standard library only, GET requests only. `<base-url>` is the Jira Cloud site root (`https://example.atlassian.net`; the REST v3 API, so Data Center is not supported); https is required, http only for localhost. Auth is the same as for Confluence, from
 `JIRA_TOKEN` and `JIRA_USER` (`--token-env`, `--user-env`). Name issues by key, or give a JQL query such as
-`project = DEMO AND component = Quotes` (at most `--max`, default 500; the report says when it stopped there). Each issue
+`project = DEMO AND component = Bookings` (at most `--max`, default 500; the report says when it stopped there). Each issue
 is saved as `<KEY>.md` in the markdown shape below: `id` is the key, `title` the summary, `source` the browse URL,
 `version` the issue's `updated` time (so any edit to the issue reads as changed on re-import), then the description, converted from the v3 API's Atlassian Document Format to plain markdown-style text (headings, lists, code, links). The report prints counts and HTTP status reasons only, never issue text or the token.
 
@@ -79,11 +79,11 @@ target filled in (the work item is written by that human action, not by the swee
 ```markdown
 ---
 id: DEMO-1234            # optional; else a key like ABC-123 in the title or file name; else a slug of the title
-title: Referral status updates keep underwriter edits
+title: Escalation status updates keep traveller edits
 source: https://wiki.example/pages/12345    # the page URL
 version: 7              # the page version; else a hash of the text, so any edit reads as a new version
 ---
-# Referral status updates keep underwriter edits
+# Escalation status updates keep traveller edits
 
 Body text. Never copied into the registry.
 ```

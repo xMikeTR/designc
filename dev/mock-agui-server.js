@@ -30,10 +30,10 @@ http.createServer((req, res) => {
         if (process.env.MOCK_REGISTRY) { const f = path.join(process.env.MOCK_REGISTRY, 'model', 'workspace.dsl'); fs.writeFileSync(f, fs.readFileSync(f, 'utf8').replace('"d.concurrency" "none"', '"d.concurrency" "optimistic"')); result = 'Applied to model/workspace.dsl'; }
         emit({ type: 'TOOL_CALL_RESULT', messageId: id('msg'), toolCallId: p.toolCallId, role: 'tool', content: result });
         emit({ type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/plan/2/status', value: 'completed' }] });
-        await say('Done: Referral Worker now declares optimistic concurrency on Quote. Pricing API still needs the same; bind D-0001 once both are in.');
+        await say('Done: Escalation Worker now declares optimistic concurrency on Booking. Fares API still needs the same; bind D-0001 once both are in.');
       } else {
         emit({ type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/plan/2/status', value: 'skipped' }] });
-        await say(r.status === 'cancelled' ? 'Cancelled; nothing was changed.' : 'Understood, I left the model as it is. Would you prefer a single owner for Quote?');
+        await say(r.status === 'cancelled' ? 'Cancelled; nothing was changed.' : 'Understood, I left the model as it is. Would you prefer a single owner for Booking?');
       }
       emit({ type: 'RUN_FINISHED', threadId, runId }); return res.end();
     }
@@ -52,13 +52,13 @@ http.createServer((req, res) => {
     if (last.role === 'tool') {                          // run 2: backend tool, then an approval-required tool
       let errors = '?'; try { errors = JSON.parse(last.content).filter(f => f.severity === 'error' && !f.suppressed).length; } catch { /* keep ? */ }
       emit({ type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/plan/0/status', value: 'completed' }, { op: 'replace', path: '/plan/1/status', value: 'in_progress' }] });
-      await say(`${errors} errors. Checking incidents for Quotes DB on the server side.`);
+      await say(`${errors} errors. Checking incidents for Bookings DB on the server side.`);
       const b = id('call'); emit({ type: 'TOOL_CALL_START', toolCallId: b, toolCallName: 'lookup_incidents' });
-      emit({ type: 'TOOL_CALL_ARGS', toolCallId: b, delta: '{"element":"Quotes DB"}' }); emit({ type: 'TOOL_CALL_END', toolCallId: b });
-      emit({ type: 'TOOL_CALL_RESULT', messageId: id('msg'), toolCallId: b, role: 'tool', content: 'INC-2291 (UAT): underwriter edit overwritten by referral status update.' });
+      emit({ type: 'TOOL_CALL_ARGS', toolCallId: b, delta: '{"element":"Bookings DB"}' }); emit({ type: 'TOOL_CALL_END', toolCallId: b });
+      emit({ type: 'TOOL_CALL_RESULT', messageId: id('msg'), toolCallId: b, role: 'tool', content: 'INC-2291 (UAT): traveller edit overwritten by escalation status update.' });
       emit({ type: 'STATE_DELTA', delta: [{ op: 'replace', path: '/plan/1/status', value: 'completed' }, { op: 'replace', path: '/plan/2/status', value: 'awaiting approval' }] });
-      await say('INC-2291 matches DC002. I want to set optimistic concurrency on the Referral Worker write.');
-      const a = id('call'), args = { element: 'Referral Worker -> Quotes DB', set: { 'd.concurrency': 'optimistic' } };
+      await say('INC-2291 matches DC002. I want to set optimistic concurrency on the Escalation Worker write.');
+      const a = id('call'), args = { element: 'Escalation Worker -> Bookings DB', set: { 'd.concurrency': 'optimistic' } };
       emit({ type: 'TOOL_CALL_START', toolCallId: a, toolCallName: 'apply_model_patch' });
       emit({ type: 'TOOL_CALL_ARGS', toolCallId: a, delta: JSON.stringify(args) }); emit({ type: 'TOOL_CALL_END', toolCallId: a });
       const interruptId = id('approval'); pendingApproval.set(threadId, { interruptId, toolCallId: a, args });

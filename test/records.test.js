@@ -6,7 +6,7 @@ const { spawnSync } = require('child_process');
 const path = require('path');
 const R = require('../renderer/records.js');
 
-const dec = (o = {}) => ({ id: 'quote-writes-occ', status: 'bound', statement: 'Quote writes use optimistic concurrency', ...o });
+const dec = (o = {}) => ({ id: 'booking-writes-occ', status: 'bound', statement: 'Booking writes use optimistic concurrency', ...o });
 
 test('statuses: minted and checked read as proposed, retired is new', () => {
   assert.equal(R.status('minted'), 'proposed');
@@ -23,7 +23,7 @@ test('prefixed ids', () => {
   assert.equal(R.parseRef('foo:bar'), null);
   assert.equal(R.parseRef('D-1'), null);
   assert.match(R.validate('decision', dec({ scope: ['foo:bar'] })).join(), /scope: foo:bar has an unknown prefix/);
-  assert.deepEqual(R.validate('decision', dec({ scope: ['ui:tags', 'req:DEMO-1', 'el:Quotes DB'] })), []);
+  assert.deepEqual(R.validate('decision', dec({ scope: ['ui:tags', 'req:DEMO-1', 'el:Bookings DB'] })), []);
 });
 
 test('checks: a string gets an id from its command; {id, run} keeps its id', () => {
@@ -45,7 +45,7 @@ test('enforced_by names a check id, a gate clause kind or an mlang rule', () => 
 });
 
 test('kinds: requirement needs a title, verdict needs a verdict and a scope', () => {
-  assert.deepEqual(R.validate('requirement', { id: 'DEMO-1', title: 'Quotes' }), []);
+  assert.deepEqual(R.validate('requirement', { id: 'DEMO-1', title: 'Bookings' }), []);
   assert.match(R.validate('requirement', { id: 'DEMO-1' }).join(), /title: required/);
   assert.deepEqual(R.validate('verdict', { id: 'v-tags-sort', status: 'bound', verdict: 'matched', scope: ['ui:tags/list'], evidence: ['parity/reports/tags-list.json'] }), []);
   const bad = R.validate('verdict', { id: 'v', status: 'bound', verdict: 'same' }).join();
@@ -56,17 +56,17 @@ test('kinds: requirement needs a title, verdict needs a verdict and a scope', ()
 });
 
 const recs = () => [
-  { kind: 'requirement', path: 'requirements/DEMO-1.yaml', rec: { id: 'DEMO-1', title: 'Quotes' } },
+  { kind: 'requirement', path: 'requirements/DEMO-1.yaml', rec: { id: 'DEMO-1', title: 'Bookings' } },
   { kind: 'requirement', path: 'requirements/DEMO-0.yaml', rec: { id: 'DEMO-0', title: 'Old', status: 'retired' } },
   { kind: 'decision', path: 'decisions/a.yaml', rec: dec({ id: 'a', status: 'superseded' }) },
-  { kind: 'decision', path: 'decisions/b.yaml', rec: dec({ id: 'b', supersedes: ['a'], scope: ['req:DEMO-1', 'el:Quotes DB'], checks: ['make test'], enforced_by: [R.checkId('make test')] }) },
+  { kind: 'decision', path: 'decisions/b.yaml', rec: dec({ id: 'b', supersedes: ['a'], scope: ['req:DEMO-1', 'el:Bookings DB'], checks: ['make test'], enforced_by: [R.checkId('make test')] }) },
   { kind: 'decision', path: 'decisions/c.yaml', rec: dec({ id: 'c', relies_on: ['a', 'zz'], supersedes: 'gone', scope: ['req:DEMO-0', 'req:NOPE', 'el:Nowhere', 'b'], enforced_by: ['chk-deadbeef'] }) },
   { kind: 'decision', path: 'decisions/d.yaml', rec: dec({ id: 'd', status: 'superseded' }) },
   { kind: 'decision', path: 'decisions/b2.yaml', rec: dec({ id: 'b' }) },
 ];
 
 test('lint: unknown and superseded references, orphan supersede, repeated id, enforced_by', () => {
-  const msgs = R.lint(recs(), { elements: ['Quotes DB'] }).map(x => `${x.id} ${x.sev} ${x.msg}`);
+  const msgs = R.lint(recs(), { elements: ['Bookings DB'] }).map(x => `${x.id} ${x.sev} ${x.msg}`);
   assert.deepEqual(msgs, [
     'b error b is repeated (also decisions/b.yaml)',
     'c error supersedes gone, which is not a record',
@@ -103,12 +103,12 @@ from designc import records as R
 c = json.loads(sys.argv[1])
 print(json.dumps({'validate': [R.validate(k, r) for k, r in c['cases']], 'checks': [R.checks(r) for k, r in c['cases'] if isinstance(r, dict)],
   'lint': R.lint(c['recs'], c['elements']), 'inverse': R.inverse(c['recs'])}))`;
-  const r = spawnSync('python3', ['-c', script, JSON.stringify({ cases, recs: recs(), elements: ['Quotes DB'] })], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
+  const r = spawnSync('python3', ['-c', script, JSON.stringify({ cases, recs: recs(), elements: ['Bookings DB'] })], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   const py = JSON.parse(r.stdout);
   assert.deepEqual(py.validate, cases.map(([k, x]) => R.validate(k, x)));
   assert.deepEqual(py.checks, cases.filter(([, x]) => x && typeof x === 'object').map(([, x]) => R.checks(x)));
-  assert.deepEqual(py.lint, R.lint(recs(), { elements: ['Quotes DB'] }));
+  assert.deepEqual(py.lint, R.lint(recs(), { elements: ['Bookings DB'] }));
   assert.deepEqual(py.inverse, R.inverse(recs()));
 });
 

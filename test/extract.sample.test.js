@@ -10,25 +10,25 @@ const SAMPLE = path.join(__dirname, '..', 'sample-codebase');
 
 const BASELINE_STATS = { projects: 7, deployables: 5, tests: 1, elements: 8, edges: 9, unresolved: 0 };
 const BASELINE_ELEMENTS = [
-  { kind: 'container', name: 'CatModel.Adapter', tech: 'ASP.NET Core' },
-  { kind: 'container', name: 'Pricing.Api', tech: 'ASP.NET Core' },
-  { kind: 'container', name: 'Pricing.Portal', tech: 'ASP.NET Core' },
-  { kind: 'container', name: 'Rating.Engine', tech: 'ASP.NET Core (F#)' },
-  { kind: 'container', name: 'Referral.Worker', tech: '.NET Worker' },
-  { kind: 'store', name: 'QuotesDb', tech: 'SQL Server' },
+  { kind: 'container', name: 'WeatherFeed.Adapter', tech: 'ASP.NET Core' },
+  { kind: 'container', name: 'Fares.Api', tech: 'ASP.NET Core' },
+  { kind: 'container', name: 'Fares.Portal', tech: 'ASP.NET Core' },
+  { kind: 'container', name: 'Surcharge.Engine', tech: 'ASP.NET Core (F#)' },
+  { kind: 'container', name: 'Escalation.Worker', tech: '.NET Worker' },
+  { kind: 'store', name: 'BookingsDb', tech: 'SQL Server' },
   { kind: 'store', name: 'LegacyRatesCache', tech: 'Redis' },
-  { kind: 'external', name: 'api.catmodel-vendor.com', tech: 'External HTTP API' },
+  { kind: 'external', name: 'api.weatherfeed-vendor.com', tech: 'External HTTP API' },
 ];
 const BASELINE_EDGES = [
-  { from: 'Pricing.Api', to: 'QuotesDb', kind: 'data', label: 'Reads and writes', tech: 'EF Core' },
-  { from: 'Referral.Worker', to: 'QuotesDb', kind: 'data', label: 'Reads and writes', tech: 'EF Core' },
-  { from: 'Rating.Engine', to: 'LegacyRatesCache', kind: 'data', label: 'Uses', tech: 'Redis' },
-  { from: 'CatModel.Adapter', to: 'api.catmodel-vendor.com', kind: 'sync', label: 'Calls via Vendor', tech: 'HTTPS' },
-  { from: 'Pricing.Api', to: 'Rating.Engine', kind: 'sync', label: 'Calls via RatingClient', tech: 'HTTP' },
-  { from: 'Pricing.Portal', to: 'Pricing.Api', kind: 'sync', label: 'Calls via PricingApi', tech: 'HTTP' },
-  { from: 'Rating.Engine', to: 'CatModel.Adapter', kind: 'sync', label: 'Calls via CatModel', tech: 'HTTP' },
-  { from: 'Referral.Worker', to: 'Rating.Engine', kind: 'sync', label: 'Calls via RatingClient', tech: 'HTTP' },
-  { from: 'Pricing.Api', to: 'Referral.Worker', kind: 'async', label: 'Sends via "referrals"', tech: 'Azure Service Bus' },
+  { from: 'Fares.Api', to: 'BookingsDb', kind: 'data', label: 'Reads and writes', tech: 'EF Core' },
+  { from: 'Escalation.Worker', to: 'BookingsDb', kind: 'data', label: 'Reads and writes', tech: 'EF Core' },
+  { from: 'Surcharge.Engine', to: 'LegacyRatesCache', kind: 'data', label: 'Uses', tech: 'Redis' },
+  { from: 'WeatherFeed.Adapter', to: 'api.weatherfeed-vendor.com', kind: 'sync', label: 'Calls via Vendor', tech: 'HTTPS' },
+  { from: 'Fares.Api', to: 'Surcharge.Engine', kind: 'sync', label: 'Calls via SurchargeClient', tech: 'HTTP' },
+  { from: 'Fares.Portal', to: 'Fares.Api', kind: 'sync', label: 'Calls via FaresApi', tech: 'HTTP' },
+  { from: 'Surcharge.Engine', to: 'WeatherFeed.Adapter', kind: 'sync', label: 'Calls via WeatherFeed', tech: 'HTTP' },
+  { from: 'Escalation.Worker', to: 'Surcharge.Engine', kind: 'sync', label: 'Calls via SurchargeClient', tech: 'HTTP' },
+  { from: 'Fares.Api', to: 'Escalation.Worker', kind: 'async', label: 'Sends via "escalations"', tech: 'Azure Service Bus' },
 ];
 
 test('sample-codebase extraction is unchanged by the scanner refactor', async () => {

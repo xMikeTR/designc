@@ -14,14 +14,14 @@ const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel
 
 const DSL = `workspace "Q" {
   model {
-    s = softwareSystem "Quotes" {
-      ui = container "Quote UI" {
+    s = softwareSystem "Bookings" {
+      ui = container "Booking UI" {
         tags "UI"
       }
       portal = container "Admin UI" {
         tags "UI"
       }
-      api = container "Quotes API"
+      api = container "Bookings API"
     }
     ui -> api "calls" {
       properties {
@@ -37,16 +37,16 @@ test('Python and JS report the same acceptance clauses', { skip }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-acc-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
-  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quote UI, Admin UI]\n');
+  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Booking UI, Admin UI]\n');
   const files = {
-    'AC-1': 'id: AC-1\nrequirement: R-1\nelement: Quotes/Quote UI\nstates: [ready, loading]\ncases:\n  - { state: ready, given: a, then: b }\n  - { state: empty, given: a }\n  - { state: sad, given: a, then: b }\n',
+    'AC-1': 'id: AC-1\nrequirement: R-1\nelement: Bookings/Booking UI\nstates: [ready, loading]\ncases:\n  - { state: ready, given: a, then: b }\n  - { state: empty, given: a }\n  - { state: sad, given: a, then: b }\n',
     'AC-2': 'id: AC-2\nrequirement: R-9\ndecision: D-9\nelement: Nowhere\nstates: [ready]\ncases: []\n',
     'AC-3': 'id: AC-3\nrequirement: R-1\n',
     'AC-4': 'id: AC-4\nrequirement: R-1\nelement: Admin UI\nstates: [ready, loading, empty, error]\nlocators:\n  save: { role: button, name: Save }\n  odd: { role: widget, name: X }\n  bare: { role: link }\ncases:\n  - { state: ready, given: a, then: b, uses: [save, nope] }\n  - { state: loading, given: a, then: b }\n  - { state: empty, given: a, then: b }\n  - { state: error, given: a, then: b }\n',
   };
   for (const [k, t] of Object.entries(files)) put(root, `acceptance/${k}.yaml`, t);
   const model = Core.parse(DSL), diags = Core.check(model, {});
-  const requirements = [{ id: 'R-1', elements: ['Quote UI', 'Admin UI'] }];
+  const requirements = [{ id: 'R-1', elements: ['Booking UI', 'Admin UI'] }];
   const acceptance = Object.values(files).map(t => yaml.load(t));
   const js = Core.gate({ model, diags, decisions: [], requirements, ledger: [], acceptance }).clauses.filter(c => c.kind === 'acceptance');
   assert.ok(js.length >= 6, js.map(c => c.text).join('; '));

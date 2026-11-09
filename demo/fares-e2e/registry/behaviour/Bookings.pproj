@@ -1,0 +1,7 @@
+<Project>
+  <ProjectName>Bookings</ProjectName>
+  <InputFiles>
+    <PFile>./bookings-writes.p</PFile>
+  </InputFiles>
+  <OutputDir>./PGenerated</OutputDir>
+</Project>

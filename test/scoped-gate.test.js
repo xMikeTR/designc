@@ -5,14 +5,14 @@ const path = require('node:path');
 const Core = require('../renderer/core.js');
 
 // Slice 24: the gate as one work item sees it, and the item handover.
-const dsl = `workspace "Quotes" {
+const dsl = `workspace "Bookings" {
   model {
-    s = softwareSystem "Quotes" {
-      api = container "Quotes API" "" "C#" {
+    s = softwareSystem "Bookings" {
+      api = container "Bookings API" "" "C#" {
         properties { d.code "src/Api/**"
           d.risk medium }
       }
-      db = container "Quotes DB"
+      db = container "Bookings DB"
       mail = container "Mail" {
         properties { d.code "src/Mail/**"
           d.risk low }
@@ -29,22 +29,22 @@ test('scopedGate keeps model-wide clauses and clauses that touch an item element
     { kind: 'parse', text: 'p' },
     { kind: 'decision', text: 'D-1 is minted, not bound', decision: 'D-1' },
     { kind: 'decision', text: 'D-2 is minted, not bound', decision: 'D-2' },
-    { kind: 'finding', text: 'DC002 on Quotes DB', about: ['Quotes DB'] },
+    { kind: 'finding', text: 'DC002 on Bookings DB', about: ['Bookings DB'] },
     { kind: 'finding', text: 'DC003 on Mail', about: ['Mail'] },
     { kind: 'requirement', text: 'R-1 untraced', requirement: 'R-1' },
     { kind: 'requirement', text: 'R-2 untraced', requirement: 'R-2' },
-    { kind: 'needs', text: 'open ask', needs: { id: 'n1', element: 'Quotes/Quotes API' }, about: ['Quotes/Quotes API'] },
+    { kind: 'needs', text: 'open ask', needs: { id: 'n1', element: 'Bookings/Bookings API' }, about: ['Bookings/Bookings API'] },
     { kind: 'scenario', text: 'S-1 malformed' },
   ] };
-  const r = Core.scopedGate(g, { model, elements: ['Quotes API', 'Quotes DB'], requirement: 'R-1', decisions: [decision('D-1', ['Quotes DB']), decision('D-2', ['Mail'])] });
-  assert.deepEqual(r.clauses.map(c => c.text), ['p', 'D-1 is minted, not bound', 'DC002 on Quotes DB', 'R-1 untraced', 'open ask', 'S-1 malformed']);
+  const r = Core.scopedGate(g, { model, elements: ['Bookings API', 'Bookings DB'], requirement: 'R-1', decisions: [decision('D-1', ['Bookings DB']), decision('D-2', ['Mail'])] });
+  assert.deepEqual(r.clauses.map(c => c.text), ['p', 'D-1 is minted, not bound', 'DC002 on Bookings DB', 'R-1 untraced', 'open ask', 'S-1 malformed']);
   assert.equal(r.outside, 3);
   assert.equal(r.ready, false);
 });
 
 test('scopedGate is ready when only other elements block', () => {
   const g = { ready: false, clauses: [{ kind: 'finding', text: 'DC003 on Mail', about: ['Mail'] }] };
-  const r = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: 'R-1', decisions: [] });
+  const r = Core.scopedGate(g, { model, elements: ['Bookings API'], requirement: 'R-1', decisions: [] });
   assert.equal(r.ready, true);
   assert.equal(r.outside, 1);
 });
@@ -56,18 +56,18 @@ test('Core.gate tags clauses with the elements they are about', () => {
   for (const c of g.clauses.filter(c => c.kind === 'finding')) assert.ok(Array.isArray(c.about) && c.about.length, c.text);
 });
 
-const item = { id: 'W-quote', elements: ['Quotes API'], requirement: 'R-1' };
+const item = { id: 'W-booking', elements: ['Bookings API'], requirement: 'R-1' };
 const base = { date: '2026-10-12', now: 'n', by: 'u', model: { path: 'model/workspace.dsl', text: dsl } };
 
 test('item handover: elements.json marks in_scope and uses schema /2; handover.yaml pins design_version', () => {
   const plan = Core.handoverPlan({ ...base, item });
   const el = JSON.parse(plan.files.find(f => f.path.endsWith('elements.json')).text);
   assert.equal(el.schema, 'designc.handover.elements/2');
-  assert.deepEqual(el.elements.map(e => [e.name, e.in_scope]), [['Quotes', false], ['Quotes API', true], ['Quotes DB', false], ['Mail', false]]);
+  assert.deepEqual(el.elements.map(e => [e.name, e.in_scope]), [['Bookings', false], ['Bookings API', true], ['Bookings DB', false], ['Mail', false]]);
   const head = plan.files[0].text;
-  assert.match(head, /^work_item: "W-quote"$/m);
+  assert.match(head, /^work_item: "W-booking"$/m);
   assert.match(head, /^design_version: r-\w+$/m);
-  assert.match(head, /^in_scope: \["Quotes API"\]$/m);
+  assert.match(head, /^in_scope: \["Bookings API"\]$/m);
 });
 
 test('item handover: the id covers the work item, and a whole-model handover is unchanged', () => {
@@ -81,20 +81,20 @@ test('item handover: the id covers the work item, and a whole-model handover is 
 
 test('the /2 example in docs is what handoverElements writes', () => {
   const ex = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'handover-elements-2.example.json'), 'utf8'));
-  assert.deepEqual(ex, Core.handoverElements(dsl, [], ['Quotes API']));
+  assert.deepEqual(ex, Core.handoverElements(dsl, [], ['Bookings API']));
   const schema = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'handover-elements-2.schema.json'), 'utf8'));
   assert.equal(schema.$id, 'designc.handover.elements/2');
 });
 
 test('a warning on an in-scope element does not block the item; an error does', () => {
-  const finding = (code, sev) => ({ kind: 'finding', text: `${code} on Quotes API`, about: ['Quotes API'], finding: { code, sev } });
+  const finding = (code, sev) => ({ kind: 'finding', text: `${code} on Bookings API`, about: ['Bookings API'], finding: { code, sev } });
   const g = { ready: false, clauses: [finding('DC001', 'warning'), finding('DC003', 'warning'), { kind: 'finding', text: 'DC003 on Mail', about: ['Mail'], finding: { code: 'DC003', sev: 'warning' } }] };
-  const warned = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: 'R-1', decisions: [] });
+  const warned = Core.scopedGate(g, { model, elements: ['Bookings API'], requirement: 'R-1', decisions: [] });
   assert.equal(warned.ready, true);
-  assert.deepEqual(warned.warnings.map(c => c.text), ['DC001 on Quotes API', 'DC003 on Quotes API']);
+  assert.deepEqual(warned.warnings.map(c => c.text), ['DC001 on Bookings API', 'DC003 on Bookings API']);
   assert.equal(warned.outside, 1);
-  const failed = Core.scopedGate({ ready: false, clauses: [...g.clauses, finding('DC004', 'error')] }, { model, elements: ['Quotes API'], requirement: 'R-1', decisions: [] });
+  const failed = Core.scopedGate({ ready: false, clauses: [...g.clauses, finding('DC004', 'error')] }, { model, elements: ['Bookings API'], requirement: 'R-1', decisions: [] });
   assert.equal(failed.ready, false);
-  assert.deepEqual(failed.clauses.map(c => c.text), ['DC004 on Quotes API']);
+  assert.deepEqual(failed.clauses.map(c => c.text), ['DC004 on Bookings API']);
   assert.equal(failed.warnings.length, 2);
 });

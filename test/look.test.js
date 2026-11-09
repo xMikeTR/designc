@@ -7,7 +7,7 @@ const now = 100 * DAY;
 const diag = (code, label, o = {}) => ({ code, sev: 'warning', loc: { label }, ...o });
 const snap = (o = {}) => Look.snapshot({
   gate: { ready: false, clauses: [{ text: 'D-1 is not bound' }] },
-  diags: [diag('DC002', 'Quotes DB'), diag('DC005', 'Cat Model', { suppressed: true })],
+  diags: [diag('DC002', 'Bookings DB'), diag('DC005', 'Weather Feed', { suppressed: true })],
   decisions: [{ id: 'D-1', status: 'checked' }],
   drift: { undeclared: [1, 2], unrealised: [] },
   ledger: [{ kind: 'extraction', _ts: now - DAY }, { kind: 'extraction', _ts: now - 3 * DAY }],
@@ -16,7 +16,7 @@ const snap = (o = {}) => Look.snapshot({
 
 test('a snapshot keeps what the gate, findings, decisions, drift and extraction say', () => {
   assert.deepEqual(snap(), {
-    ready: false, clauses: ['D-1 is not bound'], findings: ['DC002 on Quotes DB'],
+    ready: false, clauses: ['D-1 is not bound'], findings: ['DC002 on Bookings DB'],
     decisions: { 'D-1': 'checked' }, drift: { undeclared: 2, unrealised: 0 }, extractedAt: now - DAY,
   });
 });
@@ -32,11 +32,11 @@ test('the same design twice has no changes', () => {
 });
 
 test('the gate flipping, clauses and findings coming and going are changes', () => {
-  const cur = snap({ gate: { ready: true, clauses: [] }, diags: [diag('DC004', 'Pricing API')] });
+  const cur = snap({ gate: { ready: true, clauses: [] }, diags: [diag('DC004', 'Fares API')] });
   const d = Look.diff(snap(), cur, { now });
   assert.deepEqual(d.gate, { from: false, to: true });
   assert.deepEqual(d.clauses, { added: [], removed: ['D-1 is not bound'] });
-  assert.deepEqual(d.findings, { added: ['DC004 on Pricing API'], removed: ['DC002 on Quotes DB'] });
+  assert.deepEqual(d.findings, { added: ['DC004 on Fares API'], removed: ['DC002 on Bookings DB'] });
   assert.equal(d.count, 4);
 });
 

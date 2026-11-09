@@ -10,7 +10,7 @@ const RI = require('../renderer/requirement-import.js');
 const script = path.join(__dirname, '..', 'scripts', 'fetch-confluence.py');
 
 const pages = {
-  '100': { id: '100', title: 'DEMO-100 Quote edits & referrals', version: { number: 7 }, _links: { webui: '/pages/viewpage.action?pageId=100' },
+  '100': { id: '100', title: 'DEMO-100 Booking edits & escalations', version: { number: 7 }, _links: { webui: '/pages/viewpage.action?pageId=100' },
     body: '<p>SECRET BODY</p><ac:structured-macro ac:name="info"><ac:rich-text-body><p>note</p></ac:rich-text-body></ac:structured-macro>' },
   '101': { id: '101', title: 'Child page', version: { number: 2 }, body: '<p>child</p>' },
 };
@@ -56,7 +56,7 @@ test('a page is saved as html the importer reads, with GET only and a Bearer tok
   assert.match(text, /SECRET BODY/);
   const read = RI.read({ name: '100.html', text });
   assert.equal(read.ok, true);
-  assert.equal(read.title, 'DEMO-100 Quote edits & referrals');
+  assert.equal(read.title, 'DEMO-100 Booking edits & escalations');
   assert.equal(read.id, 'DEMO-100');
   assert.equal(read.version, '7');
   assert.equal(read.source, `${base}/pages/viewpage.action?pageId=100`);

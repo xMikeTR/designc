@@ -16,7 +16,7 @@ test('user can open a registry @critical', async () => {
   // Explorer is the view a registry opens in, with the model open in the editor.
   const sidebar = page.locator('#sbBody');
   await expect(sidebar.getByText('workspace.dsl', { exact: true })).toBeVisible();
-  await expect(page.locator('#monaco').getByText('"RE Pricing Engine"')).toBeVisible();
+  await expect(page.locator('#monaco').getByText('"RE Fares Engine"')).toBeVisible();
   await sidebar.getByText('DEMO-1234.yaml', { exact: true }).click();
   await expect(page.locator('#tabs').getByText('DEMO-1234.yaml')).toBeVisible();
   await expect(page.locator('#monaco').getByText('DEMO-1234').first()).toBeVisible();
@@ -83,10 +83,10 @@ test('user can extract the code map @critical', async () => {
   await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
   await expect(page.getByText(/^Mapped \d+ deployables/)).toBeVisible();
   const dsl = fs.readFileSync(path.join(reg, 'asbuilt/workspace.dsl'), 'utf8');
-  expect(dsl).toMatch(/container "Pricing\.Api"/);
+  expect(dsl).toMatch(/container "Fares\.Api"/);
   expect(readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'extraction')).toHaveLength(1);
   // The map is drawn: an SVG box labelled with the extracted container.
-  await expect(page.locator('#special svg text', { hasText: 'Pricing.Api' }).first()).toBeVisible();
+  await expect(page.locator('#special svg text', { hasText: 'Fares.Api' }).first()).toBeVisible();
 });
 
 test('user can extract one code map from an API repo and a UI repo @critical', async () => {
@@ -179,19 +179,19 @@ test('user can track a work item @critical', async () => {
   fs.writeFileSync(path.join(repo, 'b.txt'), 'b\n'); git('add', '-A'); git('commit', '-q', '-m', 'the work');
   const commit = git('rev-parse', 'HEAD');
   fs.mkdirSync(path.join(reg, 'work'));
-  fs.writeFileSync(path.join(reg, 'work/W-quote.yaml'), [
-    'id: W-quote', 'title: Quote endpoint', 'requirement: QT-1', 'elements: [Quotes API]', 'repo: ../repo',
+  fs.writeFileSync(path.join(reg, 'work/W-booking.yaml'), [
+    'id: W-booking', 'title: Booking endpoint', 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo',
     'writes: ["src/**"]', 'done_when:', '  - gate: "true"', '',
   ].join('\n'));
 
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Work', exact: true }).click();
-  const item = page.locator('[data-workitem="W-quote"]');
+  const item = page.locator('[data-workitem="W-booking"]');
   await expect(item.getByText('backlog', { exact: true })).toBeVisible();
 
   await item.getByRole('button', { name: 'Start' }).click();
-  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_pulled').map(e => e.item)).toEqual(['W-quote']);
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_pulled').map(e => e.item)).toEqual(['W-booking']);
 
   await item.getByRole('button', { name: 'Run gates' }).click();
   await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.kind === 'item_gate').map(e => [e.gate, e.outcome, e.commit, e.dirty]))
@@ -209,14 +209,14 @@ test('user can track a work item @critical', async () => {
   await item.getByRole('button', { name: 'Done', exact: true }).click();
   await page.locator('.askcard input').fill(commit);
   await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
-  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.commit])).toEqual([['W-quote', commit]]);
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.commit])).toEqual([['W-booking', commit]]);
 });
 
 test('a frozen work item says when the design moved under it', async () => {
   const { reg } = copyRegistry('e2e/fixtures/ready-registry');
   fs.mkdirSync(path.join(reg, 'work'));
   fs.writeFileSync(path.join(reg, 'work', 'W-api.yaml'),
-    'id: W-api\ntitle: Quotes API\nrequirement: QT-1\nelements: [Quotes API]\ndone_when:\n  - gate: "true"\n');
+    'id: W-api\ntitle: Bookings API\nrequirement: QT-1\nelements: [Bookings API]\ndone_when:\n  - gate: "true"\n');
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Work', exact: true }).click();
@@ -232,7 +232,7 @@ test('a frozen work item says when the design moved under it', async () => {
   const model = path.join(reg, 'model', 'workspace.dsl');
   fs.writeFileSync(model, fs.readFileSync(model, 'utf8').replace('"ASP.NET Core"', '"ASP.NET Core 9"'));
   await expect(item.getByText('The design moved since this item was frozen', { exact: false })).toBeVisible({ timeout: 15000 });
-  await expect(item.getByText('Quotes API changed since the design was frozen.')).toBeVisible();
+  await expect(item.getByText('Bookings API changed since the design was frozen.')).toBeVisible();
   await expect(item.getByRole('button', { name: 'Freeze again' })).toBeVisible();
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_recheck').map(e => e.stale)).toEqual([false, true]);
 });
@@ -241,7 +241,7 @@ test('the work digest names what needs a person and what failed', async () => {
   const { reg } = copyRegistry('e2e/fixtures/ready-registry');
   fs.mkdirSync(path.join(reg, 'work'));
   fs.writeFileSync(path.join(reg, 'work', 'W-api.yaml'),
-    'id: W-api\ntitle: Quotes API\nrequirement: QT-1\nelements: [Quotes API]\ndone_when:\n  - gate: "true"\n');
+    'id: W-api\ntitle: Bookings API\nrequirement: QT-1\nelements: [Bookings API]\ndone_when:\n  - gate: "true"\n');
   const ev = (ts, kind, o) => JSON.stringify({ schema_version: 1, event_id: `e${ts}`, ts, kind, by: 'pipeline', ...o });
   fs.mkdirSync(path.join(reg, 'ledger'), { recursive: true });
   fs.writeFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), [
@@ -264,7 +264,7 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   const { reg } = copyRegistry('e2e/fixtures/ready-registry');
   fs.mkdirSync(path.join(reg, 'ledger'), { recursive: true });
   fs.writeFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'nd1', ts: 1, kind: 'needs_decision',
-    by: 'pipeline', id: 'ND-0001', question: 'Which retry policy?', status: 'open', element: 'Quotes/Quotes API' }) + '\n');
+    by: 'pipeline', id: 'ND-0001', question: 'Which retry policy?', status: 'open', element: 'Bookings/Bookings API' }) + '\n');
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Design' }).click();
@@ -295,7 +295,7 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
   await expect.poll(() => fs.existsSync(path.join(reg, 'decisions')) ? fs.readdirSync(path.join(reg, 'decisions')) : []).toEqual(['retry-twice-with-jitter.yaml']);
   const answered = fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8');
-  expect(answered).toMatch(/^binds: \[Quotes API\]$/m);
+  expect(answered).toMatch(/^binds: \[Bookings API\]$/m);
   expect(answered).toMatch(/^  - "python3 checks\/retry.py"$/m);
   // A question that needs no decision is closed from the gate itself.
   await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
@@ -361,15 +361,15 @@ test('user can pin a domain pack and see it checked @critical', async () => {
   await page.getByRole('button', { name: 'Design', exact: true }).click();
   // Listed but not pinned: the gate says so and offers the pin; the owned aggregate is unknown until it is.
   const sidebar = page.locator('#sbBody');
-  await expect(sidebar.getByText('pricing is listed in designc.json domains but not pinned')).toBeVisible();
+  await expect(sidebar.getByText('fares is listed in designc.json domains but not pinned')).toBeVisible();
   await sidebar.locator('.clause').getByRole('button', { name: 'Pin' }).first().click();
   // Pinning copies the pack as the registry has it and records who accepted it.
-  await expect.poll(() => fs.existsSync(path.join(reg, 'domain/pricing.yaml'))).toBe(true);
+  await expect.poll(() => fs.existsSync(path.join(reg, 'domain/fares.yaml'))).toBe(true);
   // The file exists before its content is fully written, so wait for the same equality rather than read once.
-  await expect.poll(() => fs.readFileSync(path.join(reg, 'domain/pricing.yaml'), 'utf8')).toBe(fs.readFileSync(path.join(dir, 'domain-registry/domain/pricing.yaml'), 'utf8'));
-  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'domain_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['pricing:pricing']);
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'domain/fares.yaml'), 'utf8')).toBe(fs.readFileSync(path.join(dir, 'domain-registry/domain/fares.yaml'), 'utf8'));
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'domain_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['fares:fares']);
   await expect(sidebar.locator('.clause', { hasText: 'but not pinned' })).toHaveCount(0);
-  await expect(sidebar.getByText('pricing/Quote', { exact: true })).toBeVisible();
+  await expect(sidebar.getByText('fares/Booking', { exact: true })).toBeVisible();
 });
 
 test('user can see legacy parity and what it holds a work item to @critical', async () => {

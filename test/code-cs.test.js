@@ -11,7 +11,7 @@ test('finds classes, records, structs, interfaces and enums with their lines', (
     'public class Orders',
     '{',
     '}',
-    'public record Quote(int Id);',
+    'public record Booking(int Id);',
     'public readonly record struct Money(decimal Amount);',
     'internal struct Point { }',
     'public interface IRepo { void Save(); }',
@@ -20,7 +20,7 @@ test('finds classes, records, structs, interfaces and enums with their lines', (
   const t = one(src).map(x => [x.name, x.kind, x.line, x.endLine]);
   assert.deepEqual(t, [
     ['Orders', 'class', 2, 4],
-    ['Quote', 'record', 5, 5],
+    ['Booking', 'record', 5, 5],
     ['Money', 'record', 6, 6],
     ['Point', 'struct', 7, 7],
     ['IRepo', 'interface', 8, 8],

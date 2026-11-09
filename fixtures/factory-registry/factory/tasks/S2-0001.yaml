@@ -1,5 +1,5 @@
 id: S2-0001
-title: Quote writes use optimistic concurrency
+title: Booking writes use optimistic concurrency
 status: checked
 source:
   failure_mode: FM-02

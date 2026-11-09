@@ -1,4 +1,4 @@
 id: old-cache
 status: superseded
-binds: [Pricing API]
-statement: Cache quotes for an hour
+binds: [Fares API]
+statement: Cache bookings for an hour

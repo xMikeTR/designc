@@ -2,16 +2,16 @@
   "schema": "designc.handover.domain/1",
   "packs": [
     {
-      "key": "pricing",
-      "path": "domain/pricing.yaml",
-      "hash": "19866b24ad7cdf10"
+      "key": "fares",
+      "path": "domain/fares.yaml",
+      "hash": "3fb3300f02bfb73b"
     }
   ],
   "owners": [
     {
-      "element": "Quotes/Quotes API",
+      "element": "Bookings/Bookings API",
       "owns": [
-        "pricing/Quote"
+        "fares/Booking"
       ]
     }
   ]

@@ -52,7 +52,7 @@ npm start                      # opens the app
 npm start -- /path/to/registry # opens straight into a folder
 ```
 
-File > Open Sample Registry copies a worked example (the pricing engine design, plus a small .NET solution to map) to your Documents folder and opens it.
+File > Open Sample Registry copies a worked example (the fares engine design, plus a small .NET solution to map) to your Documents folder and opens it.
 
 ## Build an installer
 
@@ -90,7 +90,7 @@ The .NET extractor reads:
 
 It never guesses. Anything it sees but can't tie to an element, such as a queue with no consumer in the repo or an HTTP client whose URL matches nothing, is listed under **Unresolved** with its file and line, not drawn.
 
-Matching to the design is by normalised name (`Referral.Worker` matches `Referral Worker`). When code and design use different names for the same thing, put `"d.aka" "<code name>"` on the designed element. Drift appears in the Code map sidebar, as amber on the map, in the sheet's title block, and in the Build dashboard:
+Matching to the design is by normalised name (`Escalation.Worker` matches `Escalation Worker`). When code and design use different names for the same thing, put `"d.aka" "<code name>"` on the designed element. Drift appears in the Code map sidebar, as amber on the map, in the sheet's title block, and in the Build dashboard:
 
 - **In code, not in the design:** an undeclared dependency, or an element the design doesn't have.
 - **Designed, not found in code:** dotted edges on the map, and designed elements with no match.
@@ -153,7 +153,7 @@ It uses the **Observations API v2** and **Scores API v3**. The older `GET /api/p
 }
 ```
 
-Keys come from the environment variables named here, never from the repo. `sampleFile` loads a local file in the same response shapes instead of calling Langfuse; the sample registry uses it, and it's ignored once real keys are set.
+Keys come from the environment variables named here, never from the repo. `start` is optional: a shell command (a leading `~/` is expanded) that starts a local Langfuse. When nothing is listening at `baseUrl`, Improve and Build show a Start Langfuse button that runs it after the usual folder-trust prompt. `sampleFile` loads a local file in the same response shapes instead of calling Langfuse; the sample registry uses it, and it's ignored once real keys are set.
 
 ### The assumptions, and how to change them
 
@@ -311,12 +311,12 @@ Everything is plain files, so git is the review and history layer: binding a dec
 The pipeline appends lines like these; the app watches the folder and updates live. The pipeline is optional and any coding agent can be one: the kinds it may write, and that `element` is an `elements.json` id, are in `docs/pipeline-contract.md`.
 
 ```json
-{"schema_version":1,"by":"pipeline","kind":"task","task":"T-01","element":"Quotes DB","status":"passed","reruns":0,"turns":9,"tokens_in":48000,"tokens_out":13000,"cost":0.42,"model":"sonnet"}
+{"schema_version":1,"by":"pipeline","kind":"task","task":"T-01","element":"Bookings DB","status":"passed","reruns":0,"turns":9,"tokens_in":48000,"tokens_out":13000,"cost":0.42,"model":"sonnet"}
 {"schema_version":1,"by":"pipeline","kind":"check","decision":"D-0001","check":"p check -tc tcOptimistic","outcome":"pass","source":"pipeline"}
-{"schema_version":1,"by":"pipeline","kind":"needs_decision","id":"ND-0003","task":"T-06","element":"Referral Worker","question":"…","status":"open"}
-{"schema_version":1,"by":"pipeline","kind":"asbuilt_edge","from":"ReferralWorker","to":"RatingEngine"}
-{"schema_version":1,"by":"pipeline","kind":"escape","id":"E-0008","element":"Cat Model Adapter","description":"…","code":"DC004"}
-{"schema_version":1,"by":"pipeline","kind":"false_positive","code":"DC003","element":"Pricing Portal"}
+{"schema_version":1,"by":"pipeline","kind":"needs_decision","id":"ND-0003","task":"T-06","element":"Escalation Worker","question":"…","status":"open"}
+{"schema_version":1,"by":"pipeline","kind":"asbuilt_edge","from":"EscalationWorker","to":"SurchargeEngine"}
+{"schema_version":1,"by":"pipeline","kind":"escape","id":"E-0008","element":"Weather Feed Adapter","description":"…","code":"DC004"}
+{"schema_version":1,"by":"pipeline","kind":"false_positive","code":"DC003","element":"Fares Portal"}
 {"schema_version":1,"by":"pipeline","kind":"item_budget","item":"W-01","status":"exceeded","limit_tokens":200000,"spent_tokens":260000}
 {"schema_version":1,"by":"pipeline","kind":"item_judge","item":"W-01","judge":"ux","score":0.82,"threshold":0.8,"outcome":"pass","commit":"e840be7"}
 {"schema_version":1,"by":"pipeline","kind":"handover_closed","handover":"20261003-ab12cd34","outcome":"delivered"}
@@ -370,7 +370,7 @@ In a project registry that lists the notebook under `registries`, **New decision
 
 ### Domain packs
 
-A team's domain model (aggregates, value objects, events, invariants as text) lives in its own registry: Set up offers **Domain pack registry** (`"kind": "domain"`), with one `domain/<key>.yaml` per pack. A project lists that registry under `registries` and the pack under `"domains": ["pricing"]`. The gate then says to **Pin** it: that copies the pack into `domain/<key>.yaml` and records that you accepted it. After that the gate checks that each `d.owns` entry names a pinned aggregate, that an aggregate has one owner, that the pack follows DDD rules (aggregates have an id, others are held by `{ref}` only), and that P event payloads carry the same fields as the pack's events. If the registry has moved on, the gate offers **Re-pin**. Without `domains` nothing changes. The Domain section in Design lists owned aggregates and offers guides (never gate items): ask Grill-me to declare a published event in P, or draft a check from an invariant. Freeze copies the packs the work touches into the handover with a `domain.json` saying which element owns which aggregate (`docs/handover-domain.schema.json`).
+A team's domain model (aggregates, value objects, events, invariants as text) lives in its own registry: Set up offers **Domain pack registry** (`"kind": "domain"`), with one `domain/<key>.yaml` per pack. A project lists that registry under `registries` and the pack under `"domains": ["fares"]`. The gate then says to **Pin** it: that copies the pack into `domain/<key>.yaml` and records that you accepted it. After that the gate checks that each `d.owns` entry names a pinned aggregate, that an aggregate has one owner, that the pack follows DDD rules (aggregates have an id, others are held by `{ref}` only), and that P event payloads carry the same fields as the pack's events. If the registry has moved on, the gate offers **Re-pin**. Without `domains` nothing changes. The Domain section in Design lists owned aggregates and offers guides (never gate items): ask Grill-me to declare a published event in P, or draft a check from an invariant. Freeze copies the packs the work touches into the handover with a `domain.json` saying which element owns which aggregate (`docs/handover-domain.schema.json`).
 
 ### Dispatching a handover to a coding agent
 
@@ -417,9 +417,9 @@ Both rules come from a concept note and are not yet backed by an incident. On th
 `d.code` says where an element's code lives, and `d.risk` (`low`, `medium` or `high`) how risky a change there is. Both go into the handover's `elements.json`. Each file belongs to one element's area, and a coding agent can confine each task to that area, so the design compiler checks the areas before a handover:
 
 ```
-api = container "Pricing API" {
+api = container "Fares API" {
   properties {
-    "d.code" "src/Pricing.Api/**, tests/Pricing.Api.Tests/**"
+    "d.code" "src/Fares.Api/**, tests/Fares.Api.Tests/**"
     "d.risk" "low"
   }
 }
@@ -459,7 +459,7 @@ An agent in the design declares `d.agent.autonomy` (`suggest`, `approve-writes` 
 
 An agent also declares its workflow shape in `d.agent.pattern` (`single-call`, `prompt-chain`, `routing`, `parallel`, `orchestrator-workers`, `evaluator-optimizer` or `autonomous-loop`) after Anthropic's "Building effective agents". The three complex shapes (`orchestrator-workers`, `evaluator-optimizer`, `autonomous-loop`) need a reason in `d.agent.patternWhy`, or rule AG011 warns. An agent that declares autonomy but no pattern gets an `unknown` AG011 warning. The property completions and hovers in the model editor list both properties.
 
-Quality attribute scenarios (`scenarios/*.yaml`) may carry `importance` and `difficulty` (`high`, `medium` or `low`). Once any scenario is rated, the Scenarios section in the Design sidebar becomes a utility tree: grouped by quality attribute, most important and hardest first, unrated last. Ratings only order the list; a value other than high, medium or low blocks the ready gate.
+Quality attribute scenarios (`scenarios/*.yaml`) may carry `importance` and `difficulty` (`high`, `medium` or `low`). Once any scenario is rated, the Scenarios section in the Design sidebar becomes a utility tree: grouped by quality attribute, most important and hardest first, unrated last. Surcharges only order the list; a value other than high, medium or low blocks the ready gate.
 
 A decision can list the assumptions it rests on: `assumptions: [{"text": "Volume stays under 1k a day", "review_by": "2027-01-01"}]`. Once a bound decision has an assumption past its review date, the ready gate blocks until you press Mark reviewed on the decision in the sidebar and set the next date. Agents can draft assumptions but cannot mark them reviewed; the Analyst checks decisions against a short rubric that includes overdue assumptions.
 

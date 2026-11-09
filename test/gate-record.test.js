@@ -28,7 +28,7 @@ test('a gate record is a valid ledger event with compact findings and no lines o
   assert.match(ev.verdict, /^[0-9a-f]{16}$/);
   assert.ok(!('commit' in ev) && !('dirty' in ev), 'no git fields without git state');
   const dc2 = ev.findings.find(f => f.code === 'DC002');
-  assert.deepEqual(dc2, { code: 'DC002', sev: 'error', on: 'Quotes DB', loc: 'element', unknown: false, suppressed: false });
+  assert.deepEqual(dc2, { code: 'DC002', sev: 'error', on: 'Bookings DB', loc: 'element', unknown: false, suppressed: false });
   assert.ok(ev.findings.some(f => f.suppressed === true), 'the suppressed DC005 is kept, flagged');
   assert.ok(ev.clauses.every(c => Object.keys(c).sort().join() === 'kind,text'));
   assert.ok(!/"line"|"msg"|"hint"|"related"/.test(JSON.stringify(ev)));

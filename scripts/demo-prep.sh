@@ -7,10 +7,10 @@ s2="${1:-$HOME/Desktop/Coding/System2/factory-s2-workbook}"
 out="${DEMO_DIR:-/tmp/designc-demo}"
 rm -rf "$out"; mkdir -p "$out"
 cp -r "$here/sample-registry" "$out/registry"
-python3 - "$s2/examples/pricing-v3/plan.json" "$out/bad-plan.json" <<'PY'
+python3 - "$s2/examples/fares-v3/plan.json" "$out/bad-plan.json" <<'PY'
 import json, sys
 p = json.load(open(sys.argv[1]))
-p['tasks'][1]['writes'] = ['src/Quotes.Data/**']  # leaves its own element's code areas
+p['tasks'][1]['writes'] = ['src/Bookings.Data/**']  # leaves its own element's code areas
 json.dump(p, open(sys.argv[2], 'w'), indent=2)
 PY
 (cd "$s2" && dotnet build -v q src/Factory.S2 >/dev/null)

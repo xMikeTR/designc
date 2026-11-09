@@ -19,9 +19,9 @@ Two terminals: A in this repo (designc), B in `factory-s2-workbook`. Dark theme 
 | 5 | designc | Open `model/workspace.dsl`; click a finding in Problems | Findings come from rules written after real incidents, same results in CI (`python -m designc check`). |
 | 7 | designc | **Record decision** on a finding (leave it unbound). Optional, only if an agent is configured: **Ask the tutor** | An agent can propose, but it cannot bind a decision or freeze a handover. Only you can. |
 | 9 | designc | Open **Build**: the needs-decision about duplicate handling | The pipeline asks a human through the ledger instead of guessing. |
-| 10 | B | `dotnet run --project src/Factory.S2 -- validate --handover examples/pricing-v3/handover.json --plan examples/pricing-v3/plan.json` | The plan is checked deterministically before any agent runs. |
+| 10 | B | `dotnet run --project src/Factory.S2 -- validate --handover examples/fares-v3/handover.json --plan examples/fares-v3/plan.json` | The plan is checked deterministically before any agent runs. |
 | 11 | B | Same command with `--plan /tmp/designc-demo/bad-plan.json` | A task writing outside its element's code areas is refused, with the reason. |
-| 12 | B | `dotnet run --project src/Factory.S2 -- dispatch --handover examples/pricing-v3/handover.json --plan examples/pricing-v3/plan.json` | Tasks that don't touch the same files can run in parallel waves. |
+| 12 | B | `dotnet run --project src/Factory.S2 -- dispatch --handover examples/fares-v3/handover.json --plan examples/fares-v3/plan.json` | Tasks that don't touch the same files can run in parallel waves. |
 | 13 | B | `... -- digest --registry /tmp/designc-demo/registry` | What needs you, what failed, what finished. Same ledger designc shows. |
 | 14 | designc | **Improve** tab | Escapes are counted by the stage that should have caught them, so the loop improves. |
 | 15 | any | Questions. Close with `docs/guide.html` ("The whole loop") | |

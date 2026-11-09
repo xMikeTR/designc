@@ -58,7 +58,7 @@ npm start</pre>
 <figure><img src="guide/welcome.png" alt="Welcome page with the Open design folder, Try the sample project and Take the tour buttons on the left, and the first tour step in the middle"><figcaption>The welcome page. The left side has three buttons; the middle shows a six-step tour on first launch.</figcaption></figure>
 <ol class="steps">
   <li>Read the six tour steps if you like (Next, or Skip tour). Help → Take the Tour shows it again later.</li>
-  <li>Click <strong>Try the sample project</strong>. designc copies a small pricing-engine design to <code>Documents/designc-sample-registry</code> (and its code to <code>Documents/designc-sample-codebase</code>) and opens it. You are working on a copy, so you can change anything.</li>
+  <li>Click <strong>Try the sample project</strong>. designc copies a small fares-engine design to <code>Documents/designc-sample-registry</code> (and its code to <code>Documents/designc-sample-codebase</code>) and opens it. You are working on a copy, so you can change anything.</li>
 </ol>
 <div class="tip">Start with the sample, not your own folder. The sample already has findings, a decision, a requirement and pipeline history, so every view has something to show. Setting up your own folder is section 6.</div>
 
@@ -106,13 +106,13 @@ npm start</pre>
 <ol class="steps">
   <li>Look at the <strong>Problems</strong> panel at the bottom. Each line is a <strong>finding</strong>: a red one is an error, an orange one a warning. The code on the right (for example <code>DC002</code>) is the rule, and <code>[Ln 53]</code> the line.</li>
   <li>Click a finding. The editor jumps to that line.</li>
-  <li>Read one in plain words. "Quotes DB: lost update: 2 containers write "Quote" and at least one has no concurrency control" means two parts of the system write the same data and nothing stops them overwriting each other.</li>
+  <li>Read one in plain words. "Bookings DB: lost update: 2 containers write "Booking" and at least one has no concurrency control" means two parts of the system write the same data and nothing stops them overwriting each other.</li>
 </ol>
 <p class="note">Some warnings say <em>undeclared property</em>. designc asks for a property only where it needs one to decide. That is not an error in the file: it is a question the design has not answered yet.</p>
 
 <h3>4.3 Fix one finding by editing the model</h3>
 <ol class="steps">
-  <li>In Problems, click <em>Rating Engine: critical, but runs 1 instance</em>. The editor jumps to line 35.</li>
+  <li>In Problems, click <em>Surcharge Engine: critical, but runs 1 instance</em>. The editor jumps to line 35.</li>
   <li>Change <code>"d.instances" "1"</code> to <code>"d.instances" "2"</code>.</li>
   <li>Press <kbd>Ctrl</kbd>+<kbd>S</kbd>.</li>
 </ol>
@@ -130,12 +130,12 @@ npm start</pre>
 <h3>4.5 Record a decision</h3>
 <p>Not every finding is fixed by editing the model. Sometimes the answer is a rule the code must follow, such as "the worker ignores a message it has already processed". You record that as a <strong>decision</strong>.</p>
 <ol class="steps">
-  <li>On a finding in the gate list, for example DC004 on Cat Model Adapter, click <strong>Record decision</strong>.</li>
+  <li>On a finding in the gate list, for example DC004 on Weather Feed Adapter, click <strong>Record decision</strong>.</li>
   <li>A box asks what was decided. Type one sentence and click OK.</li>
 </ol>
-<figure><img src="guide/record-decision.png" alt="A dialog over the editor asking: DC004 on Cat Model Adapter to Cat Model Vendor: retries on a non-idempotent call duplicate side effects. What was decided?"><figcaption>Record decision asks for the statement in one line. You can leave it blank and fill it in later.</figcaption></figure>
+<figure><img src="guide/record-decision.png" alt="A dialog over the editor asking: DC004 on Weather Feed Adapter to Weather Feed Vendor: retries on a non-idempotent call duplicate side effects. What was decided?"><figcaption>Record decision asks for the statement in one line. You can leave it blank and fill it in later.</figcaption></figure>
 <p>designc writes the decision to <code>decisions/&lt;name&gt;.yaml</code> and opens it:</p>
-<figure><img src="guide/decision-file.png" alt="The new decision file with status minted, binds Cat Model Adapter and Cat Model Vendor, resolves DC004, and a TODO check"><figcaption>A new decision. <code>status: minted</code> means drafted, not yet agreed. Under <code>checks</code> goes a command that proves the decision holds.</figcaption></figure>
+<figure><img src="guide/decision-file.png" alt="The new decision file with status minted, binds Weather Feed Adapter and Weather Feed Vendor, resolves DC004, and a TODO check"><figcaption>A new decision. <code>status: minted</code> means drafted, not yet agreed. Under <code>checks</code> goes a command that proves the decision holds.</figcaption></figure>
 <ol class="steps">
   <li>Fill in <code>rationale</code> (why) and replace the TODO under <code>checks</code> with a real command if you have one. A check is a shell command: exit code 0 means it passed.</li>
   <li>Back in the Design view, the gate now has a line for this decision with a <strong>Bind</strong> button. Binding means "I accept this as part of the design". Only a person can bind; agents can draft but never bind.</li>
@@ -226,7 +226,7 @@ npm start</pre>
 <ol class="steps">
   <li><strong>Save the tickets as files.</strong> In a terminal, with a Jira personal access token:
     <pre>export JIRA_TOKEN=&lt;your token&gt;
-python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "project = DEMO AND component = Quotes"</pre>
+python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "project = DEMO AND component = Bookings"</pre>
     You can also name tickets one by one (<code>DEMO-101 DEMO-102</code>). On Jira Cloud also set <code>JIRA_USER</code> to your email and use an API token. For Confluence use <code>scripts/fetch-confluence.py</code>, and for Word or PDF <code>scripts/convert-pages.py</code>. The scripts only read, and print counts, never ticket text.</li>
   <li><strong>Import the folder.</strong> In the Design view, Requirements section, click ⇩ and pick the folder. A review lists each page as new, changed, unchanged or not importable. Import writes one <code>requirements/&lt;key&gt;.yaml</code> per ticket.</li>
   <li><strong>Expect the gate to go red.</strong> Each new requirement shows as "not traced to any element or decision". That is right: designc does not yet know which part of the design it is about.</li>

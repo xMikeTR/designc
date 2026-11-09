@@ -25,7 +25,7 @@ test('the CLI reports each file and its flags, exits 1, writes nothing', async (
   const by = Object.fromEntries(JSON.parse(r.out).map(x => [x.path, x]));
   const codes = p => by[p].flags.map(f => f.code);
   assert.deepEqual(codes('decisions/occ.yaml'), []);
-  assert.deepEqual(by['decisions/occ.yaml'].record.scope, ['req:DEMO-1', 'el:Pricing API']);
+  assert.deepEqual(by['decisions/occ.yaml'].record.scope, ['req:DEMO-1', 'el:Fares API']);
   assert.match(by['decisions/occ.yaml'].record.checks[0].id, /^chk-[0-9a-f]{8}$/);
   assert.deepEqual(by['decisions/occ.yaml'].record.enforced_by, [by['decisions/occ.yaml'].record.checks[0].id]);
   assert.deepEqual(codes('decisions/tags-sort.md'), ['possibly_verdict']);
@@ -34,7 +34,7 @@ test('the CLI reports each file and its flags, exits 1, writes nothing', async (
   assert.deepEqual(codes('decisions/old-cache.yaml'), ['supersede_without_successor']);
   assert.deepEqual(codes('decisions/no-id.yaml'), ['no_id']);
   assert.deepEqual(codes('decisions/db-owner.yaml'), ['unknown_status', 'unknown_requirement', 'ambiguous_name', 'unknown_element', 'unknown_scope', 'supersedes_unknown', 'check_is_prose']);
-  assert.match(by['decisions/db-owner.yaml'].flags[2].msg, /could be any of Quotes DB, Quotes-DB/);
+  assert.match(by['decisions/db-owner.yaml'].flags[2].msg, /could be any of Bookings DB, Bookings-DB/);
 });
 
 test('text output and errors', async () => {
@@ -47,8 +47,8 @@ test('text output and errors', async () => {
 });
 
 test('convert: one near-miss spelling is ambiguous, not silently mapped; a successor clears supersede; docs as loaded', () => {
-  const ctx = { elements: ['Quotes DB'], requirements: [], parseYaml: yaml.load };
-  const [a] = RC.convert([{ path: 'decisions/a.yaml', text: 'id: a\nstatus: bound\nbinds: [quotes db]\nstatement: s\n' }], ctx);
+  const ctx = { elements: ['Bookings DB'], requirements: [], parseYaml: yaml.load };
+  const [a] = RC.convert([{ path: 'decisions/a.yaml', text: 'id: a\nstatus: bound\nbinds: [bookings db]\nstatement: s\n' }], ctx);
   assert.deepEqual(a.flags.map(f => f.code), ['ambiguous_name']);
   assert.deepEqual(a.record.scope, [], 'never guessed into scope');
   const out = RC.convert([

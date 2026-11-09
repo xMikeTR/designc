@@ -13,8 +13,8 @@ const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 
 const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
 
 const FILES = {
-  'ok': 'id: ok\nrequirement: DEMO-1\nelements: [Pricing API]\nwrites: ["src/Api/**"]\ndone_when:\n  - gate: dotnet test\n  - judge: clarity\n',
-  'no-gate': 'id: no-gate\nrequirement: DEMO-1\nelements: [Quotes DB]\ndone_when:\n  - checklist: Note\n',
+  'ok': 'id: ok\nrequirement: DEMO-1\nelements: [Fares API]\nwrites: ["src/Api/**"]\ndone_when:\n  - gate: dotnet test\n  - judge: clarity\n',
+  'no-gate': 'id: no-gate\nrequirement: DEMO-1\nelements: [Bookings DB]\ndone_when:\n  - checklist: Note\n',
   'judge-alone': 'id: judge-alone\ntarget: { document: "https://x/y" }\ndone_when:\n  - judge: clarity\n',
   'both': 'id: both\nrequirement: DEMO-1\nelements: [A]\ntarget: { jira: DEMO-9 }\ndone_when:\n  - gate: x\n',
   'neither': 'id: neither\ndone_when:\n  - checklist: a\n',
@@ -22,23 +22,23 @@ const FILES = {
   'unknowns': 'id: unknowns\nrequirement: DEMO-404\nelements: []\ndepends_on: [nope]\nwrites: ["../etc/**"]\ndone_when:\n  - gate: x\n',
   'entries': 'id: entries\nrequirement: DEMO-1\nelements: [A]\ndone_when:\n  - gate: x\n    review: y\n  - smoke: y\n  - review: ""\n',
   'empty': 'id: empty\nrequirement: DEMO-1\nelements: [A]\ndone_when: []\n',
-  'clash': 'id: clash\nrequirement: DEMO-1\nelements: [Pricing API]\nwrites: ["src/Api/Quotes/*.cs"]\ndone_when:\n  - gate: x\n',
+  'clash': 'id: clash\nrequirement: DEMO-1\nelements: [Fares API]\nwrites: ["src/Api/Bookings/*.cs"]\ndone_when:\n  - gate: x\n',
   'doc-a': 'id: doc-a\ntarget: { document: "https://c/p/1" }\ndone_when:\n  - checklist: a\n',
-  'multi': 'id: multi\nrequirement: [DEMO-1, DEMO-2]\nelements: [Pricing API, Quotes DB]\ndone_when:\n  - gate: x\n',
+  'multi': 'id: multi\nrequirement: [DEMO-1, DEMO-2]\nelements: [Fares API, Bookings DB]\ndone_when:\n  - gate: x\n',
   'multi-out': 'id: multi-out\nrequirement: [DEMO-1, DEMO-2]\nelements: [Mail]\ndone_when:\n  - gate: x\n',
-  'multi-missing': 'id: multi-missing\nrequirement: [DEMO-1, DEMO-404]\nelements: [Pricing API]\ndone_when:\n  - gate: x\n',
+  'multi-missing': 'id: multi-missing\nrequirement: [DEMO-1, DEMO-404]\nelements: [Fares API]\ndone_when:\n  - gate: x\n',
   'doc-b': 'id: doc-b\ntarget: { document: "https://c/p/1" }\ndone_when:\n  - checklist: a\n',
-  'parity-ok': 'id: parity-ok\nrequirement: DEMO-1\nelements: [Pricing API]\ndone_when:\n  - gate: x\n  - parity: all\n  - parity: tags-list\n',
-  'parity-unknown': 'id: parity-unknown\nrequirement: DEMO-1\nelements: [Pricing API]\ndone_when:\n  - gate: x\n  - parity: nope\n',
-  'parity-alone': 'id: parity-alone\nrequirement: DEMO-1\nelements: [Pricing API]\ndone_when:\n  - parity: all\n',
+  'parity-ok': 'id: parity-ok\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\n  - parity: all\n  - parity: tags-list\n',
+  'parity-unknown': 'id: parity-unknown\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\n  - parity: nope\n',
+  'parity-alone': 'id: parity-alone\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - parity: all\n',
   'parity-target': 'id: parity-target\ntarget: { jira: DEMO-7 }\ndone_when:\n  - checklist: a\n  - parity: all\n',
 };
 
 test('the Python work report matches renderer/work.js on the same files', { skip }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-work-'));
   put(root, 'model/workspace.dsl', 'workspace { model { a = person "A" } }');
-  put(root, 'requirements/DEMO-1.yaml', 'id: DEMO-1\ntitle: t\nversion: 1\nelements: [Pricing API]\n');
-  put(root, 'requirements/DEMO-2.yaml', 'id: DEMO-2\ntitle: t\nversion: 1\nelements: [Quotes DB]\n');
+  put(root, 'requirements/DEMO-1.yaml', 'id: DEMO-1\ntitle: t\nversion: 1\nelements: [Fares API]\n');
+  put(root, 'requirements/DEMO-2.yaml', 'id: DEMO-2\ntitle: t\nversion: 1\nelements: [Bookings DB]\n');
   for (const [name, text] of Object.entries(FILES)) put(root, `work/${name}.yaml`, text);
   put(root, 'parity/scenarios/tags-list.yaml', 'id: tags-list\nsteps:\n  - goto: { path: /tags }\n');
   put(root, 'parity/scenarios/no-id.yaml', 'steps:\n  - goto: { path: /x }\n');
@@ -51,7 +51,7 @@ test('the Python work report matches renderer/work.js on the same files', { skip
 
   const r = spawnSync('python3', ['-m', 'designc', 'work', root, '--json'], { cwd: PY, encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
-  const reqs = [{ id: 'DEMO-1', elements: ['Pricing API'] }, { id: 'DEMO-2', elements: ['Quotes DB'] }];
+  const reqs = [{ id: 'DEMO-1', elements: ['Fares API'] }, { id: 'DEMO-2', elements: ['Bookings DB'] }];
   assert.deepEqual(py.uncovered, Work.coverage(items, reqs), 'uncovered');
   const st = Work.states(items, events.map(e => ({ ...e, _ts: e.ts })));
   const active = items.filter(i => st[i.id] === 'active');
@@ -70,7 +70,7 @@ test('the Python work report matches renderer/work.js on the same files', { skip
 
 test('designc work exits 0 for a sound folder and 2 for a missing one', { skip }, () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-work-'));
-  put(root, 'requirements/DEMO-1.yaml', 'id: DEMO-1\ntitle: t\nversion: 1\nelements: [Pricing API]\n');
+  put(root, 'requirements/DEMO-1.yaml', 'id: DEMO-1\ntitle: t\nversion: 1\nelements: [Fares API]\n');
   put(root, 'work/a.yaml', FILES.ok);
   assert.equal(spawnSync('python3', ['-m', 'designc', 'work', root], { cwd: PY, encoding: 'utf8' }).status, 0);
   assert.equal(spawnSync('python3', ['-m', 'designc', 'work', path.join(root, 'nope')], { cwd: PY, encoding: 'utf8' }).status, 2);

@@ -22,8 +22,8 @@ test('legacy pipeline events keep their fields', () => {
   assert.equal(nd.status, 'open');
   assert.equal(nd.payload, undefined);
   const edge = events.find(e => e.kind === 'asbuilt_edge');
-  assert.equal(edge.from, 'PricingPortal');
-  assert.equal(edge.to, 'PricingApi');
+  assert.equal(edge.from, 'FaresPortal');
+  assert.equal(edge.to, 'FaresApi');
   assert.equal(edge.payload, undefined);
 });
 
@@ -37,7 +37,7 @@ test('task tokens split and total', () => {
 });
 
 test('gate and drift read derived pipeline events', () => {
-  const nd = { kind: 'needs_decision', by: 'pipeline', id: 'ND-0001', task: 'T-06', element: 'Referral Worker', question: 'q?', status: 'open', schema_version: 1, event_id: 'nd1', ts: 1 };
+  const nd = { kind: 'needs_decision', by: 'pipeline', id: 'ND-0001', task: 'T-06', element: 'Escalation Worker', question: 'q?', status: 'open', schema_version: 1, event_id: 'nd1', ts: 1 };
   const gate1 = Core.gate({ model: { errors: [] }, diags: [], decisions: [], requirements: [], ledger: Ledger.derive([nd]) });
   assert.equal(gate1.clauses.filter(c => c.kind === 'needs').length, 1);
 
@@ -45,16 +45,16 @@ test('gate and drift read derived pipeline events', () => {
   const gate2 = Core.gate({ model: { errors: [] }, diags: [], decisions: [], requirements: [], ledger: Ledger.derive([nd, resolved]) });
   assert.equal(gate2.clauses.filter(c => c.kind === 'needs').length, 0);
 
-  const edge = { kind: 'asbuilt_edge', by: 'pipeline', from: 'ReferralWorker', to: 'RatingEngine', schema_version: 1, event_id: 'e1', ts: 1 };
+  const edge = { kind: 'asbuilt_edge', by: 'pipeline', from: 'EscalationWorker', to: 'SurchargeEngine', schema_version: 1, event_id: 'e1', ts: 1 };
   const model = {
     elements: new Map([
-      ['rw', { id: 'rw', name: 'ReferralWorker', kind: 'service', props: {} }],
-      ['re', { id: 're', name: 'RatingEngine', kind: 'service', props: {} }],
+      ['rw', { id: 'rw', name: 'EscalationWorker', kind: 'service', props: {} }],
+      ['re', { id: 're', name: 'SurchargeEngine', kind: 'service', props: {} }],
     ]),
     rels: [],
   };
   const dr = Core.drift(model, Ledger.derive([edge]));
   assert.ok(dr);
   assert.deepEqual(dr.unknownEls, []);
-  assert.deepEqual(dr.undeclared, [{ from: 'ReferralWorker', to: 'RatingEngine' }]);
+  assert.deepEqual(dr.undeclared, [{ from: 'EscalationWorker', to: 'SurchargeEngine' }]);
 });

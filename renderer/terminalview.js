@@ -104,12 +104,38 @@ async function dispatchHandover(id, item) {
   if (!target) return;
   const lg = dispatchLegacy(target.command);
   if (lg.error) { toast(lg.error, 'error'); return; }
+  if (/\{repo\}/.test(target.command) && !(await dispatchRepoReady(item))) return;
   const cmd = Dispatch.command(target.command, {
     handover: dispatchAbs(`handovers/${id}`), registry: A.root.root, legacy: lg.value,
     repo: dispatchAbs((item && item.repo) || A.cfg.codebase || null), base: (A.cfg.work || {}).mainBranch || 'main',
   }, A.platform);
   if (cmd.error) { toast(cmd.error, 'error'); return; }
   return typeInTerminal(cmd, 'Dispatch');
+}
+// A build needs a git repo with a base commit to work in. If there is none, offer to create one (or pick one) before typing the command.
+async function dispatchRepoReady(item) {
+  const rel = (item && item.repo) || A.cfg.codebase || null;
+  const st = rel ? await host.repoCheck(rel) : null;
+  if (st && st.repo && st.base) return true;
+  const what = !rel ? 'There is no repo to build into yet.' : !st.exists ? `${rel} does not exist.` : !st.repo ? `${rel} is not a git repo.` : `${rel} has no commits yet.`;
+  const pick = await askChoice(`${what} Factory builds in a git repo.`, [{ label: 'Create a new repo…', value: 'new' }, { label: 'Choose an existing repo…', value: 'pick' }]);
+  if (!pick) return false;
+  let p = null;
+  if (pick === 'new') {
+    const r = await host.createRepo();
+    if (!r) return false;
+    if (r.error) { toast(r.error, 'error'); return false; }
+    p = r.path;
+  } else {
+    p = await host.chooseCodebase();
+    if (!p) return false;
+    const s = await host.repoCheck(p);
+    if (!s.repo || !s.base) { toast('That folder is not a git repo with a commit. Use Create a new repo to set it up.', 'error'); return false; }
+  }
+  if (item && item.repo) { toast(`Repo ready at ${p}, but this work item names ${item.repo}. Change repo on the work item to use it.`, 'warning'); return false; }
+  if (!(await setCodebase(p))) return false;
+  toast(`Repo ready at ${p}. It is set as the codebase.`);
+  return true;
 }
 // Types one command line into the Terminal's shell without Enter: the person reads it and runs it.
 async function typeInTerminal(cmd, again) {

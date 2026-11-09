@@ -57,7 +57,7 @@ test('sort and filter expectations are judged on this side, so no value is kept 
   assert.deepStrictEqual(sorted, [{ kind: 'sort', column: 'Inception', dir: 'asc' }]);
   const filtered = Parity.normalise(tree, { expect: { filtered: { column: 'Program', contains: 'beta' } } }).elements[3].checks;
   assert.deepStrictEqual(filtered, [{ kind: 'filter', column: 'Program', rows: 2, bad: 1 }]);
-  const nowhere = Parity.normalise(tree, { expect: { sorted: 'Premium' } }).elements[3].checks;
+  const nowhere = Parity.normalise(tree, { expect: { sorted: 'Fee' } }).elements[3].checks;
   assert.strictEqual(nowhere[0].dir, 'no column');
 });
 

@@ -4,10 +4,10 @@ const Core = require('../renderer/core.js');
 const V = require('../renderer/canvas/vocabulary.js');
 Core.registerProperties(V.coreSpecs());
 
-const dsl = `workspace "Quotes" {
+const dsl = `workspace "Bookings" {
   model {
-    s = softwareSystem "Quotes" {
-      bot = container "Quote Bot" "" "Agent" {
+    s = softwareSystem "Bookings" {
+      bot = container "Booking Bot" "" "Agent" {
         tags "Agent"
         properties {
           "d.agent.autonomy" "approve-writes"
@@ -18,13 +18,13 @@ const dsl = `workspace "Quotes" {
       plain = container "Plain Agent" {
         properties { "d.agent.autonomy" "suggest" }
       }
-      db = container "Quotes DB"
+      db = container "Bookings DB"
       mail = container "Mailer"
     }
-    bot -> db "reads quotes" "" {
+    bot -> db "reads bookings" "" {
       properties { "d.tool.effect" "read" }
     }
-    bot -> mail "sends the quote" "SMTP" {
+    bot -> mail "sends the booking" "SMTP" {
       properties {
         "d.tool.effect" "irreversible"
         "d.approval" "human"
@@ -38,7 +38,7 @@ const dsl = `workspace "Quotes" {
 test('handoverAgents: only agents, declared d.agent.* copied as declared, nothing invented', () => {
   const h = Core.handoverAgents(dsl);
   assert.equal(h.schema, 'designc.handover.agents/1');
-  assert.deepEqual(h.agents.map(a => a.id), ['Quotes/Quote Bot', 'Quotes/Plain Agent']);
+  assert.deepEqual(h.agents.map(a => a.id), ['Bookings/Booking Bot', 'Bookings/Plain Agent']);
   const bot = h.agents[0];
   assert.equal(bot.autonomy, 'approve-writes');
   assert.equal(bot.maxSteps, 12);
@@ -50,8 +50,8 @@ test('handoverAgents: only agents, declared d.agent.* copied as declared, nothin
 test('handoverAgents: tool calls carry effect, approval and protocol only where declared', () => {
   const [bot] = Core.handoverAgents(dsl).agents;
   assert.deepEqual(bot.tools, [
-    { direction: 'out', other: 'Quotes/Quotes DB', description: 'reads quotes', effect: 'read' },
-    { direction: 'out', other: 'Quotes/Mailer', description: 'sends the quote', effect: 'irreversible', approval: 'human', protocol: 'mcp' },
+    { direction: 'out', other: 'Bookings/Bookings DB', description: 'reads bookings', effect: 'read' },
+    { direction: 'out', other: 'Bookings/Mailer', description: 'sends the booking', effect: 'irreversible', approval: 'human', protocol: 'mcp' },
   ]);
 });
 

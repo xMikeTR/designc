@@ -48,7 +48,7 @@ M lives in `FrontierAgenticSoftware/m-lang`. Copy or clone it to the VM, then:
 
 ```
 uv sync
-uv run mlang compile examples/underwriting.m --emit agt,agis,sdk
+uv run mlang compile examples/bookings.m --emit agt,agis,sdk
 ```
 
 How M joins designc and S2 is planned, not built yet:

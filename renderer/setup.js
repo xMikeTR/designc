@@ -26,7 +26,7 @@ const Setup = (() => {
   // The key variable a provider reads: the gateway's own, ANTHROPIC_API_KEY for the Anthropic API, none for Vertex AI (ADC).
   const llmNames = d => {
     const p = L.provider(d.llm);
-    if (p === 'vertex') return [];
+    if (p === 'vertex' || p === 'claude-code') return [];
     return [d.llm && !blank(d.llm.apiKeyEnv) ? String(d.llm.apiKeyEnv).trim() : (p === 'anthropic' ? 'ANTHROPIC_API_KEY' : DEFAULTS.apiKeyEnv)];
   };
   const lfNames = d => [name(d.langfuse, 'publicKeyEnv'), name(d.langfuse, 'secretKeyEnv')];
@@ -159,6 +159,7 @@ const Setup = (() => {
     const sec = draft[kind];
     if (kind !== 'llm' && kind !== 'langfuse') return { error: 'invalid', hint: `Unknown connection ${kind}.` };
     const prov = kind === 'llm' ? L.provider(sec) : null;
+    if (prov === 'claude-code') return { error: 'local', hint: 'Nothing to test here. Run claude login in a terminal once, then use the agent panel.' };
     const needsUrl = kind === 'langfuse' || prov === 'openai';
     if (!sec || (needsUrl && blank(sec.baseUrl)) || (kind === 'llm' && blank(sec.model))) return { error: 'incomplete', hint: prov === 'vertex' ? 'Enter the project and the model first.' : kind === 'langfuse' ? 'Enter the base URL first.' : needsUrl ? 'Enter the base URL and the model first.' : 'Enter the model first.' };
     const bad = validate({ [kind]: sec });

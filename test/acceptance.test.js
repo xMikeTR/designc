@@ -3,14 +3,14 @@ const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
 
 // Slice 27: UI acceptance criteria and the gate clauses they add.
-const dsl = (tags = '"UI"') => `workspace "Quotes" {
+const dsl = (tags = '"UI"') => `workspace "Bookings" {
   model {
-    broker = person "Broker"
-    s = softwareSystem "Quotes" {
-      ui = container "Quote UI" "" "React" ${tags}
-      api = container "Quotes API" "" "C#"
+    reseller = person "Reseller"
+    s = softwareSystem "Bookings" {
+      ui = container "Booking UI" "" "React" ${tags}
+      api = container "Bookings API" "" "C#"
     }
-    broker -> ui "Uses" "HTTPS" {
+    reseller -> ui "Uses" "HTTPS" {
       properties {
         d.authenticated "yes"
       }
@@ -18,9 +18,9 @@ const dsl = (tags = '"UI"') => `workspace "Quotes" {
     ui -> api "Calls" "HTTPS"
   }
 }`;
-const req = [{ id: 'R-1', elements: ['Quote UI'] }];
+const req = [{ id: 'R-1', elements: ['Booking UI'] }];
 const cases = states => states.map(state => ({ state, given: `g ${state}`, then: `t ${state}` }));
-const ac = (o = {}) => ({ id: 'AC-1', requirement: 'R-1', element: 'Quotes/Quote UI', states: ['ready', 'loading', 'empty', 'error', 'forbidden'],
+const ac = (o = {}) => ({ id: 'AC-1', requirement: 'R-1', element: 'Bookings/Booking UI', states: ['ready', 'loading', 'empty', 'error', 'forbidden'],
   cases: cases(['ready', 'loading', 'empty', 'error', 'forbidden']), ...o });
 const run = (o = {}) => Core.acceptanceClauses({ model: Core.parse(o.dsl || dsl()), acceptance: o.acceptance || [], requirements: o.requirements || req, decisions: o.decisions || [] });
 const texts = r => r.map(c => c.text);
@@ -28,8 +28,8 @@ const texts = r => r.map(c => c.text);
 test('a UI element with no criterion is a clause naming the element', () => {
   const r = run();
   assert.equal(r.length, 1);
-  assert.match(r[0].text, /R-1: Quote UI is a UI element with no acceptance criterion/);
-  assert.deepEqual(r[0].about, ['Quote UI']);
+  assert.match(r[0].text, /R-1: Booking UI is a UI element with no acceptance criterion/);
+  assert.deepEqual(r[0].about, ['Booking UI']);
   assert.equal(r[0].kind, 'acceptance');
 });
 
@@ -48,7 +48,7 @@ test('a missing state is named', () => {
 
 test('forbidden is required only behind an auth boundary, or when the criterion lists it', () => {
   const four = ['ready', 'loading', 'empty', 'error'];
-  // The broker reaches the UI with d.authenticated yes: forbidden is required even if states omits it.
+  // The reseller reaches the UI with d.authenticated yes: forbidden is required even if states omits it.
   assert.deepEqual(texts(run({ acceptance: [ac({ states: four, cases: cases(four) })] })), ['AC-1: no case for state forbidden']);
   // No auth boundary: four states are enough...
   const open = dsl().replace('d.authenticated "yes"', 'd.interaction "sync"');
@@ -70,17 +70,17 @@ test('the gate carries the clauses, and a scoped gate keeps them for in-scope el
   const model = Core.parse(dsl());
   const g = Core.gate({ model, diags: [], decisions: [], requirements: req, ledger: [], acceptance: [] });
   assert.ok(g.clauses.some(c => c.kind === 'acceptance'));
-  const inScope = Core.scopedGate(g, { model, elements: ['Quote UI'], requirement: 'R-1', decisions: [] });
+  const inScope = Core.scopedGate(g, { model, elements: ['Booking UI'], requirement: 'R-1', decisions: [] });
   assert.ok(inScope.clauses.some(c => c.kind === 'acceptance'));
-  const other = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: 'R-2', decisions: [] });
+  const other = Core.scopedGate(g, { model, elements: ['Bookings API'], requirement: 'R-2', decisions: [] });
   assert.ok(!other.clauses.some(c => c.kind === 'acceptance'));
 });
 
 test('locators: every name a case uses is declared, with a role from the closed list', () => {
-  const model = Core.parse('workspace "Q" {\n  model {\n    s = softwareSystem "Quotes" {\n      ui = container "Quote UI" {\n        tags "UI"\n      }\n    }\n  }\n}\n');
+  const model = Core.parse('workspace "Q" {\n  model {\n    s = softwareSystem "Bookings" {\n      ui = container "Booking UI" {\n        tags "UI"\n      }\n    }\n  }\n}\n');
   const cases = ['ready', 'loading', 'empty', 'error'].map(state => ({ state, given: 'a', then: 'b' }));
-  const run = (locators, uses) => Core.acceptanceClauses({ model, requirements: [{ id: 'R-1', elements: ['Quote UI'] }], decisions: [],
-    acceptance: [{ id: 'AC-1', requirement: 'R-1', element: 'Quotes/Quote UI', states: ['ready'], locators, cases: cases.map((c, i) => i ? c : { ...c, uses }) }] }).map(c => c.text);
+  const run = (locators, uses) => Core.acceptanceClauses({ model, requirements: [{ id: 'R-1', elements: ['Booking UI'] }], decisions: [],
+    acceptance: [{ id: 'AC-1', requirement: 'R-1', element: 'Bookings/Booking UI', states: ['ready'], locators, cases: cases.map((c, i) => i ? c : { ...c, uses }) }] }).map(c => c.text);
   assert.deepEqual(run({ save: { role: 'button', name: 'Save' } }, ['save']), []);
   assert.deepEqual(run({}, ['save']), ['AC-1: case for ready uses locator "save" that is not declared']);
   assert.match(run({ x: { role: 'widget', name: 'X' } }, [])[0], /locator "x" has role "widget"/);

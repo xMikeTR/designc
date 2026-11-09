@@ -119,3 +119,33 @@ test('request for vertex refuses a missing project and values that could change 
   assert.equal(Llm.request({ provider: 'vertex', project: 'p', region: 'x.evil.com/' }, { ...BASE, token: 't', env: {} }).error, 'invalid');
   assert.equal(Llm.request({ provider: 'vertex', project: 'p' }, { ...BASE, model: 'm:rawPredict?x=1', token: 't', env: {} }).error, 'invalid');
 });
+
+test('claude-code provider: transcript prompt, subscription-only env, result mapped to a message', async () => {
+  assert.equal(Llm.provider({ provider: 'claude-code' }), 'claude-code');
+  assert.deepEqual(Llm.toPrompt([{ role: 'system', content: 'Be terse.' }, { role: 'user', content: 'hi' }]), { system: 'Be terse.', prompt: 'hi' });
+  assert.equal(Llm.toPrompt([{ role: 'user', content: 'a' }, { role: 'assistant', content: 'b' }, { role: 'user', content: 'c' }]).prompt, 'User: a\n\nAssistant: b\n\nUser: c\n\nAssistant:');
+  const { EventEmitter } = require('events'); const { PassThrough } = require('stream');
+  let seen;
+  const fake = (cmd, args, opts) => {
+    seen = { cmd, args, opts }; const p = new EventEmitter(); p.stdout = new PassThrough(); p.stderr = new PassThrough(); p.stdin = new PassThrough(); p.kill = () => {};
+    setImmediate(() => { p.stdout.end(JSON.stringify({ result: 'pong', usage: { input_tokens: 3, output_tokens: 1 } })); p.emit('close', 0); }); return p;
+  };
+  const got = []; const LlmNet = require('../llm-net.js');
+  const r = await LlmNet.call({ provider: 'claude-code' }, { model: 'sonnet', messages: [{ role: 'user', content: 'ping' }], env: { ANTHROPIC_API_KEY: 'sk', CLAUDE_CODE_OAUTH_TOKEN: 't' }, onText: t => got.push(t), spawnFn: fake });
+  assert.deepEqual(r.message, { role: 'assistant', content: 'pong' }); assert.deepEqual(got, ['pong']);
+  assert.ok(!('ANTHROPIC_API_KEY' in seen.opts.env) && seen.opts.env.CLAUDE_CODE_OAUTH_TOKEN === 't');
+  assert.deepEqual(seen.args.slice(0, 6), ['-p', '--output-format', 'json', '--tools', '', '--no-session-persistence']);
+  assert.ok(seen.args.includes('--model'));
+});
+
+test('claude-code tools: offered as text, a JSON reply becomes tool_calls, results and prior calls go back as transcript', () => {
+  const tools = [{ type: 'function', function: { name: 'read_model', description: 'Read the model.', parameters: { type: 'object', properties: {} } } }];
+  const { system, prompt } = Llm.toPrompt([{ role: 'system', content: 'You are Grill-me.' }, { role: 'user', content: 'start' },
+    { role: 'assistant', content: null, tool_calls: [{ id: 'c1', type: 'function', function: { name: 'read_model', arguments: '{}' } }] }, { role: 'tool', tool_call_id: 'c1', content: 'workspace {}' }], tools);
+  assert.match(system, /You are Grill-me\.[\s\S]*read_model: Read the model\./);
+  assert.match(prompt, /Assistant: \{"tool_calls":\[\{"name":"read_model","arguments":\{\}\}\]\}\n\nTool result \(read_model\):\nworkspace \{\}\n\nAssistant:$/);
+  const m = Llm.fromReply('Let me look.\n```json\n{"tool_calls":[{"name":"read_model","arguments":{"from":1}}]}\n```', tools, 7);
+  assert.deepEqual(m.tool_calls.map(c => [c.id, c.function.name, c.function.arguments]), [['call_cc7_0', 'read_model', '{"from":1}']]);
+  assert.equal(Llm.fromReply('{"tool_calls":[{"name":"nope","arguments":{}}]}', tools).content, '{"tool_calls":[{"name":"nope","arguments":{}}]}');
+  assert.equal(Llm.fromReply('Which node fails first?', tools).content, 'Which node fails first?');
+});

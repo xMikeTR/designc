@@ -9,7 +9,7 @@ const RI = require('../renderer/requirement-import.js');
 const script = path.join(__dirname, '..', 'scripts', 'convert-pages.py');
 const W = 'xmlns:w="http://schemas.openxmlformats.org/wordprocessingml/2006/main"';
 const doc = `<w:document ${W}><w:body>
-<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>DEMO-77 Quote edits are kept</w:t></w:r></w:p>
+<w:p><w:pPr><w:pStyle w:val="Heading1"/></w:pPr><w:r><w:t>DEMO-77 Booking edits are kept</w:t></w:r></w:p>
 <w:p><w:r><w:t>SECRET BODY</w:t></w:r></w:p>
 <w:p><w:pPr><w:numPr/></w:pPr><w:r><w:t>an item</w:t></w:r></w:p>
 <w:tbl><w:tr><w:tc><w:p><w:r><w:t>a</w:t></w:r></w:p></w:tc><w:tc><w:p><w:r><w:t>b</w:t></w:r></w:p></w:tc></w:tr></w:tbl>
@@ -30,7 +30,7 @@ test('a .docx becomes markdown the importer reads, and the report carries no pag
   assert.match(r.stdout, /converted 1, skipped 1/);
   assert.equal(/SECRET/.test(r.stdout + r.stderr), false);
   const md = fs.readFileSync(path.join(out, 'DEMO-77 page.md'), 'utf8');
-  assert.match(md, /^---\ntitle: "DEMO-77 Quote edits are kept"/);
+  assert.match(md, /^---\ntitle: "DEMO-77 Booking edits are kept"/);
   assert.match(md, /\n- an item/);
   assert.match(md, /\| a \| b \|/);
   const read = RI.read({ name: 'DEMO-77 page.md', text: md });

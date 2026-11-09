@@ -1,0 +1,10 @@
+id: P4-renewal
+requirement: QC-1
+elements: [Fares]
+repo: ../target
+writes: ["src/fares/**"]
+depends_on: [P1-fee]
+done_when:
+  - gate: npm test
+  - gate: npm run check:money
+  - gate: npm run check:scope

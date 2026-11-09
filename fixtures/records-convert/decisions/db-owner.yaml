@@ -1,9 +1,9 @@
 id: db-owner
 status: accepted
 requirement: DEMO-404
-binds: [QuotesDB, Billing]
+binds: [BookingsDB, Billing]
 supersedes: [D-9]
 scope: [screen:tags]
-statement: The API owns the quotes store
+statement: The API owns the bookings store
 checks:
   - "Model: only the API writes"

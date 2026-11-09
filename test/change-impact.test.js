@@ -4,9 +4,9 @@ const Core = require('../renderer/core.js');
 
 const dsl = ({ tech = 'SQL', desc = 'x', extra = '' } = {}) => `workspace {
  model {
-  sys = softwareSystem "Pricing" {
-   api = container "Pricing API" "${desc}" "C#"
-   db = container "Quotes DB" "d" "${tech}"
+  sys = softwareSystem "Fares" {
+   api = container "Fares API" "${desc}" "C#"
+   db = container "Bookings DB" "d" "${tech}"
    other = container "Other"
    ${extra}
   }
@@ -14,7 +14,7 @@ const dsl = ({ tech = 'SQL', desc = 'x', extra = '' } = {}) => `workspace {
  }
 }`;
 const impact = (a, b, o = {}) => Core.changeImpact(Core.parse(a), Core.parse(b), { decisions: [], requirements: [], ...o });
-const dec = (o = {}) => ({ id: 'd1', status: 'bound', binds: ['Quotes DB'], requirement: 'R-1', ...o });
+const dec = (o = {}) => ({ id: 'd1', status: 'bound', binds: ['Bookings DB'], requirement: 'R-1', ...o });
 const req = (o = {}) => ({ id: 'R-1', elements: [], ...o });
 
 test('no meaningful change gives an empty impact', () => {
@@ -26,7 +26,7 @@ test('no meaningful change gives an empty impact', () => {
 test('a decision whose bound element changed is affected, with the reason', () => {
   const i = impact(dsl(), dsl({ tech: 'Postgres' }), { decisions: [dec(), dec({ id: 'd2', binds: ['Other'] })] });
   assert.deepEqual(i.decisions.map(d => d.id), ['d1']);
-  assert.equal(i.decisions[0].element, 'Quotes DB');
+  assert.equal(i.decisions[0].element, 'Bookings DB');
   assert.match(i.decisions[0].reason, /changed/);
 });
 
@@ -41,7 +41,7 @@ test('a removed bound element is affected as removed', () => {
 });
 
 test('requirements follow affected decisions and elements they list', () => {
-  const i = impact(dsl(), dsl({ tech: 'Postgres' }), { decisions: [dec()], requirements: [req(), req({ id: 'R-2', elements: ['Quotes DB'] }), req({ id: 'R-3', elements: ['Other'] })] });
+  const i = impact(dsl(), dsl({ tech: 'Postgres' }), { decisions: [dec()], requirements: [req(), req({ id: 'R-2', elements: ['Bookings DB'] }), req({ id: 'R-3', elements: ['Other'] })] });
   assert.deepEqual(i.requirements.sort(), ['R-1', 'R-2']);
 });
 

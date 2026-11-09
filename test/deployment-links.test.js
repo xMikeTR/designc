@@ -4,9 +4,9 @@ const Core = require('../renderer/core.js');
 
 const dsl = `workspace {
  model {
-  sys = softwareSystem "Pricing" {
-   api = container "Pricing API"
-   db = container "Quotes DB"
+  sys = softwareSystem "Fares" {
+   api = container "Fares API"
+   db = container "Bookings DB"
   }
   deploymentEnvironment "Live" {
    app = deploymentNode "App Service" {
@@ -34,7 +34,7 @@ test('relationships between deployment elements resolve to paths, with explicit 
   const m = Core.parse(dsl);
   const env = m.deployment.environments[0];
   assert.deepEqual(env.rels.map(r => [r.src, r.dst, r.description, r.technology]), [
-    ['App Service/Gateway', 'App Service/Pricing API', 'routes to', 'HTTPS'],
+    ['App Service/Gateway', 'App Service/Fares API', 'routes to', 'HTTPS'],
     ['App Service', 'Azure SQL', 'reaches', 'TDS'],
     ['App Service', 'Azure SQL', 'talks to', null],
   ]);

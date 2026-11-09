@@ -10,22 +10,22 @@ const Core = require('../renderer/core.js');
 const Domain = require('../renderer/domain.js');
 
 const APP = path.resolve(__dirname, '..');
-const PACK = fs.readFileSync(path.join(APP, 'fixtures/domain-registry/domain/pricing.yaml'), 'utf8');
+const PACK = fs.readFileSync(path.join(APP, 'fixtures/domain-registry/domain/fares.yaml'), 'utf8');
 const hash = text => Core.evalHash({ _text: text });
 
 // A project folder next to a domain registry, both in a scratch folder.
-function setup({ pin = true, copy = PACK, source = PACK, owns = 'Quote', p } = {}) {
+function setup({ pin = true, copy = PACK, source = PACK, owns = 'Booking', p } = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-domain-'));
   const reg = path.join(dir, 'project');
   fs.cpSync(path.join(APP, 'fixtures/domain-project'), reg, { recursive: true });
   fs.mkdirSync(path.join(reg, 'domain'));
   fs.mkdirSync(path.join(reg, 'ledger'));
-  fs.writeFileSync(path.join(reg, 'domain/pricing.yaml'), copy);
-  fs.writeFileSync(path.join(reg, 'model/workspace.dsl'), fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8').replace('"d.owns" "Quote"', `"d.owns" "${owns}"`));
-  if (p != null) fs.writeFileSync(path.join(reg, 'behaviour/quotes.p'), p);
+  fs.writeFileSync(path.join(reg, 'domain/fares.yaml'), copy);
+  fs.writeFileSync(path.join(reg, 'model/workspace.dsl'), fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8').replace('"d.owns" "Booking"', `"d.owns" "${owns}"`));
+  if (p != null) fs.writeFileSync(path.join(reg, 'behaviour/bookings.p'), p);
   if (source == null) fs.rmSync(path.join(dir, 'domain-registry'), { recursive: true, force: true });
-  else { fs.mkdirSync(path.join(dir, 'domain-registry/domain'), { recursive: true }); fs.writeFileSync(path.join(dir, 'domain-registry/domain/pricing.yaml'), source); }
-  if (pin) fs.writeFileSync(path.join(reg, 'ledger/designc.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'pin-1', ts: 1, kind: 'domain_pinned', by: 'mike', pack: 'pricing', registry: 'pricing', hash: hash(PACK) }) + '\n');
+  else { fs.mkdirSync(path.join(dir, 'domain-registry/domain'), { recursive: true }); fs.writeFileSync(path.join(dir, 'domain-registry/domain/fares.yaml'), source); }
+  if (pin) fs.writeFileSync(path.join(reg, 'ledger/designc.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'pin-1', ts: 1, kind: 'domain_pinned', by: 'mike', pack: 'fares', registry: 'fares', hash: hash(PACK) }) + '\n');
   return reg;
 }
 
@@ -59,11 +59,11 @@ const cases = {
   'edited after the pin': { copy: PACK + '# local edit\n' },
   'newer pack in its registry': { source: PACK + '# v4\n' },
   'registry cannot be read': { source: null },
-  'owns a misspelt aggregate': { owns: 'Qoute' },
-  'owns a field, not an aggregate': { owns: 'pricing/Money' },
-  'P event with another payload': { p: 'event eQuoteBound: (quote: int);\n' },
-  'P event with a non-tuple payload': { p: 'event eQuoteBound: int;\n' },
-  'pack with DDD problems': (() => { const bad = PACK.replace('    id: CedantId\n', '').replace('cedant: { ref: Cedant }', 'cedant: Cedant'); return { copy: bad, source: bad }; })(),
+  'owns a misspelt aggregate': { owns: 'Bookign' },
+  'owns a field, not an aggregate': { owns: 'fares/Money' },
+  'P event with another payload': { p: 'event eBookingBound: (booking: int);\n' },
+  'P event with a non-tuple payload': { p: 'event eBookingBound: int;\n' },
+  'pack with DDD problems': (() => { const bad = PACK.replace('    id: PartnerId\n', '').replace('partner: { ref: Partner }', 'partner: Partner'); return { copy: bad, source: bad }; })(),
 };
 for (const [name, opts] of Object.entries(cases)) {
   test(`domain parity: ${name}`, () => {
@@ -86,9 +86,9 @@ test('domain registry: designc check validates its packs and exits 0 or 1', () =
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-domain-'));
   try {
     fs.cpSync(path.join(APP, 'fixtures/domain-registry'), dir, { recursive: true });
-    fs.writeFileSync(path.join(dir, 'domain/pricing.yaml'), PACK.replace('    id: CedantId\n', ''));
+    fs.writeFileSync(path.join(dir, 'domain/fares.yaml'), PACK.replace('    id: PartnerId\n', ''));
     const r = run(dir);
     assert.equal(r.status, 1);
-    assert.match(r.stdout, /aggregate Cedant needs an id/);
+    assert.match(r.stdout, /aggregate Partner needs an id/);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
