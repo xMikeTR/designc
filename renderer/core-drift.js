@@ -76,22 +76,29 @@
   // else they are neutral, so a container-only design never shows component warnings.
   // d.code against every file the extraction walk listed (facts.files, repo-relative). Display only: never a finding or a
   // gate clause, because the codebase is not a gate input. null when there is no file list (extracted before it).
+  // Split repos: with designc.json repos, facts.files are "<Repo>/<path>" and an element's d.code is relative to the repo its
+  // d.repo names (own or nearest ancestor's). An element with no d.repo is matched against the whole path, as before.
   function codeAreaDrift(model, files) {
     if (!Array.isArray(files)) return null;
+    const repoOf = e => { for (let c = e; c; c = c.parent ? model.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim() || null; return null; };
+    const inArea = (a, f) => !a.repo ? PP.matches(a.pattern, f) : f.startsWith(a.repo + '/') && PP.matches(a.pattern, f.slice(a.repo.length + 1));
     const areas = [];
     for (const e of model.elements.values()) {
       if (e.props['d.code'] == null) continue;
+      const repo = repoOf(e);
       for (const s of String(e.props['d.code']).split(',')) {
         const p = PP.create(s);
         if (!p.ok) continue;
-        const a = { id: e.id, name: e.name, pattern: p.value, matched: files.filter(f => PP.matches(p.value, f)).length };
+        const a = { id: e.id, name: e.name, pattern: p.value, ...(repo ? { repo } : {}) };
+        a.matched = files.filter(f => inArea(a, f)).length;
         // An exact path matches one file of that name only (the path pattern contract); say so when it names a folder.
-        const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(p.value + '/')).length;
+        const pre = repo ? repo + '/' : '';
+        const under = a.matched || /[*?]/.test(p.value) ? 0 : files.filter(f => f.startsWith(pre + p.value + '/')).length;
         if (under) a.hint = `${p.value} is a folder with ${under} file${under === 1 ? '' : 's'}; an exact path matches a single file. Did you mean ${p.value}/**?`;
         areas.push(a);
       }
     }
-    const unclaimed = areas.length ? files.filter(f => !areas.some(a => PP.matches(a.pattern, f))).sort() : [];
+    const unclaimed = areas.length ? files.filter(f => !areas.some(a => inArea(a, f))).sort() : [];
     return { areas, unclaimed, files: files.length };
   }
 

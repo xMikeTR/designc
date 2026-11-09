@@ -9,7 +9,10 @@ async function chooseCodebase() {
 }
 async function extractCodebase() {
   if (!A.root || A.extracting) return;
-  if (!A.cfg.codebase && !(await chooseCodebase())) return;
+  if (!A.cfg.codebase && !cmRepos() && !(await chooseCodebase())) return;
+// Split repos: designc.json repos {Key: folder}. When declared, the map reads each one (main.js ignores `codebase`).
+function cmRepos() { const r = A.cfg.repos; return r && typeof r === 'object' && !Array.isArray(r) && Object.keys(r).length ? r : null; }
+function cmCodeLabel() { return cmRepos() ? 'Repos: ' + Object.keys(cmRepos()).join(', ') : A.cfg.codebase; }
   A.extracting = true; renderSidebar(); if (A.active === 'special:codemap') renderCodemap();
   const r = await host.extract(A.cfg.codebase);
   A.extracting = false;
@@ -42,11 +45,11 @@ async function adoptComponents(builtId, designId) {
   toast(`Adopted ${plural(n, 'component')} into ${want.name}.`);
 }
 function codemapSidebar() {
-  const cb = A.cfg.codebase, f = A.facts, d = A.drift;
+  const cb = cmCodeLabel(), f = A.facts, d = A.drift;
   let h = section('cb', 'Codebase', cb
     ? `<div class="hint"><b>${esc(cb)}</b>${f ? `<br>Extracted ${esc(new Date(f.extractedAt).toLocaleString())}` : '<br>Not extracted yet'}</div>
        <button class="btn ${A.asbuilt ? '' : 'primary'} block" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : A.asbuilt ? 'Re-extract' : 'Extract the as-built map'}</button>
-       <div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button></div>`
+       ${cmRepos() ? '' : '<div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button></div>'}`
     : `<div class="hint">Point designc at a repository to map what exists today. It only reads the folder.</div><button class="btn primary block" data-a="choosecode">Choose codebase folder</button>`);
   if (f) h += section('cbstats', 'Found', `<div class="hint">${plural(f.projects.length, 'project')}: ${plural(f.projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, 'deployable')}, ${plural(f.projects.filter(p => p.kind === 'library').length, 'library')}, ${plural(f.projects.filter(p => p.kind === 'test').length, 'test project')} (not mapped). ${plural(f.edges.length, 'dependency', )} with evidence.</div>`);
   if (A.asbuilt && !A.model.elements.size) h += `<button class="btn primary block" data-a="adopt">Start the design from this map</button>`;
@@ -184,7 +187,7 @@ function renderCodemap() {
   if (A.active !== 'special:codemap') return;
   if (!A.asbuilt) {
     el.innerHTML = `<div class="dash"><h1>Code map</h1><p class="lede">A C4 map of the codebase as it exists, extracted from project files, configuration and code. Every box and arrow links to the lines that prove it. Once there is a design, the map shows where code and design disagree.</p>
-      ${A.cfg.codebase ? `<p>Codebase: <span class="code">${esc(A.cfg.codebase)}</span></p><button class="btn primary" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Extract the as-built map'}</button>` : '<button class="btn primary" data-a="choosecode">Choose codebase folder</button>'}
+      ${cmCodeLabel() ? `<p>${cmRepos() ? '' : 'Codebase: '}<span class="code">${esc(cmCodeLabel())}</span></p><button class="btn primary" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : 'Extract the as-built map'}</button>` : '<button class="btn primary" data-a="choosecode">Choose codebase folder</button>'}
       <div class="block" style="margin-top:22px"><h3>What the extractor reads</h3><div class="tw2"><table class="t">
       <tr><td>Web, Worker and Exe projects, and SPA/Node package.json</td><td>Containers. Libraries fold into the deployables that reference them; test projects are skipped.</td></tr>
       <tr><td>EF Core <span class="code">DbContext</span> classes</td><td>Stores, with the provider from <span class="code">UseSqlServer</span> and friends, linked to the deployables that use them.</td></tr>

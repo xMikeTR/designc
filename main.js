@@ -241,6 +241,19 @@ handle('ledger:event', async event => ledgerStore.appendEvent(root, event));
 // Codebase (read-only): a separate folder, usually another repo, named in designc.json as "codebase".
 function codebaseDir(p) { if (!root || !p) throw new Error('No codebase is configured'); return path.resolve(root, p); }
 handle('codebase:choose', async () => {
+// Split repos: designc.json `repos` {Key: folder}. Absolute folders by key, or null when the design is one repo. Read-only like codebaseDir.
+function repoRoots() {
+  const r = readSettings().repos;
+  if (!root || !r || typeof r !== 'object' || Array.isArray(r)) return null;
+  const out = {}; for (const [k, v] of Object.entries(r)) if (typeof v === 'string' && v.trim()) out[k] = path.resolve(root, v);
+  return Object.keys(out).length ? out : null;
+}
+// "Api/src/x.cs" -> { base: <Api folder>, rel: "src/x.cs" } when the first segment is a declared repo; else the single codebase.
+function codeTarget(p, rel) {
+  const repos = repoRoots(), i = String(rel).indexOf('/'), k = i > 0 ? rel.slice(0, i) : null;
+  if (repos && k && Object.prototype.hasOwnProperty.call(repos, k)) return { base: repos[k], rel: rel.slice(i + 1) };
+  return { base: codebaseDir(p), rel };
+}
   const r = await dialog.showOpenDialog(win, { title: 'Choose the codebase to map', properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const rel = path.relative(root, r.filePaths[0]).split(path.sep).join('/');
@@ -274,6 +287,11 @@ handle('reference:extractUi', async key => {
   if (refs.error) return { error: refs.error };
   const ref = refs.refs.find(r => r.key === key);
   if (!ref) return { error: `${key} is not listed in designc.json references` };
+  const repos = repoRoots();
+  if (repos) {
+    for (const [k, d] of Object.entries(repos)) if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) return { error: `Repo ${k} folder not found: ${d}. Check repos.${k} in designc.json.` };
+    try { return await extract(repos, { ...(readSettings().extract || {}), ...(readSettings().ui ? { ui: readSettings().ui } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+  }
   const dir = path.resolve(root, ref.path);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Reference ${key} folder not found: ${dir}. Check its path in designc.json references.` };
   let r;
@@ -284,8 +302,8 @@ handle('reference:extractUi', async key => {
   await fsp.writeFile(abs, JSON.stringify(r.ui, null, 2) + '\n', 'utf8');
   return { ui: r.ui, path: rel };
 });
-handle('codebase:read', async (p, rel) => {
-  const base = codebaseDir(p), abs = path.resolve(base, rel);
+handle('codebase:read', async (p, relIn) => {
+  const { base, rel } = codeTarget(p, relIn), abs = path.resolve(base, rel);
   if (abs !== base && !abs.startsWith(base + path.sep)) throw new Error('Path is outside the codebase');
   return fsp.readFile(abs, 'utf8');
 });
@@ -376,7 +394,10 @@ handle('agent:cancel', id => { const s = streams.get(id); if (s) s.abort(); retu
 // Read-only search of the codebase for the agent panel.
 const SEARCH_EXT = /\.(cs|fs|fsx|fsi|json|csproj|fsproj|props|targets|ya?ml|md|ts|tsx|js|py|sql|bicep|tf|config|xml|http)$/i;
 handle('codebase:search', async (p, query, max = 60) => {
-  const base = codebaseDir(p); const out = []; const q = String(query || '').toLowerCase(); if (!q) return out;
+  const repos = repoRoots(), out = []; const q = String(query || '').toLowerCase(); if (!q) return out;
+  for (const [key, base] of repos ? Object.entries(repos) : [[null, codebaseDir(p)]]) await searchIn(base, key);
+  return out;
+  async function searchIn(base, key) {
   const walk = async dir => {
     if (out.length >= max) return;
     let entries = []; try { entries = await fsp.readdir(dir, { withFileTypes: true }); } catch { return; }
@@ -387,11 +408,12 @@ handle('codebase:search', async (p, query, max = 60) => {
       if (e.isDirectory()) await walk(abs);
       else if (SEARCH_EXT.test(e.name)) {
         let t; try { t = await fsp.readFile(abs, 'utf8'); } catch { continue; }
-        t.split(/\r?\n/).forEach((line, i) => { if (out.length < max && line.toLowerCase().includes(q)) out.push({ file: path.relative(base, abs).split(path.sep).join('/'), line: i + 1, text: line.trim().slice(0, 200) }); });
+        t.split(/\r?\n/).forEach((line, i) => { if (out.length < max && line.toLowerCase().includes(q)) out.push({ file: (key ? key + '/' : '') + path.relative(base, abs).split(path.sep).join('/'), line: i + 1, text: line.trim().slice(0, 200) }); });
       }
     }
   };
-  await walk(base); return out;
+  await walk(base);
+  }
 });
 
 // ---------- request/reply into the UI (approvals, policy, tool execution live in the renderer) ----------

@@ -89,6 +89,33 @@ test('user can extract the code map @critical', async () => {
   await expect(page.locator('#special svg text', { hasText: 'Pricing.Api' }).first()).toBeVisible();
 });
 
+test('user can extract one code map from an API repo and a UI repo @critical', async () => {
+  // Two separate repos (each its own git tree in real life) named under repos in designc.json; no `codebase` at all.
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await expect(page.locator('#sbBody').getByText('Repos: Api, Ui')).toBeVisible();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.repos).toEqual(['Api', 'Ui']);
+  // The UI's calls link to the API repo's routes: one edge across the two repos.
+  expect(facts.edges.some(e => e.from === 'ui' && e.to === 'Shop.Api' && e.kind === 'sync')).toBe(true);
+  expect(facts.edges.find(e => e.from === 'ui' && e.to === 'Shop.Api').evidence.every(v => v.file.startsWith('Ui/'))).toBe(true);
+  await expect(page.locator('#special svg text', { hasText: 'Shop.Api' }).first()).toBeVisible();
+  // Files open read-only through the repo prefix, from the right repo; a path that leaves its repo is refused.
+  const api = await page.evaluate(() => host.readCode(undefined, 'Api/src/Shop.Api/Program.cs'));
+  expect(api).toMatch(/WebApplication|builder/);
+  const ui = await page.evaluate(() => host.readCode(undefined, 'Ui/package.json'));
+  expect(JSON.parse(ui).name).toBe('ui');
+  const escape = await page.evaluate(() => host.readCode(undefined, 'Api/../ui/package.json').then(() => 'read', e => String(e.message)));
+  expect(escape).toMatch(/outside the codebase/);
+  const hits = await page.evaluate(() => host.searchCode(undefined, 'VITE_API', 20));
+  expect(hits.length).toBeGreaterThan(0);
+  expect(hits.every(h => /^(Api|Ui)\//.test(h.file))).toBe(true);
+});
+
 test('user can see the UI graph of a screen @critical', async () => {
   const { reg } = copyRegistry('fixtures/ui-registry', { codebase: 'fixtures/ui-app', siblings: ['fixtures/ui-legacy'] });
   session = await launch(reg);

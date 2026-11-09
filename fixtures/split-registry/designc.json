@@ -1,0 +1,4 @@
+{
+  "model": "model/workspace.dsl",
+  "repos": { "Api": "../designc-api", "Ui": "../designc-ui" }
+}

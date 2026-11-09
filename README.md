@@ -68,6 +68,14 @@ The installers are unsigned. On a managed Windows machine SmartScreen or Intune 
 
 Set `"codebase"` in `designc.json` (or use the Code map view's "Choose codebase folder"), then Run > Extract Code Map (Ctrl+Shift+R). The codebase is only read, never changed. The result is written to `asbuilt/workspace.dsl` and `asbuilt/facts.json` in the registry, so extractions are versioned with everything else, and an `extraction` event goes to the ledger.
 
+**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), declare them in `designc.json` and leave `codebase` out:
+
+```json
+"repos": { "Api": "../api", "Ui": "../ui" }
+```
+
+Extract Code Map then reads each repo on its own and draws one map. A call the UI makes to a route the API provides becomes an edge across the repos, and every file path in the map starts with its repo key (`Api/src/Orders.cs`), which is also how files open and search. Name the repo on each container with `d.repo` and keep `d.code` relative to that repo. Two repos that each hold a container of the same name are kept apart as `Orders (Api)` and `Orders (Ui)`. Not yet supported with `repos`: the UI screen graph (`ui.screens`), `extract.coverage` and `extract.intent`; each says so in the map's unresolved list. Only calls over HTTP, SignalR and queues link across repos, not a package one repo publishes and the other installs.
+
 ![Code map](docs/codemap.png)
 
 The .NET extractor reads:
@@ -346,6 +354,10 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 }
 ```
 
+`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and one OpenAPI file in `contracts/openapi/` pins the contract between them for the handover.
+
+To use your Claude subscription instead of an API key, set `"llm": { "provider": "claude-code" }` (model optional) and run `claude login` once. Designc runs the local `claude` CLI in print mode with tools off, and drops `ANTHROPIC_API_KEY` from its environment so it cannot bill the API. Designc's own tools (read_model and the rest) are offered to the model as text and it asks for them with a JSON reply, so the agent panel, its roles (Grill-me included) and the permission prompts work as they do with any provider. Each turn starts a fresh CLI process, so replies take a few seconds.
+
 `llm.provider` is `openai` (default, any OpenAI-compatible gateway), `anthropic` (key in the env var named by `apiKeyEnv`, default `ANTHROPIC_API_KEY`) or `vertex` (Claude on Vertex AI using your own `gcloud auth application-default login`; set `project` and `region`).
 
 ### Study notebooks (step 0)
@@ -414,6 +426,8 @@ api = container "Pricing API" {
 ```
 
 Patterns are repo-relative and comma-separated: `*` and `?` match within one folder name, `**` matches any number of folders and must be a whole segment. Backslashes become `/`, and a leading `./` and trailing `/` are dropped. `src/Api` is one file, not a folder: write `src/Api/**`.
+
+With split repos (`repos` in `designc.json`) a pattern is relative to the repo that `d.repo` names, on the element or its nearest container: `d.code` `src/Orders/**` with `d.repo` `Ui` means `Ui/src/Orders/**` in the code map's file list. An element with no `d.repo` is matched against the whole prefixed path.
 
 - **DC000 (error).** A pattern the contract rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
