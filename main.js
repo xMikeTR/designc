@@ -240,7 +240,6 @@ handle('ledger:event', async event => ledgerStore.appendEvent(root, event));
 
 // Codebase (read-only): a separate folder, usually another repo, named in designc.json as "codebase".
 function codebaseDir(p) { if (!root || !p) throw new Error('No codebase is configured'); return path.resolve(root, p); }
-handle('codebase:choose', async () => {
 // Split repos: designc.json `repos` {Key: folder}. Absolute folders by key, or null when the design is one repo. Read-only like codebaseDir.
 function repoRoots() {
   const r = readSettings().repos;
@@ -254,6 +253,7 @@ function codeTarget(p, rel) {
   if (repos && k && Object.prototype.hasOwnProperty.call(repos, k)) return { base: repos[k], rel: rel.slice(i + 1) };
   return { base: codebaseDir(p), rel };
 }
+handle('codebase:choose', async () => {
   const r = await dialog.showOpenDialog(win, { title: 'Choose the codebase to map', properties: ['openDirectory'] });
   if (r.canceled || !r.filePaths[0]) return null;
   const rel = path.relative(root, r.filePaths[0]).split(path.sep).join('/');
@@ -272,6 +272,11 @@ handle('import:read', async p => {
   try { return readPages(importDir); } catch (e) { return { error: `Could not read ${importDir}: ${e.message}` }; }
 });
 handle('codebase:extract', async p => {
+  const repos = repoRoots();
+  if (repos) {
+    for (const [k, d] of Object.entries(repos)) if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) return { error: `Repo ${k} folder not found: ${d}. Check repos.${k} in designc.json.` };
+    try { return await extract(repos, { ...(readSettings().extract || {}), ...(readSettings().ui ? { ui: readSettings().ui } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
+  }
   const dir = codebaseDir(p);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Codebase folder not found: ${dir}` };
   const s = readSettings(), refs = Dispatch.references(s.references);
@@ -287,11 +292,6 @@ handle('reference:extractUi', async key => {
   if (refs.error) return { error: refs.error };
   const ref = refs.refs.find(r => r.key === key);
   if (!ref) return { error: `${key} is not listed in designc.json references` };
-  const repos = repoRoots();
-  if (repos) {
-    for (const [k, d] of Object.entries(repos)) if (!fs.existsSync(d) || !fs.statSync(d).isDirectory()) return { error: `Repo ${k} folder not found: ${d}. Check repos.${k} in designc.json.` };
-    try { return await extract(repos, { ...(readSettings().extract || {}), ...(readSettings().ui ? { ui: readSettings().ui } : {}) }); } catch (e) { return { error: `Extraction failed: ${e.message}` }; }
-  }
   const dir = path.resolve(root, ref.path);
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `Reference ${key} folder not found: ${dir}. Check its path in designc.json references.` };
   let r;
