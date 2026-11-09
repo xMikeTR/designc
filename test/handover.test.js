@@ -51,8 +51,8 @@ test('handoverPlan: elements.json is the resolved model, named in handover.yaml 
 });
 
 const briefModel = { path: 'model/workspace.dsl', text: `workspace { model {
-  s = softwareSystem "Pricing" {
-    db = container "Quotes DB" { properties {
+  s = softwareSystem "Fares" {
+    db = container "Bookings DB" { properties {
       d.code "src/Data/**, db/migrations/**"
       d.risk high } }
     ui = container "Portal" { properties {
@@ -72,10 +72,10 @@ test('handoverPlan: BUILD.md tells any coding agent what to build, where it may 
   assert.ok(doc.files.some(f => f.path === 'BUILD.md' && /^[0-9a-f]{16}$/.test(f.hash)));
   const t = brief(p).text;
   assert.match(t, new RegExp(`^# Build brief: ${p.id}$`, 'm'));
-  assert.match(t, /Pricing\/Quotes DB.*risk high/); assert.match(t, /`src\/Data\/\*\*`/); assert.match(t, /`db\/migrations\/\*\*`/);
-  assert.match(t, /Pricing\/Portal.*risk low/);
+  assert.match(t, /Fares\/Bookings DB.*risk high/); assert.match(t, /`src\/Data\/\*\*`/); assert.match(t, /`db\/migrations\/\*\*`/);
+  assert.match(t, /Fares\/Portal.*risk low/);
   assert.match(t, /may write/, 'with no focus every code area is open, not a build target');
-  assert.doesNotMatch(t, /Pricing\/Worker/, 'an element with no code area is not a build target');
+  assert.doesNotMatch(t, /Fares\/Worker/, 'an element with no code area is not a build target');
   assert.match(t, /tests\/acceptance\/\*\*/);                 // reserved
   assert.match(t, /DEMO-1/); assert.match(t, /`decisions\/d1\.yaml`/);
   assert.match(t, /`scenarios\/S-1\.yaml`/); assert.match(t, /`evals\/E-1\.yaml`/);
@@ -91,24 +91,24 @@ test('handoverPlan: BUILD.md is derived, so it is not in the id, and the same in
 });
 
 test('handoverPlan: with a focus, BUILD.md separates what to build from context it may touch', () => {
-  const p = Core.handoverPlan(inputs({ model: briefModel, focus: ['Quotes DB', 'Worker', 'Nowhere'] }));
+  const p = Core.handoverPlan(inputs({ model: briefModel, focus: ['Bookings DB', 'Worker', 'Nowhere'] }));
   const t = brief(p).text;
   const [build, rest] = t.split('### Context');
   assert.match(build, /### Build these/);
-  assert.match(build, /Pricing\/Quotes DB.*risk high/);
-  assert.match(build, /Pricing\/Worker.*no code area/, 'a focus element without d.code is named, not dropped');
-  assert.doesNotMatch(build, /Pricing\/Portal/);
-  assert.match(rest, /Pricing\/Portal/);
+  assert.match(build, /Fares\/Bookings DB.*risk high/);
+  assert.match(build, /Fares\/Worker.*no code area/, 'a focus element without d.code is named, not dropped');
+  assert.doesNotMatch(build, /Fares\/Portal/);
+  assert.match(rest, /Fares\/Portal/);
   assert.doesNotMatch(t, /Nowhere/, 'a name the model does not have is left out');
-  assert.equal(Core.handoverPlan(inputs({ model: briefModel, focus: ['Quotes DB'] })).id, Core.handoverPlan(inputs({ model: briefModel })).id, 'focus is derived, not in the id');
+  assert.equal(Core.handoverPlan(inputs({ model: briefModel, focus: ['Bookings DB'] })).id, Core.handoverPlan(inputs({ model: briefModel })).id, 'focus is derived, not in the id');
 });
 
 test("handoverPlan: an item handover's BUILD.md builds only the in-scope elements and names the work item", () => {
-  const p = Core.handoverPlan(inputs({ model: briefModel, item: { id: 'W-7', requirement: 'DEMO-1', elements: ['Quotes DB'] } }));
+  const p = Core.handoverPlan(inputs({ model: briefModel, item: { id: 'W-7', requirement: 'DEMO-1', elements: ['Bookings DB'] } }));
   const t = brief(p).text;
   assert.match(t, /W-7/);
-  assert.match(t, /Pricing\/Quotes DB/);
-  assert.doesNotMatch(t, /Pricing\/Portal/);
+  assert.match(t, /Fares\/Bookings DB/);
+  assert.doesNotMatch(t, /Fares\/Portal/);
 });
 
 test('handoverPlan: BUILD.md says so when no element declares a code area', () => {

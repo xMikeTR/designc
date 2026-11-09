@@ -15,9 +15,9 @@ const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel
 
 const DSL = `workspace "Q" {
   model {
-    s = softwareSystem "Quotes" {
-      api = container "Quotes API"
-      db = container "Quotes DB"
+    s = softwareSystem "Bookings" {
+      api = container "Bookings API"
+      db = container "Bookings DB"
       mail = container "Mail"
     }
     api -> db "writes" { properties { d.interaction sync } }
@@ -31,22 +31,22 @@ test('the Python scoped gate keeps the clauses Core.scopedGate keeps', { skip },
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
-  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quotes API, Quotes DB]\n');
+  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Bookings API, Bookings DB]\n');
   put(root, 'requirements/R-2.yaml', 'id: R-2\ntitle: t\nversion: 1\nelements: [Nothing]\n');
   const decs = {
-    'D-1': 'id: D-1\nstatus: minted\neffect: fix\nbinds: [Quotes DB]\nstatement: a\nchecks: ["true"]\n',
+    'D-1': 'id: D-1\nstatus: minted\neffect: fix\nbinds: [Bookings DB]\nstatement: a\nchecks: ["true"]\n',
     'D-2': 'id: D-2\nstatus: minted\neffect: fix\nbinds: [Mail]\nstatement: b\nchecks: ["true"]\n',
   };
   for (const [k, t] of Object.entries(decs)) put(root, `decisions/${k}.yaml`, t);
   put(root, 'ledger/designc.jsonl', JSON.stringify({ schema_version: 1, event_id: 'n1', ts: 1, kind: 'needs_decision', by: 't', id: 'N-1', question: 'Which?', status: 'open', element: 'Mail' }) + '\n');
-  put(root, 'work/W-api.yaml', 'id: W-api\nrequirement: R-1\nelements: [Quotes API, Quotes DB]\ndone_when:\n  - gate: x\n');
+  put(root, 'work/W-api.yaml', 'id: W-api\nrequirement: R-1\nelements: [Bookings API, Bookings DB]\ndone_when:\n  - gate: x\n');
 
   const model = Core.parse(DSL), diags = Core.check(model, {});
   const decisions = Object.values(decs).map(t => yaml.load(t));
-  const requirements = [{ id: 'R-1', elements: ['Quotes API', 'Quotes DB'] }, { id: 'R-2', elements: ['Nothing'] }];
+  const requirements = [{ id: 'R-1', elements: ['Bookings API', 'Bookings DB'] }, { id: 'R-2', elements: ['Nothing'] }];
   const ledger = [{ kind: 'needs_decision', id: 'N-1', question: 'Which?', status: 'open', element: 'Mail' }];
   const g = Core.gate({ model, diags, decisions, requirements, ledger });
-  const js = Core.scopedGate(g, { model, elements: ['Quotes API', 'Quotes DB'], requirement: 'R-1', decisions });
+  const js = Core.scopedGate(g, { model, elements: ['Bookings API', 'Bookings DB'], requirement: 'R-1', decisions });
   assert.ok(js.outside > 0 && js.clauses.length > 0, 'the case must filter something and keep something');
 
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-api', '--json'], { cwd: PY, encoding: 'utf8' });
@@ -60,14 +60,14 @@ test('an item with several requirements keeps each one\'s requirement clause, in
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
-  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quotes API]\n');
+  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Bookings API]\n');
   put(root, 'requirements/R-2.yaml', 'id: R-2\ntitle: t\nversion: 1\nelements: [Nothing]\n');
   put(root, 'requirements/R-3.yaml', 'id: R-3\ntitle: t\nversion: 1\nelements: [Nothing either]\n');
-  put(root, 'work/W-both.yaml', 'id: W-both\nrequirement: [R-1, R-2]\nelements: [Quotes API]\ndone_when:\n  - gate: x\n');
+  put(root, 'work/W-both.yaml', 'id: W-both\nrequirement: [R-1, R-2]\nelements: [Bookings API]\ndone_when:\n  - gate: x\n');
   const model = Core.parse(DSL), diags = Core.check(model, {});
-  const requirements = [{ id: 'R-1', elements: ['Quotes API'] }, { id: 'R-2', elements: ['Nothing'] }, { id: 'R-3', elements: ['Nothing either'] }];
+  const requirements = [{ id: 'R-1', elements: ['Bookings API'] }, { id: 'R-2', elements: ['Nothing'] }, { id: 'R-3', elements: ['Nothing either'] }];
   const g = Core.gate({ model, diags, decisions: [], requirements, ledger: [] });
-  const js = Core.scopedGate(g, { model, elements: ['Quotes API'], requirement: Work.reqs({ requirement: ['R-1', 'R-2'] }), decisions: [] });
+  const js = Core.scopedGate(g, { model, elements: ['Bookings API'], requirement: Work.reqs({ requirement: ['R-1', 'R-2'] }), decisions: [] });
   assert.deepEqual(js.clauses.filter(c => c.kind === 'requirement').map(c => c.requirement), ['R-2']);
   assert.ok(g.clauses.some(c => c.requirement === 'R-3'), 'R-3 blocks the whole gate but not this item');
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-both', '--json'], { cwd: PY, encoding: 'utf8' });
@@ -85,17 +85,17 @@ test('check --item refuses an item that is not a repo item', { skip }, () => {
 });
 
 test('warnings on an item\'s elements do not block, in Python too; errors do', { skip }, () => {
-  const withRel = rel => `workspace "Q" {\n  model {\n    s = softwareSystem "Quotes" {\n      api = container "Quotes API"\n      bus = container "Bus"\n    }\n    api -> bus "sends" { properties {\n      d.interaction async\n      d.delivery \"at-least-once\"${rel} } }\n  }\n}\n`;
+  const withRel = rel => `workspace "Q" {\n  model {\n    s = softwareSystem "Bookings" {\n      api = container "Bookings API"\n      bus = container "Bus"\n    }\n    api -> bus "sends" { properties {\n      d.interaction async\n      d.delivery \"at-least-once\"${rel} } }\n  }\n}\n`;
   for (const [idem, ready] of [['\n      d.idempotent no', false], ['', true]]) {
     const dsl = withRel(idem);
     const model = Core.parse(dsl), diags = Core.check(model, {});
     const g = Core.gate({ model, diags, decisions: [], requirements: [], ledger: [] });
-    const js = Core.scopedGate(g, { model, elements: ['Quotes API', 'Bus'], requirement: 'R-1', decisions: [] });
+    const js = Core.scopedGate(g, { model, elements: ['Bookings API', 'Bus'], requirement: 'R-1', decisions: [] });
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
     put(root, 'designc.json', '{}');
     put(root, 'model/workspace.dsl', dsl);
-    put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Quotes API, Bus]\n');
-    put(root, 'work/W-1.yaml', 'id: W-1\nrequirement: R-1\nelements: [Quotes API, Bus]\ndone_when:\n  - gate: x\n');
+    put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Bookings API, Bus]\n');
+    put(root, 'work/W-1.yaml', 'id: W-1\nrequirement: R-1\nelements: [Bookings API, Bus]\ndone_when:\n  - gate: x\n');
     const py = JSON.parse(spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-1', '--json'], { cwd: PY, encoding: 'utf8' }).stdout);
     assert.equal(js.ready, ready, JSON.stringify(js.clauses.map(c => c.text)));
     assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));

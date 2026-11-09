@@ -59,7 +59,7 @@ test('a different verdict on the same model records again', { skip }, () => {
 test('by comes from --by, then DESIGNC_BY, then the user running it', { skip }, () => {
   const by = (args, env) => { const root = registry(); check(root, args, env); return JSON.parse(fs.readFileSync(path.join(root, 'ledger', 'checks.jsonl'), 'utf8').trim()).by; };
   assert.equal(by(['--by', 'flag'], { DESIGNC_BY: 'env' }), 'flag');
-  assert.equal(by([], { DESIGNC_BY: 'ci:pricing/#7' }), 'ci:pricing/#7');
+  assert.equal(by([], { DESIGNC_BY: 'ci:fares/#7' }), 'ci:fares/#7');
   assert.ok(by([], {}).length > 0);
 });
 

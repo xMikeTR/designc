@@ -6,17 +6,17 @@ const Ledger = require('../renderer/ledger.js');
 const av = (a) => (a == null ? '' : `properties { "d.availability" "${a}" }`);
 const model = (a, b, c) => Core.parse(`workspace {
  model {
-  sys = softwareSystem "Pricing" {
-   api = container "Pricing API" "" "C#" { ${av(a)} }
-   db = container "Quotes DB" "" "SQL" { ${av(b)} }
+  sys = softwareSystem "Fares" {
+   api = container "Fares API" "" "C#" { ${av(a)} }
+   db = container "Bookings DB" "" "SQL" { ${av(b)} }
    q = container "Queue" "" "SB" { ${av(c)} }
   }
   api -> db "x" "t" { properties { "d.interaction" "sync" } }
   api -> q "x" "t" { properties { "d.interaction" "async" } }
  }
 }`);
-const sc = (o = {}) => ({ id: 'QAS-1', title: 'Quote stays up', attribute: 'availability', artifact: 'Pricing API',
-  stimulus: 'Quotes DB restarts', response: 'quotes still answer', measure: { metric: 'availability', op: '>=', value: 99.5, unit: '%' }, ...o });
+const sc = (o = {}) => ({ id: 'QAS-1', title: 'Booking stays up', attribute: 'availability', artifact: 'Fares API',
+  stimulus: 'Bookings DB restarts', response: 'bookings still answer', measure: { metric: 'availability', op: '>=', value: 99.5, unit: '%' }, ...o });
 const report = (m, scenarios, ledger = []) => Core.scenarioReport({ model: m, scenarios, ledger });
 
 test('availability is the product over the artifact and its sync dependencies; async ones are excluded', () => {
@@ -29,7 +29,7 @@ test('availability is the product over the artifact and its sync dependencies; a
 test('a missing d.availability makes the analytic result unknown and names the element', () => {
   const r = report(model(0.999, null, null), [sc()])[0];
   assert.equal(r.analytic.status, 'unknown');
-  assert.deepEqual(r.analytic.missing, ['Quotes DB']);
+  assert.deepEqual(r.analytic.missing, ['Bookings DB']);
 });
 
 test('an unresolved artifact is reported, other attributes have no analytic check', () => {

@@ -3,9 +3,9 @@ const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
 
 test('slugId: kebab-case of the first words, at most 48 characters', () => {
-  assert.equal(Core.slugId('Quote writes use optimistic concurrency', []), 'quote-writes-use-optimistic-concurrency');
-  assert.equal(Core.slugId('  Pricing API: retry on 5xx, never on 4xx!  ', []), 'pricing-api-retry-on-5xx-never-on-4xx');
-  const long = Core.slugId('A very long statement about the pricing engine retention thresholds and reinstatement premiums', []);
+  assert.equal(Core.slugId('Booking writes use optimistic concurrency', []), 'booking-writes-use-optimistic-concurrency');
+  assert.equal(Core.slugId('  Fares API: retry on 5xx, never on 4xx!  ', []), 'fares-api-retry-on-5xx-never-on-4xx');
+  const long = Core.slugId('A very long statement about the fares engine retention thresholds and renewal fees', []);
   assert.ok(long.length <= 48, long); assert.ok(!long.endsWith('-'), long);
   assert.equal(Core.slugId('', []), 'untitled');
   assert.equal(Core.slugId('!!!', []), 'untitled');

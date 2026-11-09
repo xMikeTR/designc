@@ -26,8 +26,8 @@ test('the legacy is named as a read-only reference and the code areas are declar
   const cfg = JSON.parse(fs.readFileSync(path.join(reg, 'designc.json'), 'utf8'));
   const r = Dispatch.references(cfg.references);
   assert.deepEqual(r.refs.map(x => [x.key, x.kind]), [['wpf', 'legacy']]);
-  assert.ok(fs.existsSync(path.join(reg, cfg.references.wpf.path, 'QuoteCalculator/PremiumCalculator.cs')));
-  assert.ok(JSON.stringify(Core.handoverElements(fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8'), [])).includes('src/pricing/**'));
+  assert.ok(fs.existsSync(path.join(reg, cfg.references.wpf.path, 'BookingCalculator/FeeCalculator.cs')));
+  assert.ok(JSON.stringify(Core.handoverElements(fs.readFileSync(path.join(reg, 'model/workspace.dsl'), 'utf8'), [])).includes('src/fares/**'));
 });
 
 // The outer test runner sets NODE_TEST_CONTEXT, which would make a nested `node --test` report success.
@@ -57,9 +57,9 @@ test('with the reference solution the tests, money and scope gates are green', (
   assert.equal(run(tmp, 'check:scope').status, 0);
 });
 
-test('the natural floating point reinstatement fails the money gate with the way out', () => {
+test('the natural floating point renewal fails the money gate with the way out', () => {
   const tmp = copyTarget(true);
-  fs.writeFileSync(path.join(tmp, 'src/pricing/reinstatement.js'), 'exports.reinstatementPremium = (p, d) => Math.round(p * d / 365);\n');
+  fs.writeFileSync(path.join(tmp, 'src/fares/renewal.js'), 'exports.renewalFee = (p, d) => Math.round(p * d / 365);\n');
   const r = run(tmp, 'check:money');
   assert.equal(r.status, 1);
   assert.match(r.stderr, /divRoundHalfEven/);

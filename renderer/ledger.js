@@ -483,8 +483,8 @@ const Ledger = (() => {
   // Skip-unchanged recording: true when the latest gate event from the same source has the same model
   // revision, commit (absent equals null) and verdict. `events` is the ordered ledger (Ledger.order).
   // Ledger integrity. `files` are raw `{path, text}`; read here so every line, repeat and harness event is seen.
-  // Rules: V1 handover preceded by a green gate at its revision (a warning when it predates the first gate event),
-  // V2 handover not dirty, V3 technical promotion preceded by a passing check, V4 every line validates,
+  // Rules: V1 handover prerebated by a green gate at its revision (a warning when it predates the first gate event),
+  // V2 handover not dirty, V3 technical promotion prerebated by a passing check, V4 every line validates,
   // V5 no repeated event_id with different content, V6 open unapproved changes (warning),
   // V7 handovers/ and handover events agree, V8 a pipeline eval after the latest handover ran under the eval file that handover froze, V9 pipeline.jsonl holds only PIPELINE_KINDS. Sample events are skipped. Mirrored in python/designc/verify.py.
   const stable = v => Array.isArray(v) ? '[' + v.map(stable).join(',') + ']'

@@ -1279,12 +1279,12 @@
              "children": [
               {
                "role": "columnheader",
-               "name": "Premium",
+               "name": "Fee",
                "box": null,
                "children": [
                 {
                  "role": "StaticText",
-                 "name": "Premium",
+                 "name": "Fee",
                  "box": null,
                  "children": []
                 }
@@ -1380,12 +1380,12 @@
              "children": [
               {
                "role": "columnheader",
-               "name": "Premium",
+               "name": "Fee",
                "box": null,
                "children": [
                 {
                  "role": "StaticText",
-                 "name": "Premium",
+                 "name": "Fee",
                  "box": null,
                  "children": []
                 }

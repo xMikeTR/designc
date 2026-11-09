@@ -426,7 +426,7 @@ const Core = (() => {
         }
         return out;
       } },
-    { code: 'DC002', title: 'Lost update', source: 'pricing engine concurrency gap (lost update)',
+    { code: 'DC002', title: 'Lost update', source: 'fares engine concurrency gap (lost update)',
       doc: 'Concurrent writers to one entity without an owner or concurrency control overwrite each other, including one container scaled out.',
       fn(m) {
         const out = [], writes = new Map(), owners = new Map();
@@ -785,7 +785,7 @@ const Core = (() => {
     }
     for (const s of scenarios) {
       if (!s || typeof s !== 'object' || !s.id) continue;
-      for (const f of ['importance', 'difficulty']) if (s[f] != null && !RATINGS.includes(s[f])) clauses.push({ kind: 'scenario', text: `${s.id}: ${f} must be high, medium or low` });
+      for (const f of ['importance', 'difficulty']) if (s[f] != null && !SURCHARGES.includes(s[f])) clauses.push({ kind: 'scenario', text: `${s.id}: ${f} must be high, medium or low` });
     }
     for (const r of Core.scenarioReport({ model, scenarios: scenarios.filter(s => s && s.id && s.artifact && s.attribute && s.measure), ledger })) {
       if (r.status === 'unresolved') clauses.push({ kind: 'scenario', text: `${r.id}: artifact "${r.artifact}" is not in the model`, about: [r.artifact] });
@@ -953,7 +953,7 @@ const Core = (() => {
     return ledger.filter(e => e.kind === 'check' && e.decision === decId).sort((a, b) => (b._ts || 0) - (a._ts || 0))[0] || null;
   }
 
-  const RATINGS = ['high', 'medium', 'low'];
+  const SURCHARGES = ['high', 'medium', 'low'];
 
   // ---------- fingerprint ----------
   // What a bound decision is promoted against: the element's own definition plus every relationship
@@ -1089,7 +1089,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, RATINGS }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;

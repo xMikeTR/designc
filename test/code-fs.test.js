@@ -2,26 +2,26 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('../extract/code-fs.js');
 
-const one = (src, file = 'Pricing.fs') => fs.scan(file, src).types;
+const one = (src, file = 'Fares.fs') => fs.scan(file, src).types;
 const method = (src, name) => one(src).flatMap(t => t.methods).find(m => m.name === name);
 
 test('modules, records, unions, classes and interfaces with their lines', () => {
   const src = [
-    'module Pricing.Rates',                 // 1  file-level module header
+    'module Fares.Rates',                 // 1  file-level module header
     '',
-    'type Quote = { Id: int; Premium: decimal }',   // 3 record
+    'type Booking = { Id: int; Fee: decimal }',   // 3 record
     'type Status =',                        // 4 union
     '    | Open',
     '    | Closed',
     'type IRepo =',                         // 7 interface
-    '    abstract Find: int -> Quote',
+    '    abstract Find: int -> Booking',
     'type Engine(repo: IRepo) =',           // 9 class
     '    member _.Run() = 1',
     'module Helpers =',                     // 11 nested module
     '    let double x = x * 2',
   ].join('\n');
   assert.deepEqual(one(src).map(t => [t.name, t.kind, t.line, t.endLine]), [
-    ['Rates', 'module', 1, 1], ['Quote', 'record', 3, 3], ['Status', 'union', 4, 6], ['IRepo', 'interface', 7, 8],
+    ['Rates', 'module', 1, 1], ['Booking', 'record', 3, 3], ['Status', 'union', 4, 6], ['IRepo', 'interface', 7, 8],
     ['Engine', 'class', 9, 10], ['Helpers', 'module', 11, 12],
   ]);
 });

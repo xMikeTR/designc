@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question']);
 });
 
 const yaml = require('js-yaml');
@@ -93,7 +93,7 @@ test('checkProblem: a check written as a description is not a command', () => {
 });
 
 test('checkProblem: real commands and TODO placeholders pass', () => {
-  for (const c of ['p check -tc tcOptimistic', './checks/playtest-clean.sh', 'echo hi: there', 'npm test -- --grep "Quote: writes"', 'FOO=1 make check', 'TODO command that proves it'])
+  for (const c of ['p check -tc tcOptimistic', './checks/playtest-clean.sh', 'echo hi: there', 'npm test -- --grep "Booking: writes"', 'FOO=1 make check', 'TODO command that proves it'])
     assert.equal(Policy.checkProblem(c), null, c);
 });
 
@@ -149,7 +149,7 @@ test('the Researcher appends to study topics only through its approved tools; a 
 
 test('no role may write domain/: a pack is pinned by a person from its registry', () => {
   assert.equal(/domain\//.test(JSON.stringify(Object.values(Policy.WRITE_PATHS).flat().map(String))), false);
-  for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'domain/pricing.yaml', 'id: pricing\n').ok, false, role);
+  for (const role of Object.keys(Policy.WRITE_PATHS)) assert.equal(wv(role, 'domain/fares.yaml', 'id: fares\n').ok, false, role);
 });
 
 test('checkFailHint names what the shell got wrong, not the decision', () => {

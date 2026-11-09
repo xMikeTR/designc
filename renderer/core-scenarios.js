@@ -2,7 +2,7 @@
 // Part of Core, split out of core.js with no behaviour change. Dual-loaded like core.js: a classic script in the
 // renderer (after core.js) and required by core.js under Node. It reads what it needs from Core and adds its functions to it.
 (Core => {
-  const { hash16, get, structural, RATINGS } = Core._shared;
+  const { hash16, get, structural, SURCHARGES } = Core._shared;
   const { interaction } = Core;
   // Called at run time, after every part has loaded.
   const fingerprint = (...a) => Core.fingerprint(...a);
@@ -15,11 +15,11 @@
   function latestFitness(ledger, id) {
     return ledger.filter(e => e.kind === 'fitness' && e.scenario === id).sort((a, b) => (b._ts || 0) - (a._ts || 0))[0] || null;
   }
-  const rating = v => (RATINGS.includes(v) ? v : null);
+  const surcharge = v => (SURCHARGES.includes(v) ? v : null);
   function scenarioReport({ model, scenarios = [], ledger = [] }) {
     const byName = n => [...model.elements.values()].find(e => e.name === n) || null;
     return scenarios.map(s => {
-      const row = { id: s.id, title: s.title || '', attribute: s.attribute, artifact: s.artifact, measure: s.measure || null, importance: rating(s.importance), difficulty: rating(s.difficulty) };
+      const row = { id: s.id, title: s.title || '', attribute: s.attribute, artifact: s.artifact, measure: s.measure || null, importance: surcharge(s.importance), difficulty: surcharge(s.difficulty) };
       const el = byName(s.artifact);
       const cmds = (s.fitness || []).filter(c => c && !/^TODO/.test(c));
       const last = latestFitness(ledger, s.id);
@@ -46,7 +46,7 @@
   // The utility tree: scenarios grouped by quality attribute, most important and hardest first, unrated last.
   // It only orders; nothing here reaches the gate.
   function utilityTree(rows) {
-    const weight = v => 3 - RATINGS.indexOf(v), key = r => [r.importance ? weight(r.importance) : 0, r.difficulty ? weight(r.difficulty) : 0];
+    const weight = v => 3 - SURCHARGES.indexOf(v), key = r => [r.importance ? weight(r.importance) : 0, r.difficulty ? weight(r.difficulty) : 0];
     const cmp = (a, b) => { const x = key(a), y = key(b); return y[0] - x[0] || y[1] - x[1] || String(a.id).localeCompare(String(b.id)); };
     const groups = new Map();
     for (const r of rows) { const k = r.attribute || ''; if (!groups.has(k)) groups.set(k, []); groups.get(k).push(r); }

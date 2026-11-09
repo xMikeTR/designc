@@ -3,7 +3,7 @@
    this page asks main whether each name is set (true or false) and never sees a value. */
 const SU = { current: {}, invalid: null, exists: false, modelExists: true, starter: true, draft: null, skip: { llm: false, langfuse: false }, env: {}, results: {}, errors: [], busy: '' };
 
-const SU_PROVIDERS = [['openai', 'OpenAI-compatible gateway (LiteLLM and similar)'], ['anthropic', 'Anthropic API (a key on this machine)'], ['vertex', 'Claude on Vertex AI (Google ADC, for work)']];
+const SU_PROVIDERS = [['openai', 'OpenAI-compatible gateway (LiteLLM and similar)'], ['anthropic', 'Anthropic API (a key on this machine)'], ['vertex', 'Claude on Vertex AI (Google ADC, for work)'], ['claude-code', 'Claude subscription (the claude CLI, after claude login)']];
 // The llm fields depend on the provider; langfuse has one set.
 const SU_LLM_FIELDS = {
   openai: [['baseUrl', 'Base URL', 'https://your-gateway/v1', 'An OpenAI-compatible endpoint, such as a LiteLLM gateway.'],
@@ -12,6 +12,7 @@ const SU_LLM_FIELDS = {
   anthropic: [['model', 'Model', 'claude-sonnet-5-5', 'An Anthropic model name.'],
     ['apiKeyEnv', 'API key variable', 'ANTHROPIC_API_KEY', 'The name of the environment variable that holds your Anthropic key.'],
     ['baseUrl', 'Base URL (optional)', 'https://api.anthropic.com', 'Leave blank for api.anthropic.com. Set it only for a proxy.']],
+  'claude-code': [['model', 'Model (optional)', 'sonnet', 'Leave blank for your default. Sign in once with claude login. No API key is used.']],
   vertex: [['project', 'Google Cloud project', 'my-project-123', 'The project id that has Claude enabled in Vertex AI. Falls back to GOOGLE_CLOUD_PROJECT.'],
     ['region', 'Region', 'global', 'Leave blank for global, or enter a region like europe-west1 (some Claude models are regional).'],
     ['model', 'Model', 'claude-sonnet-4-5@20250929', 'The Vertex AI model id.']],

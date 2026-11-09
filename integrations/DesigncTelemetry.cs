@@ -3,7 +3,7 @@
 //
 // The IDE reads these trace metadata keys (rename them in designc.json "langfuse.fields"):
 //   system    S1 | S2 | S4
-//   element   design element name, e.g. "Quotes DB" (must match the model or a d.aka)
+//   element   design element name, e.g. "Bookings DB" (must match the model or a d.aka)
 //   task      plan task id, e.g. "T-04"
 //   decision  decision id the task implements, e.g. "D-0001"
 //   attempt   1, 2, 3 … for reruns of the same task

@@ -10,9 +10,9 @@ const RI = require('../renderer/requirement-import.js');
 const script = path.join(__dirname, '..', 'scripts', 'fetch-jira.py');
 
 const issues = {
-  'DEMO-100': { summary: 'Quote edits:  keep\nunderwriter changes', description: { type: 'doc', version: 1, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Acceptance' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'SECRET BODY' }, { type: 'hardBreak' }, { type: 'text', text: 'second line' }] }, { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item one' }] }] }] }] }, updated: '2026-10-01T10:00:00.000+0000',
+  'DEMO-100': { summary: 'Booking edits:  keep\ntraveller changes', description: { type: 'doc', version: 1, content: [{ type: 'heading', attrs: { level: 2 }, content: [{ type: 'text', text: 'Acceptance' }] }, { type: 'paragraph', content: [{ type: 'text', text: 'SECRET BODY' }, { type: 'hardBreak' }, { type: 'text', text: 'second line' }] }, { type: 'bulletList', content: [{ type: 'listItem', content: [{ type: 'paragraph', content: [{ type: 'text', text: 'item one' }] }] }] }] }, updated: '2026-10-01T10:00:00.000+0000',
     issuetype: { name: 'Story' }, labels: ['lbl-alpha', 'lbl-beta'], components: [{ name: 'comp-one' }], priority: { name: 'High' }, assignee: { displayName: 'SECRET PERSON' } },
-  'DEMO-101': { summary: 'Referral status', description: null, updated: '2026-10-02T09:00:00.000+0000',
+  'DEMO-101': { summary: 'Escalation status', description: null, updated: '2026-10-02T09:00:00.000+0000',
     issuetype: { name: 'Bug' }, labels: ['lbl-alpha'], components: [] },
 };
 
@@ -65,7 +65,7 @@ test('an issue is saved as markdown the importer reads, with GET only and a Bear
   const read = RI.read({ name: 'DEMO-100.md', text });
   assert.equal(read.ok, true);
   assert.equal(read.id, 'DEMO-100');
-  assert.equal(read.title, 'Quote edits: keep underwriter changes');
+  assert.equal(read.title, 'Booking edits: keep traveller changes');
   assert.equal(read.version, '2026-10-01T10:00:00.000+0000');
   assert.equal(read.source, `${base}/browse/DEMO-100`);
 });
@@ -75,7 +75,7 @@ test('a JQL query saves every issue it finds, once each, through the v3 search/j
     const seen = [];
     const server = await serve(seen);
     const out = path.join(fs.mkdtempSync(path.join(os.tmpdir(), 'jira-')), 'issues');
-    const r = await run([`http://127.0.0.1:${server.address().port}`, out, 'DEMO-101', '--jql', 'project = DEMO AND component = Quotes'], { JIRA_TOKEN: 't' });
+    const r = await run([`http://127.0.0.1:${server.address().port}`, out, 'DEMO-101', '--jql', 'project = DEMO AND component = Bookings'], { JIRA_TOKEN: 't' });
     server.close();
     assert.match(r.out, /saved 2, skipped 0/);
     assert.deepEqual(fs.readdirSync(out).sort(), ['DEMO-100.md', 'DEMO-101.md']);
@@ -135,7 +135,7 @@ test('--discover lists labels, components and issue types with counts, GET only,
     assert.match(r.out, /labels:\n\s+lbl-alpha 2\n\s+lbl-beta 1/);
     assert.match(r.out, /components:\n\s+comp-one 1/);
     assert.match(r.out, /issue types:\n\s+Bug 1\n\s+Story 1/);
-    assert.equal(/SECRET|tok-9|Quote edits/.test(r.out), false);
+    assert.equal(/SECRET|tok-9|Booking edits/.test(r.out), false);
     assert.equal(seen.every(s => s.method === 'GET' && !s.url.includes('/issue/')), true);
   }
 });

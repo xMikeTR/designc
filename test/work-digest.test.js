@@ -80,12 +80,12 @@ test('signature changes only when needs or failed change', () => {
 });
 
 test('a pipeline UI acceptance failure is a failed entry until the task passes a gate or is done', () => {
-  const items = [{ id: 'W-ui', requirement: 'R', elements: ['Quote UI'], done_when: [{ gate: 'g' }] }];
-  const fail = { kind: 'ui_acceptance_failed', ac: 'AC-1', element: 'Quotes/Quote UI', task: 'W-ui', commit: 'abcdef1234567', _ts: 5 };
+  const items = [{ id: 'W-ui', requirement: 'R', elements: ['Booking UI'], done_when: [{ gate: 'g' }] }];
+  const fail = { kind: 'ui_acceptance_failed', ac: 'AC-1', element: 'Bookings/Booking UI', task: 'W-ui', commit: 'abcdef1234567', _ts: 5 };
   const base = { items, states: { 'W-ui': 'active' }, onMain: {}, wip: 3, lastLook: 0 };
   const d = Work.digest({ ...base, events: [fail] });
   assert.deepEqual(d.failed.map(f => [f.item, f.kind]), [['W-ui', 'acceptance']]);
-  assert.match(d.failed[0].text, /acceptance AC-1 failed on Quotes\/Quote UI at abcdef1/);
+  assert.match(d.failed[0].text, /acceptance AC-1 failed on Bookings\/Booking UI at abcdef1/);
   const later = Work.digest({ ...base, events: [fail, { kind: 'item_gate', item: 'W-ui', gate: 'g', outcome: 'pass', commit: 'c', _ts: 9 }] });
   assert.deepEqual(later.failed, []);
 });

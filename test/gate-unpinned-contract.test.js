@@ -30,7 +30,7 @@ test('a requirement across two repos with no contract pinned is raised, naming t
 });
 
 test('a pinned contract clears it', () => {
-  assert.deepEqual(kinds(gate([REQ('REQ-1', ['Api', 'Web'])], { repos: REPOS, apiContracts: ['contracts/openapi/pricing.yaml'] })), []);
+  assert.deepEqual(kinds(gate([REQ('REQ-1', ['Api', 'Web'])], { repos: REPOS, apiContracts: ['contracts/openapi/fares.yaml'] })), []);
 });
 
 test('a requirement inside one repo is not raised', () => {

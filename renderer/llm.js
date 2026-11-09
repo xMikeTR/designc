@@ -4,11 +4,11 @@
    module translates them to the Anthropic Messages API and back, and builds the request from designc.json `llm`.
    main.js owns the network, the key and the ADC token; nothing here reads the environment except what it is handed. */
 const Llm = (() => {
-  const PROVIDERS = ['openai', 'anthropic', 'vertex'];
+  const PROVIDERS = ['openai', 'anthropic', 'vertex', 'claude-code'];
   const ANTHROPIC_HOST = 'https://api.anthropic.com';
   const SAFE = { project: /^[A-Za-z0-9][A-Za-z0-9._-]{0,62}$/, region: /^[a-z0-9-]{1,40}$/, model: /^[A-Za-z0-9][A-Za-z0-9._@-]{0,100}$/ };
 
-  // 'openai' (the OpenAI-compatible gateway, the default), 'anthropic', 'vertex', or null for a name designc does not know.
+  // 'openai' (the OpenAI-compatible gateway, the default), 'anthropic', 'vertex', 'claude-code' (the local claude CLI, on your Claude subscription), or null for a name designc does not know.
   function provider(cfg) {
     const p = String((cfg && cfg.provider) || 'openai').trim().toLowerCase().replace(/^openai-compatible$/, 'openai');
     return PROVIDERS.includes(p) ? p : null;
@@ -101,6 +101,46 @@ const Llm = (() => {
     return { url: `${host}/v1/projects/${project}/locations/${region}/publishers/anthropic/models/${model}:${method}`, headers: { 'content-type': 'application/json', authorization: `Bearer ${token}` }, body: { anthropic_version: 'vertex-2023-10-16', ...base } };
   }
 
-  return { PROVIDERS, provider, toAnthropic, fromAnthropic, anthropicStream, request };
+  // The claude-code provider: OpenAI-shaped messages and tools as one system string plus a plain transcript for `claude -p`.
+  // The CLI runs with its own tools off, so designc's tools are offered as text and the model asks for them with a JSON reply.
+  const TOOL_RULES = 'You can call these tools. To call one or more, reply with ONLY this JSON and nothing else: {"tool_calls":[{"name":"<tool>","arguments":{...}}]}. You will get the results in the next message. When you have what you need, answer in plain text. Never invent tool results.';
+  function toPrompt(messages, tools) {
+    const system = [], turns = [], names = new Map();
+    const txt = c => (typeof c === 'string' ? c : Array.isArray(c) ? c.map(p => p.text || '').join('') : '');
+    for (const m of messages || []) {
+      const text = txt(m.content);
+      if (m.role === 'system') { if (text) system.push(text); continue; }
+      if (m.role === 'tool') { turns.push(`Tool result (${names.get(m.tool_call_id) || 'tool'}):\n${text}`); continue; }
+      if (m.role === 'assistant' && m.tool_calls && m.tool_calls.length) {
+        for (const c of m.tool_calls) names.set(c.id, c.function.name);
+        turns.push('Assistant: ' + JSON.stringify({ tool_calls: m.tool_calls.map(c => ({ name: c.function.name, arguments: parseArgs(c.function.arguments) })) })); continue;
+      }
+      if (!text) continue;
+      turns.push(`${m.role === 'assistant' ? 'Assistant' : 'User'}: ${text}`);
+    }
+    if (tools && tools.length) system.push(TOOL_RULES + '\n\nTools:\n' + tools.map(t => `- ${t.function.name}: ${t.function.description || ''} Arguments (JSON schema): ${JSON.stringify(t.function.parameters || {})}`).join('\n'));
+    const prompt = turns.length === 1 && turns[0].startsWith('User: ') ? turns[0].slice(6) : turns.join('\n\n') + '\n\nAssistant:';
+    return { system: system.join('\n\n'), prompt };
+  }
+
+  // The model's reply as an OpenAI-shaped assistant message: tool_calls when it asked for known tools, else its text.
+  function fromReply(text, tools, seq = 0) {
+    const known = new Set((tools || []).map(t => t.function.name));
+    const at = known.size ? text.search(/\{\s*"tool_calls"\s*:/) : -1;
+    if (at >= 0) {
+      let depth = 0, inStr = false, esc = false, end = -1;
+      for (let k = at; k < text.length; k++) {
+        const ch = text[k];
+        if (inStr) { if (esc) esc = false; else if (ch === '\\') esc = true; else if (ch === '"') inStr = false; continue; }
+        if (ch === '"') inStr = true; else if (ch === '{') depth++; else if (ch === '}' && --depth === 0) { end = k + 1; break; }
+      }
+      let j; try { j = JSON.parse(text.slice(at, end)); } catch (e) { j = null; }
+      const calls = j && Array.isArray(j.tool_calls) ? j.tool_calls.filter(c => c && known.has(c.name)) : [];
+      if (calls.length) return { role: 'assistant', content: null, tool_calls: calls.map((c, n) => ({ id: `call_cc${seq}_${n}`, type: 'function', function: { name: c.name, arguments: JSON.stringify(c.arguments && typeof c.arguments === 'object' ? c.arguments : {}) } })) };
+    }
+    return { role: 'assistant', content: text };
+  }
+
+  return { PROVIDERS, provider, toPrompt, fromReply, toAnthropic, fromAnthropic, anthropicStream, request };
 })();
 if (typeof module !== 'undefined') module.exports = Llm;

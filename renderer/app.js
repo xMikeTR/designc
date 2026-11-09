@@ -470,6 +470,7 @@ const money = n => (n >= 100 ? '$' + n.toFixed(0) : n >= 1 ? '$' + n.toFixed(2) 
 function telErrorText(e) {
   if (!e) return '';
   if (e.error === 'not_configured') return 'Langfuse is not configured. Add a "langfuse" block to designc.json.';
+  if (e.error === 'unreachable') return `Nothing is listening at ${e.baseUrl}. Langfuse is not running.`;
   if (e.error === 'no_keys') return `Set ${e.env.join(' and ')} in your environment, then refresh.`;
   return e.message || e.error;
 }
@@ -624,6 +625,20 @@ async function openCode(rel, line, ref) {
   }
   if (!A.tabs.includes(id)) A.tabs.push(id);
   activate(id); if (line) revealLine(line);
+}
+// Open the Canvas with the element or relationship on a model line selected, so its findings and properties are edited in
+// the inspector instead of in DSL text. No line (or a canvas that cannot mount) falls back to the DSL.
+// "Write the check": Grill-me reads the decision and the model and drafts the script; the person approves it in the panel.
+function writeCheckFor(id) {
+  if (AG.busy) return toast('The agent is still answering. Stop it or wait, then try again.', 'error');
+  if (AG.role !== 'grill') setRole('grill');
+  toggleAgent(true);
+  send(`Decision ${id} has a check that is still a TODO. Read the decision and the model, then use write_check to draft the script it describes. Keep it read-only and make it fail with a clear reason.`);
+}
+function revealInCanvas(line) {
+  if (!line || typeof DesigncCanvas === 'undefined' || !DesigncCanvas.canvas) return openFile(A.cfg.model, line || undefined);
+  openSpecial('special:canvas');
+  setTimeout(() => { if (A.canvasApi) A.canvasApi.selectLine(line); else openFile(A.cfg.model, line); }, 0);
 }
 function openSpecial(id) { if (!A.tabs.includes(id)) A.tabs.push(id); activate(id); }
 function activate(id) {
@@ -1263,7 +1278,7 @@ async function grill() {
   setActivity('design'); A.grill.busy = true; A.grill.error = null; renderSidebar();
   const live = A.diags.filter(f => !f.suppressed).map(f => `${f.code} ${f.sev} on ${f.loc.label} (line ${f.loc.line}): ${f.msg}`);
   const needs = A.ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open').map(e => `${e.id}: ${e.question} (task ${e.task}, element ${elementLabel(e.element)})`);
-  const sys = 'You are grill-me, the interrogation step of a system design compiler at a insurance company. The design (Structurizr DSL with d.* design properties) is the source of truth; code is generated from it. You ask questions; you never decide.';
+  const sys = 'You are grill-me, the interrogation step of a system design compiler. The design (Structurizr DSL with d.* design properties) is the source of truth; code is generated from it. You ask questions; you never decide.';
   const user = `Ask the 3 to 5 questions the designer most needs to answer before this design is handed to the coding pipeline. Prioritise error findings, undeclared properties on critical paths, open needs-decision items from the pipeline, and untraced requirements. Each question must be concrete and about this design. Set business=true only when a product owner, not an engineer, must answer.
 
 MODEL:
@@ -1579,7 +1594,7 @@ function designSidebar() {
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
-      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${Records.runs(d).some(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || '')) ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
@@ -1707,8 +1722,8 @@ function renderPanel() {
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
-      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : r.fi != null ? 'data-cvline' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
+      ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button><button class="lnk fix" data-open="${esc(path)}" data-line="${r.line || ''}" title="Show the line in the DSL text">Show in DSL</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
 
@@ -1944,7 +1959,7 @@ function latestTag(id) { const l = Core.latestCheck(A.ledger, id); return l ? `<
 function telemetryBlock() {
   const T = A.tel;
   if (T.error || !T.meta) {
-    return `<div class="block"><h3>Agent runs from Langfuse<span class="spacer"></span><button class="btn" data-s="tel">Refresh</button></h3><div class="note">${esc(T.error ? telErrorText(T.error) : 'Loading…')} ${T.error && T.error.error === 'not_configured' ? '<button class="lnk" data-s="llm">Open designc.json</button>' : ''}</div></div>`;
+    return `<div class="block"><h3>Agent runs from Langfuse<span class="spacer"></span><button class="btn" data-s="tel">Refresh</button></h3><div class="note">${esc(T.error ? telErrorText(T.error) : 'Loading…')} ${T.error && T.error.error === 'not_configured' ? '<button class="lnk" data-s="llm">Open designc.json</button>' : ''}${T.error && T.error.error === 'unreachable' && T.error.canStart ? '<button class="btn" data-s="lfstart">Start Langfuse</button>' : ''}</div></div>`;
   }
   const g = telAgg();
   let h = `<div class="block"><h3>Agent runs from Langfuse${T.meta.source === 'sample' ? ' <span class="samplenote" style="margin:0">sample data</span>' : ''}<span class="spacer"></span><span class="muted" style="font-weight:400;font-size:12px">last ${T.meta.lookbackDays} days · fetched ${new Date(T.meta.fetchedAt).toLocaleTimeString()}${T.meta.truncated ? ' · truncated' : ''}</span><button class="btn" data-s="tel">Refresh</button></h3>
@@ -2106,7 +2121,7 @@ function suiteRunsHtml(L) {
 
 // ---------------------------------------------------------------- events
 document.addEventListener('click', async e => {
-  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], [data-dppick], [data-suite], .node, [data-s]'); if (!t) return;
+  const t = e.target.closest('button, input[data-a], [data-file], [data-dir], [data-open], [data-cvline], [data-wcheck], [data-tab], [data-clause], [data-toggle], [data-code], [data-cmsel], [data-dppick], [data-suite], .node, [data-s]'); if (!t) return;
   const d = t.dataset;
   if (d.suite) { A.suiteOpen.has(d.suite) ? A.suiteOpen.delete(d.suite) : A.suiteOpen.add(d.suite); return renderSpecial(); }
   if (d.dppick) return pickDeployment(d.dppick);
@@ -2154,10 +2169,12 @@ document.addEventListener('click', async e => {
   if (d.hvclose) return closeHandover(d.hvclose, d.outcome);
   if (d.resume) { e.stopPropagation(); return resumeRun(d.resume); }
   if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
+  if (d.wcheck) return writeCheckFor(d.wcheck);
+  if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0);
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
     const c = A.gate.clauses[+d.clause];
-    if (c.line) return openFile(A.cfg.model, c.line);
+    if (c.line) return c.kind === 'finding' ? revealInCanvas(c.line) : openFile(A.cfg.model, c.line);
     if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x) return openFile(x._path); }
     if (c.requirement) { const x = A.requirements.find(y => y.id === c.requirement); if (x) return openFile(x._path); }
     if (c.kind === 'needs') return setActivity('build');
@@ -2176,6 +2193,12 @@ document.addEventListener('click', async e => {
     if (d.s === 'output') return showPanel('output');
     if (d.s === 'gate') return setActivity('design');
     if (d.s === 'llm') return Setup.llmReady(A.cfg.llm) ? openFile('designc.json') : openSetup();
+    if (d.s === 'lfstart') {
+      toast('Starting Langfuse… (the first start can take a minute)', 'info');
+      const r = await host.startLangfuse('lf-' + Date.now());
+      if (r.error && r.error !== 'cancelled') toast(r.error === 'failed' ? 'Langfuse did not start. Run the start command in a terminal to see why.' : 'No langfuse.start command in designc.json.', 'warning');
+      return loadTelemetry();
+    }
     if (d.s === 'tel') { if (A.tel.error && A.tel.error.error === 'not_configured') return openSetup(); if (A.tel.error) toast(telErrorText(A.tel.error), 'warning'); return loadTelemetry(); }
     if (d.s === 'folder') return setActivity('explorer');
   }

@@ -1,5 +1,5 @@
 id: S2-0002
-title: Referral emails are sent once
+title: Escalation emails are sent once
 status: checked
 source:
   failure_mode: FM-03

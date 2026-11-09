@@ -2,62 +2,62 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
 
-const dsl = `workspace "Quotes" {
+const dsl = `workspace "Bookings" {
   model {
-    u = person "Underwriter"
-    s = softwareSystem "Quotes" {
-      api = container "Quotes API" "" "C#" {
+    u = person "Traveller"
+    s = softwareSystem "Bookings" {
+      api = container "Bookings API" "" "C#" {
         properties {
           d.code "./src/Api/**, src/Shared/"
           d.risk medium
         }
-        calc = component "Pricing" {
+        calc = component "Fares" {
           properties {
-            d.code "src/Api/Pricing/**"
+            d.code "src/Api/Fares/**"
             d.risk high
           }
         }
       }
-      db = container "Quotes DB"
+      db = container "Bookings DB"
     }
-    u -> api "prices a quote"
+    u -> api "prices a booking"
     api -> db "reads"
     api -> db "writes"
   }
 }`;
 
 const behaviour = [
-  { path: 'behaviour/b.p', text: 'machine B { start state S { entry { announce QuoteSaved; announce QuotePriced; } } }' },
-  { path: 'behaviour/a.p', text: 'machine A { start state S { entry { announce QuoteRequested; announce QuoteSaved; } } }' },
+  { path: 'behaviour/b.p', text: 'machine B { start state S { entry { announce BookingSaved; announce BookingPriced; } } }' },
+  { path: 'behaviour/a.p', text: 'machine A { start state S { entry { announce BookingRequested; announce BookingSaved; } } }' },
 ];
 
 test('handoverElements: every element by hierarchical id, code and risk only where declared', () => {
   const h = Core.handoverElements(dsl, behaviour);
   assert.equal(h.schema, 'designc.handover.elements/1');
   assert.deepEqual(h.elements, [
-    { id: 'Underwriter', name: 'Underwriter', kind: 'person' },
-    { id: 'Quotes', name: 'Quotes', kind: 'softwareSystem' },
-    { id: 'Quotes/Quotes API', name: 'Quotes API', kind: 'container', code: ['src/Api/**', 'src/Shared'], risk: 'medium' },
-    { id: 'Quotes/Quotes API/Pricing', name: 'Pricing', kind: 'component', code: ['src/Api/Pricing/**'], risk: 'high' },
-    { id: 'Quotes/Quotes DB', name: 'Quotes DB', kind: 'container' },
+    { id: 'Traveller', name: 'Traveller', kind: 'person' },
+    { id: 'Bookings', name: 'Bookings', kind: 'softwareSystem' },
+    { id: 'Bookings/Bookings API', name: 'Bookings API', kind: 'container', code: ['src/Api/**', 'src/Shared'], risk: 'medium' },
+    { id: 'Bookings/Bookings API/Fares', name: 'Fares', kind: 'component', code: ['src/Api/Fares/**'], risk: 'high' },
+    { id: 'Bookings/Bookings DB', name: 'Bookings DB', kind: 'container' },
   ]);
 });
 
 test('handoverElements: relationships by id, one per pair', () => {
   assert.deepEqual(Core.handoverElements(dsl, behaviour).relationships, [
-    { from: 'Underwriter', to: 'Quotes/Quotes API' },
-    { from: 'Quotes/Quotes API', to: 'Quotes/Quotes DB' },
+    { from: 'Traveller', to: 'Bookings/Bookings API' },
+    { from: 'Bookings/Bookings API', to: 'Bookings/Bookings DB' },
   ]);
 });
 
 test('handoverElements: events are the names announced in behaviour, by file path, each once', () => {
-  assert.deepEqual(Core.handoverElements(dsl, behaviour).events, ['QuoteRequested', 'QuoteSaved', 'QuotePriced']);
+  assert.deepEqual(Core.handoverElements(dsl, behaviour).events, ['BookingRequested', 'BookingSaved', 'BookingPriced']);
   assert.deepEqual(Core.handoverElements(dsl, []).events, []);
 });
 
 test('handoverElements: a model that does not parse, or a code area that is not a path pattern, is refused', () => {
   assert.throws(() => Core.handoverElements('workspace { model { x = container } }', []), /handover/);
-  assert.throws(() => Core.handoverElements(dsl.replace('src/Api/Pricing/**', '/abs/**'), []), /Pricing.*absolute path/);
+  assert.throws(() => Core.handoverElements(dsl.replace('src/Api/Fares/**', '/abs/**'), []), /Fares.*absolute path/);
 });
 
 test('docs/handover-elements.example.json is what handoverElements writes for this model, and names the schema', () => {

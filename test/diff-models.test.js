@@ -4,11 +4,11 @@ const Core = require('../renderer/core.js');
 
 const dsl = body => Core.parse(`workspace "W" {\n model {\n${body}\n }\n}`);
 const base = `
- sys = softwareSystem "Pricing" {
-  api = container "Pricing API" "" ".NET 8" {
+ sys = softwareSystem "Fares" {
+  api = container "Fares API" "" ".NET 8" {
    properties { "d.instances" "3" }
   }
-  db = container "Quotes DB" "" "SQL" { tags "Database" }
+  db = container "Bookings DB" "" "SQL" { tags "Database" }
  }
  api -> db "reads" "EF" { properties { "d.interaction" "sync" } }
 `;
@@ -17,9 +17,9 @@ const kinds = d => d.elements.map(e => `${e.change}:${e.name}`).sort();
 test('identical models have no changes, and description, tags, order and whitespace do not count', () => {
   const a = dsl(base);
   const b = dsl(`
- sys = softwareSystem "Pricing" "now with a description" {
-  db = container "Quotes DB" "other words" "SQL" { tags "Database", "Extra" }
-  api = container "Pricing API" "" ".NET 8" {
+ sys = softwareSystem "Fares" "now with a description" {
+  db = container "Bookings DB" "other words" "SQL" { tags "Database", "Extra" }
+  api = container "Fares API" "" ".NET 8" {
    properties { "d.instances" "3" }
   }
  }
@@ -33,27 +33,27 @@ test('identical models have no changes, and description, tags, order and whitesp
 
 test('added and removed elements and rels', () => {
   const a = dsl(base);
-  const b = dsl(base.replace(' db = container "Quotes DB" "" "SQL" { tags "Database" }', ' q = container "Queue" "" "Service Bus"').replace('api -> db "reads" "EF" { properties { "d.interaction" "sync" } }', 'api -> q "sends" "AMQP"'));
+  const b = dsl(base.replace(' db = container "Bookings DB" "" "SQL" { tags "Database" }', ' q = container "Queue" "" "Service Bus"').replace('api -> db "reads" "EF" { properties { "d.interaction" "sync" } }', 'api -> q "sends" "AMQP"'));
   const d = Core.diffModels(a, b);
-  assert.deepEqual(kinds(d), ['added:Queue', 'removed:Quotes DB']);
+  assert.deepEqual(kinds(d), ['added:Queue', 'removed:Bookings DB']);
   assert.equal(d.rels.length, 2);
   assert.deepEqual(d.rels.map(r => r.change).sort(), ['added', 'removed']);
   assert.equal(d.summary.added, 1); assert.equal(d.summary.relsRemoved, 1);
 });
 
 test('same identifier with a new name is a rename; technology and d.* changes are listed as fields', () => {
-  const b = dsl(base.replace('"Pricing API" "" ".NET 8"', '"Rating API" "" ".NET 9"').replace('"d.instances" "3"', '"d.instances" "5" "d.critical" "yes"'));
+  const b = dsl(base.replace('"Fares API" "" ".NET 8"', '"Surcharge API" "" ".NET 9"').replace('"d.instances" "3"', '"d.instances" "5" "d.critical" "yes"'));
   const d = Core.diffModels(dsl(base), b);
   assert.equal(d.elements.length, 1);
   const e = d.elements[0];
-  assert.equal(e.change, 'changed'); assert.equal(e.name, 'Rating API'); assert.equal(e.renamedFrom, 'Pricing API');
+  assert.equal(e.change, 'changed'); assert.equal(e.name, 'Surcharge API'); assert.equal(e.renamedFrom, 'Fares API');
   assert.deepEqual(e.fields.map(f => f.field).sort(), ['d.critical', 'd.instances', 'name', 'technology']);
   assert.deepEqual(e.fields.find(f => f.field === 'd.instances'), { field: 'd.instances', from: '3', to: '5' });
   assert.equal(e.fields.find(f => f.field === 'd.critical').from, null);
 });
 
 test('a changed identifier with the same name under the same parent is the same element', () => {
-  const d = Core.diffModels(dsl(base), dsl(base.replace('api = container', 'pricingApi = container').replace('api -> db', 'pricingApi -> db')));
+  const d = Core.diffModels(dsl(base), dsl(base.replace('api = container', 'faresApi = container').replace('api -> db', 'faresApi -> db')));
   assert.deepEqual(d.elements, []); assert.deepEqual(d.rels, []);
 });
 
@@ -72,5 +72,5 @@ test('rels are keyed on their ends and ordinal: a parallel rel added shows as on
   const e = Core.diffModels(dsl(base), dsl(base.replace('"EF"', '"Dapper"')));
   assert.equal(e.rels.length, 1); assert.equal(e.rels[0].change, 'changed');
   assert.deepEqual(e.rels[0].fields, [{ field: 'technology', from: 'EF', to: 'Dapper' }]);
-  assert.equal(e.rels[0].label, 'Pricing API → Quotes DB');
+  assert.equal(e.rels[0].label, 'Fares API → Bookings DB');
 });

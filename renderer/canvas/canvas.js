@@ -526,6 +526,8 @@
     return {
       refresh, fit, undo, redo,
       select: (ref) => { const e = typeof ref === 'string' ? [...S.model.elements.values()].find(x => x.ident === ref || x.name === ref) : null; if (e) selectEl(e.id); },
+      // Select the element or relationship declared on a DSL line (what a finding's loc.line points at).
+      selectLine: (line) => { const e = [...S.model.elements.values()].find(x => x.line === line); if (e) return selectEl(e.id); const r = S.model.rels.find(x => x.line === line); if (r) selectRel(r); },
       addStencil: (id, x, y, name) => dropStencil(id, x, y, name),
       connect: (a, b, desc) => { const f = n => [...S.model.elements.values()].find(e => e.ident === n || e.name === n); const A = f(a), B = f(b); return A && B ? connect(A.id, B.id, desc) : null; },
       open: (ref) => { const e = ref == null ? null : [...S.model.elements.values()].find(x => x.ident === ref || x.name === ref); if (ref == null || opens(e)) openScope(e); },

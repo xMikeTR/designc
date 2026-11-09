@@ -2,12 +2,12 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
 
-const PACK = 'id: pricing\naggregates:\n  Quote:\n    id: QuoteId\n    fields: { limit: money }\n';
+const PACK = 'id: fares\naggregates:\n  Booking:\n    id: BookingId\n    fields: { limit: money }\n';
 const DSL = `workspace {
   model {
-    s = softwareSystem "Pricing" {
-      api = container "Quotes API" { properties { "d.owns" "Quote" } }
-      w = container "Worker" { properties { "d.owns" "Qoute" } }
+    s = softwareSystem "Fares" {
+      api = container "Bookings API" { properties { "d.owns" "Booking" } }
+      w = container "Worker" { properties { "d.owns" "Bookign" } }
     }
   }
 }`;
@@ -19,9 +19,9 @@ test('gate: without domains the result is unchanged and carries no notes', () =>
   assert.equal(g.notes, undefined);
 });
 test('gate: domain clauses join the gate when packs are listed', () => {
-  const g = gate({ listed: ['pricing'], packs: [{ key: 'pricing', path: 'domain/pricing.yaml', text: PACK }] });
+  const g = gate({ listed: ['fares'], packs: [{ key: 'fares', path: 'domain/fares.yaml', text: PACK }] });
   assert.ok(g.clauses.some(c => c.kind === 'domain' && /not pinned/.test(c.text)));
-  assert.ok(g.clauses.some(c => c.kind === 'domain' && /Worker owns "Qoute".*pricing\/Quote/.test(c.text)));
+  assert.ok(g.clauses.some(c => c.kind === 'domain' && /Worker owns "Bookign".*fares\/Booking/.test(c.text)));
   assert.equal(g.ready, false);
   assert.deepEqual(g.notes, []);
 });

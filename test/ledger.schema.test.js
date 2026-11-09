@@ -68,8 +68,8 @@ test('the gate sees v1 and legacy checks and picks the latest', () => {
 });
 
 const gateEv = { kind: 'gate', by: 'u', source: 'local', revision: 'r-3f9a1c2e', ready: false, verdict: 'a1b2c3d4e5f60718',
-  clauses: [{ kind: 'finding', text: 'DC002 on Quotes DB is neither fixed nor accepted' }],
-  findings: [{ code: 'DC002', sev: 'error', on: 'Quotes DB', loc: 'element', unknown: false, suppressed: false }] };
+  clauses: [{ kind: 'finding', text: 'DC002 on Bookings DB is neither fixed nor accepted' }],
+  findings: [{ code: 'DC002', sev: 'error', on: 'Bookings DB', loc: 'element', unknown: false, suppressed: false }] };
 
 test('a gate event validates, with or without git fields, and goes to checks.jsonl', () => {
   assert.deepEqual(Ledger.validate(gateEv), []);

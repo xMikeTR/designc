@@ -12,7 +12,7 @@ const IIFE_RE = /^\(\s*(?:async\s*)?(?:\(\s*\)\s*=>|function\s*\w*\s*\(\s*\))\s*
 const RANK = { uses: 1, new: 2, inherits: 3 };
 
 // comments and the inside of string and template literals blanked to spaces; offsets and newlines kept.
-// A quote string ends at a line break, so an apostrophe in JSX text cannot swallow the rest of the file.
+// A booking string ends at a line break, so an apostrophe in JSX text cannot swallow the rest of the file.
 function blank(text) {
   let out = '', i = 0, q = null;
   const sp = c => (c === '\n' ? '\n' : ' ');
@@ -24,7 +24,7 @@ function blank(text) {
       if (c === '\n' && q !== '`') { q = null; out += c; i++; continue; }
       out += sp(c); i++;
     } else if (c === '/' && n !== '/' && n !== '*' && /(?:^|[(,=:[!&|?{};])\s*$|\b(?:return|typeof|case)\s*$/.test(out.slice(-14))) {
-      // a regex literal: its quotes must not start a string
+      // a regex literal: its bookings must not start a string
       let j = i + 1, cls = false;
       while (j < text.length && text[j] !== '\n' && (cls || text[j] !== '/')) { if (text[j] === '\\') j++; else if (text[j] === '[') cls = true; else if (text[j] === ']') cls = false; j++; }
       if (text[j] === '/') { out += '/' + ' '.repeat(j - i - 1) + '/'; i = j + 1; } else { out += c; i++; }

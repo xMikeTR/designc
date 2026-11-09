@@ -68,7 +68,7 @@ test('every template lints clean', () => {
 
 test('core rules are unchanged by registration', () => {
   const fs = require('fs'), path = require('path');
-  const m = Core.parse(fs.readFileSync(path.join(__dirname, 'pricing.dsl'), 'utf8'));
+  const m = Core.parse(fs.readFileSync(path.join(__dirname, 'fares.dsl'), 'utf8'));
   const live = Core.check(m).filter(d => !d.suppressed);
   assert.deepEqual(live.filter(d => d.sev === 'error').map(d => d.code).sort(), ['DC002', 'DC004']);
   assert.deepEqual(live.filter(d => d.sev === 'warning').map(d => d.code).sort(), ['DC001', 'DC003', 'DC005', 'DC006', 'DC008']);

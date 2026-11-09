@@ -1,11 +1,11 @@
-workspace "Treaty quote" {
+workspace "Agreement booking" {
   model {
-    underwriter = person "Underwriter"
-    quotes = softwareSystem "Treaty Quotes" {
-      app = container "Quote App" "Prices a treaty quote in the browser" "React" {
-        pricing = component "Pricing" "Ceded and reinstatement premium" "TypeScript" {
+    traveller = person "Traveller"
+    bookings = softwareSystem "Agreement Bookings" {
+      app = container "Booking App" "Prices a agreement booking in the browser" "React" {
+        fares = component "Fares" "Rebated and renewal fee" "TypeScript" {
           properties {
-            "d.code" "src/pricing/**"
+            "d.code" "src/fares/**"
             "d.risk" "high"
           }
         }
@@ -23,7 +23,7 @@ workspace "Treaty quote" {
         }
       }
     }
-    underwriter -> app "Requests a quote" "HTTPS" {
+    traveller -> app "Requests a booking" "HTTPS" {
       properties {
         "d.interaction" "sync"
       }

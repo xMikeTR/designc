@@ -56,8 +56,8 @@ async function turn() {
     const list = JSON.parse(r.content[0].text); return `${list.filter(f => f.severity === 'error' && !f.suppressed).length} errors, ${list.filter(f => f.severity === 'warning' && !f.suppressed).length} warnings; first: ${list[0].code} ${list[0].where}`;
   });
   plan(['completed', 'in_progress', 'pending', 'pending']);
-  update({ sessionUpdate: 'tool_call', toolCallId: 't2', title: 'Run `dotnet test Pricing.sln`', kind: 'execute', status: 'pending', rawInput: { command: 'dotnet test Pricing.sln' } });
-  const perm = await req('session/request_permission', { sessionId, toolCall: { toolCallId: 't2', title: 'Run `dotnet test Pricing.sln`', kind: 'execute', rawInput: { command: 'dotnet test Pricing.sln' } },
+  update({ sessionUpdate: 'tool_call', toolCallId: 't2', title: 'Run `dotnet test Fares.sln`', kind: 'execute', status: 'pending', rawInput: { command: 'dotnet test Fares.sln' } });
+  const perm = await req('session/request_permission', { sessionId, toolCall: { toolCallId: 't2', title: 'Run `dotnet test Fares.sln`', kind: 'execute', rawInput: { command: 'dotnet test Fares.sln' } },
     options: [{ optionId: 'allow', name: 'Allow once', kind: 'allow_once' }, { optionId: 'always', name: 'Always allow', kind: 'allow_always' }, { optionId: 'reject', name: 'Reject', kind: 'reject_once' }] });
   const allowed = perm.outcome.outcome === 'selected' && perm.outcome.optionId !== 'reject';
   update({ sessionUpdate: 'tool_call_update', toolCallId: 't2', status: allowed ? 'completed' : 'failed', content: [{ type: 'content', content: { type: 'text', text: allowed ? '(mock) 42 passed, 0 failed' : 'Not run: permission rejected' } }] });
@@ -67,15 +67,15 @@ async function turn() {
   await tool('t3', 'Edit model/workspace.dsl', 'edit', async () => {
     const { content } = await req('fs/read_text_file', { sessionId, path: model });
     await req('fs/write_text_file', { sessionId, path: model, content: content.replace('"d.concurrency" "none"', '"d.concurrency" "optimistic"') });
-    return 'Referral Worker → Quotes DB now uses optimistic concurrency';
+    return 'Escalation Worker → Bookings DB now uses optimistic concurrency';
   });
-  const cb = path.resolve(cwd, require(path.join(cwd, 'designc.json')).codebase || '..', 'src', 'Referral.Worker', 'ReferralHandler.cs');
-  await tool('t4', 'Edit src/Referral.Worker/ReferralHandler.cs', 'edit', async () => {
+  const cb = path.resolve(cwd, require(path.join(cwd, 'designc.json')).codebase || '..', 'src', 'Escalation.Worker', 'EscalationHandler.cs');
+  await tool('t4', 'Edit src/Escalation.Worker/EscalationHandler.cs', 'edit', async () => {
     await req('fs/write_text_file', { sessionId, path: cb, content: '// add rowversion check\n' }); return 'edited';
   });
   plan(['completed', 'completed', 'completed', 'in_progress']);
   await tool('t5', 'designc: mint_decision', 'other', async () => {
-    const r = await mcp.call('tools/call', { name: 'mint_decision', arguments: { statement: 'Referral Worker writes Quote with optimistic concurrency', effect: 'fix', binds: ['Quotes DB'], resolves: ['DC002'], checks: ['p check -tc tcOptimistic'], rationale: 'Two writers, no owner.' } });
+    const r = await mcp.call('tools/call', { name: 'mint_decision', arguments: { statement: 'Escalation Worker writes Booking with optimistic concurrency', effect: 'fix', binds: ['Bookings DB'], resolves: ['DC002'], checks: ['p check -tc tcOptimistic'], rationale: 'Two writers, no owner.' } });
     if (r.isError) throw new Error(r.content[0].text); return r.content[0].text;
   });
   if (process.env.MOCK_BYPASS) { require('fs').writeFileSync(path.join(cwd, 'decisions', 'D-9999.yaml'), 'id: D-9999\nstatus: bound\n'); await sleep(900); }

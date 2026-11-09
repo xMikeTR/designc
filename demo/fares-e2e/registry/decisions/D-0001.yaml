@@ -1,0 +1,14 @@
+id: D-0001
+status: minted           # minted | checked | bound | superseded
+effect: fix             # fix (the model changes) | accept (keep the risk)
+requirement: DEMO-1234
+binds: [Bookings DB]
+resolves: [DC002]
+statement: >-
+  Booking writes use optimistic concurrency (rowversion) from both
+  Fares API and Escalation Worker.
+checks:
+  - cd behaviour && p compile --pproj Bookings.pproj >/dev/null && p check -tc tcOptimistic -s 10
+rationale: >-
+  Two writers, no owner. Ownership would force escalations through the API;
+  optimistic locking keeps them independent.

@@ -59,7 +59,7 @@ test('top-level functions form one module type named after the file; no function
     'if (process.env.X) { run(); }',                     // 10 not a function
     'module.exports = { total };',                       // 11
   ].join('\n');
-  const ts = one(src, 'src/pricing/orders.ts');
+  const ts = one(src, 'src/fares/orders.ts');
   const mod = ts.find(t => t.kind === 'module');
   assert.equal(mod.name, 'orders');
   assert.deepEqual(mod.methods.map(m => [m.name, m.line, m.endLine]), [['total', 2, 4], ['price', 5, 7], ['half', 8, 8]]);
@@ -91,14 +91,14 @@ test('keywords inside strings, template literals and comments do not count', () 
 });
 
 test('references: extends and implements are inherits, new is new, other capitalised names are uses, relative imports use the module', () => {
-  const src = 'import { Repo } from "./repo";\nimport { price } from "../pricing/index";\nexport class Orders extends Base implements IOrders, IAudit {\n  make() { return new Order(); }\n  repo: Repo;\n}';
+  const src = 'import { Repo } from "./repo";\nimport { price } from "../fares/index";\nexport class Orders extends Base implements IOrders, IAudit {\n  make() { return new Order(); }\n  repo: Repo;\n}';
   const [t] = one(src);
   const refs = Object.fromEntries(t.refs.map(r => [r.name, r.via]));
   assert.equal(refs.Base, 'inherits'); assert.equal(refs.IOrders, 'inherits'); assert.equal(refs.IAudit, 'inherits');
   assert.equal(refs.Order, 'new'); assert.equal(refs.Repo, 'uses');
   assert.equal(refs.Orders, undefined);
-  const mod = one('import { price } from "../pricing/index";\nimport x from "./repo";\nimport y from "lodash";\nexport function f() { return price(); }').find(t => t.kind === 'module');
-  assert.deepEqual(mod.refs.map(r => r.name).sort(), ['pricing', 'repo']);
+  const mod = one('import { price } from "../fares/index";\nimport x from "./repo";\nimport y from "lodash";\nexport function f() { return price(); }').find(t => t.kind === 'module');
+  assert.deepEqual(mod.refs.map(r => r.name).sort(), ['fares', 'repo']);
   assert.ok(mod.refs.every(r => r.via === 'uses' && r.line >= 1));
 });
 
@@ -108,7 +108,7 @@ test('JSX files: a component arrow function is measured, && in markup counts', (
   assert.equal(m.cc, 2);
 });
 
-test('a regex literal containing a quote does not swallow the rest of the file', () => {
+test('a regex literal containing a booking does not swallow the rest of the file', () => {
   const src = "const esc = s => String(s).replace(/[&<>\"']/g, c => c);\nfunction a(x) { if (x) return 1; return 2; }\nfunction b(x) { return x && 1; }\n";
   const ms = js.scan('u.js', src).types.flatMap(t => t.methods);
   assert.deepEqual(ms.map(m => [m.name, m.cc]), [['esc', 1], ['a', 2], ['b', 2]]);

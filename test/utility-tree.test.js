@@ -1,4 +1,4 @@
-// Slice 19: scenario importance and difficulty feed a utility tree. Ranking never blocks; a malformed rating does.
+// Slice 19: scenario importance and difficulty feed a utility tree. Ranking never blocks; a malformed surcharge does.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
@@ -26,7 +26,7 @@ test('utilityTree groups by attribute and ranks by importance, then difficulty, 
   assert.deepEqual(ids(t), [['availability', ['C', 'B', 'D']], ['latency', ['E', 'A']]]);
 });
 
-test('the gate ignores ratings but blocks a malformed one', () => {
+test('the gate ignores surcharges but blocks a malformed one', () => {
   const gate = list => Core.gate({ model: m, diags: [], decisions: [], requirements: [], ledger: [], scenarios: list }).clauses.map(c => c.text);
   assert.deepEqual(gate([sc('A', { importance: 'high', difficulty: 'medium' })]), []);
   assert.deepEqual(gate([sc('A', { importance: 'urgent' })]), ['A: importance must be high, medium or low']);

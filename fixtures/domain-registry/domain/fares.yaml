@@ -1,0 +1,22 @@
+id: fares
+version: 3
+aggregates:
+  Booking:
+    id: BookingId
+    fields:
+      partner: { ref: Partner }
+      limit: money
+      attachment: money
+      rate_on_line: { type: percent, min: 0, max: 100 }
+      status: { oneOf: [draft, quoted, bound] }
+      fee: Money
+    invariants:
+      - "attachment < limit"
+    publishes: [BookingBound]
+  Partner:
+    id: PartnerId
+    fields: { name: { type: string, maxLength: 200 } }
+values:
+  Money: { amount: decimal, currency: { type: string, pattern: "^[A-Z]{3}$" } }
+events:
+  BookingBound: { booking: { ref: Booking }, fee: Money }

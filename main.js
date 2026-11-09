@@ -4,6 +4,7 @@ const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
+const net = require('net');
 const { spawn } = require('child_process');
 const { extract, extractUi } = require('./extract');
 const Dispatch = require('./renderer/dispatch.js');
@@ -259,6 +260,20 @@ handle('codebase:choose', async () => {
   const rel = path.relative(root, r.filePaths[0]).split(path.sep).join('/');
   return rel && !path.isAbsolute(rel) ? rel : r.filePaths[0];
 });
+// A repo for a coding agent to build into (dispatch needs one). Check what a path is; or let the person pick or create a
+// folder and turn it into a repo on main with one empty commit. Only that folder is touched; no file in it is staged.
+handle('repo:check', async rel => (root && rel ? git.repoState(codebaseDir(rel)) : { exists: false, repo: false, base: false }));
+handle('repo:create', async () => {
+  if (!root) return { error: 'no_folder' };
+  const r = await dialog.showOpenDialog(win, { title: 'Pick or create the folder for the new repo', buttonLabel: 'Make this a repo', properties: ['openDirectory', 'createDirectory'] });
+  if (r.canceled || !r.filePaths[0]) return null;
+  const dir = r.filePaths[0];
+  if (dir === root || root.startsWith(dir + path.sep)) return { error: 'Pick a folder outside the design folder (or a new one), not the design itself.' };
+  const i = await git.initRepo(dir);
+  if (i.error) return { error: i.error };
+  const rel = path.relative(root, dir).split(path.sep).join('/');
+  return { path: rel && !path.isAbsolute(rel) ? rel : dir };
+});
 // Requirement import: exported pages in a folder the person chooses, read-only, never remembered, no agent tool.
 let importDir = null;
 handle('import:choose', async () => {
@@ -314,7 +329,32 @@ handle('telemetry:fetch', async () => {
   let cfg = null;
   try { cfg = JSON.parse(await fsp.readFile(inside('designc.json'), 'utf8')).langfuse || null; } catch { /* no settings */ }
   if (!cfg) return { error: 'not_configured' };
+  // Nothing listening on the Langfuse port: say so (and whether designc.json can start it) instead of a bare "fetch failed".
+  if (cfg.baseUrl && !cfg.sampleFile && !await portOpen(cfg.baseUrl)) return { error: 'unreachable', baseUrl: cfg.baseUrl, canStart: typeof cfg.start === 'string' && !!cfg.start.trim() };
   return fetchTelemetry(root, cfg);
+});
+function portOpen(url) {
+  return new Promise(resolve => {
+    let u; try { u = new URL(url); } catch { return resolve(true); }
+    const s = net.connect({ host: u.hostname, port: Number(u.port) || (u.protocol === 'https:' ? 443 : 80), timeout: 1500 });
+    s.on('connect', () => { s.destroy(); resolve(true); });
+    s.on('timeout', () => { s.destroy(); resolve(false); });
+    s.on('error', () => resolve(false));
+  });
+}
+// Start Langfuse with the command in designc.json langfuse.start (e.g. a docker compose script). It is a shell command
+// written in the repository, so it asks for folder trust first, like decision checks.
+handle('langfuse:start', async runId => {
+  if (!root) return { error: 'no_folder' };
+  let cfg = null;
+  try { cfg = JSON.parse(await fsp.readFile(inside('designc.json'), 'utf8')).langfuse || null; } catch { /* no settings */ }
+  const cmd = cfg && typeof cfg.start === 'string' ? cfg.start.trim().replace(/^~(?=\/)/, os.homedir()) : '';
+  if (!cmd) return { error: 'no_start' };
+  if (!await ensureTrusted({ button: 'Trust folder and start', title: 'Start Langfuse?',
+    message: 'designc.json asks to run a command to start Langfuse.',
+    detail: `Only trust ${root} if you trust whoever can edit its designc.json.\n\nCommand:\n${cmd}` })) return { error: 'cancelled' };
+  const r = await runShell(runId, cmd, root);
+  return r.code === 0 ? { ok: true } : { error: 'failed', code: r.code };
 });
 // One task attempt, step by step, for error analysis (Improve, Review). Content is there only if the pipeline captured it.
 handle('telemetry:trace', async (traceId, spanId) => {
@@ -440,7 +480,7 @@ function mcpScript() { return path.join(__dirname, 'designc-mcp.js').replace(`ap
 
 // ---------- ACP agents ----------
 const ACP_PRESETS = {
-  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'], inherit: ['ANTHROPIC_API_KEY', 'ANTHROPIC_AUTH_TOKEN', 'CLAUDE_CODE_OAUTH_TOKEN'] },
+  claude: { label: 'Claude Code', command: 'npx', args: ['-y', '@agentclientprotocol/claude-agent-acp'], inherit: ['CLAUDE_CODE_OAUTH_TOKEN'] },
   codex: { label: 'Codex', command: 'npx', args: ['-y', '@zed-industries/codex-acp'], inherit: ['OPENAI_API_KEY'] },
   gemini: { label: 'Gemini CLI', command: 'npx', args: ['-y', '@google/gemini-cli', '--acp'], inherit: ['GEMINI_API_KEY', 'GOOGLE_API_KEY'] },
   copilot: { label: 'GitHub Copilot', command: 'copilot', args: ['--acp', '--stdio'], inherit: ['GH_TOKEN', 'GITHUB_TOKEN'] },

@@ -55,19 +55,19 @@ test('no self edges and no edges to unknown names', async () => {
 
 test('JS/TS: classes and modules of one container link by name, an import names the module, a class and a module of one name stay apart', async () => {
   const files = {
-    'web/src/orders/index.ts': 'import { price } from "../pricing/index";\nexport class Orders extends Base {\n  run() { return new Cart(); }\n}\nexport function load() { return 1; }',
-    'web/src/pricing/index.ts': 'export function price() { if (1) { return 2; } return 1; }',
+    'web/src/orders/index.ts': 'import { price } from "../fares/index";\nexport class Orders extends Base {\n  run() { return new Cart(); }\n}\nexport function load() { return 1; }',
+    'web/src/fares/index.ts': 'export function price() { if (1) { return 2; } return 1; }',
     'web/src/cart.ts': 'export class Cart {}\nexport class Base {}',
     'web/src/cart/index.ts': 'export function cart() { return 1; }',
   };
   const r = await code.build({
-    components: [{ id: 'c_web_orders', container: 'Web', files: ['web/src/orders/index.ts'] }, { id: 'c_web_pricing', container: 'Web', files: ['web/src/pricing/index.ts'] }, { id: 'c_web_cart', container: 'Web', files: ['web/src/cart.ts', 'web/src/cart/index.ts'] }],
+    components: [{ id: 'c_web_orders', container: 'Web', files: ['web/src/orders/index.ts'] }, { id: 'c_web_fares', container: 'Web', files: ['web/src/fares/index.ts'] }, { id: 'c_web_cart', container: 'Web', files: ['web/src/cart.ts', 'web/src/cart/index.ts'] }],
     read: async f => files[f],
   });
   const byName = Object.fromEntries(r.types.map(t => [t.kind + ':' + t.name, t]));
   assert.ok(byName['module:cart'] && byName['class:Cart'] && byName['module:cart'].id !== byName['class:Cart'].id);
   const edge = (a, b) => r.typeEdges.find(e => e.from === byName[a].id && e.to === byName[b].id);
-  assert.equal(edge('module:orders', 'module:pricing').via, 'uses');
+  assert.equal(edge('module:orders', 'module:fares').via, 'uses');
   assert.equal(edge('class:Orders', 'class:Base').via, 'inherits');
   assert.equal(edge('class:Orders', 'class:Cart').via, 'new');
   assert.equal(r.unresolved.length, 0);
@@ -75,12 +75,12 @@ test('JS/TS: classes and modules of one container link by name, an import names 
 
 test('F#: a module and a type of one container link by name, qualified calls name the module', async () => {
   const files = {
-    'rating/Rates.fs': 'module Rates\nlet price q = if q > 1 then 2 else 1\n',
-    'rating/Engine.fs': 'module Engine\ntype Engine(repo: Repo) =\n    member _.Run() = Rates.price 1\n',
-    'rating/Repo.fs': 'module Repo\ntype Repo() =\n    member _.Get() = 1\n',
+    'surcharge/Rates.fs': 'module Rates\nlet price q = if q > 1 then 2 else 1\n',
+    'surcharge/Engine.fs': 'module Engine\ntype Engine(repo: Repo) =\n    member _.Run() = Rates.price 1\n',
+    'surcharge/Repo.fs': 'module Repo\ntype Repo() =\n    member _.Get() = 1\n',
   };
   const r = await code.build({
-    components: [{ id: 'c_rating', container: 'Rating', files: Object.keys(files) }],
+    components: [{ id: 'c_surcharge', container: 'Surcharge', files: Object.keys(files) }],
     read: async f => files[f],
   });
   const byName = Object.fromEntries(r.types.map(t => [t.kind + ':' + t.name, t]));

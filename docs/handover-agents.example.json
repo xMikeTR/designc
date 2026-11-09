@@ -2,22 +2,22 @@
   "schema": "designc.handover.agents/1",
   "agents": [
     {
-      "id": "Quotes/Quote Bot",
-      "name": "Quote Bot",
+      "id": "Bookings/Booking Bot",
+      "name": "Booking Bot",
       "autonomy": "approve-writes",
       "maxSteps": 12,
       "privateData": "yes",
       "tools": [
         {
           "direction": "out",
-          "other": "Quotes/Quotes DB",
-          "description": "reads quotes",
+          "other": "Bookings/Bookings DB",
+          "description": "reads bookings",
           "effect": "read"
         },
         {
           "direction": "out",
-          "other": "Quotes/Mailer",
-          "description": "sends the quote",
+          "other": "Bookings/Mailer",
+          "description": "sends the booking",
           "effect": "irreversible",
           "approval": "human",
           "protocol": "mcp"
@@ -25,7 +25,7 @@
       ]
     },
     {
-      "id": "Quotes/Plain Agent",
+      "id": "Bookings/Plain Agent",
       "name": "Plain Agent",
       "autonomy": "suggest",
       "tools": []

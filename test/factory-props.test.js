@@ -14,8 +14,8 @@ const skip = havePython ? false : 'python3 with PyYAML is not installed';
 
 const dsl = (code, risk) => `workspace {
   model {
-    s = softwareSystem "Pricing" {
-      db = container "Quotes DB" "" "SQL" "Database" {
+    s = softwareSystem "Fares" {
+      db = container "Bookings DB" "" "SQL" "Database" {
         properties {
           "d.code" "${code}"
           "d.risk" "${risk}"
@@ -36,10 +36,10 @@ function pyFindings(text) {
 }
 
 test('d.code (list) and d.risk (low|medium|high) are known element properties', () => {
-  const m = Core.parse(dsl('src/Pricing.Data/**, db/migrations/**', 'high'));
+  const m = Core.parse(dsl('src/Fares.Data/**, db/migrations/**', 'high'));
   assert.deepEqual(dc000(Core.check(m, { chainHops: 4 })), []);
-  const db = [...m.elements.values()].find(e => e.name === 'Quotes DB');
-  assert.deepEqual(Core.get(db, 'd.code'), ['src/Pricing.Data/**', 'db/migrations/**']);
+  const db = [...m.elements.values()].find(e => e.name === 'Bookings DB');
+  assert.deepEqual(Core.get(db, 'd.code'), ['src/Fares.Data/**', 'db/migrations/**']);
   assert.equal(Core.get(db, 'd.risk'), 'high');
 });
 
@@ -50,6 +50,6 @@ test('d.risk outside low|medium|high is a DC000 error', () => {
 });
 
 test('designc check agrees with the app on d.code and d.risk', { skip }, () => {
-  assert.deepEqual(dc000(pyFindings(dsl('src/Pricing.Data/**', 'medium'))), []);
+  assert.deepEqual(dc000(pyFindings(dsl('src/Fares.Data/**', 'medium'))), []);
   assert.equal(dc000(pyFindings(dsl('src/**', 'extreme'))).length, 1);
 });

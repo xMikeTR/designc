@@ -5,9 +5,9 @@ const DslEdit = require('../renderer/canvas/dsl-edit.js');
 
 const dsl = `workspace {
  model {
-  sys = softwareSystem "Pricing" {
-   api = container "Pricing API" "" "C#"
-   db = container "Quotes DB" "" "SQL"
+  sys = softwareSystem "Fares" {
+   api = container "Fares API" "" "C#"
+   db = container "Bookings DB" "" "SQL"
   }
   api -> db "writes" "TDS"
   live = deploymentEnvironment "Live" {
@@ -48,8 +48,8 @@ test('nodes nest, carry technology and instances, and instances resolve to eleme
   assert.equal(azure.name, 'Azure'); assert.equal(azure.technology, 'Azure'); assert.equal(azure.kind, 'deploymentNode');
   const app = azure.children[0].children[0];
   assert.equal(app.name, 'App Service'); assert.equal(app.instances, '3');
-  assert.deepEqual(app.children.map(c => [c.kind, c.name]), [['containerInstance', 'Pricing API'], ['infrastructureNode', 'Gateway']]);
-  assert.equal(app.children[0].ref, [...m.elements.values()].find(e => e.name === 'Pricing API').id);
+  assert.deepEqual(app.children.map(c => [c.kind, c.name]), [['containerInstance', 'Fares API'], ['infrastructureNode', 'Gateway']]);
+  assert.equal(app.children[0].ref, [...m.elements.values()].find(e => e.name === 'Fares API').id);
   const db = azure.children[0].children[1].children[0];
   assert.equal(db.props['d.replicas'], '2');
 });
@@ -70,5 +70,5 @@ test('deploymentView picks the configured environment, the only one, or asks', (
 
 test('the canvas editor still locates elements in a document that has deployment blocks', () => {
   const loc = DslEdit.locate(dsl);
-  assert.deepEqual(loc.elements.map(e => e.name), ['Pricing', 'Pricing API', 'Quotes DB']);
+  assert.deepEqual(loc.elements.map(e => e.name), ['Fares', 'Fares API', 'Bookings DB']);
 });

@@ -2,6 +2,9 @@
    after boot, so nothing here runs at load). */
 async function chooseCodebase() {
   const p = await host.chooseCodebase(); if (!p) return false;
+  return setCodebase(p);
+}
+async function setCodebase(p) {
   let cfg = {}; const t = await readText('designc.json');
   if (t) { try { cfg = JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return false; } }
   cfg.model = cfg.model || A.cfg.model; cfg.codebase = p;

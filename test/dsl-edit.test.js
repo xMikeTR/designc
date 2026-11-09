@@ -4,7 +4,7 @@ const fs = require('fs');
 const path = require('path');
 const Core = require('../renderer/core.js');
 const D = require('../renderer/canvas/dsl-edit.js');
-const SRC = fs.readFileSync(path.join(__dirname, 'pricing.dsl'), 'utf8');
+const SRC = fs.readFileSync(path.join(__dirname, 'fares.dsl'), 'utf8');
 const ok = text => { const m = Core.parse(text); assert.deepEqual(m.errors, [], 'DSL must still parse:\n' + text); return m; };
 const byName = (m, n) => [...m.elements.values()].find(e => e.name === n);
 
@@ -17,16 +17,16 @@ test('locate lines up with Core.parse', () => {
 });
 
 test('add a container inside a system', () => {
-  const r = D.addElement(SRC, { kind: 'container', name: 'Quote Agent', technology: 'MAF', tags: ['Agent'], parent: 'pricing', props: { 'd.agent.autonomy': 'approve-writes' } });
-  const m = ok(r.text); const el = byName(m, 'Quote Agent');
-  assert.equal(el.parent, 'pricing'); assert.equal(el.technology, 'MAF'); assert.ok(el.tags.has('Agent'));
-  assert.equal(el.props['d.agent.autonomy'], 'approve-writes'); assert.equal(r.ident, 'quoteAgent');
+  const r = D.addElement(SRC, { kind: 'container', name: 'Booking Agent', technology: 'MAF', tags: ['Agent'], parent: 'fares', props: { 'd.agent.autonomy': 'approve-writes' } });
+  const m = ok(r.text); const el = byName(m, 'Booking Agent');
+  assert.equal(el.parent, 'fares'); assert.equal(el.technology, 'MAF'); assert.ok(el.tags.has('Agent'));
+  assert.equal(el.props['d.agent.autonomy'], 'approve-writes'); assert.equal(r.ident, 'bookingAgent');
 });
 
 test('people and systems go before the first relationship', () => {
-  const r = D.addElement(SRC, { kind: 'person', name: 'Broker' });
-  const m = ok(r.text); const broker = byName(m, 'Broker');
-  assert.ok(broker.line < Math.min(...m.rels.map(x => x.line)));
+  const r = D.addElement(SRC, { kind: 'person', name: 'Reseller' });
+  const m = ok(r.text); const reseller = byName(m, 'Reseller');
+  assert.ok(reseller.line < Math.min(...m.rels.map(x => x.line)));
 });
 
 test('adding a container to a system without a body creates the body', () => {
@@ -45,45 +45,45 @@ test('relationships get identifiers added when missing', () => {
 });
 
 test('set, update and remove properties on elements', () => {
-  let t = D.setProperty(SRC, { kind: 'element', ref: 'quotes' }, 'd.owner', 'Pricing team').text;   // no body yet
-  assert.equal(byName(ok(t), 'Quotes DB').props['d.owner'], 'Pricing team');
-  t = D.setProperty(t, { kind: 'element', ref: 'quotes' }, 'd.owner', 'Platform').text;
-  assert.equal(byName(ok(t), 'Quotes DB').props['d.owner'], 'Platform');
-  t = D.setProperty(t, { kind: 'element', ref: 'quotes' }, 'd.owner', '').text;
-  const q = byName(ok(t), 'Quotes DB'); assert.equal(q.props['d.owner'], undefined);
-  assert.ok(!/quotes = container[^\n]*\{\s*properties \{\s*\}/.test(t), 'empty properties block removed');
+  let t = D.setProperty(SRC, { kind: 'element', ref: 'bookings' }, 'd.owner', 'Fares team').text;   // no body yet
+  assert.equal(byName(ok(t), 'Bookings DB').props['d.owner'], 'Fares team');
+  t = D.setProperty(t, { kind: 'element', ref: 'bookings' }, 'd.owner', 'Platform').text;
+  assert.equal(byName(ok(t), 'Bookings DB').props['d.owner'], 'Platform');
+  t = D.setProperty(t, { kind: 'element', ref: 'bookings' }, 'd.owner', '').text;
+  const q = byName(ok(t), 'Bookings DB'); assert.equal(q.props['d.owner'], undefined);
+  assert.ok(!/bookings = container[^\n]*\{\s*properties \{\s*\}/.test(t), 'empty properties block removed');
   t = D.setProperty(SRC, { kind: 'element', ref: 'api' }, 'd.instances', '4').text;
-  assert.equal(byName(ok(t), 'Pricing API').props['d.instances'], '4');
+  assert.equal(byName(ok(t), 'Fares API').props['d.instances'], '4');
 });
 
 test('set properties on relationships, found by line', () => {
-  const m = Core.parse(SRC); const rel = m.rels.find(r => r.src === 'referrals' && r.dst === 'quotes');
-  let t = D.setProperty(SRC, { kind: 'relationship', ref: { line: rel.line, src: 'referrals', dst: 'quotes' } }, 'd.concurrency', 'optimistic').text;
-  const m2 = ok(t); assert.equal(m2.rels.find(r => r.src === 'referrals' && r.dst === 'quotes').props['d.concurrency'], 'optimistic');
+  const m = Core.parse(SRC); const rel = m.rels.find(r => r.src === 'escalations' && r.dst === 'bookings');
+  let t = D.setProperty(SRC, { kind: 'relationship', ref: { line: rel.line, src: 'escalations', dst: 'bookings' } }, 'd.concurrency', 'optimistic').text;
+  const m2 = ok(t); assert.equal(m2.rels.find(r => r.src === 'escalations' && r.dst === 'bookings').props['d.concurrency'], 'optimistic');
   const r0 = m.rels.find(r => r.src === 'portal');
   t = D.setProperty(SRC, { kind: 'relationship', ref: { line: r0.line } }, 'd.encrypted', 'yes').text;
   assert.equal(ok(t).rels.find(r => r.src === 'portal').props['d.encrypted'], 'yes');
 });
 
 test('header fields', () => {
-  let t = D.setField(SRC, { kind: 'element', ref: 'quotes' }, 'name', 'Quote Store').text;
-  assert.ok(byName(ok(t), 'Quote Store'));
-  t = D.setField(SRC, { kind: 'element', ref: 'underwriter' }, 'description', 'Prices risks').text;
-  assert.equal(byName(ok(t), 'Underwriter').description, 'Prices risks');
-  t = D.setField(SRC, { kind: 'element', ref: 'rating' }, 'technology', 'F# 9').text;
-  assert.equal(byName(ok(t), 'Rating Engine').technology, 'F# 9');
-  const rel = Core.parse(SRC).rels.find(r => r.src === 'api' && r.dst === 'rating');
+  let t = D.setField(SRC, { kind: 'element', ref: 'bookings' }, 'name', 'Booking Store').text;
+  assert.ok(byName(ok(t), 'Booking Store'));
+  t = D.setField(SRC, { kind: 'element', ref: 'traveller' }, 'description', 'Prices risks').text;
+  assert.equal(byName(ok(t), 'Traveller').description, 'Prices risks');
+  t = D.setField(SRC, { kind: 'element', ref: 'surcharge' }, 'technology', 'F# 9').text;
+  assert.equal(byName(ok(t), 'Surcharge Engine').technology, 'F# 9');
+  const rel = Core.parse(SRC).rels.find(r => r.src === 'api' && r.dst === 'surcharge');
   t = D.setField(SRC, { kind: 'relationship', ref: { line: rel.line } }, 'description', 'Rates the layer').text;
-  assert.equal(ok(t).rels.find(r => r.src === 'api' && r.dst === 'rating').description, 'Rates the layer');
+  assert.equal(ok(t).rels.find(r => r.src === 'api' && r.dst === 'surcharge').description, 'Rates the layer');
 });
 
 test('delete an element removes its relationships; delete a system removes its children', () => {
-  let t = D.deleteElement(SRC, 'referrals').text; let m = ok(t);
-  assert.equal(byName(m, 'Referral Worker'), undefined);
-  assert.ok(!m.rels.some(r => r.src === 'referrals' || r.dst === 'referrals'));
+  let t = D.deleteElement(SRC, 'escalations').text; let m = ok(t);
+  assert.equal(byName(m, 'Escalation Worker'), undefined);
+  assert.ok(!m.rels.some(r => r.src === 'escalations' || r.dst === 'escalations'));
   assert.equal(m.rels.length, Core.parse(SRC).rels.length - 2);
-  t = D.deleteElement(SRC, 'pricing').text; m = ok(t);
-  assert.deepEqual([...m.elements.values()].map(e => e.name).sort(), ['Cat Model Vendor', 'Underwriter']);
+  t = D.deleteElement(SRC, 'fares').text; m = ok(t);
+  assert.deepEqual([...m.elements.values()].map(e => e.name).sort(), ['Traveller', 'Weather Feed Vendor']);
   assert.equal(m.rels.length, 0);
 });
 
@@ -94,9 +94,9 @@ test('delete a relationship', () => {
 });
 
 test('tags', () => {
-  const t = D.addTag(SRC, 'rating', 'Agent').text;
-  const el = byName(ok(t), 'Rating Engine'); assert.ok(el.tags.has('Agent')); assert.equal(el.technology, 'F#');
-  assert.ok(byName(ok(D.addTag(SRC, 'underwriter', 'VIP').text), 'Underwriter').tags.has('VIP'));
+  const t = D.addTag(SRC, 'surcharge', 'Agent').text;
+  const el = byName(ok(t), 'Surcharge Engine'); assert.ok(el.tags.has('Agent')); assert.equal(el.technology, 'F#');
+  assert.ok(byName(ok(D.addTag(SRC, 'traveller', 'VIP').text), 'Traveller').tags.has('VIP'));
 });
 
 test('comments and formatting survive edits', () => {
@@ -108,15 +108,15 @@ test('comments and formatting survive edits', () => {
 });
 
 test('snippets get a unique prefix', () => {
-  const snip = { elements: '{p}_agent = softwareSystem "Agent {p}"', relationships: '{p}_agent -> pricing "Uses"' };
+  const snip = { elements: '{p}_agent = softwareSystem "Agent {p}"', relationships: '{p}_agent -> fares "Uses"' };
   let r = D.insertSnippet(SRC, snip, 'rag'); ok(r.text); assert.equal(r.prefix, 'rag');
   r = D.insertSnippet(r.text, snip, 'rag'); const m = ok(r.text); assert.equal(r.prefix, 'rag2');
   assert.ok(byName(m, 'Agent rag2'));
 });
 
 test('identFor avoids keywords and collisions', () => {
-  assert.equal(D.identFor('Quotes DB', new Set()), 'quotesDB');
-  assert.equal(D.identFor('Quotes DB', new Set(['quotesDB'])), 'quotesDB2');
+  assert.equal(D.identFor('Bookings DB', new Set()), 'bookingsDB');
+  assert.equal(D.identFor('Bookings DB', new Set(['bookingsDB'])), 'bookingsDB2');
   assert.equal(D.identFor('model', new Set()), 'model2');
   assert.equal(D.identFor('3rd party', new Set()), 'e3rdParty');
 });

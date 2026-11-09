@@ -7,13 +7,13 @@ const Work = require('../renderer/work.js');
 
 const C1 = '3f2a9c1d5e7b8a0c4d6e8f0a1b2c3d4e5f6a7b8c';
 const C2 = 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa';
-const item = (parity = 'all') => ({ id: 'W-p', requirement: 'DEMO-1', elements: ['Pricing API'], done_when: [{ gate: 'npm test' }, { parity }] });
+const item = (parity = 'all') => ({ id: 'W-p', requirement: 'DEMO-1', elements: ['Fares API'], done_when: [{ gate: 'npm test' }, { parity }] });
 const gate = { kind: 'item_gate', item: 'W-p', gate: 'npm test', outcome: 'pass', commit: C1, dirty: false, _ts: 1 };
 const res = (scenario, outcome, o = {}) => ({ kind: 'parity_result', scenario, commit: C1, outcome, failures: outcome === 'fail' ? [{ step: 1, key: 'k', kind: 'text', msg: 'm' }] : [], _ts: 10, ...o });
 const done = (it, events, scenarios = ['a', 'b']) => Work.doneProblems(it, { events: [gate, ...events], commit: C1, onMain: true, scenarios });
 
 test('validate: parity only on a repo item, a known scenario when the ids are given, and still a gate', () => {
-  const ctx = { requirements: [{ id: 'DEMO-1', elements: ['Pricing API'] }], items: [], scenarios: ['a'] };
+  const ctx = { requirements: [{ id: 'DEMO-1', elements: ['Fares API'] }], items: [], scenarios: ['a'] };
   assert.deepEqual(Work.validate(item('a'), ctx), []);
   assert.deepEqual(Work.validate(item('all'), ctx), []);
   assert.deepEqual(Work.validate(item('zzz'), ctx), ['W-p: done_when entry 2 names parity scenario zzz, which is not in parity/scenarios/.']);

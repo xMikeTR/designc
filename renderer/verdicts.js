@@ -11,7 +11,7 @@
    verdict pinned to another commit does not count and is listed in stale; a verdict with no commit counts at any.
    Bound verdicts that agree give that verdict with their evidence; verdicts that disagree give null and conflict.
    A verdict record that does not validate never counts and is listed in invalid with its errors (a YAML number for
-   commit is the usual one: quote it).
+   commit is the usual one: booking it).
    With resolve (ref -> canonical element id or null, e.g. the hierarchical id System/Container), every el: ref in the
    scope and in the verdicts is read through it, so el:<name> and el:<System/Container> meet on one node; el: nodes then
    carry name. A ref resolve cannot place (unknown, or a name two elements share) is kept as written. */

@@ -6,28 +6,28 @@ const RI = require('../renderer/requirement-import.js');
 const md = (front, body = '# Heading\n\nText.\n') => `---\n${front}\n---\n${body}`;
 
 test('markdown front matter gives id, title, source and version', () => {
-  const r = RI.read({ name: 'page.md', text: md('id: DEMO-12\ntitle: Quote edits are kept\nsource: https://wiki.example/p/1\nversion: 4') });
-  assert.deepEqual(r, { ok: true, id: 'DEMO-12', title: 'Quote edits are kept', source: 'https://wiki.example/p/1', version: '4', problems: [] });
+  const r = RI.read({ name: 'page.md', text: md('id: DEMO-12\ntitle: Booking edits are kept\nsource: https://wiki.example/p/1\nversion: 4') });
+  assert.deepEqual(r, { ok: true, id: 'DEMO-12', title: 'Booking edits are kept', source: 'https://wiki.example/p/1', version: '4', problems: [] });
 });
 
 test('markdown without front matter takes the first heading as title and the file name as source', () => {
-  const r = RI.read({ name: 'quote-edits.md', text: '# Quote edits are kept\n\nBody.\n' });
-  assert.equal(r.title, 'Quote edits are kept');
-  assert.equal(r.source, 'quote-edits.md');
+  const r = RI.read({ name: 'booking-edits.md', text: '# Booking edits are kept\n\nBody.\n' });
+  assert.equal(r.title, 'Booking edits are kept');
+  assert.equal(r.source, 'booking-edits.md');
   assert.equal(r.id, null);
 });
 
 test('a Jira-style key in the title or file name becomes the id, front matter wins', () => {
-  assert.equal(RI.read({ name: 'a.md', text: '# DEMO-99 Referral status\n' }).id, 'DEMO-99');
+  assert.equal(RI.read({ name: 'a.md', text: '# DEMO-99 Escalation status\n' }).id, 'DEMO-99');
   assert.equal(RI.read({ name: 'DEMO-7 notes.md', text: '# Notes\n' }).id, 'DEMO-7');
   assert.equal(RI.read({ name: 'a.md', text: md('id: ABC-1', '# DEMO-99 x\n') }).id, 'ABC-1');
 });
 
 test('html export gives title, canonical url and page version from metadata', () => {
-  const html = '<html><head><title>Quote edits &amp; referrals</title><link rel="canonical" href="https://wiki.example/p/2">'
+  const html = '<html><head><title>Booking edits &amp; escalations</title><link rel="canonical" href="https://wiki.example/p/2">'
     + '<meta name="confluence-page-version" content="12"></head><body><h1>Other</h1></body></html>';
   const r = RI.read({ name: 'p2.html', text: html });
-  assert.equal(r.title, 'Quote edits & referrals');
+  assert.equal(r.title, 'Booking edits & escalations');
   assert.equal(r.source, 'https://wiki.example/p/2');
   assert.equal(r.version, '12');
 });
@@ -72,11 +72,11 @@ test('plan: new, unchanged and changed against existing requirements', () => {
 
 test('plan: no key means a slug of the title, made unique against existing ids and the batch', () => {
   const files = [
-    { name: 'a.md', text: '# Quote edits are kept\n' },
-    { name: 'b.md', text: '# Quote edits are kept\n\nDifferent body\n' },
+    { name: 'a.md', text: '# Booking edits are kept\n' },
+    { name: 'b.md', text: '# Booking edits are kept\n\nDifferent body\n' },
   ];
   const p = RI.plan(files, { existing: [] });
-  assert.deepEqual(p.items.map(i => i.id), ['quote-edits-are-kept', 'quote-edits-are-kept-2']);
+  assert.deepEqual(p.items.map(i => i.id), ['booking-edits-are-kept', 'booking-edits-are-kept-2']);
 });
 
 test('plan: a repeated key in the batch is a problem and only the first is imported', () => {
@@ -95,23 +95,23 @@ test('plan: unparseable pages are listed as invalid and counted, not dropped', (
 });
 
 test('toYaml writes only id, title, source, version and an empty elements list, never page text', () => {
-  const [item] = RI.plan([{ name: 'DEMO-5.md', text: md('title: Referral: keep edits\nsource: https://w/x\nversion: 2', '# H\n\nSECRET BODY\n') }], { existing: [] }).items;
+  const [item] = RI.plan([{ name: 'DEMO-5.md', text: md('title: Escalation: keep edits\nsource: https://w/x\nversion: 2', '# H\n\nSECRET BODY\n') }], { existing: [] }).items;
   const y = RI.toYaml(item);
   assert.equal(y.includes('SECRET'), false);
   assert.match(y, /^id: DEMO-5\n/);
-  assert.match(y, /title: "Referral: keep edits"/);
+  assert.match(y, /title: "Escalation: keep edits"/);
   assert.match(y, /elements: \[\]\n$/);
 });
 
 test('toYaml keeps existing elements when a changed page is updated', () => {
   const [item] = RI.plan([{ name: 'DEMO-5.md', text: md('title: T\nversion: 9') }], { existing: [{ id: 'DEMO-5', version: 1 }] }).items;
-  assert.match(RI.toYaml(item, { elements: ['Quotes DB'] }), /elements: \["Quotes DB"\]/);
+  assert.match(RI.toYaml(item, { elements: ['Bookings DB'] }), /elements: \["Bookings DB"\]/);
 });
 
 test('plan: a page with no key that was imported before keeps its id by source, so a re-import is not renamed', () => {
-  const files = [{ name: 'a.md', text: md('title: Quote edits are kept\nsource: https://w/p/1\nversion: 2') }];
-  const p = RI.plan(files, { existing: [{ id: 'quote-edits-are-kept', version: 1, source: 'https://w/p/1' }] });
-  assert.deepEqual([p.items[0].id, p.items[0].status], ['quote-edits-are-kept', 'changed']);
+  const files = [{ name: 'a.md', text: md('title: Booking edits are kept\nsource: https://w/p/1\nversion: 2') }];
+  const p = RI.plan(files, { existing: [{ id: 'booking-edits-are-kept', version: 1, source: 'https://w/p/1' }] });
+  assert.deepEqual([p.items[0].id, p.items[0].status], ['booking-edits-are-kept', 'changed']);
 });
 
 test('plan: an id that is not safe as a file name is invalid, never written to a path', () => {
@@ -122,7 +122,7 @@ test('plan: an id that is not safe as a file name is invalid, never written to a
 
 test('setElements changes only the elements line, in flow or block form, and keeps title, source and version', () => {
   const flow = 'id: DEMO-5\ntitle: "T"\nsource: "https://w/x"\nversion: 2\nelements: []\n';
-  assert.equal(RI.setElements(flow, ['Quotes DB', 'Rating API']), 'id: DEMO-5\ntitle: "T"\nsource: "https://w/x"\nversion: 2\nelements: ["Quotes DB","Rating API"]\n');
+  assert.equal(RI.setElements(flow, ['Bookings DB', 'Surcharge API']), 'id: DEMO-5\ntitle: "T"\nsource: "https://w/x"\nversion: 2\nelements: ["Bookings DB","Surcharge API"]\n');
   const block = 'id: R\ntitle: T\nelements:\n  - Old\n  - Older\nversion: 3\n';
   assert.equal(RI.setElements(block, ['New']), 'id: R\ntitle: T\nelements: ["New"]\nversion: 3\n');
   assert.equal(RI.setElements('id: R\ntitle: T\n', ['A']), 'id: R\ntitle: T\nelements: ["A"]\n');

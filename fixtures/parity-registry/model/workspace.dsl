@@ -1,10 +1,10 @@
-workspace "Quotes" {
+workspace "Bookings" {
   model {
-    broker = person "Broker"
-    quotes = softwareSystem "Quotes" {
-      api = container "Quotes API" "Prices a quote" "ASP.NET Core"
+    reseller = person "Reseller"
+    bookings = softwareSystem "Bookings" {
+      api = container "Bookings API" "Prices a booking" "ASP.NET Core"
     }
-    broker -> api "Requests a quote" "HTTPS" {
+    reseller -> api "Requests a booking" "HTTPS" {
       properties {
         "d.interaction" "sync"
       }

@@ -43,10 +43,10 @@ test('a container without components renders exactly as in slice 1', async () =>
   const three = dsl.render('x', els, edges);
   assert.equal(dsl.render('x', els, edges, new Map(), []), three);
   assert.ok(!three.includes(' = component '));
-  const partial = new Map([[`${keyOf('Pricing.Api')}|a`, { key: 'a', name: 'A', owner: keyOf('Pricing.Api') }]]);
+  const partial = new Map([[`${keyOf('Fares.Api')}|a`, { key: 'a', name: 'A', owner: keyOf('Fares.Api') }]]);
   const nested = dsl.render('x', els, edges, partial, []);
   assert.equal(nested.match(/ = component /g).length, 1);
-  assert.ok(nested.includes('e_rating' + 'engine = container "Rating.Engine" "" "ASP.NET Core (F#)"\n'));
+  assert.ok(nested.includes('e_surcharge' + 'engine = container "Surcharge.Engine" "" "ASP.NET Core (F#)"\n'));
 });
 
 const rollupSet = (r, edges) => {

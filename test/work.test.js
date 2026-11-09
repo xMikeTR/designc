@@ -2,9 +2,9 @@ const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Work = require('../renderer/work.js');
 
-const ctx = { requirements: [{ id: 'DEMO-1', elements: ['Pricing API', 'Quotes DB'] }], items: ['W-base'] };
+const ctx = { requirements: [{ id: 'DEMO-1', elements: ['Fares API', 'Bookings DB'] }], items: ['W-base'] };
 const repoItem = (o = {}) => ({
-  id: 'W-quote', requirement: 'DEMO-1', elements: ['Pricing API'], writes: ['src/Api/**'],
+  id: 'W-booking', requirement: 'DEMO-1', elements: ['Fares API'], writes: ['src/Api/**'],
   done_when: [{ gate: 'dotnet test' }], ...o,
 });
 
@@ -66,9 +66,9 @@ test('state follows the ledger: backlog, active, done', () => {
 });
 
 test('conflicts: overlapping writes, shared element, same document or jira key', () => {
-  const a = repoItem({ id: 'A', writes: ['src/Api/**'], elements: ['Pricing API'] });
-  const byWrites = repoItem({ id: 'B', writes: ['src/Api/Quotes/*.cs'], elements: ['Other'] });
-  const byElement = repoItem({ id: 'C', writes: ['docs/**'], elements: ['Pricing API'] });
+  const a = repoItem({ id: 'A', writes: ['src/Api/**'], elements: ['Fares API'] });
+  const byWrites = repoItem({ id: 'B', writes: ['src/Api/Bookings/*.cs'], elements: ['Other'] });
+  const byElement = repoItem({ id: 'C', writes: ['docs/**'], elements: ['Fares API'] });
   const none = repoItem({ id: 'D', writes: ['docs/**'], elements: ['Other'] });
   const r = Work.conflicts(a, [byWrites, byElement, none]);
   assert.deepEqual(r.map(c => [c.with, c.reason]), [['B', 'writes'], ['C', 'element']]);
@@ -80,7 +80,7 @@ test('conflicts: overlapping writes, shared element, same document or jira key',
 });
 
 const C1 = '3f2a9c1d5e7b8a0c4d6e8f0a1b2c3d4e5f6a7b8c';
-const gate = (o = {}) => ({ kind: 'item_gate', item: 'W-quote', gate: 'dotnet test', outcome: 'pass', commit: C1, dirty: false, _ts: 10, ...o });
+const gate = (o = {}) => ({ kind: 'item_gate', item: 'W-booking', gate: 'dotnet test', outcome: 'pass', commit: C1, dirty: false, _ts: 10, ...o });
 const okCtx = (o = {}) => ({ events: [gate()], commit: C1, onMain: true, ticks: [], ...o });
 
 test('done: nothing missing when the commit is on main and every gate passed at it', () => {
@@ -120,18 +120,18 @@ test('done: a non-repo item needs no commit', () => {
 
 // Slice 23: scope flags.
 test('an element the requirement does not list is flagged on the item', () => {
-  const p = Work.validate(repoItem({ elements: ['Pricing API', 'Billing API'] }), ctx);
-  assert.deepEqual(p.filter(m => /Billing API/.test(m)), ['W-quote: Billing API is not an element of requirement DEMO-1. Add it to the requirement, or take it out of this item.']);
+  const p = Work.validate(repoItem({ elements: ['Fares API', 'Billing API'] }), ctx);
+  assert.deepEqual(p.filter(m => /Billing API/.test(m)), ['W-booking: Billing API is not an element of requirement DEMO-1. Add it to the requirement, or take it out of this item.']);
 });
 
 test('a requirement element no item covers is reported, only for requirements that have an item', () => {
-  const reqs = [{ id: 'DEMO-1', elements: ['Pricing API', 'Quotes DB'] }, { id: 'DEMO-2', elements: ['Portal'] }];
+  const reqs = [{ id: 'DEMO-1', elements: ['Fares API', 'Bookings DB'] }, { id: 'DEMO-2', elements: ['Portal'] }];
   const items = [repoItem(), { id: 'W-doc', target: { document: 'x' }, done_when: [{ checklist: 'a' }] }];
-  assert.deepEqual(Work.coverage(items, reqs), [{ requirement: 'DEMO-1', element: 'Quotes DB', items: ['W-quote'] }]);
+  assert.deepEqual(Work.coverage(items, reqs), [{ requirement: 'DEMO-1', element: 'Bookings DB', items: ['W-booking'] }]);
 });
 
 test('addToList appends to a flow list, an empty list, a block list or a missing key', () => {
-  assert.equal(Work.addToList('id: a\nelements: [Pricing API]\nx: 1\n', 'elements', 'Quotes DB'), 'id: a\nelements: [Pricing API, Quotes DB]\nx: 1\n');
+  assert.equal(Work.addToList('id: a\nelements: [Fares API]\nx: 1\n', 'elements', 'Bookings DB'), 'id: a\nelements: [Fares API, Bookings DB]\nx: 1\n');
   assert.equal(Work.addToList('elements: []\n', 'elements', 'A'), 'elements: [A]\n');
   assert.equal(Work.addToList('elements:\n  - A\n  - B\nnext: 1\n', 'elements', 'C'), 'elements:\n  - A\n  - B\n  - C\nnext: 1\n');
   assert.equal(Work.addToList('id: a\n', 'elements', 'A'), 'id: a\nelements: [A]\n');

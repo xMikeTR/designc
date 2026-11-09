@@ -8,8 +8,8 @@ test('rebindable: decisions blocked only by a promotion clause, once each, in or
   const g = gate([
     { kind: 'promotion', text: 'D-2 is bound without a fingerprint', decision: 'D-2' },
     { kind: 'decision', text: 'D-3 has no check', decision: 'D-3' },
-    { kind: 'promotion', text: 'D-1: Quotes DB changed since promotion', decision: 'D-1' },
-    { kind: 'promotion', text: 'D-2: Quotes Svc changed since promotion', decision: 'D-2' },
+    { kind: 'promotion', text: 'D-1: Bookings DB changed since promotion', decision: 'D-1' },
+    { kind: 'promotion', text: 'D-2: Bookings Svc changed since promotion', decision: 'D-2' },
   ]);
   assert.deepEqual(Core.rebindable(g), ['D-2', 'D-1']);
 });

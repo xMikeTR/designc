@@ -7,8 +7,8 @@ const Core = require('../renderer/core.js');
 const root = path.join(__dirname, '..');
 const read = p => fs.readFileSync(path.join(root, p), 'utf8');
 const model = { path: 'model/workspace.dsl', text: read('fixtures/domain-project/model/workspace.dsl') };
-const behaviour = [{ path: 'behaviour/quotes.p', text: read('fixtures/domain-project/behaviour/quotes.p') }];
-const pack = { key: 'pricing', text: read('fixtures/domain-registry/domain/pricing.yaml') };
+const behaviour = [{ path: 'behaviour/bookings.p', text: read('fixtures/domain-project/behaviour/bookings.p') }];
+const pack = { key: 'fares', text: read('fixtures/domain-registry/domain/fares.yaml') };
 const plan = (extra = {}) => Core.handoverPlan({ date: '2026-10-18', now: '2026-10-18T00:00:00Z', by: 't', model, behaviour, domain: [pack], ...extra });
 const file = (p, name) => p.files.find(f => f.path.endsWith('/' + name));
 
@@ -20,11 +20,11 @@ test('domain.json matches the pinned example and the schema constants', () => {
 
 test('the pack copy is verbatim, in the id hash, and listed in handover.yaml with domain.json', () => {
   const p = plan(), other = plan({ domain: [{ ...pack, text: pack.text + '\n# edited\n' }] });
-  assert.equal(file(p, 'domain/pricing.yaml').text, pack.text);
+  assert.equal(file(p, 'domain/fares.yaml').text, pack.text);
   assert.notEqual(p.id, other.id);
   const y = file(p, 'handover.yaml').text;
   assert.match(y, /^domain: "domain.json"$/m);
-  assert.match(y, /path: "domain\/pricing.yaml"/);
+  assert.match(y, /path: "domain\/fares.yaml"/);
   assert.match(y, /path: "domain.json"/);
 });
 
