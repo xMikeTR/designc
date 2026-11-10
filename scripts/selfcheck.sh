@@ -179,7 +179,8 @@ any_fail=0; restore_failed=0; cnr=0
 user="$(id -u):$(id -g)"
 cargs=(--init --cap-drop ALL --security-opt no-new-privileges --user "$user" --tmpfs /tmp:exec,mode=1777
        -v "$tree:$tree" -v "$npm_cache:/npm" -w "$tree"
-       -e HOME=/tmp/home -e npm_config_cache=/npm -e npm_config_update_notifier=false)
+       -e HOME=/tmp/home -e npm_config_cache=/npm -e npm_config_update_notifier=false
+       -e GIT_AUTHOR_NAME=selfcheck -e GIT_AUTHOR_EMAIL=selfcheck@localhost -e GIT_COMMITTER_NAME=selfcheck -e GIT_COMMITTER_EMAIL=selfcheck@localhost)
 if [ "$local_run" = 0 ]; then
   "$engine" run -d --rm --name "$cname" --network none "${cargs[@]}" "$image" sleep infinity >/dev/null \
     || { echo "selfcheck: could not start the container from $image" >&2; exit 2; }
