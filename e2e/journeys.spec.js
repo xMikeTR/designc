@@ -455,4 +455,10 @@ test('user can see health on the C4 sheet @critical', async () => {
   await expect(api.locator('text', { hasText: /^14$/ })).toHaveCount(1);
   await expect(api.locator('.chip')).toHaveText(['idempotent: declared', 'cached: declared']);
   await expect(page.locator('#sheetscroll .chip')).toHaveCount(2); // nothing is drawn for elements the file does not mention
+  // Headline numbers on the title block; selecting the element adds its findings by category.
+  const block = page.locator('#titleblock');
+  await expect(block).toContainText('2 properties'); // both claimed, neither verified
+  await expect(block).toContainText('3 findings');
+  await api.click();
+  await expect(block).toContainText('8 smell, 3 duplication, 2 dead-code, 1 security (2 new)');
 });

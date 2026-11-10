@@ -1929,9 +1929,18 @@ function renderSheet() {
     <tr><td class="k">Findings</td><td>${plural(live.filter(d => d.sev === 'error').length, 'error')}, ${plural(live.filter(d => d.sev === 'warning').length, 'warning')}</td></tr>
     <tr><td class="k">Gate</td><td class="${A.gate.ready ? 'ok' : 'no'}">${A.gate.ready ? 'Ready to hand over' : `${A.gate.clauses.length} blocking`}</td></tr>
     <tr><td class="k">As built</td><td>${A.drift ? (A.drift.undeclared.length + A.drift.unknownEls.length ? `<span class="no">${plural(A.drift.undeclared.length + A.drift.unknownEls.length, 'difference')}</span>` : '<span class="ok">matches the design</span>') : 'not mapped'}</td></tr>
+    ${healthRows(health, byLabel, m)}
     <tr><td class="k">Handover</td><td>${last ? `${esc(last.id)} at ${esc(last.revision)}` : 'none yet'}</td></tr></table>`;
 }
 
+// Title-block rows for the health overlay: the two headline numbers, then the selected element's findings by category.
+function healthRows(health, byLabel, m) {
+  if (!health) return '';
+  const rows = [['Not verified', plural(health.headline.unverified, 'property')], ['Unmapped', plural(health.headline.unmapped, 'finding')]];
+  const sel = A.selected && m.elements.has(A.selected) && health.byElement[m.label(A.selected)];
+  if (sel && sel.badge) rows.push([esc(m.elements.get(A.selected).name), Object.entries(sel.badge.byCategory).map(([c, n]) => `${n} ${esc(c)}`).join(', ') + (sel.badge.new ? ` (${sel.badge.new} new)` : '')]);
+  return rows.map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join('');
+}
 const CHIP_COL = { verified: 'var(--ok)', violated: 'var(--err)', unknown: 'var(--warn)', declared: 'var(--ink3)', inferred: 'var(--ink3)' };
 // One small chip per applicable property under a box, e.g. "idempotent: declared". Unknown and violated are coloured to draw the eye.
 function chipsSvg(n, chips) {

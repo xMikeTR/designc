@@ -23,7 +23,7 @@ const HealthOverlay = (() => {
     let unverified = 0;
     for (const [id, el] of Object.entries(health.elements)) {
       const f = el && el.findings;
-      const badge = f && f.total > 0 ? { count: f.total, new: f.new || 0, worst: worst(f.byLevel) } : null;
+      const badge = f && f.total > 0 ? { count: f.total, new: f.new || 0, worst: worst(f.byLevel), byCategory: f.byCategory || {} } : null;
       const claimed = claims(id) || {};
       const chips = [];
       for (const property of PROPERTIES) {

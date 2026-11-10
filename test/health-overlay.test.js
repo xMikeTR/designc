@@ -5,7 +5,7 @@ const HealthOverlay = require('../renderer/health-overlay.js');
 const health = () => ({
   elements: {
     'Pricing/Quotes': {
-      findings: { total: 14, new: 2, byLevel: { error: 0, warning: 9, note: 5 } },
+      findings: { total: 14, new: 2, byLevel: { error: 0, warning: 9, note: 5 }, byCategory: { smell: 8, duplication: 3 } },
       properties: {
         idempotent: { applicable: true, evidence: [{ kind: 'check', result: 'pass', commit: 'a1' }] },
         cached: { applicable: true, evidence: [] },
@@ -23,7 +23,7 @@ test('no health file: nothing is drawn', () => {
 
 test('badge carries the count, the new count and the worst level', () => {
   const o = HealthOverlay.build({ health: health() });
-  assert.deepEqual(o.byElement['Pricing/Quotes'].badge, { count: 14, new: 2, worst: 'warning' });
+  assert.deepEqual(o.byElement['Pricing/Quotes'].badge, { count: 14, new: 2, worst: 'warning', byCategory: { smell: 8, duplication: 3 } });
   assert.equal(o.byElement['Pricing/Empty'].badge, null);
 });
 
