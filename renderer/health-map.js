@@ -4,7 +4,7 @@
    A finding belongs to the deepest element whose path glob matches its file, and counts roll up to every ancestor.
    A pure function of three inputs (SARIF, element paths, config), so it is tested without running any analyzer. */
 const HealthMap = (() => {
-  const PathPattern = typeof module === 'object' && typeof require === 'function' ? require('./pathpattern.js') : globalThis.PathPattern;
+  const PP = typeof module === 'object' && typeof require === 'function' ? require('./pathpattern.js') : PathPattern;
 
   const DEFAULT_CATEGORY = 'smell';
 
@@ -30,7 +30,7 @@ const HealthMap = (() => {
 
   // Longest glob wins. "Longest" is read as most specific: more literal segments first, then more segments in all.
   const specificity = glob => {
-    const p = PathPattern.create(glob);
+    const p = PP.create(glob);
     if (!p.ok) return null;
     const literal = p.segs.filter(g => !g.includes('*') && !g.includes('?')).length;
     return [literal, p.segs.length];
@@ -41,7 +41,7 @@ const HealthMap = (() => {
     let best = null;
     for (const el of elements) {
       for (const glob of el.paths || []) {
-        if (!PathPattern.matches(glob, path)) continue;
+        if (!PP.matches(glob, path)) continue;
         const sp = specificity(glob);
         if (!sp) continue;
         if (!best || sp[0] > best.sp[0] || (sp[0] === best.sp[0] && (sp[1] > best.sp[1] || (sp[1] === best.sp[1] && el.id < best.id)))) best = { id: el.id, sp };
@@ -50,7 +50,7 @@ const HealthMap = (() => {
     return best && best.id;
   }
 
-  const excluded = (path, globs) => (globs || []).some(g => PathPattern.matches(g, path));
+  const excluded = (path, globs) => (globs || []).some(g => PP.matches(g, path));
 
   // First matching rule prefix wins; unlisted rules are smells.
   function categoryOf(ruleId, table) {

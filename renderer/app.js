@@ -1902,7 +1902,9 @@ function renderSheet() {
   const TIM_COL = { ok: 'var(--ink3)', violation: 'var(--err)', unknown: 'var(--warn)' };
   const timLabel = (r, t) => [r.description, t.timeout == null ? '' : t.status === 'unknown' ? t.timeout + ' ms vs ?' : `${t.timeout} ms vs ${t.worst} ms`, t.factor > 1 ? '×' + t.factor : ''].filter(Boolean).join(' · ');
   // Health overlay: claims come from the model (a person wrote them); evidence from health.json. Without git wired in yet, no check counts as fresh.
-  const health = A.badges === 'health' ? HealthOverlay.build({ health: A.health, claims: id => { const e = m.elements.get(id); return e ? { idempotent: Core._shared.get(e, 'd.idempotent') === 'yes', cached: Core._shared.get(e, 'd.cached') != null } : {}; } }) : null;
+  // health.json keys are the handover's hierarchical ids (names joined by "/"), which is what m.label builds; the model's own ids are DSL identifiers.
+  const byLabel = new Map([...m.elements.values()].map(e => [m.label(e.id), e]));
+  const health = A.badges === 'health' ? HealthOverlay.build({ health: A.health, claims: id => { const e = byLabel.get(id); return e ? { idempotent: Core._shared.get(e, 'd.idempotent') === 'yes', cached: Core._shared.get(e, 'd.cached') != null } : {}; } }) : null;
   const BLAST_BADGE = { down: ['down', 'var(--err)'], degraded: ['deg', 'var(--warn)'], unknown: ['?', 'var(--ink3)'] };
   host_.innerHTML = drawModel(m, L, {
     attr: 'el', zoom: fitZoom(host_, L, A.zoom),
@@ -1915,7 +1917,7 @@ function renderSheet() {
       const base = { stroke: A.selected === e.id ? 'var(--accent)' : 'var(--ink)', sw: A.selected === e.id ? 2.6 : 1.5 };
       if (tim) { const x = amp.get(e.id); return x > 1 ? { ...base, badge: '×' + x, badgeColor: x > (A.cfg.retryAmplification || 4) ? 'var(--err)' : 'var(--ink3)' } : base; }
       if (A.badges === 'blast') { const b = BLAST_BADGE[blast.get(e.id)]; return b ? { ...base, badge: b[0], badgeColor: b[1] } : base; }
-      if (A.badges === 'health') { const h = health && health.byElement[e.id]; return h ? { ...base, badge: h.badge && h.badge.count, badgeColor: col(h.badge && h.badge.worst), chips: h.chips } : base; }
+      if (A.badges === 'health') { const h = health && health.byElement[m.label(e.id)]; return h ? { ...base, badge: h.badge && h.badge.count, badgeColor: col(h.badge && h.badge.worst), chips: h.chips } : base; }
       if (A.badges === 'findings') return { ...base, badge: elN.get(e.id), badgeColor: col(elSev.get(e.id)) };
       const t = telByEl.get(e.name); if (!t) return base;
       return A.badges === 'cost' ? { ...base, badge: money(t.cost), badgeColor: 'var(--accent)' } : { ...base, badge: t.failed || null, badgeColor: 'var(--err)' };

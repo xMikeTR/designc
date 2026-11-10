@@ -4,7 +4,7 @@
    Joins health.json (evidence) with the model's claims and returns what the sheet draws per element:
    a finding badge (worst level) and one chip per applicable property. Nothing here is stored. */
 const HealthOverlay = (() => {
-  const HealthStatus = typeof module === 'object' && typeof require === 'function' ? require('./health-status.js') : globalThis.HealthStatus;
+  const HS = typeof module === 'object' && typeof require === 'function' ? require('./health-status.js') : HealthStatus;
 
   const PROPERTIES = ['idempotent', 'cached'];
   const LEVELS = ['error', 'warning', 'note']; // worst first; SARIF's own words
@@ -28,13 +28,13 @@ const HealthOverlay = (() => {
       const chips = [];
       for (const property of PROPERTIES) {
         const p = el && el.properties && el.properties[property];
-        const status = HealthStatus.compute({
+        const status = HS.compute({
           claim: !!claimed[property], applicable: p ? p.applicable !== false : false, evidence: p && p.evidence,
           changedSince: changedSince ? commit => changedSince(id, commit) : undefined,
         });
-        if (!p || status === HealthStatus.NOT_APPLICABLE) continue; // no entry: the producer made no statement about it
+        if (!p || status === HS.NOT_APPLICABLE) continue; // no entry: the producer made no statement about it
         chips.push({ property, status });
-        if (status !== HealthStatus.VERIFIED) unverified++;
+        if (status !== HS.VERIFIED) unverified++;
       }
       byElement[id] = { badge, chips };
     }
