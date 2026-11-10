@@ -7,6 +7,8 @@
 //   audit scan <repo> --out <dir> [--project <sln|csproj>] [--tools dotnet,eslint,jscpd,knip] [--sonar]      findings.sarif
 //   audit rollup --sarif <file> --model <registry dir> --out <dir> [--repo <dir>] [--config <file>] [--baseline <file>] [--write-baseline] [--evidence <file>]
 //                                                                        health.json
+//   audit record --out <dir> --element <id> --property <idempotent|cached> --by <check name> --result <pass|fail> [--repo <dir>]
+//                                                                        appends a `check` to <dir>/evidence.json, stamped with the repo's HEAD
 //   audit diff <repo> --base <ref> [--project ...] [--tools ...]            SARIF of findings new since <ref>, on stdout
 // Exit: 0 done (diff: no new findings), 1 (diff only) new findings, 2 could not run (bad arguments, no tool output).
 // Analyzers: dotnet's own (a build of the copy), and eslint/jscpd/knip from audit/tools, installed once into ~/.cache/designc-audit.
@@ -310,9 +312,27 @@ function defaultConfig() {
   };
 }
 
+// Only an executable check may call this: the evidence it writes is what the status model reads as `verified`.
+function record(argv) {
+  const o = parseArgs(argv);
+  if (!o.out || !o.element || !o.property || !o.by || !['pass', 'fail'].includes(o.result)) die('usage: audit record --out <dir> --element <id> --property <name> --by <check> --result <pass|fail> [--repo <dir>]');
+  const git = spawnSync('git', ['rev-parse', 'HEAD'], { cwd: path.resolve(o.repo || '.'), encoding: 'utf8' });
+  if (git.status !== 0) die(`${o.repo || '.'} is not a git repo with a commit: a check must be tied to a commit`);
+  const f = path.join(path.resolve(o.out), 'evidence.json');
+  const all = fs.existsSync(f) ? readJson(f, 'evidence') : {};
+  const list = ((all[o.element] = all[o.element] || {})[o.property] = all[o.element][o.property] || []);
+  // one current entry per check name: a re-run replaces the earlier result
+  const i = list.findIndex(e => e.kind === 'check' && e.by === o.by);
+  const entry = { kind: 'check', by: o.by, result: o.result, commit: git.stdout.trim() };
+  if (i >= 0) list[i] = entry; else list.push(entry);
+  fs.mkdirSync(path.dirname(f), { recursive: true });
+  fs.writeFileSync(f, JSON.stringify(all, null, 2) + '\n');
+  console.log(`${o.element}.${o.property}: ${o.result} by ${o.by} @ ${entry.commit.slice(0, 12)}`);
+}
+
 if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
-  if (cmd === 'scan') scan(rest); else if (cmd === 'rollup') rollup(rest); else if (cmd === 'diff') diff(rest);
-  else die('usage: audit <scan|rollup|diff> ...');
+  if (cmd === 'scan') scan(rest); else if (cmd === 'rollup') rollup(rest); else if (cmd === 'diff') diff(rest); else if (cmd === 'record') record(rest);
+  else die('usage: audit <scan|rollup|diff|record> ...');
 }
 module.exports = { modelElements, stamp, relativise, defaultConfig, parseArgs };
