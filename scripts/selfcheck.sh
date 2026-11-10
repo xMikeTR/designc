@@ -231,7 +231,8 @@ for s in "${stages[@]}"; do
   fi
   echo "selfcheck: $name: $cmd" >&2
   t0=$(date +%s%3N)
-  run_in stage "$secs" "$cmd" > "$out" 2>&1; rc=$?
+  # Background + wait: bash runs a trap only between commands, so a TERM mid-stage would otherwise wait for the stage to end.
+  run_in stage "$secs" "$cmd" > "$out" 2>&1 & wait $!; rc=$?
   ms=$(( $(date +%s%3N) - t0 ))
   if [ $rc -eq 0 ]; then outcome=pass; else
     outcome=fail; any_fail=1
