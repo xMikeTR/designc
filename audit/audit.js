@@ -4,10 +4,12 @@
 // docs: "designc health overlay: schema and first slice", section "Audit CLI". The analysed repo is NEVER written to:
 // scan works on a copy of the committed tree inside --out.
 //
-//   audit scan <repo> --out <dir> [--project <sln|csproj>] [--sonar]      findings.sarif
+//   audit scan <repo> --out <dir> [--project <sln|csproj>] [--tools dotnet,eslint,jscpd,knip] [--sonar]      findings.sarif
 //   audit rollup --sarif <file> --model <registry dir> --out <dir> [--repo <dir>] [--config <file>] [--baseline <file>] [--write-baseline] [--evidence <file>]
 //                                                                        health.json
-// Exit: 0 done, 2 could not run (bad arguments, no tool output).
+//   audit diff <repo> --base <ref> [--project ...] [--tools ...]            SARIF of findings new since <ref>, on stdout
+// Exit: 0 done (diff: no new findings), 1 (diff only) new findings, 2 could not run (bad arguments, no tool output).
+// Analyzers: dotnet's own (a build of the copy), and eslint/jscpd/knip from audit/tools, installed once into ~/.cache/designc-audit.
 const fs = require('fs');
 const path = require('path');
 const { spawnSync } = require('child_process');
@@ -36,6 +38,8 @@ function relativise(sarif, root) {
     run.results = (run.results || []).filter(r => {
       const loc = r.locations && r.locations[0] && r.locations[0].physicalLocation;
       if (!loc || !loc.artifactLocation) return true;
+      // sonarjs puts a JSON blob in some messages; the readable text is its "message"
+      if (r.message && typeof r.message.text === 'string' && r.message.text.startsWith('{')) { try { r.message.text = JSON.parse(r.message.text).message || r.message.text; } catch { /* keep */ } }
       const rel = HealthMap.normaliseUri(loc.artifactLocation.uri, root);
       if (rel !== null) loc.artifactLocation.uri = rel;
       const key = [r.ruleId, loc.artifactLocation.uri, loc.region && loc.region.startLine, loc.region && loc.region.startColumn, r.message && r.message.text].join('|');
@@ -47,55 +51,193 @@ function relativise(sarif, root) {
   return sarif;
 }
 
-function scan(argv) {
-  const o = parseArgs(argv, ['sonar']);
-  const repo = o._[0] && path.resolve(o._[0]);
-  if (!repo || !o.out) die('usage: audit scan <repo> --out <dir> [--project <sln|csproj>] [--sonar]');
-  const git = (...a) => spawnSync('git', ['-C', repo, ...a], { encoding: 'utf8' });
-  const sha = git('rev-parse', 'HEAD');
-  if (sha.status !== 0) die(`${repo} is not a git repository with a commit`);
-  const commit = sha.stdout.trim();
-  const out = path.resolve(o.out);
-  if (out === repo || out.startsWith(repo + path.sep)) die('--out must be outside the analysed repo');
-  const work = path.join(out, 'work');
-  fs.rmSync(work, { recursive: true, force: true }); fs.mkdirSync(work, { recursive: true });
-  // The committed tree, not the working copy: the audit says which commit it is about.
-  const ar = spawnSync('bash', ['-c', `git -C "${repo}" archive HEAD | tar -x -C "${work}"`], { encoding: 'utf8' });
-  if (ar.status !== 0) die(`could not copy the tree: ${ar.stderr}`);
+// ---- producers -------------------------------------------------------------------------------------------------
+const run = (cmd, args, opts = {}) => spawnSync(cmd, args, { encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, ...opts });
+const gitIn = (repo, ...a) => run('git', ['-C', repo, ...a]);
 
+// The tree to analyse, copied under `dest`. ref: a commit-ish (its committed tree), or null (the working copy:
+// tracked and untracked-but-not-ignored files, so an uncommitted change is seen). The repo itself is only read.
+function materialize(repo, ref, dest) {
+  fs.rmSync(dest, { recursive: true, force: true }); fs.mkdirSync(dest, { recursive: true });
+  const cmd = ref
+    ? `git -C "${repo}" archive "${ref}" | tar -x -C "${dest}"`
+    : `git -C "${repo}" ls-files -z --cached --others --exclude-standard | tar -c -C "${repo}" --null --ignore-failed-read -T - | tar -x -C "${dest}"`;
+  const r = run('bash', ['-c', cmd]);
+  if (r.status !== 0) die(`could not copy the tree${ref ? ` at ${ref}` : ''}: ${r.stderr}`);
+}
+
+// The analyzers live in one cache dir outside every repo; `npm ci --ignore-scripts` from audit/tools' lockfile.
+function toolsDir() {
+  const dir = process.env.DESIGNC_AUDIT_TOOLS || path.join(process.env.XDG_CACHE_HOME || path.join(require('os').homedir(), '.cache'), 'designc-audit', 'tools');
+  const src = path.join(__dirname, 'tools');
+  const stamp = ['package.json', 'package-lock.json'].map(f => fs.readFileSync(path.join(src, f), 'utf8')).join('\n');
+  const marker = path.join(dir, '.installed');
+  const current = fs.existsSync(marker) && fs.readFileSync(marker, 'utf8') === stamp;
+  if (!current) {
+    console.error('audit: installing analyzers (needs the network, once) into ' + dir);
+    fs.mkdirSync(dir, { recursive: true });
+    for (const f of ['package.json', 'package-lock.json', 'eslint.config.mjs']) fs.copyFileSync(path.join(src, f), path.join(dir, f));
+    const r = run('npm', ['ci', '--ignore-scripts', '--no-audit', '--no-fund'], { cwd: dir });
+    if (r.status !== 0) die(`could not install the analyzers:\n${String(r.stderr).slice(-1200)}`);
+    fs.writeFileSync(marker, stamp);
+  } else fs.copyFileSync(path.join(src, 'eslint.config.mjs'), path.join(dir, 'eslint.config.mjs'));
+  return dir;
+}
+
+function dotnetRuns(work, o) {
   const target = o.project ? path.join(work, o.project) : findTarget(work);
   if (!target || !fs.existsSync(target)) die('no .sln or .csproj at the repo root; name one with --project');
-  const props = path.join(out, 'audit.targets');
+  const props = path.join(work, '..', 'audit.targets');
   fs.writeFileSync(props, `<Project>
   <PropertyGroup>
     <ErrorLog>$(MSBuildProjectDirectory)/audit-$(MSBuildProjectName).sarif,version=2.1</ErrorLog>
     <RunAnalyzers>true</RunAnalyzers><EnableNETAnalyzers>true</EnableNETAnalyzers><AnalysisMode>All</AnalysisMode>
     <TreatWarningsAsErrors>false</TreatWarningsAsErrors><EnforceCodeStyleInBuild>true</EnforceCodeStyleInBuild>
   </PropertyGroup>${o.sonar ? `
-  <ItemGroup><PackageReference Include="SonarAnalyzer.CSharp" Version="${SONAR_VERSION}" PrivateAssets="all" /></ItemGroup>` : ''}
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'"><PackageVersion Include="SonarAnalyzer.CSharp" Version="${SONAR_VERSION}" /></ItemGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' == 'true'"><PackageReference Include="SonarAnalyzer.CSharp" PrivateAssets="all" /></ItemGroup>
+  <ItemGroup Condition="'$(ManagePackageVersionsCentrally)' != 'true'"><PackageReference Include="SonarAnalyzer.CSharp" Version="${SONAR_VERSION}" PrivateAssets="all" /></ItemGroup>` : ''}
 </Project>
 `);
-  console.error(`audit: dotnet build ${path.relative(work, target)} (a copy of ${commit.slice(0, 7)} in ${work})`);
-  const b = spawnSync('dotnet', ['build', target, '-t:Rebuild', '-nologo', '-v:q', `-p:CustomAfterMicrosoftCommonTargets=${props}`, '-p:TreatWarningsAsErrors=false'],
-    { cwd: work, encoding: 'utf8', maxBuffer: 256 * 1024 * 1024, env: { ...process.env, DOTNET_CLI_TELEMETRY_OPTOUT: '1', DOTNET_NOLOGO: '1' } });
-  const files = walk(work).filter(f => /[\\/]audit-[^\\/]+\.sarif$/.test(f));
+  console.error(`audit: dotnet build ${path.relative(work, target)}`);
+  const b = run('dotnet', ['build', target, '-t:Rebuild', '-nologo', '-v:q', `-p:CustomAfterMicrosoftCommonTargets=${props}`, '-p:TreatWarningsAsErrors=false'],
+    { cwd: work, env: { ...process.env, DOTNET_CLI_TELEMETRY_OPTOUT: '1', DOTNET_NOLOGO: '1' } });
+  const files = walk(work).filter(f => /[\\/]audit-[^\\/]+\.sarif$/.test(f)).sort();
   if (!files.length) die(`dotnet produced no SARIF (exit ${b.status}):\n${String(b.stdout + b.stderr).slice(-1500)}`);
   const runs = [];
-  for (const f of files.sort()) { try { runs.push(...relativise(JSON.parse(fs.readFileSync(f, 'utf8')), work).runs); } catch (e) { console.error(`audit: skipped unreadable ${f}`); } }
-  // one run per tool: projects of one solution all use the same compiler
-  const byTool = new Map();
-  for (const r of runs) {
-    const k = (r.tool && r.tool.driver && r.tool.driver.name) || 'unknown';
-    if (!byTool.has(k)) byTool.set(k, r); else byTool.get(k).results.push(...(r.results || []));
+  for (const f of files) { try { runs.push(...JSON.parse(fs.readFileSync(f, 'utf8')).runs); } catch { console.error(`audit: skipped unreadable ${path.basename(f)}`); } }
+  return runs;
+}
+
+function eslintRuns(work, tools, out) {
+  console.error('audit: eslint (typescript-eslint parser, sonarjs rules)');
+  const sarif = path.join(out, 'eslint.sarif');
+  run(path.join(tools, 'node_modules/.bin/eslint'), ['-c', path.join(tools, 'eslint.config.mjs'), '-f', path.join(tools, 'node_modules/@microsoft/eslint-formatter-sarif/sarif.js'), '-o', sarif, '.'], { cwd: work });
+  if (!fs.existsSync(sarif)) die('eslint produced no SARIF');
+  return JSON.parse(fs.readFileSync(sarif, 'utf8')).runs;
+}
+
+function jscpdRuns(work, tools, out) {
+  console.error('audit: jscpd');
+  const dir = path.join(out, 'jscpd');
+  run(path.join(tools, 'node_modules/.bin/jscpd'), ['--reporters', 'sarif', '--output', dir, '--min-lines', '10', '--silent', '--ignore', '**/node_modules/**,**/dist/**,**/build/**,**/bin/**,**/obj/**', '.'], { cwd: work });
+  const f = path.join(dir, 'jscpd-report.sarif');
+  return fs.existsSync(f) ? JSON.parse(fs.readFileSync(f, 'utf8')).runs : [];
+}
+
+// knip's JSON has no SARIF route; convert unused files and exports (dependencies need the repo's node_modules, so they are left out).
+function knipRuns(work, tools) {
+  console.error('audit: knip (unused files and exports)');
+  const r = run(path.join(tools, 'node_modules/.bin/knip'), ['--reporter', 'json', '--include', 'files,exports,types', '--no-progress'], { cwd: work });
+  let j; try { j = JSON.parse(r.stdout); } catch { console.error('audit: knip printed no JSON; skipped'); return []; }
+  const results = [];
+  const at = (rule, file, text, line) => results.push({ ruleId: rule, level: 'warning', message: { text }, locations: [{ physicalLocation: { artifactLocation: { uri: file }, ...(line ? { region: { startLine: line } } : {}) } }] });
+  for (const i of j.issues || []) {
+    for (const f of i.files || []) at('knip/files', i.file, `Unused file ${f.name}`);
+    for (const e of [...(i.exports || []), ...(i.types || [])]) at('knip/exports', i.file, `Unused export ${e.name}`, e.line);
   }
+  return [{ tool: { driver: { name: 'knip' } }, results }];
+}
+
+// Give every result an identity that survives moved code: rule + path + hash of the code around it (the spec's fingerprint).
+function stamp(sarif, work) {
+  const cache = new Map();
+  const lines = p => { if (!cache.has(p)) { try { cache.set(p, fs.readFileSync(path.join(work, p), 'utf8').split('\n')); } catch { cache.set(p, null); } } return cache.get(p); };
+  for (const run of sarif.runs) for (const r of run.results) {
+    const l = r.locations && r.locations[0] && r.locations[0].physicalLocation;
+    const p = l && l.artifactLocation && HealthMap.normaliseUri(l.artifactLocation.uri, work);
+    if (!p) continue;
+    const ls = lines(p), i = ((l.region && l.region.startLine) || 1) - 1;
+    const ctx = ls ? ls.slice(Math.max(0, i - 2), i + 3).join('\n') : undefined;
+    r.partialFingerprints = { ...(r.partialFingerprints || {}), 'auditContext/v1': HealthMap.fingerprint({ ruleId: r.ruleId, message: r.message }, p, ctx).split('|').slice(1).join('|') };
+  }
+  return sarif;
+}
+
+// Analyse one materialised tree: the requested tools, merged into one SARIF log with repo-relative uris.
+function scanTree(work, out, o) {
+  const has = f => fs.existsSync(path.join(work, f));
+  const want = o.tools ? o.tools.split(',') : [...(findTarget(work) || o.project ? ['dotnet'] : []), ...(has('package.json') ? ['eslint', 'jscpd', 'knip'] : [])];
+  if (!want.length) die('nothing to analyse: no .sln/.csproj and no package.json (see --tools)');
+  fs.mkdirSync(out, { recursive: true });
+  const tools = want.some(t => t !== 'dotnet') ? toolsDir() : null;
+  let runs = [];
+  for (const t of want) {
+    if (t === 'dotnet') runs.push(...dotnetRuns(work, o));
+    else if (t === 'eslint') runs.push(...eslintRuns(work, tools, out));
+    else if (t === 'jscpd') runs.push(...jscpdRuns(work, tools, out));
+    else if (t === 'knip') runs.push(...knipRuns(work, tools));
+    else die(`unknown tool ${t} (dotnet, eslint, jscpd, knip)`);
+  }
+  runs = relativise({ runs }, work).runs;
+  const byTool = new Map(); // one run per tool: projects of one solution share a compiler
+  for (const r of runs) { const k = (r.tool && r.tool.driver && r.tool.driver.name) || 'unknown'; if (!byTool.has(k)) byTool.set(k, r); else byTool.get(k).results.push(...(r.results || [])); }
   const merged = { version: '2.1.0', $schema: 'https://json.schemastore.org/sarif-2.1.0.json', runs: [...byTool.values()] };
   const seen = new Set(); // projects share files, so dedupe again after the merge
   for (const run of merged.runs) run.results = run.results.filter(r => { const l = r.locations && r.locations[0] && r.locations[0].physicalLocation; const k = JSON.stringify([r.ruleId, l && l.artifactLocation && l.artifactLocation.uri, l && l.region, r.message && r.message.text]); if (seen.has(k)) return false; seen.add(k); return true; });
+  return stamp(merged, work);
+}
+
+function repoArg(o, usage) {
+  const repo = o._[0] && path.resolve(o._[0]);
+  if (!repo) die(usage);
+  const r = gitIn(repo, 'rev-parse', 'HEAD');
+  if (r.status !== 0) die(`${repo} is not a git repository with a commit`);
+  return { repo, commit: r.stdout.trim() };
+}
+const outside = (out, repo) => { if (out === repo || out.startsWith(repo + path.sep)) die('--out must be outside the analysed repo'); };
+
+function scan(argv) {
+  const o = parseArgs(argv, ['sonar']);
+  if (!o.out) die('usage: audit scan <repo> --out <dir> [--project <sln|csproj>] [--tools dotnet,eslint,jscpd,knip] [--sonar]');
+  const { repo, commit } = repoArg(o, 'usage: audit scan <repo> --out <dir>');
+  const out = path.resolve(o.out); outside(out, repo);
+  const work = path.join(out, 'work');
+  materialize(repo, commit, work); // the committed tree: the audit says which commit it is about
+  const merged = scanTree(work, out, o);
   fs.writeFileSync(path.join(out, 'findings.sarif'), JSON.stringify(merged, null, 1));
   fs.writeFileSync(path.join(out, 'scan.json'), JSON.stringify({ repo: path.basename(repo), commit, tools: Rollup.toolsOf(merged), at: new Date().toISOString() }, null, 2));
   fs.rmSync(work, { recursive: true, force: true });
   const n = merged.runs.reduce((a, r) => a + r.results.length, 0);
   console.error(`audit: ${n} findings from ${merged.runs.length} run(s) -> ${path.join(out, 'findings.sarif')}`);
+}
+
+/* diff: the findings in the working copy that the base ref does not have. SARIF of just those on stdout, each named on
+   stderr; exit 1 if there are any. A finding is the same finding when rule, path and the code around it match, so a
+   moved block is not new; a second identical smell next to the first is (counted, not set-compared). */
+function diff(argv) {
+  const o = parseArgs(argv, ['sonar']);
+  if (!o.base) die('usage: audit diff <repo> --base <ref> [--project <sln|csproj>] [--tools ...]');
+  const { repo } = repoArg(o, 'usage: audit diff <repo> --base <ref>');
+  if (gitIn(repo, 'rev-parse', '--verify', '--quiet', `${o.base}^{commit}`).status !== 0) die(`no such ref: ${o.base}`);
+  const tmp = fs.mkdtempSync(path.join(require('os').tmpdir(), 'audit-diff-'));
+  try {
+    const side = (name, ref) => { const w = path.join(tmp, name, 'src'); materialize(repo, ref, w); return scanTree(w, path.join(tmp, name, 'out'), o); };
+    console.error(`audit: base ${o.base}`); const base = side('base', o.base);
+    console.error('audit: working copy'); const head = side('head', null);
+    const PP = require('../renderer/pathpattern.js');
+    const excl = defaultConfig().exclude;
+    const key = r => `${r.ruleId}|${(r.partialFingerprints || {})['auditContext/v1']}`;
+    const left = new Map();
+    for (const run of base.runs) for (const r of run.results) left.set(key(r), (left.get(key(r)) || 0) + 1);
+    const fresh = { version: '2.1.0', runs: [] };
+    const named = [];
+    for (const run of head.runs) {
+      const keep = [];
+      for (const r of run.results) {
+        const l = r.locations && r.locations[0] && r.locations[0].physicalLocation;
+        const p = l && l.artifactLocation && l.artifactLocation.uri;
+        if (p && excl.some(g => PP.matches(g, p))) continue;
+        const n = left.get(key(r)) || 0;
+        if (n > 0) { left.set(key(r), n - 1); continue; }
+        keep.push(r); named.push(`${p || '?'}${l && l.region ? ':' + l.region.startLine : ''}  ${r.ruleId}  ${r.message && r.message.text}`);
+      }
+      if (keep.length) fresh.runs.push({ ...run, results: keep });
+    }
+    process.stdout.write(JSON.stringify(fresh, null, 1) + '\n');
+    if (named.length) { console.error(`audit: ${named.length} new finding(s) since ${o.base}:\n  ${named.join('\n  ')}`); process.exitCode = 1; }
+    else console.error(`audit: no new findings since ${o.base}`);
+  } finally { fs.rmSync(tmp, { recursive: true, force: true }); }
 }
 
 function findTarget(dir) {
@@ -107,6 +249,7 @@ function findTarget(dir) {
 function walk(dir) {
   const out = [];
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
+    if (e.name === 'node_modules' || e.name === '.git') continue;
     const p = path.join(dir, e.name);
     if (e.isDirectory()) out.push(...walk(p)); else out.push(p);
   }
@@ -169,7 +312,7 @@ function defaultConfig() {
 
 if (require.main === module) {
   const [cmd, ...rest] = process.argv.slice(2);
-  if (cmd === 'scan') scan(rest); else if (cmd === 'rollup') rollup(rest);
+  if (cmd === 'scan') scan(rest); else if (cmd === 'rollup') rollup(rest); else if (cmd === 'diff') diff(rest);
   else die('usage: audit <scan|rollup|diff> ...');
 }
-module.exports = { modelElements, relativise, defaultConfig, parseArgs };
+module.exports = { modelElements, stamp, relativise, defaultConfig, parseArgs };

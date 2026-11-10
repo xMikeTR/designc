@@ -572,6 +572,10 @@ It covers the parser, DC000 to DC009, `d.suppress`, the gate (all clauses, inclu
 
 When you change `core.js` behaviour that the CLI covers, change `python/designc` in the same commit and extend `test/designc-cli.test.js`.
 
+## Health audit CLI (`audit/`)
+
+`node audit/audit.js scan <repo> --out <dir>` runs the analyzers (dotnet build with an injected ErrorLog, eslint, jscpd, knip; `--sonar` adds SonarAnalyzer.CSharp) on a copy of the committed tree and writes `findings.sarif` into `<dir>`; the analysed repo is never written to. `rollup` maps findings to C4 elements (deepest `d.code` glob wins, counts roll up to ancestors) and writes `health.json`, merging `baseline.json` and `evidence.json` from the same dir. `diff <repo> --base <ref>` reports only findings absent from the base ref and exits 1 if there are any. Status (unknown/inferred/declared/verified/violated) is computed from this, never stored. JS analyzers are installed once into `~/.cache/designc-audit/tools` (override `DESIGNC_AUDIT_TOOLS`); without them `test/audit-diff.test.js` skips. Tests: `test/audit-rollup.test.js`, `test/audit-diff.test.js`.
+
 ## Related systems
 
 designc is one of three systems: Design (the design compiler, this app's Design view), Build (any coding pipeline that consumes handovers and may write the ledger; see `docs/pipeline-contract.md`), and Improve (the evals and improvement loop, this app's Improve view). They were called System 1, 2 and 4; data keeps the short codes, so the Langfuse `system` metadata, the roles' `system` field and ledger events still say `S1` (Design) and `S4` (Improve); a pipeline is not a numbered system, its stage is `pipeline` and its telemetry runs are everything not tagged `S1`/`S4`. Use the names in anything a person reads and the codes only in data. The Python CLI in `python/designc` is the CI form of the same compiler and must stay rule-for-rule compatible with `renderer/core.js` (see "The Python CLI" below).
