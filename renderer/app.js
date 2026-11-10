@@ -65,7 +65,7 @@ const A = {
   selected: null, zoom: 'fit', cursor: null,
   asbuilt: null, facts: null, drift: null, extracting: false, cmSel: null, cmZoom: 'fit', showGhost: true,
   cmLevel: 'container', cmScope: null, asbuiltFull: null, cdrift: null,
-  tel: { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: null, loading: false }, badges: 'findings',
+  health: null, tel: { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: null, loading: false }, badges: 'findings',
   canvasApi: null, canvasLayout: null,
   regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
@@ -369,6 +369,8 @@ async function recordSessionEvent(kind, { session_id, payload, parent_session_id
   return sendLedgerEvent({ kind, project: A.cfg.project || (A.root ? A.root.name : ''), session_id, payload, parent_session_id, agent_id, acting_as });
 }
 const layoutPathFor = p => p.replace(/\.dsl$/, '') + '.layout.json';
+// health.json: evidence for the health overlay. Optional and read-only; absent or unreadable means the map renders as before.
+async function loadHealth() { try { const t = await readText('health.json'); A.health = t == null ? null : JSON.parse(t); } catch { A.health = null; } }
 async function loadModel() { A.modelText = (await readText(A.cfg.model)) ?? ''; await loadCanvasLayout(); }
 async function loadCanvasLayout() {
   const t = await readText(layoutPathFor(A.cfg.model));
@@ -415,7 +417,7 @@ function recompile() {
   setMarkers();
 }
 async function reloadAll() {
-  await loadSettings(); await loadModel(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
+  await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
 }
 
 // ---------------------------------------------------------------- telemetry (Langfuse)
@@ -1869,7 +1871,7 @@ function drawModel(m, L, o) {
     const ty = store ? n.y + 35 : n.y + 28;
     const bw = st.badge ? Math.max(22, String(st.badge).length * 7 + 10) : 0;
     const badge = st.badge ? `<rect x="${n.x + n.w + 9 - bw}" y="${n.y - 9}" width="${bw}" height="22" rx="11" fill="${st.badgeColor}"/><text x="${n.x + n.w + 9 - bw / 2}" y="${n.y + 6}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--node)">${esc(st.badge)}</text>` : '';
-    svg += `<g class="node" data-${o.attr}="${esc(e.id)}"><title>${esc(e.name)}</title>${shape}<text x="${n.x + n.w / 2}" y="${ty}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${esc(trunc(e.name, 22))}</text><text x="${n.x + n.w / 2}" y="${ty + 16}" text-anchor="middle" font-size="10.5" fill="var(--ink2)">${esc(trunc(`[${kind}${e.technology ? ': ' + e.technology : ''}]`, 30))}</text>${st.note ? `<text x="${n.x + n.w / 2}" y="${n.y + n.h + 14}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--warn)">${esc(st.note)}</text>` : ''}${badge}</g>`;
+    svg += `<g class="node" data-${o.attr}="${esc(e.id)}"><title>${esc(e.name)}</title>${shape}<text x="${n.x + n.w / 2}" y="${ty}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${esc(trunc(e.name, 22))}</text><text x="${n.x + n.w / 2}" y="${ty + 16}" text-anchor="middle" font-size="10.5" fill="var(--ink2)">${esc(trunc(`[${kind}${e.technology ? ': ' + e.technology : ''}]`, 30))}</text>${st.note ? `<text x="${n.x + n.w / 2}" y="${n.y + n.h + 14}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--warn)">${esc(st.note)}</text>` : ''}${badge}${chipsSvg(n, st.chips)}</g>`;
   }
   return svg + '</svg>';
 }
@@ -1899,6 +1901,8 @@ function renderSheet() {
   const amp = tim && A.selected && m.elements.has(A.selected) ? Core.amplificationFrom(m, A.selected) : new Map();
   const TIM_COL = { ok: 'var(--ink3)', violation: 'var(--err)', unknown: 'var(--warn)' };
   const timLabel = (r, t) => [r.description, t.timeout == null ? '' : t.status === 'unknown' ? t.timeout + ' ms vs ?' : `${t.timeout} ms vs ${t.worst} ms`, t.factor > 1 ? '×' + t.factor : ''].filter(Boolean).join(' · ');
+  // Health overlay: claims come from the model (a person wrote them); evidence from health.json. Without git wired in yet, no check counts as fresh.
+  const health = A.badges === 'health' ? HealthOverlay.build({ health: A.health, claims: id => { const e = m.elements.get(id); return e ? { idempotent: Core._shared.get(e, 'd.idempotent') === 'yes', cached: Core._shared.get(e, 'd.cached') != null } : {}; } }) : null;
   const BLAST_BADGE = { down: ['down', 'var(--err)'], degraded: ['deg', 'var(--warn)'], unknown: ['?', 'var(--ink3)'] };
   host_.innerHTML = drawModel(m, L, {
     attr: 'el', zoom: fitZoom(host_, L, A.zoom),
@@ -1911,6 +1915,7 @@ function renderSheet() {
       const base = { stroke: A.selected === e.id ? 'var(--accent)' : 'var(--ink)', sw: A.selected === e.id ? 2.6 : 1.5 };
       if (tim) { const x = amp.get(e.id); return x > 1 ? { ...base, badge: '×' + x, badgeColor: x > (A.cfg.retryAmplification || 4) ? 'var(--err)' : 'var(--ink3)' } : base; }
       if (A.badges === 'blast') { const b = BLAST_BADGE[blast.get(e.id)]; return b ? { ...base, badge: b[0], badgeColor: b[1] } : base; }
+      if (A.badges === 'health') { const h = health && health.byElement[e.id]; return h ? { ...base, badge: h.badge && h.badge.count, badgeColor: col(h.badge && h.badge.worst), chips: h.chips } : base; }
       if (A.badges === 'findings') return { ...base, badge: elN.get(e.id), badgeColor: col(elSev.get(e.id)) };
       const t = telByEl.get(e.name); if (!t) return base;
       return A.badges === 'cost' ? { ...base, badge: money(t.cost), badgeColor: 'var(--accent)' } : { ...base, badge: t.failed || null, badgeColor: 'var(--err)' };
@@ -1923,6 +1928,13 @@ function renderSheet() {
     <tr><td class="k">Gate</td><td class="${A.gate.ready ? 'ok' : 'no'}">${A.gate.ready ? 'Ready to hand over' : `${A.gate.clauses.length} blocking`}</td></tr>
     <tr><td class="k">As built</td><td>${A.drift ? (A.drift.undeclared.length + A.drift.unknownEls.length ? `<span class="no">${plural(A.drift.undeclared.length + A.drift.unknownEls.length, 'difference')}</span>` : '<span class="ok">matches the design</span>') : 'not mapped'}</td></tr>
     <tr><td class="k">Handover</td><td>${last ? `${esc(last.id)} at ${esc(last.revision)}` : 'none yet'}</td></tr></table>`;
+}
+
+const CHIP_COL = { verified: 'var(--ok)', violated: 'var(--err)', unknown: 'var(--warn)', declared: 'var(--ink3)', inferred: 'var(--ink3)' };
+// One small chip per applicable property under a box, e.g. "idempotent: declared". Unknown and violated are coloured to draw the eye.
+function chipsSvg(n, chips) {
+  return (chips || []).map((c, i) => { const t = `${c.property}: ${c.status}`, w = t.length * 6 + 10, y = n.y + n.h + 6 + i * 17;
+    return `<g class="chip"><rect x="${n.x}" y="${y}" width="${w}" height="14" rx="7" fill="none" stroke="${CHIP_COL[c.status] || 'var(--ink3)'}"/><text x="${n.x + 5}" y="${y + 10.5}" font-size="9.5" fill="${CHIP_COL[c.status] || 'var(--ink3)'}">${esc(t)}</text></g>`; }).join('');
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
