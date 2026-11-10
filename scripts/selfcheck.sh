@@ -137,8 +137,8 @@ command -v python3 >/dev/null || { echo "selfcheck: python3 is needed to write t
 # Stage table: name | command | timeout in seconds.
 # SELFCHECK_CMD_<NAME> (name upper-cased, - as _) replaces a command. It exists so tests/selfcheck can drive the
 # script without a real run; nothing else sets it.
-# The app's git.js passes git only HOME, so the container needs an identity in $HOME/.gitconfig (never touched with --local).
-GI=""; [ "$local_run" = 0 ] && GI='mkdir -p /tmp/home && git config --global user.name selfcheck && git config --global user.email selfcheck@localhost && '
+# The app's git.js passes git only HOME, so the container needs an identity in $HOME/.gitconfig (never touched with --local). It runs from /tmp: the worktree's .git points outside the mount.
+GI=""; [ "$local_run" = 0 ] && GI='mkdir -p /tmp/home && (cd /tmp && git config --global user.name selfcheck && git config --global user.email selfcheck@localhost) && '
 stages=(
   "tests|${GI}npm test|900"
   "parity-of-rules|node scripts/selfcheck/parity-of-rules.js|300"
