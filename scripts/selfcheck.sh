@@ -137,8 +137,10 @@ command -v python3 >/dev/null || { echo "selfcheck: python3 is needed to write t
 # Stage table: name | command | timeout in seconds.
 # SELFCHECK_CMD_<NAME> (name upper-cased, - as _) replaces a command. It exists so tests/selfcheck can drive the
 # script without a real run; nothing else sets it.
+# The app's git.js passes git only HOME, so the container needs an identity in $HOME/.gitconfig (never touched with --local).
+GI=""; [ "$local_run" = 0 ] && GI='mkdir -p /tmp/home && git config --global user.name selfcheck && git config --global user.email selfcheck@localhost && '
 stages=(
-  "tests|npm test|900"
+  "tests|${GI}npm test|900"
   "parity-of-rules|node scripts/selfcheck/parity-of-rules.js|300"
 )
 # pytest only where python tests exist in the commit (python/ has none today).
@@ -179,8 +181,7 @@ any_fail=0; restore_failed=0; cnr=0
 user="$(id -u):$(id -g)"
 cargs=(--init --cap-drop ALL --security-opt no-new-privileges --user "$user" --tmpfs /tmp:exec,mode=1777
        -v "$tree:$tree" -v "$npm_cache:/npm" -w "$tree"
-       -e HOME=/tmp/home -e npm_config_cache=/npm -e npm_config_update_notifier=false
-       -e GIT_AUTHOR_NAME=selfcheck -e GIT_AUTHOR_EMAIL=selfcheck@localhost -e GIT_COMMITTER_NAME=selfcheck -e GIT_COMMITTER_EMAIL=selfcheck@localhost)
+       -e HOME=/tmp/home -e npm_config_cache=/npm -e npm_config_update_notifier=false)
 if [ "$local_run" = 0 ]; then
   "$engine" run -d --rm --name "$cname" --network none "${cargs[@]}" "$image" sleep infinity >/dev/null \
     || { echo "selfcheck: could not start the container from $image" >&2; exit 2; }
