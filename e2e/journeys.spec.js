@@ -436,3 +436,23 @@ test('user can accept or dismiss a swept Jira issue @critical', async () => {
   await expect(page.locator('[data-workitem]')).toHaveCount(1);
   await expect(page.locator('[data-inbox]')).toHaveCount(0);
 });
+
+test('user can see health on the C4 sheet @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  // The model holds the claims; health.json holds the evidence, keyed by the handover id (names joined by "/").
+  const dsl = path.join(reg, 'model', 'workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('"d.instances" "3"', '"d.instances" "3"\n          "d.idempotent" "yes"\n          "d.cached" "ttl 5m"'));
+  const health = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'health.example.json'), 'utf8'));
+  health.elements = { 'Fares Platform/Fares API': health.elements['Pricing/Quotes'] };
+  fs.writeFileSync(path.join(reg, 'health.json'), JSON.stringify(health));
+  session = await launch(reg);
+  const { page } = session;
+  // Off by default: the sheet is as it always was.
+  await expect(page.locator('#sheetscroll .chip')).toHaveCount(0);
+  await page.locator('#sheetBadges').selectOption('health');
+  // The element's finding count, and one chip per property: claimed, with no check fresh against git yet, so declared.
+  const api = page.locator('#sheetscroll .node', { hasText: 'Fares API' });
+  await expect(api.locator('text', { hasText: /^14$/ })).toHaveCount(1);
+  await expect(api.locator('.chip')).toHaveText(['idempotent: declared', 'cached: declared']);
+  await expect(page.locator('#sheetscroll .chip')).toHaveCount(2); // nothing is drawn for elements the file does not mention
+});
