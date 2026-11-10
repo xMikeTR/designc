@@ -15,7 +15,7 @@ New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthro
 - [Code map](#code-map), its levels, code quality and coverage
 - [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
 - [Recording legacy parity](#recording-legacy-parity), including login and mock mode
-- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
+- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [health audit and overlay](#health-audit-and-overlay), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
 - Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## The views
@@ -513,6 +513,55 @@ To record on every commit, add a `post-commit` hook (the registry may be a subfo
 #!/bin/sh
 cd path/to/registry && python3 -m designc check . --record >/dev/null
 ```
+
+## Health audit and overlay
+
+Shows, on the C4 sheet, which elements have findings (build warnings, lint, duplicated code, dead code) and which design properties are backed by evidence. The audit calls no model and never writes to the repo it analyses.
+
+```mermaid
+flowchart LR
+  R[code repo] -->|audit scan| S[findings.sarif]
+  S -->|audit rollup + d.code paths| H[health.json in the registry folder]
+  C[audit record] --> E[evidence.json]
+  E --> H
+  H --> O[sheet: Badges, health]
+```
+
+### Use it
+
+1. Give your elements `d.code` paths (see [Code areas](#code-areas-dcode)); findings are mapped to elements by path.
+2. Scan. It analyses a copy of the committed tree. The JS analyzers (eslint, jscpd, knip) install once into `~/.cache/designc-audit/tools` (override with `DESIGNC_AUDIT_TOOLS`); .NET repos use `dotnet build`:
+
+   ```
+   node audit/audit.js scan /path/to/repo --out /tmp/audit            # writes findings.sarif and scan.json
+   node audit/audit.js scan /path/to/repo --out /tmp/audit --tools eslint,jscpd   # a subset
+   ```
+   `--project <sln|csproj>` picks the .NET project; `--sonar` adds SonarAnalyzer.
+3. Roll up into the registry folder. `--model` is the registry folder, not its `model/` subfolder:
+
+   ```
+   node audit/audit.js rollup --sarif /tmp/audit/findings.sarif --model /path/to/registry --out /path/to/registry --repo /path/to/repo
+   ```
+   This writes `health.json`. Add `--write-baseline` once to accept today's findings as `baseline.json`; later rollups mark findings as new or old against it.
+4. Open the registry in the app, then in the C4 sheet set the badge select to **Badges: health**.
+
+### Evidence for design properties
+
+A property you declare on an element (for example `idempotent` or `cached`) is shown as *declared* until something checks it. Record a check:
+
+```
+node audit/audit.js record --out /path/to/registry --element <element id> --property idempotent --by "my test name" --result pass --repo /path/to/repo
+```
+
+This appends to `evidence.json`, stamped with the repo's HEAD commit. Re-run rollup to refresh `health.json`. Status is computed, never stored: *unknown*, *inferred*, *declared*, *verified* (a passing check) or *violated* (a failing one). A check counts as fresh only while no file under the element's paths changed since the commit it ran at; after that it falls back to *declared*.
+
+### Gate a branch in CI
+
+```
+node audit/audit.js diff /path/to/repo --base origin/main > new.sarif
+```
+
+Prints SARIF of findings new since the base ref. Exit 0 means none, 1 means new findings, 2 means it could not run.
 
 ## Decision checks run on your machine
 
