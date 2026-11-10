@@ -15,7 +15,7 @@ New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthro
 - [Code map](#code-map), its levels, code quality and coverage
 - [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
 - [Recording legacy parity](#recording-legacy-parity), including login and mock mode
-- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
+- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [selfcheck](#selfcheck-local-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
 - Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## The views
@@ -513,6 +513,39 @@ To record on every commit, add a `post-commit` hook (the registry may be a subfo
 #!/bin/sh
 cd path/to/registry && python3 -m designc check . --record >/dev/null
 ```
+
+## Selfcheck (local CI)
+
+Runs the tests on what is **committed**, in a clean worktree and a container with no network, and records the result on the commit. It calls no model.
+
+```mermaid
+flowchart LR
+  C[commit] --> W[clean git worktree]
+  W -->|npm ci, bridge network| R[restore]
+  R -->|--network none| T[tests]
+  T --> P[parity-of-rules]
+  P --> Y[pytest if python/ has tests]
+  Y --> N[git note refs/notes/selfcheck + JSON on stdout]
+  N --> H[pre-push hook gates main and release/*]
+```
+
+### Use it
+
+1. Build the runner image once. Podman is the default engine; with Docker set the engine variable:
+
+   ```
+   DESIGNC_CONTAINER_ENGINE=docker docker/runner/build.sh
+   ```
+2. Check HEAD: `DESIGNC_CONTAINER_ENGINE=docker scripts/selfcheck.sh`. Progress goes to stderr, one JSON record to stdout.
+3. Other forms: `--commit <sha>` checks another commit, `--stage tests|pytest|parity-of-rules` runs one stage, `--local` runs on the host without a container (recorded as env `local`, which the gate does not accept).
+4. See the last result for a commit: `scripts/selfcheck.sh --status [sha]`. It exits 0 only for a full, container, passing record.
+5. Gate pushes: `scripts/selfcheck.sh --install-hook`. A push to `main` or `release/*` is then refused unless the tip commit has a current container pass. Only the tip is checked, and `git push --no-verify` skips the hook. The hook will not overwrite one that is not ours.
+
+Exit codes: 0 pass, 1 a check failed, 2 could not run (no engine, no image, restore failed, bad arguments), 3 no record (`--status` only). A failed stage does not stop the later ones.
+
+A record is current only while `checks_hash` matches: the hash covers `scripts/selfcheck.sh` and `scripts/selfcheck/**` (`--checks-hash [sha]` prints it), so changing the checks invalidates old passes. Records live in `refs/notes/selfcheck`; push them with `git push origin refs/notes/selfcheck` if you want them shared.
+
+The Playwright/Electron e2e suite is not run (it needs the electron binary and a display). Environment variables: `DESIGNC_CONTAINER_ENGINE`, `DESIGNC_RUNNER_IMAGE` (default `designc-runner:latest`).
 
 ## Decision checks run on your machine
 
