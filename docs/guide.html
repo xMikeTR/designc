@@ -34,6 +34,7 @@
   <a href="#views">5. The other views</a>
   <a href="#own">6. Your own folder</a>
   <a href="#agents">7. Agents</a>
+  <a href="#more">8. Beyond the first hour</a>
   <a href="#terms">Terms</a>
   <a href="#stuck">When you are stuck</a>
 </nav>
@@ -245,6 +246,53 @@ python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "projec
   <li>An agent can read everything in the folder. When it wants to write, you see a card with the change and Approve or Reject. Nothing is written without that.</li>
 </ul>
 
+<h2 id="more">8. Beyond the first hour</h2>
+<p>Four things you add when the basics work. They are independent: read only the one you need now. Each starts from a folder you already have from section 6.</p>
+<pre>  Jira ticket ──► jira-mapping.yaml ──► requirement: risk, data class, repo
+                                              │
+  designc.json "repos" ──► d.repo on elements │      freeze
+  contracts/openapi/*.yaml (the Api/Ui seam)  ├────────────────► handover.yaml
+                                              │                   requirement_risk
+  audit scan + rollup ──► health.json         │                   requirement_data_class
+        (sheet badges: health)                │                   contracts_api
+                                              ▼
+  selfcheck ──► tests on the committed tree    the coding pipeline reads these
+        (pre-push gate for main)               to pick models and order the work</pre>
+
+<h3>8.1 Split an app across two repos</h3>
+<ol class="steps">
+  <li>In <code>designc.json</code> list the repos and remove <code>codebase</code>: <code>"repos": { "Api": "../api", "Ui": "../ui" }</code>. The names <code>Api</code> and <code>Ui</code> are what the pipeline expects.</li>
+  <li>On each container that has <code>d.code</code>, set <code>d.repo</code> to <code>Api</code> or <code>Ui</code>. Keep <code>d.code</code> relative to that repo. A container with code but no repo gets finding DC010.</li>
+  <li>Extract the code map (Ctrl+Shift+R). You get one map; a UI call to an API route shows as an edge across the repos.</li>
+  <li>Write down the seam: put one OpenAPI file in <code>contracts/openapi/</code> of the registry. Without it, a requirement whose elements span both repos blocks the gate with <em>unpinned_contract</em>.</li>
+  <li>Freeze. The handover lists the file under <code>contracts_api</code>. With it, the pipeline builds both sides in parallel; without it, the Ui side waits for the Api side.</li>
+</ol>
+<div class="tip">A task works in one repo. If a work item's elements live in both, the pipeline asks for a plan with one task per repo.</div>
+
+<h3>8.2 Carry risk from Jira into the build</h3>
+<ol class="steps">
+  <li>Find the names your tickets use: <code>python3 scripts/fetch-jira.py --discover</code> (read only; counts of labels, components and types, no ticket text).</li>
+  <li>Write <code>jira-mapping.yaml</code> in the registry folder, for example <code>labels: { my-label: { risk: high, data_class: regulated } }</code>. It ships empty on purpose; nothing is built in.</li>
+  <li>Import the tickets as in 6.6. Each requirement file now has <code>risk</code> and <code>data_class</code> where a label matched.</li>
+  <li>Freeze. <code>handover.yaml</code> gets <code>requirement_risk</code> (the highest among the requirements) and <code>requirement_data_class</code> (the first one declared). The pipeline's router uses them to choose how strong a model a task needs. With none, it guesses from the elements.</li>
+</ol>
+
+<h3>8.3 See code health on the C4 sheet</h3>
+<ol class="steps">
+  <li>Scan a repo (a copy of its committed tree; calls no model): <code>node audit/audit.js scan /path/to/repo --out /tmp/audit</code>.</li>
+  <li>Roll the findings up into the registry: <code>node audit/audit.js rollup --sarif /tmp/audit/findings.sarif --model /path/to/registry --out /path/to/registry --repo /path/to/repo</code>. Add <code>--write-baseline</code> once to accept today's findings; later runs mark findings new or old.</li>
+  <li>Open the registry, then in the C4 sheet set the badge select to <strong>Badges: health</strong>. Elements with findings light up.</li>
+  <li>Optional: record that a property you declared is really checked, with <code>audit record</code>. It then reads <em>verified</em> instead of <em>declared</em>. In CI, <code>audit diff --base origin/main</code> fails on new findings only.</li>
+</ol>
+
+<h3>8.4 Run the tests the same way every time (selfcheck)</h3>
+<ol class="steps">
+  <li>Build the runner image once: <code>DESIGNC_CONTAINER_ENGINE=docker docker/runner/build.sh</code> (Podman is the default engine).</li>
+  <li>Check the last commit: <code>scripts/selfcheck.sh</code>. It runs the tests on what is <strong>committed</strong>, in a clean worktree with no network, and stores the result on the commit.</li>
+  <li>Gate pushes: <code>scripts/selfcheck.sh --install-hook</code>. A push to <code>main</code> or <code>release/*</code> is then refused unless the tip commit has a passing container run.</li>
+</ol>
+<p class="note">The browser (Electron) tests are not part of selfcheck. Run them on your machine with <code>xvfb-run -a npm run e2e</code> so no window opens on your desktop.</p>
+
 <h2 id="terms">Terms</h2>
 <table>
 <tr><th>Term</th><th>Meaning</th></tr>
@@ -259,6 +307,9 @@ python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "projec
 <tr><td>Handover</td><td>A frozen copy of a ready design that a pipeline builds from. Never rewritten.</td></tr>
 <tr><td>Code map, drift</td><td>The design read back from the code, and where the two differ.</td></tr>
 <tr><td>Ledger</td><td>Append-only log of what happened (checks, handovers, pipeline runs), in <code>ledger/*.jsonl</code>.</td></tr>
+<tr><td>Repos</td><td>The separate git repositories of one app, named in <code>designc.json</code> (<code>Api</code>, <code>Ui</code>). Each element names its repo with <code>d.repo</code>.</td></tr>
+<tr><td>Contract (OpenAPI)</td><td>The written seam between the Api and Ui repos, pinned in <code>contracts/openapi/</code> and frozen into the handover.</td></tr>
+<tr><td>Health, selfcheck</td><td>Health: static-analysis findings shown per element. Selfcheck: tests run on a committed tree in a clean container.</td></tr>
 <tr><td>Escape</td><td>A defect that got through. Improve records which stage should have caught it.</td></tr>
 </table>
 
