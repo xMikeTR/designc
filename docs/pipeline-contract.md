@@ -14,6 +14,8 @@ When `designc.json` declares `repos` (for example `{ "Api": "../api", "Ui": "../
 
 The cross-repo seam is an OpenAPI 3.x YAML file under `contracts/openapi/` in the registry. A freeze copies each file verbatim to `contracts/openapi/<name>.yaml` in the handover, hash-pinned and inside the handover id, and lists the paths in `handover.yaml` under `contracts_api:` (a list of paths; absent when there are none). It is not the `contracts:` key, which holds compiled agent policies. A handover without `contracts_api:` has no pinned API contract.
 
+`handover.yaml` carries `requirement_risk` (`low|medium|high|critical`, the highest among the frozen requirements) and `requirement_data_class` (the first one declared) when a requirement file has `risk` / `data_class` (set by `jira-mapping.yaml`); absent when none does. A pipeline should prefer them over its own guess.
+
 The gate raises `unpinned_contract` (about the requirement's elements) for a requirement whose elements span more than one declared repo while `contracts/openapi/` holds no file. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
 
 ## Kinds a pipeline writes
