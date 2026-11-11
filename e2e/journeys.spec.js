@@ -95,7 +95,7 @@ test('user can extract one code map from an API repo and a UI repo @critical', a
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Code map' }).click();
-  await expect(page.locator('#sbBody').getByText('Repos: Api, Ui')).toBeVisible();
+  await expect(page.locator('#sbBody').locator('[data-repo-row]')).toHaveText([/^Api/, /^Ui/]);
   await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
   await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
   const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
@@ -114,6 +114,31 @@ test('user can extract one code map from an API repo and a UI repo @critical', a
   const hits = await page.evaluate(() => host.searchCode(undefined, 'VITE_API', 20));
   expect(hits.length).toBeGreaterThan(0);
   expect(hits.every(h => /^(Api|Ui)\//.test(h.file))).toBe(true);
+});
+
+test('user can add a second repo from the code map @critical', async () => {
+  const { dir, reg } = copyRegistry('sample-registry', { codebase: true });
+  const ui = path.join(dir, 'ui'); fs.mkdirSync(ui);
+  session = await launch(reg);
+  const { app, page } = session;
+  // The folder picker is a native dialog: answer it with the folder, as a person would.
+  await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, ui);
+  await page.getByRole('button', { name: 'Code map' }).click();
+  const side = page.locator('#sbBody');
+  await side.getByRole('button', { name: 'Add a second repo' }).click();
+  // Name the new repo, then the existing codebase, which becomes a repo too.
+  await page.locator('.askcard input').fill('Ui');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await page.locator('.askcard input').fill('Api');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect(side.locator('[data-repo-row]')).toHaveCount(2);
+  const cfg = () => JSON.parse(fs.readFileSync(path.join(reg, 'designc.json'), 'utf8'));
+  expect(cfg().repos).toEqual({ Api: '../designc-sample-codebase', Ui: '../ui' });
+  expect(cfg().codebase).toBeUndefined();
+  // Remove drops one repo from designc.json and the list.
+  await side.getByRole('button', { name: 'Remove repo Ui' }).click();
+  await expect(side.locator('[data-repo-row]')).toHaveCount(1);
+  expect(cfg().repos).toEqual({ Api: '../designc-sample-codebase' });
 });
 
 test('user can see the UI graph of a screen @critical', async () => {
