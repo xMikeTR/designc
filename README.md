@@ -68,7 +68,7 @@ The installers are unsigned. On a managed Windows machine SmartScreen or Intune 
 
 Set `"codebase"` in `designc.json` (or use the Code map view's "Choose codebase folder"), then Run > Extract Code Map (Ctrl+Shift+R). The codebase is only read, never changed. The result is written to `asbuilt/workspace.dsl` and `asbuilt/facts.json` in the registry, so extractions are versioned with everything else, and an `extraction` event goes to the ledger.
 
-**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), declare them in `designc.json` and leave `codebase` out:
+**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), add them from the Code map view (**Add a second repo**, then **Add repo** for each further one; it asks for a name such as `Api` or `Ui`, and an existing `codebase` becomes one of the repos), or declare them in `designc.json` yourself and leave `codebase` out:
 
 ```json
 "repos": { "Api": "../api", "Ui": "../ui" }

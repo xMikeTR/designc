@@ -2265,6 +2265,8 @@ document.addEventListener('click', async e => {
   if (a === 'extract') return extractCodebase();
   if (a === 'extractrefui') return extractReferenceUi(d.key);
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
+  if (a === 'addrepo') return addRepo();
+  if (a === 'removerepo') return removeRepo(d.key);
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }

@@ -261,7 +261,7 @@ python3 scripts/fetch-jira.py https://jira.example.com ~/req-pages --jql "projec
 
 <h3>8.1 Split an app across two repos</h3>
 <ol class="steps">
-  <li>In <code>designc.json</code> list the repos and remove <code>codebase</code>: <code>"repos": { "Api": "../api", "Ui": "../ui" }</code>. The names <code>Api</code> and <code>Ui</code> are what the pipeline expects.</li>
+  <li>Open the Code map view and click <strong>Choose codebase folder</strong> (or <strong>Add a second repo</strong> if one is set), pick the API repo and name it <code>Api</code>; then <strong>Add repo</strong> for the UI repo and name it <code>Ui</code>. The names <code>Api</code> and <code>Ui</code> are what the pipeline expects. This writes <code>"repos": { "Api": "../api", "Ui": "../ui" }</code> to <code>designc.json</code> and removes <code>codebase</code>; you can also edit the file by hand.</li>
   <li>On each container that has <code>d.code</code>, set <code>d.repo</code> to <code>Api</code> or <code>Ui</code>. Keep <code>d.code</code> relative to that repo. A container with code but no repo gets finding DC010.</li>
   <li>Extract the code map (Ctrl+Shift+R). You get one map; a UI call to an API route shows as an edge across the repos.</li>
   <li>Write down the seam: put one OpenAPI file in <code>contracts/openapi/</code> of the registry. Without it, a requirement whose elements span both repos blocks the gate with <em>unpinned_contract</em>.</li>
