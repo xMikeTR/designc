@@ -252,6 +252,21 @@ export { expect };
     const doc = { schema: 'designc.handover.domain/1', packs: copies.map((c, i) => ({ key: used[i].key, path: c.path, hash: hash16(c.text) })), owners };
     return { copies, json: { path: 'domain.json', text: JSON.stringify(doc, null, 2) + '\n' } };
   }
+  // The risk and data class the frozen requirements declare (jira-mapping.yaml writes them into the requirement file), so S2's
+  // router can prefer them over its own guess. Highest risk wins, first data class wins; unknown risk values are dropped.
+  const RISK_ORDER = ['low', 'medium', 'high', 'critical'];
+  function requirementProfile(requirements) {
+    const field = (f, key) => { const m = new RegExp(`^${key}:\\s*["']?([^"'\\n#]+?)["']?\\s*(#.*)?$`, 'm').exec(f.text); return m ? m[1].trim().toLowerCase() : null; };
+    let risk = null, dataClass = null;
+    for (const f of requirements) {
+      const r = field(f, 'risk');
+      if (RISK_ORDER.includes(r) && (risk == null || RISK_ORDER.indexOf(r) > RISK_ORDER.indexOf(risk))) risk = r;
+      const d = field(f, 'data_class');
+      if (d && dataClass == null) dataClass = d;
+    }
+    return { risk, dataClass };
+  }
+
   function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [] }) {
     const apiContracts = apiIn || [];
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
@@ -265,6 +280,7 @@ export { expect };
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
+    const reqProfile = requirementProfile(requirements);
     const agentsDoc = handoverAgents(model.text);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
     const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs }) };
@@ -277,7 +293,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}

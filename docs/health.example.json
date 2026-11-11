@@ -1,0 +1,21 @@
+{
+  "schemaVersion": "0.1",
+  "generatedAt": "2026-11-10T13:00:00Z",
+  "repo": { "name": "pricing-api", "commit": "a1b2c3d" },
+  "sources": [{ "tool": "SonarAnalyzer.CSharp", "sarif": "findings.sarif" }],
+  "elements": {
+    "Pricing/Quotes": {
+      "kind": "component",
+      "paths": ["src/Pricing/Quotes/**"],
+      "findings": { "total": 14, "new": 2, "byLevel": { "error": 0, "warning": 9, "note": 5 }, "byCategory": { "smell": 8, "duplication": 3, "dead-code": 2, "security": 1 } },
+      "properties": {
+        "idempotent": { "applicable": true, "evidence": [
+          { "kind": "static", "by": "review-skill", "result": "supports", "detail": "Upsert keyed on request ID", "location": "src/Pricing/Quotes/QuoteHandler.cs:42", "commit": "a1b2c3d" },
+          { "kind": "check", "by": "QuoteHandlerProperties.SameRequestTwice", "result": "pass", "commit": "a1b2c3d" }
+        ] },
+        "cached": { "applicable": true, "evidence": [] }
+      }
+    }
+  },
+  "unmapped": { "findings": 3 }
+}

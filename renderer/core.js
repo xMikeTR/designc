@@ -265,6 +265,7 @@ const Core = (() => {
       'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
       'd.code': { k: 'list' }, 'd.repo': { k: 'str' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
+      'd.idempotent': { k: 'enum', v: YN }, 'd.cached': { k: 'str' }, // claims the health overlay checks; see docs/health.example.json
     },
   };
   function parseSuppress(raw) {
