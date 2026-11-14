@@ -1,0 +1,295 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ui-screen-spec.schema.json",
+  "title": "Screen spec",
+  "description": "What a stage writes before any JSX: which template, what goes in each slot, bound to which data (ui/specs/<screen>.json). An agent mints it, a person binds it, the checks run against the registry.",
+  "type": "object",
+  "required": [
+    "screen",
+    "component",
+    "intent",
+    "template",
+    "data",
+    "slots",
+    "states",
+    "status"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "screen": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$",
+      "description": "Screen name, lower case, the same `screen:` used by parity scenarios, QA bugs and designc.json ui.screens."
+    },
+    "intent": {
+      "type": "string",
+      "minLength": 10,
+      "description": "The ask, in plain words. What the reviewer checks the spec against."
+    },
+    "ticket": {
+      "type": "string",
+      "description": "Jira key or link."
+    },
+    "template": {
+      "type": "string"
+    },
+    "data": {
+      "type": "object",
+      "description": "Every piece of data the screen shows, with its shape and where it comes from.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "shape",
+          "source"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "shape": {
+            "$ref": "ui-component-manifest.schema.json#/$defs/shape"
+          },
+          "source": {
+            "type": "string",
+            "description": "Endpoint as 'METHOD /path' with :params, e.g. 'GET /api/bordereaux/:id'. The page test mocks it with the state's sample (MSW); request parity compares against it.",
+            "pattern": "^(GET|POST|PUT|PATCH|DELETE) /\\S*$"
+          },
+          "description": {
+            "type": "string"
+          },
+          "sample": {
+            "description": "Realistic sample value used by the preview. Shape must match. Keep it small: 3–8 rows."
+          }
+        }
+      }
+    },
+    "slots": {
+      "type": "object",
+      "description": "Keys are slot paths from the template ('main', 'header.actions'). Values are ordered placements.",
+      "additionalProperties": {
+        "type": "array",
+        "items": {
+          "$ref": "#/$defs/placement"
+        }
+      }
+    },
+    "status": {
+      "enum": [
+        "minted",
+        "bound"
+      ]
+    },
+    "notes": {
+      "type": "string"
+    },
+    "preview": {
+      "type": "string",
+      "description": "Not used by designc: approved previews are recorded in the ledger (ui_preview_approved)."
+    },
+    "component": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "description": "React component name of the generated page."
+    },
+    "states": {
+      "type": "object",
+      "minProperties": 1,
+      "description": "The screen's state graph: the spine. Acceptance `states`, scenario step `state:` and QA bug `state:` use these names. Required for a UI element: ready, loading, empty, error (forbidden when reached through an authenticated relationship).",
+      "additionalProperties": {
+        "type": "object",
+        "additionalProperties": false,
+        "properties": {
+          "initial": {
+            "type": "boolean"
+          },
+          "description": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object",
+            "description": "Sample overrides for this state, by data key. null means no value (nothing selected), not loading."
+          },
+          "error": {
+            "type": "string",
+            "description": "Error message passed to components bound to a failed key."
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Data keys still loading in this state. Components bound to them get loading: true."
+          },
+          "failed": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Data keys whose request failed. Components bound to them get error (the state's error message)."
+          }
+        }
+      }
+    },
+    "transitions": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": [
+          "from",
+          "to",
+          "on"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "from": {
+            "type": "string"
+          },
+          "to": {
+            "type": "string"
+          },
+          "on": {
+            "$ref": "#/$defs/action"
+          },
+          "commits": {
+            "type": "boolean",
+            "description": "The action writes (Save, Apply, Delete). Cannot be recorded read-only; needs a mock and --allow-writes."
+          }
+        }
+      }
+    },
+    "boundBy": {
+      "type": "string"
+    },
+    "file": {
+      "type": "string",
+      "description": "Path of the page's source file in the app. The page test is always generated from the spec and imports this."
+    }
+  },
+  "$defs": {
+    "placement": {
+      "type": "object",
+      "required": [
+        "component"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "id": {
+          "type": "string",
+          "description": "Stable id, used as data-ui-id in the generated code so CI can map DOM back to spec."
+        },
+        "component": {
+          "type": "string"
+        },
+        "props": {
+          "type": "object"
+        },
+        "bind": {
+          "type": "object",
+          "description": "Data prop name → key in the spec's data section.",
+          "additionalProperties": {
+            "type": "string"
+          }
+        },
+        "why": {
+          "type": "string",
+          "description": "One line: why this component for this data. Helps the reviewer catch type-valid-but-wrong choices."
+        },
+        "locator": {
+          "$ref": "#/$defs/locator",
+          "description": "Accessible role and name the element will have. Joins the placement to acceptance locators, parity recordings and the UI graph."
+        }
+      }
+    },
+    "locator": {
+      "type": "object",
+      "required": [
+        "role",
+        "name"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "role": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        }
+      }
+    },
+    "action": {
+      "description": "One step a scenario can perform, same verbs as parity scenarios.",
+      "oneOf": [
+        {
+          "type": "object",
+          "required": [
+            "goto"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "goto": {
+              "type": "object",
+              "required": [
+                "path"
+              ],
+              "properties": {
+                "path": {
+                  "type": "string"
+                }
+              }
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "click"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "click": {
+              "$ref": "#/$defs/locator"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "fill"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "fill": {
+              "$ref": "#/$defs/locator"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "select"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "select": {
+              "$ref": "#/$defs/locator"
+            }
+          }
+        },
+        {
+          "type": "object",
+          "required": [
+            "event"
+          ],
+          "additionalProperties": false,
+          "properties": {
+            "event": {
+              "type": "string",
+              "description": "Not a user action: 'data arrives', 'request fails'."
+            }
+          }
+        }
+      ]
+    }
+  }
+}

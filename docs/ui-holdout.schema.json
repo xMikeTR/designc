@@ -1,0 +1,8 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ui-holdout.schema.json",
+  "title": "UI holdout sample",
+  "description": "ui/holdout/<screen>.json: one value per data key of the screen's spec. Written by a person; never read by a stage; in the handover by hash only. Every key must exist in the spec's data and no value may equal the visible sample.",
+  "type": "object",
+  "minProperties": 1
+}

@@ -1,0 +1,6 @@
+{
+  "model": "model/workspace.dsl",
+  "registries": {
+    "acme-ui": "../ui-pack-registry"
+  }
+}

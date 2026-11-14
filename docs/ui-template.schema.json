@@ -1,0 +1,114 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ui-template.schema.json",
+  "title": "Page template",
+  "description": "A page archetype with named slots (ui/templates/<name>.json in a kind: ui registry). Each slot says which component categories it accepts and how many.",
+  "type": "object",
+  "required": [
+    "name",
+    "description",
+    "slots",
+    "status",
+    "reference"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[a-z][a-z0-9-]*$"
+    },
+    "description": {
+      "type": "string"
+    },
+    "useWhen": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "avoidWhen": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "slots": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": {
+        "$ref": "#/$defs/slot"
+      }
+    },
+    "status": {
+      "enum": [
+        "minted",
+        "bound",
+        "deprecated"
+      ]
+    },
+    "reference": {
+      "type": "object",
+      "required": [
+        "screen"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "screen": {
+          "type": "string",
+          "description": "Source path of the agreed screen this template came from."
+        },
+        "screenshot": {
+          "type": "string",
+          "description": "Reference image used by the visual gate."
+        },
+        "spec": {
+          "type": "string",
+          "description": "Round-trip spec that describes the reference screen. It must pass validation."
+        }
+      }
+    },
+    "notes": {
+      "type": "string"
+    }
+  },
+  "$defs": {
+    "slot": {
+      "type": "object",
+      "required": [
+        "accepts"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "description": {
+          "type": "string"
+        },
+        "accepts": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "$ref": "ui-component-manifest.schema.json#/$defs/category"
+          }
+        },
+        "min": {
+          "type": "integer",
+          "minimum": 0,
+          "default": 0
+        },
+        "max": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "subslots": {
+          "type": "object",
+          "description": "Nested slots, addressed in specs as 'slot.subslot'.",
+          "additionalProperties": {
+            "$ref": "#/$defs/slot"
+          }
+        }
+      }
+    }
+  }
+}
