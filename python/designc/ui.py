@@ -412,7 +412,6 @@ def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=No
             elif pack_hash(pack_files(src['components'], src['templates'], 'ui/')) != h: push(f"{cur['pack']} changed in its registry since it was pinned: re-pin to take it", pack=cur['pack'])
         read_p = read_pack(_by_path(pack['components']), _by_path(pack['templates']), groups)
         for p in read_p['problems']: push(p)
-    elif specs: push('ui/specs/ has specs but no UI pack is pinned: pin one from its kind: ui registry')
     parsed = {}
     for f in _by_path(specs):
         r = check_spec(f['path'], f['text'], read_p, groups)

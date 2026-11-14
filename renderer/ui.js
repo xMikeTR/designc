@@ -322,7 +322,7 @@ const Ui = (() => {
       }
       readP = readPack({ components: [...pack.components].sort(byPath), templates: [...pack.templates].sort(byPath) }, groups);
       for (const p of readP.problems) push(p);
-    } else if (specs.length) push('ui/specs/ has specs but no UI pack is pinned: pin one from its kind: ui registry');
+    }
     const parsed = new Map();
     for (const f of [...specs].sort(byPath)) {
       const r = checkSpec(f.path, f.text, { pack: readP, groups });

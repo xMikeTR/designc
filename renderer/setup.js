@@ -110,21 +110,23 @@ const Setup = (() => {
 
   // What kind of registry a folder is: design (the default, a model and its gate), study (topics to learn from, no
   // model) or factory (named only). An unknown kind is read as design and said so.
-  const KINDS = ['design', 'study', 'factory', 'domain'];
+  const KINDS = ['design', 'study', 'factory', 'domain', 'ui'];
+  // Kinds with no model: their folder holds notes, packs or components, not a design.
+  const NO_MODEL = ['study', 'domain', 'ui'];
   function kind(cfg) {
     const k = cfg && cfg.kind;
     if (k == null || k === '') return { kind: 'design', problem: null };
     if (KINDS.includes(k)) return { kind: k, problem: null };
-    return { kind: 'design', problem: `designc.json kind is ${k}. Use design, study, factory or domain; it is read as design.` };
+    return { kind: 'design', problem: `designc.json kind is ${k}. Use design, study, factory, domain or ui; it is read as design.` };
   }
 
   // A section that is null or missing was skipped and stays as it is. Fields the wizard owns are set, or removed
   // when blank; every other key (tags, litellmMetadata, agents, codebase...) is kept.
   function merge(current, draft) {
     const out = { ...(current || {}) };
-    if (draft.kind === 'study' || draft.kind === 'domain') { out.kind = draft.kind; delete out.model; }
+    if (NO_MODEL.includes(draft.kind)) { out.kind = draft.kind; delete out.model; }
     else if (draft.kind === 'design') delete out.kind;
-    if (!blank(draft.model) && draft.kind !== 'study' && draft.kind !== 'domain') out.model = String(draft.model).trim();
+    if (!blank(draft.model) && !NO_MODEL.includes(draft.kind)) out.model = String(draft.model).trim();
     for (const key of ['llm', 'langfuse']) {
       if (!draft[key]) continue;
       const sec = { ...(out[key] || {}) };

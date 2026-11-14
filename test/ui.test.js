@@ -77,7 +77,7 @@ test('ui: pack is not pinned, edited after pinning, and changed in its registry'
 test('ui: a spec with no pack pinned says so', () => {
   const inp = load();
   const r = Ui.clauses({ ...inp, pack: { components: [], templates: [] }, ledger: [], holdouts: [] });
-  assert.ok(texts(r).some(t => /no UI pack is pinned/.test(t)));
+  assert.ok(texts(r).some(t => /No UI pack is pinned/.test(t)));
 });
 test('ui: a token prop whose group is not in tokens.json fails; closed groups are space, color, density, tone', () => {
   assert.deepEqual(Ui.CLOSED_TOKEN_GROUPS, ['space', 'color', 'density', 'tone']);

@@ -47,7 +47,7 @@ if (typeof Ledger !== 'undefined') {
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
-const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/') || p.startsWith('ui/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -129,6 +129,7 @@ async function loadSettings() {
   A.kind = k.kind; A.kindProblem = k.problem;
   $('#shell').classList.toggle('kind-study', A.kind === 'study');
   $('#shell').classList.toggle('kind-domain', A.kind === 'domain');
+  $('#shell').classList.toggle('kind-ui', A.kind === 'ui');
 }
 // study/*.yaml: topics of a study registry (designc.json kind study). Read only there; a problem shows in Problems.
 async function loadStudies() {
@@ -167,7 +168,7 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains();
+  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains(); await loadUi();
 }
 // domain/<key>.yaml: the pinned copies of domain packs. The source of each pin is read from the sibling registry the
 // pin names (read-only); null when it cannot be read, which the gate states as an unknown, never as a block.
@@ -202,6 +203,60 @@ async function pinDomain(key) {
   await host.write(path, text);
   await recordEvent('domain_pinned', { pack: key, registry, hash: Core.evalHash({ _text: text }) });
   toast(`Pinned ${key} from ${registry}.`, 'info');
+}
+// ui/pack/ (the pinned copy of a UI pack), ui/specs/ and ui/holdout/. The gate runs the UI checks only when one of them
+// exists. The source of the pin is read from the sibling registry it names (read-only); null when it cannot be read,
+// which the gate states as an unknown, never as a block. uiRegistries are the listed registries that hold a UI pack,
+// so the first Pin has somewhere to start.
+async function uiSource(registry) {
+  try {
+    const components = await host.registryList(registry, 'ui/components', ['.json']), templates = await host.registryList(registry, 'ui/templates', ['.json']);
+    return components.length || templates.length ? { components, templates } : null;
+  } catch { return null; }
+}
+async function loadUi() {
+  A.ui = null; A.uiRegistries = [];
+  const files = async d => (await host.list(d, ['.json'])).map(f => ({ path: f.path, text: textOf(f.path) ?? f.text }));
+  const pack = { components: await files('ui/pack/components'), templates: await files('ui/pack/templates') };
+  const specs = await files('ui/specs'), holdouts = await files('ui/holdout');
+  try { for (const r of await host.registries()) if (r.exists && await uiSource(r.key)) A.uiRegistries.push(r.key); } catch { /* none listed */ }
+  if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length) return;
+  const pin = Ui.latestPin(A.ledger || []), sources = {};
+  if (pin && (pack.components.length || pack.templates.length)) sources[pin.pack] = await uiSource(pin.registry);
+  A.ui = { pack, specs, holdouts, sources };
+}
+// Pin or re-pin the UI pack: a person's copy of the registry's ui/components and ui/templates as they are now, shown as a
+// diff first, with the hash of the copy in the ledger. The pack is named after its registry. Nothing else writes ui/pack/.
+async function pinUi(hint) {
+  const pin = Ui.latestPin(A.ledger || []), regs = Object.keys(A.cfg.registries || {});
+  const candidates = A.uiRegistries && A.uiRegistries.length ? A.uiRegistries : regs;
+  const registry = hint && regs.includes(hint) ? hint : pin ? pin.registry : candidates.length > 1 ? await askChoice('Pin the UI pack from which registry?', candidates.map(r => ({ value: r, label: r }))) : candidates[0];
+  if (!registry) return toast('No registry is listed in designc.json registries. Add the registry that holds the UI pack, then pin.', 'warning');
+  const dirty = [...A.buffers].find(([id, b]) => id.startsWith('ui/pack/') && b.dirty);
+  if (dirty) return toast(`${dirty[0]} has unsaved edits. Save or close it first.`, 'warning');
+  const src = await uiSource(registry);
+  if (!src) return toast(`No ui/components or ui/templates could be read from the ${registry} registry. Check the folder in designc.json registries.`, 'error');
+  const read = Ui.readPack(src, Ui.tokenGroups(A.tokens));
+  if (read.problems.length) return toast(`The pack in ${registry} has problems: ${read.problems[0]}${read.problems.length > 1 ? ` (and ${read.problems.length - 1} more)` : ''}. Fix it there, then pin.`, 'error');
+  const files = Ui.packFiles(src, 'ui/'), now = Ui.packFiles(A.ui ? A.ui.pack : { components: [], templates: [] }, 'ui/pack/');
+  const d = Ui.packDiff(now, files), same = !d.added.length && !d.removed.length && !d.changed.length;
+  const list = (t, xs) => (xs.length ? `\n${t}: ${xs.join(', ')}` : '');
+  if (!confirm(`${now.length ? 'Re-pin' : 'Pin'} the UI pack from ${registry}? Copying it into ui/pack/ means you, ${A.user}, accept this version: the gate checks every screen spec against it.${same ? '\nNo file differs from what is here.' : list('Added', d.added) + list('Removed', d.removed) + list('Changed', d.changed)}`)) return;
+  for (const f of files) await host.write(`ui/pack/${f.path}`, f.text);
+  for (const p of d.removed) await host.remove(`ui/pack/${p}`);
+  await recordEvent('ui_pinned', { pack: registry, registry, hash: Ui.packHash(files, Core._shared.hash16) });
+  toast(`Pinned the UI pack from ${registry}.`, 'info');
+}
+// UI: the pinned pack, and each screen spec with whether it has a holdout. Notes never block the gate.
+function uiBody() {
+  const pin = Ui.latestPin(A.ledger || []), have = A.ui && (A.ui.pack.components.length || A.ui.pack.templates.length);
+  const pack = `<div class="item"><div class="l1"><span class="id">${esc(pin ? pin.pack : 'UI pack')}</span><span class="tag ${pin && have ? 'bound' : 'open'}">${pin && have ? 'pinned' : 'not pinned'}</span>${pin ? `<span class="desc">from ${esc(pin.registry)}</span>` : ''}</div>
+    <div class="acts"><button class="lnk" data-pinui="${esc(pin ? pin.registry : '*')}">${pin && have ? 'Re-pin' : 'Pin'}</button></div></div>`;
+  const held = new Set(((A.ui && A.ui.holdouts) || []).map(f => f.path.split('/').pop().replace(/\.json$/, '')));
+  const specs = ((A.ui && A.ui.specs) || []).map(f => { const n = f.path.split('/').pop().replace(/\.json$/, '');
+    return `<div class="item" data-open="${esc(f.path)}"><div class="l1"><span class="id">${esc(n)}</span><span class="tag ${held.has(n) ? 'bound' : 'open'}">${held.has(n) ? 'holdout' : 'no holdout'}</span></div></div>`; }).join('');
+  const notes = ((A.gate && A.gate.notes) || []).filter(n => /^ui\/|registry could not be read/.test(n));
+  return pack + specs + notes.map(n => `<div class="hint">note: ${esc(n)}</div>`).join('');
 }
 // factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
 // binding pins exactly what was read. Not a gate input.
@@ -409,7 +464,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), ui: A.ui, workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -417,7 +472,7 @@ function recompile() {
   setMarkers();
 }
 async function reloadAll() {
-  await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
+  await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadUi(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
 }
 
 // ---------------------------------------------------------------- telemetry (Langfuse)
@@ -699,8 +754,8 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
-  if (any('ledger')) { await loadLedger(); await loadDomains(); }
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
 }
@@ -1440,7 +1495,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', ui: 'UI', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
@@ -1462,6 +1517,7 @@ function clauseActions(c) {
   if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') + b('data-bldfi', fi, 'Build it') : '') + b('data-askfi', fi, 'Ask the tutor'); }
   if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
   if (c.kind === 'domain' && c.pack && /not pinned|changed in its registry|edited after/.test(c.text)) return b('data-pin', c.pack, /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the pack from its registry into domain/ and records that you accepted it');
+  if (c.kind === 'ui' && /No UI pack is pinned|is not pinned|edited after it was pinned|changed in its registry/.test(c.text)) return b('data-pinui', c.pack || '*', /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the UI pack from its registry into ui/pack/, after showing what changes, and records that you accepted it');
   if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
   if (c.kind === 'check') return b('data-run', c.decision, 'Run check');
   if (c.kind === 'assumption' && / was due for review on /.test(c.text)) return b('data-review', c.decision, 'Mark reviewed');
@@ -1640,6 +1696,7 @@ function designSidebar() {
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + contractsSection()
     + (domainsInput() || A.kind === 'domain' ? section('domain', 'Domain', domainBody()) : '')
+    + (A.ui || (A.uiRegistries || []).length ? section('ui', 'UI', uiBody()) : '')
     + section('grill', 'Grill-me', grillBody);
 }
 // Domain: the packs this project pins, the aggregates its elements own (those the work touches first), and what a
@@ -2177,6 +2234,7 @@ document.addEventListener('click', async e => {
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
+  if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
   if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }

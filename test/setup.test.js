@@ -177,7 +177,7 @@ test('kind: design when absent, study and factory by name, anything else is desi
   assert.deepEqual(Setup.kind(null), { kind: 'design', problem: null });
   assert.deepEqual(Setup.kind({ kind: 'study' }), { kind: 'study', problem: null });
   assert.deepEqual(Setup.kind({ kind: 'factory' }), { kind: 'factory', problem: null });
-  assert.deepEqual(Setup.kind({ kind: 'notes' }), { kind: 'design', problem: 'designc.json kind is notes. Use design, study, factory or domain; it is read as design.' });
+  assert.deepEqual(Setup.kind({ kind: 'notes' }), { kind: 'design', problem: 'designc.json kind is notes. Use design, study, factory, domain or ui; it is read as design.' });
 });
 
 test('a study notebook draft writes kind study and no model', () => {
@@ -243,4 +243,11 @@ test('commandCheck finds a program on PATH and the --project folder without runn
   assert.deepEqual(commandCheck('  ', { cwd: '/reg', env, exists }), { error: 'empty' });
   const win = commandCheck('dotnet run', { cwd: 'C:\\r', env: { Path: 'C:\\tools', PATHEXT: '.EXE' }, platform: 'win32', exists: f => f === 'C:\\tools\\dotnet.EXE' });
   assert.equal(win.programFound, true);
+});
+
+test('a ui kind is a registry with no model', () => {
+  assert.deepEqual(Setup.kind({ kind: 'ui' }), { kind: 'ui', problem: null });
+  const out = Setup.merge({ model: 'x.dsl' }, { kind: 'ui', model: 'x.dsl' });
+  assert.equal(out.kind, 'ui');
+  assert.equal(out.model, undefined);
 });

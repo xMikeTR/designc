@@ -51,7 +51,7 @@ async function setupRefreshEnv() {
   try { SU.env = await host.setupEnv(Setup.envNames(SU.draft)); } catch { SU.env = {}; }
   SU.adc = !SU.skip.llm && Llm.provider(SU.draft.llm) === 'vertex' ? await host.setupAdc().catch(e => ({ error: 'no_adc', hint: e.message })) : null;
 }
-const setupDraft = () => ({ kind: SU.draft.kind, model: SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse, references: SU.draft.references, dispatch: SU.draft.dispatch });
+const setupDraft = () => ({ kind: SU.draft.kind, model: ['study', 'domain', 'ui'].includes(SU.draft.kind) ? '' : SU.draft.model, llm: SU.skip.llm ? null : SU.draft.llm, langfuse: SU.skip.langfuse ? null : SU.draft.langfuse, references: SU.draft.references, dispatch: SU.draft.dispatch });
 
 function setupAdcHtml() {
   const a = SU.adc; if (!a) return '';
@@ -143,8 +143,9 @@ function renderSetup() {
       <label class="su-check"><input type="radio" name="suKind" data-su-kind="design" ${SU.draft.kind === 'design' ? 'checked' : ''}> Design registry</label>
       <label class="su-check"><input type="radio" name="suKind" data-su-kind="study" ${SU.draft.kind === 'study' ? 'checked' : ''}> Study notebook</label>
       <label class="su-check"><input type="radio" name="suKind" data-su-kind="domain" ${SU.draft.kind === 'domain' ? 'checked' : ''}> Domain pack registry</label>
+      <label class="su-check"><input type="radio" name="suKind" data-su-kind="ui" ${SU.draft.kind === 'ui' ? 'checked' : ''}> UI pack registry</label>
     </div></div>
-    ${SU.draft.kind === 'study' || SU.draft.kind === 'domain' ? '' : setupModelHtml(modelErr)}
+    ${['study', 'domain', 'ui'].includes(SU.draft.kind) ? '' : setupModelHtml(modelErr)}
     ${SU.draft.kind === 'design' ? setupReferencesHtml() : ''}
     ${SU.draft.kind === 'design' ? setupDispatchHtml() : ''}
     ${setupSection('llm', 'Model provider (LLM)', 'Used by grill-me, drafting and the built-in agent. The model must support tool calling.')}
@@ -176,7 +177,7 @@ async function setupSave() {
   SU.busy = 'save'; renderSetup();
   try {
     const merged = Setup.merge(SU.current, d);
-    const createModel = d.kind !== 'study' && d.kind !== 'domain' && !SU.modelExists && SU.starter;
+    const createModel = !['study', 'domain', 'ui'].includes(d.kind) && !SU.modelExists && SU.starter;
     if (createModel) await host.write(merged.model, Setup.STARTER_MODEL);
     await host.write('designc.json', JSON.stringify(merged, null, 2) + '\n');
     SU.current = merged; SU.exists = true; SU.busy = '';

@@ -120,7 +120,8 @@ def read_ui_source(root, cfg, registry):
     if not rel: return None
     base = os.path.join(root, rel)
     if not os.path.isdir(os.path.join(base, 'ui')): return None
-    return {'components': _ui_files(base, 'ui/components'), 'templates': _ui_files(base, 'ui/templates')}
+    out = {'components': _ui_files(base, 'ui/components'), 'templates': _ui_files(base, 'ui/templates')}
+    return out if out['components'] or out['templates'] else None
 
 
 def read_source(root, cfg, registry, key):

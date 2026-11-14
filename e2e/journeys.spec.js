@@ -397,6 +397,30 @@ test('user can pin a domain pack and see it checked @critical', async () => {
   await expect(sidebar.getByText('fares/Booking', { exact: true })).toBeVisible();
 });
 
+test('user can pin a UI pack and see a screen spec checked against it @critical', async () => {
+  const { reg, dir } = copyRegistry('fixtures/ui-project');
+  fs.cpSync(path.join(__dirname, '..', 'fixtures/ui-pack-registry'), path.join(dir, 'ui-pack-registry'), { recursive: true });
+  fs.rmSync(path.join(reg, 'ui/pack'), { recursive: true });
+  session = await launch(reg);
+  const { page } = session;
+  const asked = [];
+  page.on('dialog', d => asked.push(d.message()));
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // A spec with no pack: the gate says so and offers the pin.
+  const sidebar = page.locator('#sbBody');
+  await expect(sidebar.getByText('ui/specs/bordereaux.json /template: No UI pack is pinned')).toBeVisible();
+  await sidebar.locator('.clause').getByRole('button', { name: 'Pin' }).first().click();
+  // Pinning shows what is copied, writes ui/pack/ as the registry has it, and records who accepted it.
+  await expect.poll(() => asked.some(m => /Pin the UI pack from acme-ui\?.*Added: .*components\/Button\.json/s.test(m))).toBe(true);
+  const src = path.join(dir, 'ui-pack-registry/ui/components/Button.json');
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/pack/components/Button.json')) && fs.readFileSync(path.join(reg, 'ui/pack/components/Button.json'), 'utf8')).toBe(fs.readFileSync(src, 'utf8'));
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'ui_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['acme-ui:acme-ui']);
+  await expect(sidebar.locator('.clause', { hasText: 'UI pack' })).toHaveCount(0);
+  // The bordereaux spec passes with its holdout; the section lists it.
+  await expect(sidebar.getByText('bordereaux', { exact: true })).toBeVisible();
+  await expect(sidebar.getByText('holdout', { exact: true })).toBeVisible();
+});
+
 test('user can see legacy parity and what it holds a work item to @critical', async () => {
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
