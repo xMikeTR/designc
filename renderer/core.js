@@ -3,6 +3,7 @@ const Core = (() => {
   const DM = typeof require === 'function' && typeof module === 'object' ? require('./domain.js') : Domain;
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
+  const UI = typeof require === 'function' && typeof module === 'object' ? require('./ui.js') : Ui;
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -708,7 +709,7 @@ const Core = (() => {
     if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
     return out;
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -797,10 +798,14 @@ const Core = (() => {
     clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
     clauses.push(...tokenClauses(tokens, minTextSize));
     clauses.push(...contractGaps.map(g => ({ kind: 'contracts', text: g.text, about: [g.name] })));
-    if (!domains) return { ready: clauses.length === 0, clauses };
-    const dc = domainClauses({ model, ledger, ...domains });
-    clauses.push(...dc.clauses);
-    return { ready: clauses.length === 0, clauses, notes: dc.notes };
+    if (!domains && !ui) return { ready: clauses.length === 0, clauses };
+    const notes = [];
+    if (domains) { const dc = domainClauses({ model, ledger, ...domains }); clauses.push(...dc.clauses); notes.push(...dc.notes); }
+    if (!ui) return { ready: clauses.length === 0, clauses, notes };
+    // ui: {pack: {components, templates}, specs, holdouts, tokens, sources}. Opt-in: nothing runs without a pack or a spec.
+    const uc = UI.clauses({ tokens, ...ui, ledger, hash: hash16 });
+    clauses.push(...uc.clauses); notes.push(...uc.notes);
+    return { ready: clauses.length === 0, clauses, notes, coverage: uc.coverage };
   }
   // ---------- domain packs ----------
   // domains: {listed, packs: [{key, path, text}], sources: {key: text|null}, behaviour: [{path, text}]}. The owners
@@ -999,7 +1004,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
@@ -1090,7 +1095,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;

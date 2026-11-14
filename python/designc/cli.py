@@ -13,7 +13,7 @@ from . import domain, factory, ledger, record, work
 from .dsl import parse
 from .evals import score_eval
 from .gate import eval_hash, eval_problems, eval_report, gate, scoped_gate
-from .registry import load_handover_evals, load_handover_ids, load_domains, load_ledger, load_registry, load_settings, load_yaml_dir, read_source, yaml_load, _list
+from .registry import load_handover_evals, load_handover_ids, load_domains, load_ledger, load_ui, load_registry, load_settings, load_yaml_dir, read_source, yaml_load, _list
 from .rules import check, fingerprint
 from .verify import read_ledger_files, verify
 
@@ -34,7 +34,8 @@ def state(root):
     if domains:
         pinned = domain.pins(led)
         domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
-    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led), repos=cfg.get('repos') or {}, api_contracts=api_contracts(root))
+    ui = load_ui(root, cfg, led)
+    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led), repos=cfg.get('repos') or {}, api_contracts=api_contracts(root), ui=ui)
     return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
 
 
@@ -62,7 +63,7 @@ def report_of(s):
         'errors': model.errors,
         'findings': [{'code': d['code'], 'sev': d['sev'], 'msg': d['msg'], 'label': d['loc']['label'], 'line': d['loc']['line'],
                       'unknown': bool(d['unknown']), 'suppressed': d['suppressed'] or None} for d in diags],
-        'gate': {'ready': g['ready'], 'clauses': [{'kind': c['kind'], 'text': c['text']} for c in g['clauses']], **({'notes': list(g['notes'])} if g.get('notes') else {})},
+        'gate': {'ready': g['ready'], 'clauses': [{'kind': c['kind'], 'text': c['text']} for c in g['clauses']], **({'notes': list(g['notes'])} if g.get('notes') else {}), **({'coverage': list(g['coverage'])} if g.get('coverage') else {})},
     }
 
 

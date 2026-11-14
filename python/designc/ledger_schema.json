@@ -996,6 +996,24 @@
       },
       "rules": []
     },
+    "ui_pinned": {
+      "stream": "designc.jsonl",
+      "required": [
+        "pack",
+        "registry",
+        "hash"
+      ],
+      "optional": [],
+      "enums": {},
+      "types": {
+        "pack": "string",
+        "registry": "string",
+        "hash": "string"
+      },
+      "rules": [
+        "hash_not_blank"
+      ]
+    },
     "unapproved_change": {
       "stream": "agents.jsonl",
       "required": [

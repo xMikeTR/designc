@@ -5,6 +5,7 @@ import time
 from urllib.parse import urlparse
 
 from . import domain
+from . import ui as ui_mod
 from .evals import _OPS, parse_threshold
 from .records import runs
 from .rules import fingerprint, get, hash16, interaction, num, structural
@@ -239,7 +240,7 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=()):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=(), ui=None):
     work_states = work_states or {}
     clauses = []
     if model.errors:
@@ -351,10 +352,15 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     clauses.extend(acceptance_clauses(model, acceptance, requirements, decisions))
     clauses.extend(token_clauses(tokens, min_text_size))
     clauses.extend(eval_clauses(model, evals, ledger, time.time() * 1000 if now is None else now))
-    if domains is None: return {'ready': not clauses, 'clauses': clauses}
-    dc = domain_clauses(model, ledger, domains)
-    clauses.extend(dc['clauses'])
-    return {'ready': not clauses, 'clauses': clauses, 'notes': dc['notes']}
+    if domains is None and ui is None: return {'ready': not clauses, 'clauses': clauses}
+    notes = []
+    if domains is not None:
+        dc = domain_clauses(model, ledger, domains)
+        clauses.extend(dc['clauses']); notes.extend(dc['notes'])
+    if ui is None: return {'ready': not clauses, 'clauses': clauses, 'notes': notes}
+    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {})
+    clauses.extend(uc['clauses']); notes.extend(uc['notes'])
+    return {'ready': not clauses, 'clauses': clauses, 'notes': notes, 'coverage': uc['coverage']}
 
 
 def domain_owners(model):

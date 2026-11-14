@@ -5,6 +5,7 @@ import re
 
 import yaml
 
+from . import ui as ui_mod
 from .gate import _s
 
 REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance']
@@ -18,6 +19,7 @@ GATE_KINDS = {
     'needs_decision': (['id', 'question', 'status'], ['task', 'element'], {'status': ['open', 'resolved']}),
     'needs_decision_resolved': (['id'], [], {}),
     'domain_pinned': (['pack', 'registry', 'hash'], [], {}),
+    'ui_pinned': (['pack', 'registry', 'hash'], [], {}),
 }
 
 
@@ -93,6 +95,32 @@ def load_domains(root, cfg):
     packs = [{'key': re.sub(r'\.ya?ml$', '', p.split('/')[-1]), 'path': p, 'text': t} for p, t in _list(root, 'domain', ['.yaml', '.yml'])]
     if not listed and not packs: return None
     return {'listed': listed, 'packs': packs, 'behaviour': [{'path': p, 'text': t} for p, t in _list(root, 'behaviour', ['.p'])], 'load': yaml_load}
+
+
+def _ui_files(root, d):
+    return [{'path': p, 'text': t} for p, t in _list(root, d, ['.json'])]
+
+
+def load_ui(root, cfg, led):
+    """The UI pack a project pins (ui/pack/), its specs and holdouts, and the source registry of the pinned pack
+    (designc.json `registries`, by the registry name the ledger pin gives) for a newer version. None when the
+    project has no pack, no spec and no holdout (UI rules do not run)."""
+    pack = {'components': _ui_files(root, 'ui/pack/components'), 'templates': _ui_files(root, 'ui/pack/templates')}
+    specs, holdouts = _ui_files(root, 'ui/specs'), _ui_files(root, 'ui/holdout')
+    if not pack['components'] and not pack['templates'] and not specs and not holdouts: return None
+    sources = {}
+    pin = ui_mod.latest_pin(led)
+    if pin and (pack['components'] or pack['templates']): sources[pin['pack']] = read_ui_source(root, cfg, pin['registry'])
+    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources}
+
+
+def read_ui_source(root, cfg, registry):
+    """ui/components and ui/templates of the registry a pack was pinned from, or None when it cannot be read."""
+    rel = (cfg.get('registries') or {}).get(registry) if isinstance(cfg.get('registries'), dict) else None
+    if not rel: return None
+    base = os.path.join(root, rel)
+    if not os.path.isdir(os.path.join(base, 'ui')): return None
+    return {'components': _ui_files(base, 'ui/components'), 'templates': _ui_files(base, 'ui/templates')}
 
 
 def read_source(root, cfg, registry, key):

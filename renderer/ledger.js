@@ -72,6 +72,7 @@ const Ledger = (() => {
     failure_mode_classified: 'factory.jsonl',
     factory_task_bound: 'factory.jsonl',
     domain_pinned: 'designc.jsonl',
+    ui_pinned: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
@@ -349,6 +350,15 @@ const Ledger = (() => {
     // A human pins a domain pack: domain/<pack>.yaml in the project is a copy of <registry>'s pack with this hash.
     // The latest pin per pack wins. Written by the app only; `designc record` refuses it.
     domain_pinned: {
+      required: ['pack', 'registry', 'hash'],
+      optional: [],
+      enums: {},
+      types: { pack: 'string', registry: 'string', hash: 'string' },
+      rules: ['hash_not_blank'],
+    },
+    // A human pins a UI pack: ui/pack/ in the project is a copy of <registry>'s ui/components and ui/templates, with
+    // this hash over the copy (renderer/ui.js packHash). The latest pin wins. Written by the app only; `designc record` refuses it.
+    ui_pinned: {
       required: ['pack', 'registry', 'hash'],
       optional: [],
       enums: {},
