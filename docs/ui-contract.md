@@ -151,9 +151,9 @@ The QA bucket mapping stands (state not recorded → `spec_gap`, captured but no
 - Origin `catalogue_gap`: the spec passed but was wrong, because a slot accepts too much, a `useWhen` is vague or a template is missing. System 3 proposes a pack change.
 - The variance test: mint the same ticket's spec several times and diff them. Where the drafts disagree, a rule is missing; each disagreement is a `catalogue_gap` proposal.
 
-## Agents
+## Agents (built, D4)
 
-The UI contract adds no new agent. It adds `compose` and `catalogue` as new `ROLES` entries in `renderer/agent.js`. The two kit skills are these stages outside designc; when designc has them, the skill text becomes the stage briefs.
+The UI contract adds no new agent. It adds `compose` and `catalogue` as new `ROLES` entries in `renderer/agent.js`. The two kit skills are these stages outside designc; designc has them now (D4): the skill text, cut to what applies inside designc, is the stage brief. `suggest_stage` is the one tool added beyond this table: a card with an Open button that switches the stage after the turn. `ui/holdout/` is unreadable to every stage (`Policy.readVerdict`, no settings override), and acceptance `holdout` is set only by a person.
 
 | Stage | Where | Does | Reads | Proposes (all ask) |
 | --- | --- | --- | --- | --- |

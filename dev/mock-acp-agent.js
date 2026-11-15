@@ -40,8 +40,22 @@ async function studyTurn() {
   return 'end_turn';
 }
 
+// MOCK_SCRIPT=compose: the Compose stage. Reads the pack, tries a spec that fails its checks (refused, no card), then mints a good one.
+async function composeTurn() {
+  const call = async (name, args) => { const r = await mcp.call('tools/call', { name, arguments: args }); if (r.isError) throw new Error(r.content[0].text); return r.content[0].text; };
+  await say('Reading the pinned pack through designc. ');
+  await tool('c1', 'designc: read_ui_pack', 'read', async () => `${JSON.parse(await call('read_ui_pack', {})).components.length} components`);
+  const base = JSON.parse(require('fs').readFileSync(path.join(cwd, 'ui/specs/bordereaux.json'), 'utf8'));
+  const spec = { ...base, screen: 'orders', status: 'minted' };
+  await tool('c2', 'designc: mint_ui_spec (broken)', 'other', () => call('mint_ui_spec', { screen: 'orders', spec: { ...spec, template: 'no-such-template' }, why: 'first try' }));
+  await tool('c3', 'designc: mint_ui_spec', 'other', () => call('mint_ui_spec', { screen: 'orders', spec, why: 'Orders mirror the bordereaux list and detail' }));
+  await say('I minted the spec; render the previews next.');
+  return 'end_turn';
+}
+
 async function turn() {
   cancelled = false;
+  if (process.env.MOCK_SCRIPT === 'compose') return composeTurn();
   if (process.env.MOCK_SCRIPT === 'study') return studyTurn();
   const plan = s => update({ sessionUpdate: 'plan', entries: [
     { content: 'Read the lint findings through designc', priority: 'high', status: s[0] },

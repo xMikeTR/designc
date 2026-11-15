@@ -3,7 +3,9 @@
    from tests. agent.js owns roles and tools; the decisions about what an agent may do live here. */
 const Policy = (() => {
   // Folders each role may write through ACP fs/write_text_file.
-  const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//, /^acceptance\//], analyst: [/^proposals\//, /^factory\/tasks\//] };
+  const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//, /^acceptance\//], analyst: [/^proposals\//, /^factory\/tasks\//],
+    // The UI stages. Nothing writes ui/pack/ (a person pins it), ui/previews/ (a render writes it) or ui/holdout/ (a person writes it).
+    compose: [/^ui\/specs\/[a-z][a-z0-9-]*\.json$/], catalogue: [/^ui\/(components|templates)\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/] };
 
   // Written only by a human binding a decision (bindDecision), never by an agent.
   const PROMOTION_FIELDS = ['promoted_against', 'promoted_by', 'promoted_at'];
@@ -15,7 +17,7 @@ const Policy = (() => {
   const REVIEW_FIELDS = ['reviewed_by', 'reviewed_at'];
 
   // Tools that change the registry. Settings can deny them or leave them out, never make them silent.
-  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question'];
+  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage'];
 
   // Read deny, for every role, no settings override: the holdout sample is written by a person and never shown to a stage.
   const HOLDOUT_DENIED = 'ui/holdout/ is never shown to an agent stage; a person writes it.';
@@ -66,6 +68,12 @@ const Policy = (() => {
         const prose = (Array.isArray(doc.checks) ? doc.checks : []).map(c => c && typeof c === 'object' && !Array.isArray(c) ? (typeof c.run === 'string' ? c.run : '') : c).find(c => checkProblem(c));
         if (prose != null) return no(`Check "${prose}": ${checkProblem(prose)} A check is a shell command run in the registry folder that exits 0 when the decision holds. Write the command, or "TODO <what it must prove>" when none exists yet.`);
       }
+    }
+    if (/^ui\//.test(rel)) {
+      let doc = null;
+      try { doc = JSON.parse(content); } catch { /* reported below */ }
+      if (!doc || typeof doc !== 'object' || Array.isArray(doc)) return no(`${rel} is not a JSON object, so designc cannot check it. Fix the file and write it again.`);
+      if (doc.status !== 'minted') return no('A person binds UI files (Approve and bind, or Pin); an agent writes them as "status": "minted".');
     }
     return { ok: true };
   }

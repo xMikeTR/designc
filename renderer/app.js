@@ -242,13 +242,18 @@ async function loadUi() {
   }
 }
 // Render previews: types the Factory's preview command into the Terminal for a person to run. Nothing runs from here.
-async function renderUiPreviews(screen) {
-  if (!A.cfg.codebase) return toast('Set codebase in designc.json first: the previews are rendered with the app\'s own component library.', 'warning');
+// The one place the command is built, for the button and for the request_preview card: {line} or {error}.
+function uiPreviewLine(screen) {
+  if (!A.cfg.codebase) return { error: 'Set codebase in designc.json first: the previews are rendered with the app\'s own component library.', warn: true };
   const abs = /^([A-Za-z]:|[\\/])/.test(A.cfg.codebase) ? A.cfg.codebase : `${A.root.root.replace(/[\\/]$/, '')}/${A.cfg.codebase}`;
   const f = A.cfg.factory, factory = typeof f === 'string' ? f : f && typeof f.command === 'string' ? f.command : null;
   const line = Dispatch.uiPreview({ factory, registry: A.root.root, screen, repo: abs }, A.platform);
-  if (line.error) return toast(line.error, 'error');
-  return typeInTerminal(line, 'Render previews');
+  return line.error ? { error: line.error } : { line };
+}
+async function renderUiPreviews(screen) {
+  const r = uiPreviewLine(screen);
+  if (r.error) return toast(r.error, r.warn ? 'warning' : 'error');
+  return typeInTerminal(r.line, 'Render previews');
 }
 // Approve (and bind) a screen's previews. Binding rewrites the spec (status: bound), which changes its bytes, so approving first
 // would be stale at once: it is one action. The ledger gets ui_spec_bound (when it binds) and ui_preview_approved with the hash of
