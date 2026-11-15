@@ -73,6 +73,7 @@ const Ledger = (() => {
     factory_task_bound: 'factory.jsonl',
     domain_pinned: 'designc.jsonl',
     ui_pinned: 'designc.jsonl',
+    ui_preview_rendered: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
@@ -365,6 +366,15 @@ const Ledger = (() => {
       types: { pack: 'string', registry: 'string', hash: 'string' },
       rules: ['hash_not_blank'],
     },
+    // The Factory rendered a UI screen's previews (docs/ui-contract.md). `files` maps each preview path to its sha256, `image` is
+    // the page picture people approve. A Factory kind: `designc record` accepts it (unlike ui_pinned). Not shown in the UI yet.
+    ui_preview_rendered: {
+      required: ['screen', 'spec_hash', 'files', 'image'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', spec_hash: 'string', files: 'object', image: 'string' },
+      rules: ['preview_rendered_shape'],
+    },
     // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in
     // telemetry). Written by the app only; the latest per observation wins. `failure_mode` names a mode in
     // factory/taxonomy.yaml (null or absent: not assigned).
@@ -475,6 +485,12 @@ const Ledger = (() => {
       return isPlainObject(ev.ref) && kinds.includes(ev.ref.kind) && typeof ev.ref.id === 'string' && ev.ref.id ? null : `ref: must be {kind: ${kinds.join('|')}, id}`;
     },
     fail_needs_note: ev => (ev.verdict === 'fail' && typeof ev.note === 'string' && !ev.note.trim() ? "note: say what went wrong when verdict is 'fail'" : null),
+    preview_rendered_shape: ev => {
+      const hex = /^[0-9a-f]{64}$/;
+      if (typeof ev.spec_hash === 'string' && !hex.test(ev.spec_hash)) return 'spec_hash: must be 64 hex characters';
+      if (isPlainObject(ev.files)) for (const [k, v] of Object.entries(ev.files)) if (typeof v !== 'string' || !hex.test(v)) return `files: '${k}' must map to 64 hex characters`;
+      return null;
+    },
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),

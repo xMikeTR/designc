@@ -35,6 +35,12 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'preview_rendered_shape':
+        hexre = re.compile(r'^[0-9a-f]{64}$')
+        if isinstance(ev.get('spec_hash'), str) and not hexre.match(ev['spec_hash']): return 'spec_hash: must be 64 hex characters'
+        if isinstance(ev.get('files'), dict):
+            for k, v in ev['files'].items():
+                if not (isinstance(v, str) and hexre.match(v)): return f"files: '{k}' must map to 64 hex characters"
     elif rid == 'failures_shape':
         fs = ev.get('failures')
         if not isinstance(fs, list): return None

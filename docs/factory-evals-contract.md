@@ -20,13 +20,14 @@ A factory registry is a folder with a `designc.json` and no model. It can point 
 
 ## What the harness writes
 
-Pipe JSON lines into `designc record <registry> --by <name>`. It accepts exactly three kinds, fixed in `python/designc/factory.py`, and a batch is all or nothing (exit 0 recorded, 1 nothing recorded with `line N: ...` on stderr, 2 no such folder). It needs no model and no settings.
+Pipe JSON lines into `designc record <registry> --by <name>`. It accepts exactly four kinds, fixed in `python/designc/factory.py`, and a batch is all or nothing (exit 0 recorded, 1 nothing recorded with `line N: ...` on stderr, 2 no such folder). It needs no model and no settings.
 
 | Kind | Fields | When |
 | --- | --- | --- |
 | `suite_run` | `suite_run_id, suite, harness_version, model, prompt_version, trials, tasks {<task_id>: {hash, gates[], gradients[]?}}`, `configurator?` | Once, at the start. `hash` is the hash of the task file as the run used it (`Core.evalHash`: `hash16` of the text with CRLF as LF). `gates` decide a trial; `gradients` are shown only |
 | `grader` | `suite_run_id, task_id, trial, grader, verdict (pass, fail, unknown, skipped)`, `reason?, ms?, judge_version?, rubric_hash?, trace_id?` | One per grader per trial. `reason` helps on a fail; `trace_id` links to Langfuse |
 | `suite_run_finished` | `suite_run_id, outcome (completed, aborted)`, `reason?` (required when aborted) | Once, at the end |
+| `ui_preview_rendered` | `screen, spec_hash (64 hex), files {<path>: <64 hex sha256>}, image` | After the Factory renders a UI screen's previews; example: `docs/ui-preview-rendered.example.json`. Written to `designc.jsonl` |
 
 Rules designc applies when reading: a trial fails if any pinned gate failed and passes if every gate passed; otherwise it is `incomplete` while the run is open and `harness` once finished (left out of pass@1). The latest event per grader wins. Events naming an undeclared task, trial or grader are counted as stray. pass@1 is the share of judged trials that passed; pass^k is pass@1 to the power `k` (`designc.json` `factory.k`, default 3).
 
