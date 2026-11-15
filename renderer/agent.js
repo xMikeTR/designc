@@ -4,6 +4,8 @@
 
 // ---------------------------------------------------------------- roles & policy
 const READ_TOOLS = ['read_model', 'get_findings', 'get_gate', 'list_decisions', 'read_registry_file', 'get_code_map', 'search_codebase', 'read_code', 'get_telemetry', 'get_forecast'];
+// What the UI stages read: the specs, the pinned pack and the code's UI graph. Never ui/holdout/ (policy.js).
+const UI_READ_TOOLS = ['read_ui_spec', 'read_ui_pack', 'get_ui_graph'];
 const COMMON_RULES = `You work inside designc, a system design IDE. The design (Structurizr DSL with d.* design properties) is the source of truth; code is generated from it.
 Rules:
 - Use tools to look before you answer. Cite evidence as model line numbers ("line 53") or file:line for code.
@@ -16,18 +18,24 @@ Rules:
 const RESEARCH_RULE = 'To research, search the web if you can. If web search is not available or is blocked, fetch pages you know directly with web fetch (vendor documentation, standards, well-known articles and books\' sites). If you can do neither, say so and answer from your own knowledge and the model, marked as unsourced. Link only pages you actually read; never invent a link.';
 const DONT_KNOW = "I don't know.";
 const ROLES = {
-  architect: { label: 'Architect', system: 'S1', allow: READ_TOOLS, ask: ['propose_model_edit', 'mint_decision', 'write_check'],
+  architect: { label: 'Architect', system: 'S1', allow: [...READ_TOOLS, ...UI_READ_TOOLS], ask: ['propose_model_edit', 'mint_decision', 'write_check'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
-  grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity'], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'write_check'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement.',
+  grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity', ...UI_READ_TOOLS], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'write_check', 'suggest_stage'],
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
     starters: ['Grill me on this design', 'Grill me on Bookings DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: [...READ_TOOLS, 'list_reviews'], ask: ['mint_proposal', 'group_reviews', 'draft_eval_task'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can. When asked to group failure notes (error analysis): call list_reviews, read every failed note, and group them by the first thing that went wrong, reusing a mode of the taxonomy where it fits and naming a new one (a short phrase for the failure, not its cause) only where none does. A note that fits nowhere stays ungrouped. Propose the grouping with group_reviews, saying why each group belongs together; the person approves it. You never change a verdict or a note. When asked to draft an eval task for a failure mode: call list_reviews, pick the failed reviews in that mode that show it most plainly, and draft one task with draft_eval_task whose title says what the pipeline must get right (not what went wrong). It is minted; a person checks and binds it.',
     starters: ['What should change in the factory given the recent escapes?', 'Which lint rule would have caught the most failed runs?', 'Is any rule noisy enough to reconsider?'] },
-  tutor: { label: 'Tutor', system: 'S1', allow: READ_TOOLS.filter(t => t !== 'get_telemetry'), ask: [],
+  tutor: { label: 'Tutor', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), ...UI_READ_TOOLS], ask: [],
     instructions: 'You are the Tutor: you teach system design to an engineer who is learning it while designing. Explain the concept in plain words first, then tie it to their model (read it; name the elements and lines it applies to). Give the trade-offs, not one right answer. Name sources worth reading (books, papers, well-known articles). ' + RESEARCH_RULE + ' End with one short question that checks understanding. You never change the design and never propose edits or decisions; if the user wants a change, tell them to ask the Architect or edit it themselves.',
     starters: ['Explain the C4 levels using my model', 'What should I learn first to design this well?', 'Explain the findings on my model as if I were new to this'] },
+  compose: { label: 'Compose', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_parity', ...UI_READ_TOOLS], ask: ['mint_ui_spec', 'request_preview'],
+    instructions: 'You are Compose: you turn one screen of the design into a ui screen spec, using only the components and templates of the pinned pack. Never write a file; mint_ui_spec shows the person a card and checks the spec before the card is shown. Work in this order. 1. read_ui_pack: the components, their props and states, the templates and their slots, and the token groups. A spec may use nothing else. 2. get_ui_graph for the screen if the code has one, and read_parity and the acceptance criteria for what the screen must do. 3. Choose one template, then place components in its slots: each placement has an id, a component, props, bind (prop to data key), a one line why that cites the requirement or criterion, and a locator. Every data key names its shape, its source and a sample. 4. Name the states and transitions from the acceptance cases, with the same state names; a transition that commits a change says so, and a mock stands behind it. 5. Call mint_ui_spec with status minted, never bound: a person binds with Approve and bind after seeing the previews. If the check names clauses, fix exactly those and mint again. 6. When the card is approved, call request_preview so the person can render the pictures. One spec per screen; to replace a bound spec, pass supersedes with the screen name. You cannot read ui/holdout/.',
+    starters: ['Compose the spec for the screen I have open', 'Which components in the pack fit this screen, and which slots?', 'What states does this screen need, from the acceptance criteria?'] },
+  catalogue: { label: 'Catalogue', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), ...UI_READ_TOOLS], ask: ['mint_ui_component', 'mint_ui_template', 'request_preview'],
+    instructions: 'You are Catalogue: you keep the UI pack registry, the components and templates a screen spec may use. Work from the real component library (read_code, search_codebase), not from memory. For a component, record the props with their types, the data it takes, its states, when to use it and when not to, and the token groups its props use. A template names its slots, what each holds and how many. Call mint_ui_component or mint_ui_template with status minted; the schema check runs before the card is shown, so fix the clauses it names and mint again. A person binds a component or template, and pins the pack into a project. You cannot read ui/holdout/.',
+    starters: ['Add a manifest for the component in this file', 'Which components in the library have no manifest yet?', 'Propose a template for a list and detail screen'] },
   researcher: { label: 'Researcher', system: 'S1', allow: ['read_study'], ask: ['add_source', 'add_finding', 'answer_question'],
     instructions: 'You are the Researcher in a study notebook: the person wants to learn how to approach a question before deciding anything. Read the topic with read_study. Find exemplar code (open source repositories that solve the problem well, linked at a commit so the link does not move) and good written sources. ' + RESEARCH_RULE + ' Add each source with add_source, then each finding with add_finding: the pattern, why it works or does not, good, bad or tradeoff, and the sources it rests on by number. Show the bad parts too, not only the good. To correct an earlier finding, add a new one with corrects; never rewrite. When a finding answers one of the person\'s questions, link it with answer_question. You inform; you never decide: the opinion, the questions, the PoCs and settling the topic are the person\'s. End with what the person could try themselves (a PoC) or read next.',
     starters: ['Research this topic: find two or three exemplar repositories and what they do well and badly', 'Answer my open questions from the sources', 'What are the bad parts of the patterns found so far?'] },
@@ -55,7 +63,15 @@ const TOOLS = {
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
   write_check: { d: 'Write the shell script for a decision whose check is still "TODO ./checks/<name>.sh: <what it must prove>". The script path comes from that TODO. It must be bash, read-only (read model/, behaviour/, decisions/ and other registry files; no network, no deletes, no writes outside a temp dir) and exit 0 only when the decision holds, printing why when it fails. The user reads the script and approves; only then is it saved and the TODO replaced by the command that runs it.', p: obj({ decision: { type: 'string' }, script: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'script', 'summary']) },
   mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
-  mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) } }, ['requirement', 'element', 'cases']) },
+  mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) }, suggest_holdout: { type: 'array', items: { type: 'string' }, description: 'states whose case you suggest the person keeps hidden from the build; shown on the card, never written' } }, ['requirement', 'element', 'cases']) },
+  read_ui_spec: { d: 'Read the UI screen specs in ui/specs/. With no screen, one row per spec (screen, path, status, component, state names). With a screen, that spec in full. ui/holdout/ is never shown.', p: obj({ screen: { type: 'string' } }) },
+  read_ui_pack: { d: 'The pinned UI pack a spec may use: every component manifest, every template with its slots, and the token groups (space, color, density, tone) with their token names. Use nothing outside it.', p: obj({}) },
+  get_ui_graph: { d: 'What the code says about one screen: its structure, the components it uses, its states and transitions as the code has them.', p: obj({ screen: { type: 'string' } }, ['screen']) },
+  mint_ui_spec: { d: 'Propose a UI screen spec (written to ui/specs/<screen>.json as minted). Checked first; a spec that fails its checks is refused with the clauses and no card is shown. The person sees the placements as a table and approves or declines. Binding stays a human action.', p: obj({ screen: { type: 'string' }, spec: { type: 'object' }, why: { type: 'string' }, supersedes: { type: 'string' } }, ['screen', 'spec', 'why']) },
+  mint_ui_component: { d: 'Propose a component manifest for the UI pack registry (ui/components/<name>.json, status minted). Schema-checked before the card is shown. Only in a UI pack registry.', p: obj({ component: { type: 'object' }, why: { type: 'string' } }, ['component', 'why']) },
+  mint_ui_template: { d: 'Propose a template for the UI pack registry (ui/templates/<name>.json, status minted). Schema-checked before the card is shown. Only in a UI pack registry.', p: obj({ template: { type: 'object' }, why: { type: 'string' } }, ['template', 'why']) },
+  request_preview: { d: 'Ask the person to render the page previews of a screen. The card shows the exact command; on approval it is typed into the Terminal for the person to run. Nothing runs from here. The screen needs a spec.', p: obj({ screen: { type: 'string' } }, ['screen']) },
+  suggest_stage: { d: 'Suggest the person move to another stage (compose, catalogue, grill, architect). The card has an Open button; the stage changes after this turn ends, only if the person approves.', p: obj({ stage: { type: 'string', enum: ['compose', 'catalogue', 'grill', 'architect'] }, why: { type: 'string' } }, ['stage', 'why']) },
   read_parity: { d: 'Read the legacy parity recordings: each scenario\'s steps, whether a legacy baseline is recorded, its latest result and the differences the latest report found. Shapes and interface text only, never page data or screenshots. Read-only.', p: obj({ scenario: { type: 'string' } }, []) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
   map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
@@ -92,6 +108,21 @@ const READERS = {
     decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, assumptions: d.assumptions || [], latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
     requirements: A.requirements.map(r => ({ id: r.id, title: r.title, elements: r.elements })),
   }),
+  read_ui_spec: a => {
+    const specs = (A.ui && A.ui.specs) || [];
+    if (!a.screen) return specs.length ? cap(JSON.stringify(Ui.specList(specs))) : 'No UI specs yet in ui/specs/.';
+    if (typeof a.screen !== 'string' || !/^[a-z][a-z0-9-]*$/.test(a.screen)) return 'screen must be lower case letters, digits and hyphens.';
+    const f = specs.find(x => x.path === `ui/specs/${a.screen}.json`);
+    return f ? cap(f.text) : `No spec for ${a.screen}. Call read_ui_spec with no screen to list them.`;
+  },
+  read_ui_pack: () => {
+    if (!A.ui || !A.ui.pack || !(A.ui.pack.components.length || A.ui.pack.templates.length)) return 'No UI pack is pinned in ui/pack/. A person pins one from its kind: ui registry.';
+    return cap(JSON.stringify(Ui.packView(A.ui.pack, Ui.tokenGroups(A.tokens))));
+  },
+  get_ui_graph: a => {
+    const g = A.facts && A.facts.ui, s = g && typeof UiGraph !== 'undefined' ? UiGraph.screen(g, a.screen) : null;
+    return s ? cap(JSON.stringify(s)) : `The code map has no UI graph for ${a.screen}. Read the code directly (search_codebase, read_code), or ask the person to extract the code map.`;
+  },
   read_parity: a => {
     const all = (A.parity || []).filter(sc => !a.scenario || sc.id === a.scenario);
     if (!all.length) return a.scenario ? `No parity scenario ${a.scenario} in parity/scenarios/.` : 'No parity scenarios in parity/scenarios/.';
@@ -113,7 +144,7 @@ const READERS = {
     const page = item && r.pages.find(f => f.name === item.file);
     return page ? cap(`Page ${page.name} for ${req.id} (${req.title}):\n\n${page.text}`) : `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.`;
   },
-  read_registry_file: async a => { const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
+  read_registry_file: async a => { const d = Policy.readVerdict(AG.role, a.path); if (!d.ok) return d.error; const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
   get_code_map: () => {
     if (!A.facts) return A.cfg.codebase ? 'The codebase has not been extracted yet. Ask the user to run Extract Code Map.' : 'No codebase is configured.';
     const d = A.drift;
@@ -177,6 +208,18 @@ function studyWriter(id, edit, title, detail) {
       AG.approved.set(t._path, Date.now()); await host.write(t._path, Study.toYaml(again.topic, jsyaml.dump));
       A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
       return `Applied to ${t._path}.${again.index ? ` It is number ${again.index}.` : ''}`;
+    } };
+}
+// A component manifest or template for the UI pack registry: schema-checked before any card, written as minted.
+function uiCatalogueWriter(kind, doc, a) {
+  if (A.kind !== 'ui') return { error: 'This folder is not a UI pack registry (kind: ui). Catalogue mints components and templates there.' };
+  const m = Ui.mintCatalogue({ kind, doc });
+  if (m.error) return { error: m.error };
+  return { title: `Mint ${kind} ${m.doc.name}`, detail: String(a.why || '').slice(0, 300), preview: `<pre class="yamlprev">${esc(m.text)}</pre>`,
+    apply: async () => {
+      const again = Ui.mintCatalogue({ kind, doc, existing: await readText(m.path) });
+      if (again.error) throw new Error(again.error);
+      AG.approved.set(m.path, Date.now()); await host.write(m.path, m.text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Wrote ${m.path} as minted. A person binds it.`;
     } };
 }
 const WRITERS = {
@@ -260,6 +303,39 @@ drafted_by: ide-agent
     return { title: `Mint decision ${id}`, detail: a.statement, preview: `${notes.map(n => `<div class="note" style="color:var(--warn)">${esc(n)}</div>`).join('')}<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`decisions/${id}.yaml`, Date.now()); await host.write(`decisions/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created decisions/${id}.yaml as minted. Binding it is up to the user.`; } };
   },
+  mint_ui_spec: a => {
+    const screen = typeof a.screen === 'string' ? a.screen : '';
+    const old = ((A.ui && A.ui.specs) || []).find(x => x.path === `ui/specs/${screen}.json`);
+    const groups = Ui.tokenGroups(A.tokens), pack = A.ui && A.ui.pack ? Ui.readPack(A.ui.pack, groups) : null;
+    const m = Ui.mintSpec({ screen, spec: a.spec, supersedes: a.supersedes, existing: old ? old.text : null, pack, groups });
+    if (m.error) return { error: m.error };
+    const rows = Ui.specRows(m.spec);
+    const pics = Object.keys((A.ui && A.ui.previews && A.ui.previews[screen]) || {}).filter(rel => !rel.includes('/') && rel.endsWith('.png'))
+      .map(rel => (A.uiImages || {})[`${screen}/${rel}@${A.ui.previews[screen][rel]}`]).filter(Boolean);
+    const table = `<table class="uispec"><thead><tr><th>Slot</th><th>Component</th><th>Data</th><th>Why</th></tr></thead><tbody>${rows.map(r => `<tr><td>${esc(r.slot)}</td><td>${esc(r.component)}</td><td>${esc(r.data)}</td><td>${esc(r.why)}</td></tr>`).join('')}</tbody></table>`;
+    const notes = [...(m.supersedes ? [`Replaces the bound spec of ${screen}. A person approves the new previews and binds it.`] : []), ...m.notes];
+    return { title: `${m.supersedes ? 'Replace' : 'Mint'} spec ${screen}`, detail: String(a.why || '').slice(0, 300),
+      preview: `${notes.map(n => `<div class="note">${esc(n)}</div>`).join('')}<div class="muted">${esc(`${m.spec.template}, ${Object.keys(m.spec.states || {}).length} states`)}</div>${table}${pics.length ? `<div class="uipics">${pics.map(u => `<img src="${esc(u)}" alt="previous preview" style="max-width:120px">`).join('')}</div>` : ''}`,
+      apply: async () => { AG.approved.set(m.path, Date.now()); await host.write(m.path, m.text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created ${m.path} as minted. A person renders the previews, then approves and binds it.`; } };
+  },
+  mint_ui_component: a => uiCatalogueWriter('component', a.component, a),
+  mint_ui_template: a => uiCatalogueWriter('template', a.template, a),
+  request_preview: a => {
+    const screen = typeof a.screen === 'string' ? a.screen : '';
+    if (!((A.ui && A.ui.specs) || []).some(x => x.path === `ui/specs/${screen}.json`)) return { error: `There is no spec for ${screen}. Mint it first with mint_ui_spec.` };
+    const r = uiPreviewLine(screen);
+    if (r.error) return { error: r.error };
+    return { title: `Render previews of ${screen}`, detail: 'Types this command into the Terminal for you to run. Nothing runs until you press Enter there.', preview: `<pre class="yamlprev">${esc(r.line)}</pre>`, ok: 'Type in Terminal',
+      apply: async () => { await typeInTerminal(r.line, 'Render previews'); return `Typed the preview command for ${screen} into the Terminal. The person runs it.`; } };
+  },
+  suggest_stage: a => {
+    const stages = { compose: 'Compose', catalogue: 'Catalogue', grill: 'Grill-me', architect: 'Architect' };
+    if (!stages[a.stage]) return { error: `stage must be one of ${Object.keys(stages).join(', ')}.` };
+    if (a.stage === 'catalogue' && A.kind !== 'ui') return { error: 'Catalogue works in a UI pack registry (kind: ui); this folder is not one.' };
+    if (a.stage === 'compose' && (A.kind === 'ui' || A.kind === 'study')) return { error: 'Compose works in a project registry, not here.' };
+    return { title: `Move to ${stages[a.stage]}`, detail: String(a.why || '').slice(0, 300), preview: '', ok: `Open ${stages[a.stage]}`,
+      apply: async () => { AG.nextRole = a.stage; return `Opening ${stages[a.stage]} when this turn ends. Nothing else changes.`; } };
+  },
   mint_acceptance: a => {
     const el = Core.resolveElement(A.model, a.element);
     if (!el) return { error: `Element "${a.element}" is not in the model. Use its elements.json id (System/Container/Component) as read_model shows it.` };
@@ -280,7 +356,9 @@ cases:
 ${cases.map(c => `  - state: ${c.state}\n    given: ${yamlStr(c.given)}\n${c.when ? `    when: ${yamlStr(c.when)}\n` : ''}    then: ${yamlStr(c.then)}`).join('\n')}
 drafted_by: ide-agent
 `;
-    return { title: `Mint acceptance criterion ${id}`, detail: `${label}: ${states.join(', ')}`, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
+    const hold = (Array.isArray(a.suggest_holdout) ? a.suggest_holdout : []).filter(st => cases.some(c => c.state === st));
+    const note = hold.length ? `<div class="note">Grill suggests keeping these hidden from the build: ${esc(hold.join(', '))}. Nothing is written for this; the person binding the criterion sets <code>holdout: true</code> on the case before its first freeze.</div>` : '';
+    return { title: `Mint acceptance criterion ${id}`, detail: `${label}: ${states.join(', ')}`, preview: `${note}<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`acceptance/${id}.yaml`, Date.now()); await host.write(`acceptance/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created acceptance/${id}.yaml. A person names the locators and reviews the cases.`; } };
   },
   map_requirement: a => {
@@ -425,7 +503,7 @@ async function send(text) {
         c.messages.push({ role: 'tool', tool_call_id: call.id, content: out });
       }
     }
-  } finally { AG.busy = false; AG.reqId = null; renderAgent(); }
+  } finally { AG.busy = false; AG.reqId = null; openNextRole(); renderAgent(); }
 }
 // ---------------------------------------------------------------- ACP agents
 const ACP_RULES = `[designc] You are connected to designc, a system design IDE, through the Agent Client Protocol. The workspace is a design registry; the design model (Structurizr DSL) is the source of truth and code is generated from it.
@@ -452,7 +530,7 @@ async function sendAcp(text) {
     if (res && res.error) c.items.push({ kind: 'error', text: `${agentLabel()}: ${res.error}` });
     else if (res && res.stopReason && res.stopReason !== 'end_turn') c.items.push({ kind: 'status', text: `Turn ended: ${res.stopReason.replace('_', ' ')}.` });
     ledger('agent_turn', { model: key, via: 'acp', stop_reason: res && res.stopReason, context_used: (AG.turn && AG.turn.used) || null, ms: Date.now() - AG.turn.started });
-  } finally { AG.busy = false; AG.turn = null; renderAgent(); }
+  } finally { AG.busy = false; AG.turn = null; openNextRole(); renderAgent(); }
 }
 const ACP_STATUS = { pending: 'running', in_progress: 'running', completed: 'ok', failed: 'error' };
 function onAcpUpdate(key, p) {
@@ -698,7 +776,7 @@ async function sendAgui(text) {
       }
       break;
     }
-  } finally { AG.busy = false; AG.turn = null; AG.aguiReq = null; AG.onAgui = null; renderAgent(); }
+  } finally { AG.busy = false; AG.turn = null; AG.aguiReq = null; AG.onAgui = null; openNextRole(); renderAgent(); }
 }
 function showState(c, T) {
   let it = c.items.find(x => x.kind === 'state' && x.thread === T.threadId);
@@ -794,7 +872,7 @@ function renderAgent() {
     }
     const [ic, word] = STATUS[it.status] || ['·', it.status];
     let h = `<details class="agtool ${it.status}" ${it.status === 'waiting' ? 'open' : ''}><summary><span class="ic">${ic}</span>${it.acp ? `<span class="acpt">${esc(it.name)}</span>` : `<code>${it.via ? 'designc · ' : ''}${esc(it.name)}</code>`} <span class="muted">${esc(argSummary(it.name, it.args))}</span>${word ? `<span class="st">${word}</span>` : ''}</summary>`;
-    if (it.card) h += `<div class="agcard"><div class="t">${esc(it.card.title)}</div>${it.card.detail ? `<div class="muted">${esc(it.card.detail)}</div>` : ''}${it.card.preview}${it.status === 'waiting' ? `<div class="acts"><button class="btn primary" data-agok data-i="${i}">Approve</button><button class="btn" data-agno data-i="${i}">Decline</button></div>` : ''}</div>`;
+    if (it.card) h += `<div class="agcard"><div class="t">${esc(it.card.title)}</div>${it.card.detail ? `<div class="muted">${esc(it.card.detail)}</div>` : ''}${it.card.preview}${it.status === 'waiting' ? `<div class="acts"><button class="btn primary" data-agok data-i="${i}">${esc(it.card.ok || 'Approve')}</button><button class="btn" data-agno data-i="${i}">Decline</button></div>` : ''}</div>`;
     if (it.result && (it.status !== 'ok' || it.acp)) h += `<div class="agres">${esc(it.result)}</div>`;
     return h + '</details>';
   }).join('') + (AG.role === 'grill' && !AG.busy && c.items.length && c.items[c.items.length - 1].kind === 'assistant'
@@ -805,9 +883,10 @@ function renderAgent() {
 }
 // A study notebook has one role, the Researcher, and only there; the design roles are hidden in it.
 function roleFitsKind() {
-  const study = A.kind === 'study';
-  for (const o of $('#agRole').options) o.hidden = (o.value === 'researcher') !== study;
-  if (study !== (AG.role === 'researcher')) setRole(study ? 'researcher' : 'architect');
+  const study = A.kind === 'study', ui = A.kind === 'ui';
+  for (const o of $('#agRole').options) o.hidden = study ? o.value !== 'researcher' : o.value === 'researcher' || (o.value === 'catalogue' && !ui) || (o.value === 'compose' && ui);
+  const hidden = ([...$('#agRole').options].find(o => o.value === AG.role) || {}).hidden;
+  if (study !== (AG.role === 'researcher') || hidden) setRole(study ? 'researcher' : 'architect');
 }
 // Ask the Researcher on a study topic page: never the built-in agent, which cannot search.
 function askResearcher(t) {
@@ -820,6 +899,12 @@ function askResearcher(t) {
   if (AG.role !== 'researcher') setRole('researcher');
   toggleAgent(true);
   send(`Research study topic ${t.id}: "${t.question}". Read it with read_study first, then add sources and findings${t.questions.some(q => !(q.answer_in || []).length) ? ', and link findings to my open questions' : ''}.`);
+}
+// A stage the person agreed to open (suggest_stage) takes effect when the turn is over, never in the middle of one.
+function openNextRole() {
+  const r = AG.nextRole; AG.nextRole = null;
+  if (!r || !ROLES[r] || AG.role === r) return;
+  setRole(r); const sel = $('#agRole'); if (sel) sel.value = r;
 }
 function setRole(role) {
   AG.role = role;

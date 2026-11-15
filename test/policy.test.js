@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage']);
 });
 
 const yaml = require('js-yaml');
@@ -159,4 +159,66 @@ test('checkFailHint names what the shell got wrong, not the decision', () => {
   assert.match(Policy.checkFailHint('pcheck -tc t', 127, 'linux'), /could not find the program "pcheck"/);
   assert.equal(Policy.checkFailHint('./checks/x.sh', 1, 'linux'), null);
   assert.equal(Policy.checkFailHint('bash checks/x.sh', 1, 'win32'), null);
+});
+
+test('readVerdict: ui/holdout/ is denied for every role, however the path is spelled', () => {
+  for (const role of ['architect', 'grill', 'analyst', 'tutor', 'researcher', 'compose', 'catalogue', null])
+    for (const rel of ['ui/holdout/home.json', 'ui/holdout', './ui/holdout/home.json', 'ui\\holdout\\home.json', 'ui/specs/../holdout/home.json', 'UI/Holdout/home.json'])
+      assert.deepEqual(Policy.readVerdict(role, rel), { ok: false, error: Policy.HOLDOUT_DENIED }, `${role} ${rel}`);
+  assert.match(Policy.HOLDOUT_DENIED, /never shown to an agent stage; a person writes it/);
+});
+
+test('readVerdict: other registry paths stay readable', () => {
+  for (const rel of ['ui/specs/home.json', 'ui/holdouts.json', 'ui/pack/tokens.json', 'decisions/a.yaml', 'model/workspace.dsl', null])
+    assert.deepEqual(Policy.readVerdict('compose', rel), { ok: true }, String(rel));
+});
+
+test('readVerdict: designc.json agents settings cannot open the holdout', () => {
+  // The verdict takes no settings, so no allow list can reach it.
+  assert.equal(Policy.readVerdict.length, 2);
+  assert.equal(Policy.verdict({ allow: ['read_registry_file'], ask: [], deny: [] }, 'read_registry_file'), 'allow');
+  assert.equal(Policy.readVerdict('architect', 'ui/holdout/x.json').ok, false);
+});
+
+test('unapprovedChanges: a change under ui/ is flagged unless a write was approved', () => {
+  assert.deepEqual(flagged(['ui/specs/home.json']), ['ui/specs/home.json']);
+  assert.deepEqual(flagged(['ui/components/button.json'], { approved: { 'ui/components/button.json': 95000 } }), []);
+});
+
+test('writeVerdict: holdout on an acceptance case is the person\'s, an agent write with it is refused', () => {
+  const doc = h => `id: AC-1\nrequirement: R-1\nelement: x\nstates: [ready]\ncases:\n  - { state: ready, given: a, then: b${h} }\n`;
+  assert.deepEqual(wv('grill', 'acceptance/AC-1.yaml', doc('')), { ok: true });
+  for (const h of [', holdout: true', ', holdout: false'])
+    assert.match(wv('grill', 'acceptance/AC-1.yaml', doc(h)).error || '', /holdout is set by the person binding the criterion; leave it out/, h);
+});
+
+test('compose and catalogue write only their own ui/ files; no stage writes the pack, the previews or the holdout', () => {
+  const may = (role, rel) => (Policy.WRITE_PATHS[role] || []).some(re => re.test(rel));
+  assert.equal(may('compose', 'ui/specs/home.json'), true);
+  assert.equal(may('compose', 'ui/specs/Home.json'), false);
+  assert.equal(may('compose', 'ui/specs/a/b.json'), false);
+  assert.equal(may('compose', 'ui/components/Button.json'), false);
+  assert.equal(may('catalogue', 'ui/components/Button.json'), true);
+  assert.equal(may('catalogue', 'ui/templates/list-detail.json'), true);
+  assert.equal(may('catalogue', 'ui/specs/home.json'), false);
+  for (const role of ['compose', 'catalogue', 'architect', 'grill', 'analyst'])
+    for (const rel of ['ui/pack/components/Button.json', 'ui/previews/home/a.png', 'ui/holdout/home.json', 'ui/holdout/x.json']) assert.equal(may(role, rel), false, `${role} ${rel}`);
+});
+
+test('writeVerdict: a ui/ file an agent writes must be JSON and minted, never bound', () => {
+  const doc = o => JSON.stringify({ screen: 'home', status: 'minted', ...o });
+  assert.deepEqual(wv('compose', 'ui/specs/home.json', doc({})), { ok: true });
+  assert.match(wv('compose', 'ui/specs/home.json', doc({ status: 'bound' })).error, /minted/);
+  assert.match(wv('compose', 'ui/specs/home.json', doc({ status: undefined })).error, /minted/);
+  assert.match(wv('compose', 'ui/specs/home.json', '{').error, /JSON/);
+  assert.match(wv('compose', 'ui/specs/home.json', '[]').error, /JSON/);
+  assert.deepEqual(wv('catalogue', 'ui/components/Button.json', doc({})), { ok: true });
+  assert.match(wv('catalogue', 'ui/components/Button.json', doc({ status: 'bound' })).error, /minted/);
+  assert.match(wv('catalogue', 'ui/specs/home.json', doc({})).error, /may not write/);
+  assert.match(wv('compose', 'ui/holdout/home.json', doc({})).error, /may not write/);
+});
+
+test('ui mint tools ask even when listed under allow', () => {
+  for (const t of ['mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage'])
+    assert.equal(Policy.verdict({ allow: [t], ask: [], deny: [] }, t), 'ask', t);
 });

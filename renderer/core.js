@@ -916,6 +916,10 @@ const Core = (() => {
       }
       const need = ['ready', 'loading', 'empty', 'error', ...(authBoundary(el) || a.states.includes('forbidden') ? ['forbidden'] : [])];
       for (const st of need) if (!a.cases.some(c => c && c.state === st)) say(`${id}: no case for state ${st}`, [el.name]);
+      // Holdout (D4): a person sets it on a case; the build must still see every state once.
+      for (const c of a.cases) if (c && typeof c === 'object' && 'holdout' in c && typeof c.holdout !== 'boolean') say(`${id}: case for ${c.state}: holdout must be true or false`, [el.name]);
+      const seen = [...new Set(a.cases.filter(c => c && UI_STATES.includes(c.state)).map(c => c.state))];
+      for (const st of seen) if (a.cases.filter(c => c && c.state === st).every(c => c.holdout === true)) say(`${id}: the only case for state ${st} is holdout; add a visible case`, [el.name]);
     }
     for (const req of requirements) {
       for (const n of req.elements || []) {

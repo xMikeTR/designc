@@ -491,6 +491,30 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   await expect(sidebar.getByRole('button', { name: 'Approve previews' })).toBeVisible();
 });
 
+test('the Compose stage mints a spec behind a card, and a spec that fails its checks is refused @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/ui-project');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'compose' } } } }, null, 2));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('compose');
+  await page.locator('#agInput').fill('Compose the orders screen');
+  await page.locator('#agSend').click();
+  // The spec that fails its checks is refused with its clauses: no card, nothing written.
+  await expect(page.locator('#agent')).toContainText('fails its checks');
+  await expect(page.locator('#agent')).toContainText("Unknown template 'no-such-template'");
+  // The good one shows the placements as a table, and writes nothing until Approve.
+  const card = page.locator('#agent .agcard');
+  await expect(card.locator('table.uispec th')).toHaveText(['Slot', 'Component', 'Data', 'Why']);
+  expect(fs.existsSync(path.join(reg, 'ui/specs/orders.json'))).toBe(false);
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/orders.json')) && JSON.parse(fs.readFileSync(path.join(reg, 'ui/specs/orders.json'), 'utf8')).status).toBe('minted');
+});
+
 test('user can see legacy parity and what it holds a work item to @critical', async () => {
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.

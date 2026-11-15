@@ -452,6 +452,68 @@ const Ui = (() => {
     if (canon(isMap(rend.files) ? Object.fromEntries(Object.keys(rend.files).sort().map(k => [k, rend.files[k]])) : {}) !== canon(Object.fromEntries(Object.keys(previews[screen] || {}).sort().map(k => [k, previews[screen][k]])))) return no('The files on disk are not the ones rendered: render again');
     return { label, enabled: true, why: '' };
   }
+
+  // ---------- agent stages (D4) ----------
+  // The reads and mints of the compose and catalogue stages. Pure: renderer/agent.js owns the I/O and the cards.
+  const SCREEN_RE = /^[a-z][a-z0-9-]*$/;
+  // What read_ui_spec lists with no screen: one row per spec file (a file that does not parse is listed, flagged).
+  function specList(specs) {
+    return [...specs].sort(byPath).map(f => {
+      let s = null; try { s = JSON.parse(f.text); } catch { /* listed as unreadable */ }
+      return isMap(s) ? { screen: s.screen, path: f.path, status: s.status, component: s.component, states: Object.keys(isMap(s.states) ? s.states : {}) } : { path: f.path, unreadable: true };
+    });
+  }
+  // What read_ui_pack returns: the pinned pack's manifests and templates as the stage must use them.
+  function packView(pack, groups) {
+    const r = readPack({ components: [...pack.components].sort(byPath), templates: [...pack.templates].sort(byPath) }, groups);
+    return { components: [...r.components.values()].map(c => c.m), templates: [...r.templates.values()].map(t => t.t), problems: r.problems,
+      tokens: groups ? Object.fromEntries(Object.entries(groups).filter(([g]) => CLOSED_TOKEN_GROUPS.includes(g))) : null };
+  }
+  // The rows of the mint_ui_spec card: slot, component, the data it shows, why. Placements keep the spec's order.
+  function specRows(spec) {
+    const rows = [];
+    for (const [slot, pls] of Object.entries(isMap(spec && spec.slots) ? spec.slots : {})) for (const pl of Array.isArray(pls) ? pls : []) {
+      if (!isMap(pl)) continue;
+      const bound = isMap(pl.bind) ? Object.entries(pl.bind).map(([prop, key]) => `${prop} ← ${show(key)}`) : [];
+      rows.push({ slot, component: String(pl.component == null ? '' : pl.component), data: bound.join(', '), why: typeof pl.why === 'string' ? pl.why : '' });
+    }
+    return rows;
+  }
+  // mintSpec({screen, spec (object or JSON text), supersedes, existing (the file's text now, or null), pack (readPack result or null),
+  //   groups}): {error} (what the agent is told, before any card) or {path, text, spec}. A spec is minted, never bound; one spec per
+  //   screen, so a bound spec at the path is replaced only when `supersedes` names its screen.
+  function mintSpec({ screen, spec, supersedes, existing = null, pack = null, groups = null }) {
+    let doc = spec;
+    if (typeof doc === 'string') { try { doc = JSON.parse(doc); } catch { return { error: 'spec does not parse as JSON.' }; } }
+    if (!isMap(doc)) return { error: 'spec must be a JSON object.' };
+    if (typeof screen !== 'string' || !SCREEN_RE.test(screen)) return { error: 'screen must be lower case letters, digits and hyphens, starting with a letter.' };
+    if (doc.screen !== screen) return { error: `spec.screen is ${show(doc.screen)} but screen is ${screen}; the file is ui/specs/${screen}.json.` };
+    if (doc.status !== 'minted') return { error: `status must be "minted" (it is ${show(doc.status)}). A person binds a spec with Approve and bind; an agent never does.` };
+    const path = `ui/specs/${screen}.json`, text = JSON.stringify(doc, null, 2) + '\n';
+    const r = checkSpec(path, text, { pack, groups });
+    if (r.problems.length) return { error: `The spec fails its checks, so no card was shown. Fix these and mint again:\n${r.problems.map(p => `- ${p}`).join('\n')}` };
+    let old = null; if (existing != null) { try { old = JSON.parse(existing); } catch { old = {}; } }
+    const bound = isMap(old) && old.status === 'bound';
+    if (bound && supersedes !== screen) return { error: `${path} is bound. One spec per screen: to replace it, mint again with supersedes: "${screen}". A person then approves the new previews.` };
+    if (supersedes != null && !bound) return { error: `supersedes: "${supersedes}" names no bound spec at ${path}; leave it out.` };
+    return { path, text, spec: doc, notes: r.notes, supersedes: bound };
+  }
+  // mintCatalogue({kind: 'component'|'template', doc}): {error} or {path, text, doc}. Manifests and templates are minted for a person
+  //   to bind; the schema decides the shape. The file is named after the component or template.
+  function mintCatalogue({ kind, doc, existing = null }) {
+    if (kind !== 'component' && kind !== 'template') return { error: 'kind must be component or template.' };
+    let d = doc;
+    if (typeof d === 'string') { try { d = JSON.parse(d); } catch { return { error: `${kind} does not parse as JSON.` }; } }
+    if (!isMap(d)) return { error: `${kind} must be a JSON object.` };
+    if (d.status !== 'minted') return { error: `status must be "minted" (it is ${show(d.status)}). A person binds it; an agent never does.` };
+    const id = kind === 'component' ? 'ui-component-manifest' : 'ui-template';
+    const bad = validate(id, d);
+    if (bad.length) return { error: `The ${kind} fails its schema, so no card was shown. Fix these and mint again:\n${bad.map(e => `- ${e.at || '/'}: ${e.msg}`).join('\n')}` };
+    if (typeof d.name !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(d.name)) return { error: 'name must be letters, digits, dots, hyphens and underscores, so it can name the file.' };
+    const path = `ui/${kind === 'component' ? 'components' : 'templates'}/${d.name}.json`;
+    if (existing != null) { let old = null; try { old = JSON.parse(existing); } catch { /* replaced */ } if (isMap(old) && old.status && old.status !== 'minted') return { error: `${path} is ${old.status}; a person changes it. Mint under a new name, or ask them.` }; }
+    return { path, text: JSON.stringify(d, null, 2) + '\n', doc: d };
+  }
   const byPath2 = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   // The project has one pack in ui/pack/, so the latest pin overall is the one that counts.
@@ -464,6 +526,6 @@ const Ui = (() => {
     return best ? { pack: best.pack, hash: best.hash, registry: best.registry || best.pack } : null;
   }
 
-  return { CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
+  return { CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;
