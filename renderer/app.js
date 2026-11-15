@@ -226,7 +226,14 @@ async function loadUi() {
   // parity/scenarios, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's).
   const scenarios = [];
   try { for (const f of await host.list('parity/scenarios', ['.yaml', '.yml'])) { try { const o = jsyaml.load(textOf(f.path) ?? f.text); if (o && typeof o === 'object' && !Array.isArray(o)) scenarios.push(o); } catch { /* parity says so */ } } } catch { /* none */ }
-  A.ui = { pack, specs, holdouts, sources, scenarios };
+  // Check 4 reads the disk, not a buffer: the hash of each spec file and of every preview file under its screen's folder.
+  const previews = {}, specHashes = {};
+  for (const f of specs) {
+    const screen = f.path.split('/').pop().replace(/\.json$/, '');
+    if (!/^[a-z0-9-]+$/.test(screen)) continue;
+    try { previews[screen] = await host.uiPreviewHashes(screen); specHashes[screen] = await host.uiSpecHash(screen); } catch { /* the gate then says the previews are not rendered */ }
+  }
+  A.ui = { pack, specs, holdouts, sources, scenarios, previews, specHashes };
 }
 // Pin or re-pin the UI pack: a person's copy of the registry's ui/components and ui/templates as they are now, shown as a
 // diff first, with the hash of the copy in the ledger. The pack is named after its registry. Nothing else writes ui/pack/.

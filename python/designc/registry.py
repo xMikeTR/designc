@@ -1,4 +1,5 @@
 """Load a registry folder the way the desktop app does (loadSettings, loadRegistry, loadLedger)."""
+import hashlib
 import json
 import os
 import re
@@ -111,7 +112,25 @@ def load_ui(root, cfg, led):
     sources = {}
     pin = ui_mod.latest_pin(led)
     if pin and (pack['components'] or pack['templates']): sources[pin['pack']] = read_ui_source(root, cfg, pin['registry'])
-    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root)}
+    previews, spec_hashes = {}, {}
+    for f in specs:
+        screen = os.path.basename(f['path'])[:-len('.json')]
+        if not re.fullmatch(r'[a-z0-9-]+', screen): continue
+        previews[screen] = _preview_hashes(os.path.join(root, 'ui', 'previews', screen))
+        with open(os.path.join(root, f['path']), 'rb') as fh: spec_hashes[screen] = hashlib.sha256(fh.read()).hexdigest()
+    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root), 'previews': previews, 'specHashes': spec_hashes}
+
+
+def _preview_hashes(base):
+    """{relative path: sha256} of every file under ui/previews/<screen>/, forward slashes, symlinks skipped (paths.js previewHashes)."""
+    out = {}
+    for dirpath, dirs, names in os.walk(base):
+        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(dirpath, d))]
+        for n in names:
+            p = os.path.join(dirpath, n)
+            if os.path.islink(p) or not os.path.isfile(p): continue
+            with open(p, 'rb') as fh: out[os.path.relpath(p, base).replace(os.sep, '/')] = hashlib.sha256(fh.read()).hexdigest()
+    return dict(sorted(out.items()))
 
 
 def _ui_scenarios(root):

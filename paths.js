@@ -104,4 +104,33 @@ function commandCheck(cmd, { cwd, env = process.env, platform = process.platform
   return out;
 }
 
-module.exports = { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages };
+// UI previews (docs/ui-contract.md, check 4). Read-only, one screen at a time: the screen must be [a-z0-9-]+, and nothing is read
+// outside ui/previews/<screen>/ (symlinks are skipped) and ui/specs/<screen>.json.
+const SCREEN = /^[a-z0-9-]+$/;
+const screenOk = screen => { if (typeof screen !== 'string' || !SCREEN.test(screen)) throw new Error('screen must be lowercase letters, digits and hyphens'); return screen; };
+const sha256 = b => require('crypto').createHash('sha256').update(b).digest('hex');
+// {relative path: sha256} of every file under ui/previews/<screen>/ (placements included), forward slashes; {} when the folder is not there.
+function previewHashes(root, screen) {
+  const base = confine(root, `ui/previews/${screenOk(screen)}`), out = {};
+  const walk = (dir, prefix) => {
+    let entries; try { entries = fs.readdirSync(dir, { withFileTypes: true }); } catch { return; }
+    for (const e of entries.sort((a, b) => (a.name < b.name ? -1 : 1))) {
+      if (e.isDirectory()) walk(path.join(dir, e.name), `${prefix}${e.name}/`);
+      else if (e.isFile()) out[`${prefix}${e.name}`] = sha256(fs.readFileSync(path.join(dir, e.name)));
+    }
+  };
+  walk(base, '');
+  return out;
+}
+// sha256 of ui/specs/<screen>.json as it is on disk, or null.
+function specHash(root, screen) {
+  try { return sha256(fs.readFileSync(confine(root, `ui/specs/${screenOk(screen)}.json`))); } catch (e) { if (/^screen /.test(e.message)) throw e; return null; }
+}
+// A page picture as a data URL: a .png directly in the screen's folder. Placements (a subfolder) are never shown. null when absent.
+function previewImage(root, screen, rel) {
+  const base = confine(root, `ui/previews/${screenOk(screen)}`);
+  if (typeof rel !== 'string' || !/^[A-Za-z0-9._-]+\.png$/.test(rel) || rel.includes('..')) return null;
+  try { const f = path.join(base, rel); if (!fs.lstatSync(f).isFile()) return null; return `data:image/png;base64,${fs.readFileSync(f).toString('base64')}`; } catch { return null; }
+}
+
+module.exports = { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages, previewHashes, specHash, previewImage };
