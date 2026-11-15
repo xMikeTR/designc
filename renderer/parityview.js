@@ -212,12 +212,18 @@ function parityUi() {
 
 const JOIN_LABEL = { role: 'recorded', name: 'role from recording', ambiguous: 'several recorded', unnamed: 'no literal name', unrecorded: 'not recorded' };
 
+// The states of the screen's spec (ui/specs/<screen>.json), for ParityQa's triage rule; null when there is no spec.
+function specOf(screen) {
+  const f = ((A.ui && A.ui.specs) || []).find(x => x.path === `ui/specs/${screen}.json`);
+  try { const o = f && JSON.parse(f.text); return o && o.states && typeof o.states === 'object' ? { screen: o.screen || screen, states: Object.keys(o.states) } : null; } catch { return null; }
+}
+
 // From code: what the source of each side says about this scenario's screen, each control joined to what that side
 // recorded (ParityQa.fromCode). Conditions, state props and formats are source text, never evaluated. A row opens the file.
 function parityCodeHtml(s) {
   if (!s.screen) return '<div class="note">This scenario has no screen, so its code cannot be found. Add screen: to the scenario.</div>';
   const u = parityUi();
-  const qa = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines: Object.fromEntries(Object.entries(PV.baselines).filter(([, v]) => v)), reports: Object.fromEntries(Object.entries(PV.reports).filter(([, v]) => v)), ui: { legacy: u.legacy, next: u.next } });
+  const qa = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines: Object.fromEntries(Object.entries(PV.baselines).filter(([, v]) => v)), reports: Object.fromEntries(Object.entries(PV.reports).filter(([, v]) => v)), ui: { legacy: u.legacy, next: u.next }, spec: specOf(s.screen) });
   const code = qa.code || {};
   const side = (k, label, ref, missing) => {
     const g = code[k];
@@ -252,7 +258,7 @@ function parityQaHtml(s) {
   const baselines = {};
   for (const id of Object.keys(PV.baselines)) if (PV.baselines[id]) baselines[id] = PV.baselines[id];
   const u = parityUi();
-  const r = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines, reports, qa: entry.qa, ui: { legacy: u.legacy, next: u.next } });
+  const r = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines, reports, qa: entry.qa, ui: { legacy: u.legacy, next: u.next }, spec: specOf(s.screen) });
   const counts = ParityQa.BUCKETS.map(k => `<span class="tag ${k === 'caught' ? 'pass' : k === 'triage' ? 'open' : 'fail'}">${esc(QA_LABEL[k])} ${r.counts[k]}</span>`).join(' ');
   const rows = r.bugs.map(b => {
     const bug = entry.qa.bugs.find(x => x.key === b.key) || {};

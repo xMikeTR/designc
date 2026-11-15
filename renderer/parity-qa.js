@@ -148,7 +148,7 @@ const ParityQa = (() => {
   // not recorded, captured but not flagged) cites what the code of each side says about the control, and the result
   // carries code {legacy, next} from fromCode(). Without it the result is as before.
   // -> {screen, states, counts {bucket: n}, bugs [{key, bucket, reason, finding?, seen?, code?}], problems, code?}.
-  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] }, ui = null }) {
+  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] }, ui = null, spec = null }) {
     const problems = [...(qa.problems || [])];
     const mine = scenarios.filter(s => s && s.screen === screen);
     if (!mine.length) problems.push(`no scenario has screen: ${screen}, so nothing on it was recorded`);
@@ -171,6 +171,8 @@ const ParityQa = (() => {
 
     const judge = b => {
       if (needsTriage(b)) return { bucket: 'triage', reason: 'needs where (role and name) and kind from a person before it can be matched' };
+      // The screen's spec (ui/specs/<screen>.json), when there is one: its states are the spine, and a bug in a state it lacks is a person's to place.
+      if (b.state && spec && Array.isArray(spec.states) && !spec.states.includes(b.state)) return { bucket: 'triage', reason: `state '${b.state}' is not in spec ${spec.screen || screen}` };
       if (b.kind === 'look') return { bucket: 'not_captured', reason: 'how it looks is not recorded by this layer; evidence for the vision checklist' };
       if (b.state && !states.includes(b.state)) return { bucket: 'state_not_recorded', reason: `no step on screen ${screen} has state: ${b.state}; add one to a scenario` };
       const inState = x => !b.state || x.state === b.state;

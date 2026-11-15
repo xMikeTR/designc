@@ -45,7 +45,8 @@ function oneScreen(registry, file, scenarios) {
     baselines[s.id] = readJson(path.join(registry, 'parity', 'baselines', s.id, 'legacy.json'));
     reports[s.id] = readJson(path.join(registry, 'parity', 'reports', `${s.id}.json`));
   }
-  return { file: rel, ...ParityQa.report({ screen: qa.screen, scenarios, baselines, reports, qa }) };
+  const spec = readJson(path.join(registry, 'ui', 'specs', `${qa.screen}.json`));
+  return { file: rel, ...ParityQa.report({ screen: qa.screen, scenarios, baselines, reports, qa, spec: spec && spec.states && typeof spec.states === 'object' ? { screen: spec.screen || qa.screen, states: Object.keys(spec.states) } : null }) };
 }
 
 function describe(r) {
