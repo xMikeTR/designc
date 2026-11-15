@@ -53,9 +53,21 @@ async function composeTurn() {
   return 'end_turn';
 }
 
+// MOCK_SCRIPT=legacy: drafts the legacy spec of a screen (invoices): asks for the skeleton, then mints it as ui/legacy/invoices.json.
+async function legacyTurn() {
+  const call = async (name, args) => { const r = await mcp.call('tools/call', { name, arguments: args }); if (r.isError) throw new Error(r.content[0].text); return r.content[0].text; };
+  await say('Drafting the legacy spec. ');
+  await tool('l1', 'designc: draft_legacy', 'read', () => call('draft_legacy', { screen: 'invoices', from: 'graph' }).catch(e => String(e.message)));
+  const base = JSON.parse(require('fs').readFileSync(path.join(cwd, 'ui/specs/bordereaux.json'), 'utf8'));
+  await tool('l2', 'designc: mint_ui_spec (legacy)', 'other', () => call('mint_ui_spec', { screen: 'invoices', legacy: true, spec: { ...base, screen: 'invoices', status: 'minted' }, why: 'The legacy invoices screen' }));
+  await say('I drafted the legacy spec; copy it as the new spec when you are ready.');
+  return 'end_turn';
+}
+
 async function turn() {
   cancelled = false;
   if (process.env.MOCK_SCRIPT === 'compose') return composeTurn();
+  if (process.env.MOCK_SCRIPT === 'legacy') return legacyTurn();
   if (process.env.MOCK_SCRIPT === 'study') return studyTurn();
   const plan = s => update({ sessionUpdate: 'plan', entries: [
     { content: 'Read the lint findings through designc', priority: 'high', status: s[0] },

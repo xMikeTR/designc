@@ -220,7 +220,7 @@ async function loadUi() {
   const pack = { components: await files('ui/pack/components'), templates: await files('ui/pack/templates') };
   const specs = await files('ui/specs'), holdouts = await files('ui/holdout'), legacy = await files('ui/legacy');
   try { for (const r of await host.registries()) if (r.exists && await uiSource(r.key)) A.uiRegistries.push(r.key); } catch { /* none listed */ }
-  if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length) return;
+  if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length && !legacy.length) return;
   const pin = Ui.latestPin(A.ledger || []), sources = {};
   if (pin && (pack.components.length || pack.templates.length)) sources[pin.pack] = await uiSource(pin.registry);
   // parity/scenarios, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's).
@@ -299,6 +299,23 @@ async function pinUi(hint) {
   await recordEvent('ui_pinned', { pack: registry, registry, hash: Ui.packHash(files, Core._shared.hash16) });
   toast(`Pinned the UI pack from ${registry}.`, 'info');
 }
+// What a spec changed from the legacy spec it was copied from (Ui.specDiff), as a list the person can read.
+function uiDiffPanel(d) {
+  const L = [];
+  if (d.template) L.push(`template ${d.template.from} to ${d.template.to}`);
+  for (const k of ['added', 'removed', 'changed']) for (const p of d.placements[k]) L.push(`placement ${k}: ${p.key}${p.fields ? ' (' + p.fields.join(', ') + ')' : ''}`);
+  for (const k of ['added', 'removed']) for (const x of d.states[k]) L.push(`state ${k}: ${x}`);
+  for (const k of ['added', 'removed', 'changed']) for (const x of d.data[k]) L.push(`data ${k}: ${typeof x === 'string' ? x : x.name || x.key || JSON.stringify(x)}`);
+  return `<div class="uidiff hint" style="margin-top:6px"><b>Changed from legacy</b>${L.length ? `<ul>${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ': nothing. This spec is still the legacy spec.'}</div>`;
+}
+async function copyLegacySpec(screen) {
+  const from = `ui/legacy/${screen}.json`, to = `ui/specs/${screen}.json`;
+  if (((A.ui && A.ui.specs) || []).some(f => f.path === to) || await host.read(to).then(() => true, () => false)) return toast(`${to} exists already. Copy as new spec never overwrites a spec.`, 'warning');
+  const text = await host.read(from);
+  await host.write(to, text);
+  toast(`Copied ${from} to ${to}. Edit the copy; the gate compares it with the legacy spec.`, 'info');
+  await loadUi(); renderAll();
+}
 // UI: the pinned pack, and each screen spec with whether it has a holdout. Notes never block the gate.
 function uiBody() {
   const pin = Ui.latestPin(A.ledger || []), have = A.ui && (A.ui.pack.components.length || A.ui.pack.templates.length);
@@ -310,11 +327,17 @@ function uiBody() {
     let spec = null; try { spec = JSON.parse(textOf(f.path) ?? f.text); } catch { /* the gate says so */ }
     const ap = spec ? Ui.approveState({ spec, path: f.path, ledger: A.ledger || [], clauses: uiClauses, previews: A.ui.previews || {}, specHashes: A.ui.specHashes || {} }) : null;
     const pics = Object.entries(A.ui.previews[n] || {}).filter(([rel]) => !rel.includes('/') && rel.endsWith('.png')).map(([rel, h]) => ({ rel, url: (A.uiImages || {})[`${n}/${rel}@${h}`] })).filter(x => x.url);
+    const lf = ((A.ui && A.ui.legacy) || []).find(x => x.path === `ui/legacy/${n}.json`); let lspec = null; try { lspec = lf && spec ? JSON.parse(lf.text) : null; } catch { /* a note says so */ }
+    const dp = lspec ? uiDiffPanel(Ui.specDiff(lspec, spec)) : '';
     return `<div class="item"><div class="l1" data-open="${esc(f.path)}"><span class="id">${esc(n)}</span>${spec && spec.status ? `<span class="tag ${spec.status === 'bound' ? 'bound' : 'minted'}">${esc(spec.status)}</span>` : ''}<span class="tag ${held.has(n) ? 'bound' : 'open'}">${held.has(n) ? 'holdout' : 'no holdout'}</span></div>
       <div class="acts"><button class="lnk" data-uirender="${esc(n)}" title="Types the Factory's preview command into the Terminal. You press Enter">Render previews</button>${ap ? `<button class="lnk" data-uiapprove="${esc(n)}" ${ap.enabled ? '' : 'disabled'} title="${esc(ap.enabled ? 'Records that you approve the page pictures below' : ap.why)}">${esc(ap.label)}</button>` : ''}</div>
-      ${pics.length ? `<div class="uipics" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${pics.map(x => `<figure style="margin:0;max-width:140px"><img alt="Preview of ${esc(n)}: ${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}" src="${x.url}" style="max-width:140px;border:1px solid var(--border,#888)"><figcaption style="font-size:11px">${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}</figcaption></figure>`).join('')}</div>` : ''}</div>`; }).join('');
+      ${dp}${pics.length ? `<div class="uipics" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${pics.map(x => `<figure style="margin:0;max-width:140px"><img alt="Preview of ${esc(n)}: ${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}" src="${x.url}" style="max-width:140px;border:1px solid var(--border,#888)"><figcaption style="font-size:11px">${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}</figcaption></figure>`).join('')}</div>` : ''}</div>`; }).join('');
+  const have_ = new Set(((A.ui && A.ui.specs) || []).map(f => f.path.split('/').pop()));
+  const legacyRows = ((A.ui && A.ui.legacy) || []).map(f => { const file = f.path.split('/').pop(), n = file.replace(/\.json$/, ''), made = have_.has(file);
+    return `<div class="item"><div class="l1" data-open="${esc(f.path)}"><span class="id">${esc(n)}</span><span class="tag open">legacy</span>
+      <div class="acts"><button class="lnk" data-uicopy="${esc(n)}" ${made ? 'disabled' : ''} title="${esc(made ? `ui/specs/${file} exists already` : 'Writes ui/specs/' + file + ' as a copy of this legacy spec, for you to edit')}">Copy as new spec</button></div></div></div>`; }).join('');
   const notes = ((A.gate && A.gate.notes) || []).filter(n => /^ui\/|registry could not be read/.test(n));
-  return pack + specs + notes.map(n => `<div class="hint">note: ${esc(n)}</div>`).join('');
+  return pack + legacyRows + specs + notes.map(n => `<div class="hint">note: ${esc(n)}</div>`).join('');
 }
 // factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
 // binding pins exactly what was read. Not a gate input.
@@ -2314,6 +2337,7 @@ document.addEventListener('click', async e => {
   }
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
   if (d.uirender) { e.stopPropagation(); return renderUiPreviews(d.uirender); }
+  if (d.uicopy) { e.stopPropagation(); return copyLegacySpec(d.uicopy); }
   if (d.uiapprove) { e.stopPropagation(); return approveUiPreviews(d.uiapprove); }
   if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }

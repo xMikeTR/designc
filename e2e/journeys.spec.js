@@ -515,6 +515,36 @@ test('the Compose stage mints a spec behind a card, and a spec that fails its ch
   await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/orders.json')) && JSON.parse(fs.readFileSync(path.join(reg, 'ui/specs/orders.json'), 'utf8')).status).toBe('minted');
 });
 
+test('a legacy spec is drafted by the agent and copied as a new spec by the person @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/ui-project');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'legacy' } } } }, null, 2));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('compose');
+  await page.locator('#agInput').fill('Draft the legacy invoices screen');
+  await page.locator('#agSend').click();
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('Draft legacy spec invoices');
+  expect(fs.existsSync(path.join(reg, 'ui/legacy/invoices.json'))).toBe(false);
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/legacy/invoices.json'))).toBe(true);
+  // No agent tool writes ui/specs: only the person's button does, byte for byte, and it never overwrites.
+  expect(fs.existsSync(path.join(reg, 'ui/specs/invoices.json'))).toBe(false);
+  const led = () => { try { return fs.readFileSync(path.join(reg, 'ledger/designc.jsonl'), 'utf8'); } catch { return ''; } }, ledgerBefore = led();
+  const row = page.locator('#sbBody .item').filter({ hasText: 'invoices' });
+  await row.getByRole('button', { name: 'Copy as new spec' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/invoices.json'))).toBe(true);
+  expect(fs.readFileSync(path.join(reg, 'ui/specs/invoices.json'), 'utf8')).toBe(fs.readFileSync(path.join(reg, 'ui/legacy/invoices.json'), 'utf8'));
+  expect(led()).toBe(ledgerBefore);
+  await expect(page.locator('#sbBody .uidiff')).toContainText('nothing');
+  await expect(page.locator('#sbBody .item').filter({ hasText: 'invoices' }).getByRole('button', { name: 'Copy as new spec' })).toBeDisabled();
+});
+
 test('user can see legacy parity and what it holds a work item to @critical', async () => {
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
