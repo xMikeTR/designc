@@ -111,7 +111,17 @@ def load_ui(root, cfg, led):
     sources = {}
     pin = ui_mod.latest_pin(led)
     if pin and (pack['components'] or pack['templates']): sources[pin['pack']] = read_ui_source(root, cfg, pin['registry'])
-    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources}
+    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root)}
+
+
+def _ui_scenarios(root):
+    """parity/scenarios/*.yaml, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's)."""
+    out = []
+    for _, text in _list(root, 'parity/scenarios', ['.yaml', '.yml']):
+        try: o = yaml_load(text)
+        except Exception: continue
+        if isinstance(o, dict): out.append(o)
+    return out
 
 
 def read_ui_source(root, cfg, registry):

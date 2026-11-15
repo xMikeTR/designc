@@ -5,6 +5,7 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
+const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
 const Ui = require('../renderer/ui.js');
 const { BROKEN, hash } = require('./helpers/ui.js');
@@ -46,10 +47,18 @@ function js(reg) {
     sources[pin.pack] = fs.existsSync(path.join(base, 'ui')) ? { components: ls(base, 'ui/components'), templates: ls(base, 'ui/templates') } : null;
   }
   const tp = path.join(reg, 'design-tokens/tokens.json');
-  const ui = { pack: loadPack(reg), specs: ls(reg, 'ui/specs'), holdouts: ls(reg, 'ui/holdout'), sources };
-  const g = Core.gate({ model, diags: [], decisions: [], requirements: [], ledger, tokens: fs.existsSync(tp) ? read(tp) : null, ui });
+  const yl = d => (fs.existsSync(path.join(reg, d)) ? fs.readdirSync(path.join(reg, d)).filter(f => /\.ya?ml$/.test(f)).sort().map(f => yaml.load(read(path.join(reg, d, f)))) : []);
+  const ui = { pack: loadPack(reg), specs: ls(reg, 'ui/specs'), holdouts: ls(reg, 'ui/holdout'), sources, scenarios: yl('parity/scenarios') };
+  const g = Core.gate({ model, diags: [], decisions: [], requirements: [], ledger, tokens: fs.existsSync(tp) ? read(tp) : null, ui, acceptance: yl('acceptance') });
   return { clauses: g.clauses.filter(c => c.kind === 'ui').map(c => c.text), notes: g.notes, coverage: g.coverage };
 }
+const withList = reg => wr(path.join(reg, 'model/workspace.dsl'), t => t.replace('app = softwareSystem "Bordereaux app"', 'app = softwareSystem "Bordereaux app" {\n      list = container "BordereauxList"\n    }'));
+const acc = (states) => reg => {
+  withList(reg);
+  fs.mkdirSync(path.join(reg, 'acceptance'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), `id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [${states.join(', ')}]\ncases:\n${states.map(s => `  - { state: ${s}, given: g, then: t }`).join('\n')}\n`);
+};
+const sc = steps => reg => fs.writeFileSync(path.join(reg, 'parity/scenarios/bordereaux.yaml'), `id: bordereaux-list\nscreen: bordereaux\nsteps:\n${steps.map(s => `  - { state: ${s} }`).join('\n')}\n`);
 const wr = (p, f) => fs.writeFileSync(p, f(read(p)));
 const cases = {
   'pinned and current': {},
@@ -66,6 +75,13 @@ const cases = {
   'no holdout for a screen': { edit: reg => fs.rmSync(path.join(reg, 'ui/holdout/bordereaux.json')) },
   'no tokens file': { edit: reg => fs.rmSync(path.join(reg, 'design-tokens'), { recursive: true }) },
   'component with a bad manifest': { edit: reg => wr(path.join(reg, 'ui/pack/components/Button.json'), t => t.replace('"name"', '"nom"')) },
+  'criterion in states the spec has': { edit: acc(['ready', 'loading', 'empty', 'error']) },
+  'criterion in a state the spec lacks (R1)': { edit: acc(['ready', 'loading', 'empty', 'error', 'forbidden']) },
+  'criterion on another component': { edit: reg => { acc(['forbidden'])(reg); wr(path.join(reg, 'acceptance/AC-1.yaml'), t => t.replace('BordereauxList', 'Elsewhere')); } },
+  'scenario step in a state the spec lacks (R2)': { edit: sc(['loading', 'ready', 'apply-dialog']) },
+  'scenario that records some states (R4)': { edit: sc(['loading', 'ready']) },
+  'scenario with no screen': { edit: reg => wr(path.join(reg, 'parity/scenarios/bordereaux.yaml'), t => t.replace('screen: bordereaux\n', '')) },
+  'a transition that commits (R5)': { edit: reg => wr(path.join(reg, 'ui/specs/bordereaux.json'), t => { const s = JSON.parse(t); s.transitions[2].commits = true; return JSON.stringify(s, null, 2); }) },
   'spec file named other than its screen': { edit: reg => fs.renameSync(path.join(reg, 'ui/specs/bordereaux.json'), path.join(reg, 'ui/specs/other.json')) },
 };
 for (const [name, opts] of Object.entries(cases)) {
@@ -81,4 +97,10 @@ test('ui parity: the pinned, current case says nothing at all', { skip }, () => 
 test('ui parity: the cases say something, so the comparison is not vacuous', { skip }, () => {
   const reg = setup({ edit: r => fs.writeFileSync(path.join(r, 'ui/specs/broken.json'), BROKEN) });
   try { const a = js(reg); assert.ok(a.clauses.length >= 13); assert.ok(a.notes.length >= 4); assert.deepEqual(python(reg), a); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
+});
+test('ui parity: the state rules say something in both gates', { skip }, () => {
+  for (const [name, re, where] of [['criterion in a state the spec lacks (R1)', /acceptance\/AC-1\/states\/4: State 'forbidden' is not in spec bordereaux/, 'clauses'], ['scenario step in a state the spec lacks (R2)', /steps\/2\/state: State 'apply-dialog'/, 'clauses'], ['scenario that records some states (R4)', /State 'error' is recorded by no parity step/, 'coverage'], ['a transition that commits (R5)', /ready → filtered commits/, 'coverage']]) {
+    const reg = setup(cases[name]);
+    try { const a = js(reg); assert.ok(a[where].some(t => re.test(t)), name); assert.deepEqual(python(reg), a); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
+  }
 });

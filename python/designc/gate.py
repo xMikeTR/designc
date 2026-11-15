@@ -358,7 +358,13 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
         dc = domain_clauses(model, ledger, domains)
         clauses.extend(dc['clauses']); notes.extend(dc['notes'])
     if ui is None: return {'ready': not clauses, 'clauses': clauses, 'notes': notes}
-    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {})
+    # A criterion joins a spec by its element's component name: the last segment of its elements.json id.
+    ui_acc = []
+    for a in acceptance or []:
+        if not isinstance(a, dict) or not a.get('element') or not a.get('id'): continue
+        el = resolve_element(model, a['element'])
+        if el: ui_acc.append({'id': _s(a['id']), 'component': model.label(el.id).split('/')[-1], 'states': a['states'] if isinstance(a.get('states'), list) else [], 'cases': a['cases'] if isinstance(a.get('cases'), list) else []})
+    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {}, ui_acc, ui.get('scenarios') or [])
     clauses.extend(uc['clauses']); notes.extend(uc['notes'])
     return {'ready': not clauses, 'clauses': clauses, 'notes': notes, 'coverage': uc['coverage']}
 

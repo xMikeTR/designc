@@ -297,9 +297,12 @@ const Ui = (() => {
 
   // ---------- gate clauses ----------
   // clauses({pack: {components, templates} (the ui/pack/ copy), specs, holdouts: [{path, text}], tokens: text|null,
-  //   ledger, sources: {pack: {components, templates} | null}, hash}): {clauses, notes, coverage}. Gate clauses of kind
-  //   `ui`. Nothing runs unless a pack is copied or a spec exists. A source left out of `sources` is not compared.
-  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, hash }) {
+  //   ledger, sources: {pack: {components, templates} | null}, acceptance: [{id, component, states, cases}] (Core.gate
+  //   derives it: `component` is the last segment of the criterion's elements.json id), scenarios: [{id, screen?, steps}]
+  //   (parity/scenarios/*.yaml, parsed), hash}): {clauses, notes, coverage}. Gate clauses of kind `ui`. Nothing runs
+  //   unless a pack is copied or a spec exists. A source left out of `sources` is not compared. A criterion joins a spec by
+  //   `component`, a scenario by `screen`; one with no matching spec is left alone. State rules R1, R2, R4, R5: stateRules.
+  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, acceptance = [], scenarios = [], hash }) {
     const out = [], notes = [], coverage = [];
     const hasPack = pack.components.length + pack.templates.length > 0;
     if (!hasPack && !specs.length && !holdouts.length) return { clauses: out, notes, coverage };
@@ -337,8 +340,47 @@ const Ui = (() => {
       for (const p of checkHoldout(f.path, f.text, s ? s.spec : null, s ? s.path : `ui/specs/${screen}.json`)) push(p, { path: f.path, screen });
     }
     for (const [screen, s] of [...parsed].sort((a, b) => (a[0] < b[0] ? -1 : 1))) if (!held.has(screen)) coverage.push(`${s.path}: no holdout sample (ui/holdout/${screen}.json), so a page hard-coded to the visible sample would pass`);
+    stateRules({ parsed, acceptance, scenarios, push, coverage });
     return { clauses: out, notes, coverage };
   }
+  // The spec's states are the spine (docs/ui-contract.md). R1: a criterion's states and cases must be in the spec (a state
+  // outside the acceptance five is the acceptance clause's to say). R2: a parity step's state must be. R4: a spec state no step
+  // records is coverage. R5: a commits transition cannot be recorded read-only; a state reachable only through such edges is uncovered.
+  const ACCEPTANCE_STATES = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+  function stateRules({ parsed, acceptance, scenarios, push, coverage }) {
+    const specs = [...parsed.values()].filter(x => isMap(x.spec) && isMap(x.spec.states)).sort(byPath2);
+    for (const { path, spec } of specs) {
+      const names = Object.keys(spec.states), hint = `The spec has: ${names.join(', ')}`;
+      const bad = (at, state, extra) => push(fmt(at, '', `State '${show(state)}' is not in spec ${spec.screen}`, hint), { path, screen: spec.screen, ...extra });
+      for (const a of acceptance) {
+        if (!a || a.component !== spec.component) continue;
+        (Array.isArray(a.states) ? a.states : []).forEach((st, i) => { if (ACCEPTANCE_STATES.includes(st) && !names.includes(st)) bad(`acceptance/${a.id}/states/${i}`, st); });
+        (Array.isArray(a.cases) ? a.cases : []).forEach((c, i) => { if (c && ACCEPTANCE_STATES.includes(c.state) && !names.includes(c.state)) bad(`acceptance/${a.id}/cases/${i}/state`, c.state); });
+      }
+      const recorded = new Set();
+      for (const sc of scenarios) {
+        if (!sc || typeof sc.screen !== 'string' || sc.screen !== spec.screen) continue;
+        (Array.isArray(sc.steps) ? sc.steps : []).forEach((st, i) => {
+          if (!st || typeof st.state !== 'string') return;
+          recorded.add(st.state);
+          if (!names.includes(st.state)) bad(`parity/scenarios/${sc.id}/steps/${i}/state`, st.state);
+        });
+      }
+      const trans = Array.isArray(spec.transitions) ? spec.transitions : [];
+      const initial = names.filter(n => isMap(spec.states[n]) && spec.states[n].initial);
+      const edges = (readOnlyOnly) => {
+        const m = new Map();
+        for (const t of trans) if (isMap(t) && (!readOnlyOnly || t.commits !== true)) m.set(t.from, [...(m.get(t.from) || []), t.to]);
+        return m;
+      };
+      const reach = (m) => { const seen = new Set(initial.length === 1 ? initial : []), todo = [...seen]; while (todo.length) for (const n of m.get(todo.pop()) || []) if (typeof n === 'string' && !seen.has(n)) { seen.add(n); todo.push(n); } return seen; };
+      const commitOnly = new Set();
+      trans.forEach((t, i) => { if (isMap(t) && t.commits === true) coverage.push(`${path} /transitions/${i}: ${show(t.from)} → ${show(t.to)} commits, so parity cannot record it read-only`); });
+      if (initial.length === 1) { const all = reach(edges(false)), ro = reach(edges(true)); for (const n of names) if (all.has(n) && !ro.has(n)) { commitOnly.add(n); coverage.push(`${path} /states/${n}: State '${n}' is reachable only through transitions that commit, so no read-only scenario can record it`); } }
+      for (const n of names) if (!recorded.has(n) && !commitOnly.has(n)) coverage.push(`${path} /states/${n}: State '${n}' is recorded by no parity step, so no scenario shows it`);
+    }
+  }
+  const byPath2 = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   // The project has one pack in ui/pack/, so the latest pin overall is the one that counts.
   function latestPin(ledger) {

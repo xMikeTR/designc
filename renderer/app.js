@@ -223,7 +223,10 @@ async function loadUi() {
   if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length) return;
   const pin = Ui.latestPin(A.ledger || []), sources = {};
   if (pin && (pack.components.length || pack.templates.length)) sources[pin.pack] = await uiSource(pin.registry);
-  A.ui = { pack, specs, holdouts, sources };
+  // parity/scenarios, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's).
+  const scenarios = [];
+  try { for (const f of await host.list('parity/scenarios', ['.yaml', '.yml'])) { try { const o = jsyaml.load(textOf(f.path) ?? f.text); if (o && typeof o === 'object' && !Array.isArray(o)) scenarios.push(o); } catch { /* parity says so */ } } } catch { /* none */ }
+  A.ui = { pack, specs, holdouts, sources, scenarios };
 }
 // Pin or re-pin the UI pack: a person's copy of the registry's ui/components and ui/templates as they are now, shown as a
 // diff first, with the hash of the copy in the ledger. The pack is named after its registry. Nothing else writes ui/pack/.

@@ -87,14 +87,14 @@ A UI pack works like a domain pack. It describes one component library and is re
 
 The walkthrough's state diagram (`parity/states/<screen>.md`) becomes the spec's `states` and `transitions`, which designc reads. Then the walkthrough's convention becomes a check:
 
-| Where a state name appears | Rule |
-| --- | --- |
-| Acceptance criterion `states` and case `state` | Must be in the acceptance list (`ready, loading, empty, error, forbidden`) **and** in the spec's `states` |
-| Parity scenario step `state:` | Must be in the spec's `states` |
-| QA bug `state:` | Must be in the spec's `states`, else `need triage` |
-| Spec state | Must be reachable from the initial state. A state no scenario records is listed (coverage, not a failure) |
+| Where a state name appears | Rule | Status |
+| --- | --- | --- |
+| Acceptance criterion `states` and case `state` | Must be in the acceptance list (`ready, loading, empty, error, forbidden`) **and** in the spec's `states` | enforced (D2): gate clause, joined by the element's component name |
+| Parity scenario step `state:` | Must be in the spec's `states` | enforced (D2): gate clause, joined by `screen`; no `screen` is skipped |
+| QA bug `state:` | Must be in the spec's `states`, else `need triage` | enforced (D2): `need triage`, not a gate failure |
+| Spec state | Must be reachable from the initial state. A state no scenario records is listed (coverage, not a failure) | reachability enforced (D1); unrecorded states are coverage (D2) |
 
-Extra states such as `filtered` or `apply-dialog` are spec and scenario states only. Acceptance keeps its five. A transition with `commits: true` is one parity cannot record read-only, matching the walkthrough's rule.
+Extra states such as `filtered` or `apply-dialog` are spec and scenario states only. Acceptance keeps its five. A transition with `commits: true` is one parity cannot record read-only, matching the walkthrough's rule: it is listed as coverage (D2), and so is a state reachable only through such edges.
 
 ## Checks
 

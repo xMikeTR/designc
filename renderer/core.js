@@ -802,8 +802,11 @@ const Core = (() => {
     const notes = [];
     if (domains) { const dc = domainClauses({ model, ledger, ...domains }); clauses.push(...dc.clauses); notes.push(...dc.notes); }
     if (!ui) return { ready: clauses.length === 0, clauses, notes };
-    // ui: {pack: {components, templates}, specs, holdouts, tokens, sources}. Opt-in: nothing runs without a pack or a spec.
-    const uc = UI.clauses({ tokens, ...ui, ledger, hash: hash16 });
+    // ui: {pack: {components, templates}, specs, holdouts, tokens, sources, scenarios (parsed parity/scenarios)}. Opt-in: nothing runs without a pack or a spec.
+    // A criterion joins a spec by its element's component name: the last segment of its elements.json id.
+    const uiAcceptance = acceptance.filter(a => a && typeof a === 'object' && a.element).map(a => ({ a, el: Core.resolveElement(model, a.element) })).filter(x => x.el)
+      .map(({ a, el }) => ({ id: String(a.id), component: model.label(el.id).split('/').pop(), states: Array.isArray(a.states) ? a.states : [], cases: Array.isArray(a.cases) ? a.cases : [] }));
+    const uc = UI.clauses({ tokens, acceptance: uiAcceptance, ...ui, ledger, hash: hash16 });
     clauses.push(...uc.clauses); notes.push(...uc.notes);
     return { ready: clauses.length === 0, clauses, notes, coverage: uc.coverage };
   }

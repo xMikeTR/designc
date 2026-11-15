@@ -401,6 +401,11 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   const { reg, dir } = copyRegistry('fixtures/ui-project');
   fs.cpSync(path.join(__dirname, '..', 'fixtures/ui-pack-registry'), path.join(dir, 'ui-pack-registry'), { recursive: true });
   fs.rmSync(path.join(reg, 'ui/pack'), { recursive: true });
+  // D2: a criterion on the screen's component asks for a state the spec does not have (forbidden).
+  const dsl = path.join(reg, 'model/workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('app = softwareSystem "Bordereaux app"', 'app = softwareSystem "Bordereaux app" {\n      list = container "BordereauxList"\n    }'));
+  fs.mkdirSync(path.join(reg, 'acceptance'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), 'id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [ready, forbidden]\ncases:\n  - { state: ready, given: g, then: t }\n  - { state: forbidden, given: g, then: t }\n');
   session = await launch(reg);
   const { page } = session;
   const asked = [];
@@ -419,6 +424,8 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   // The bordereaux spec passes with its holdout; the section lists it.
   await expect(sidebar.getByText('bordereaux', { exact: true })).toBeVisible();
   await expect(sidebar.getByText('holdout', { exact: true })).toBeVisible();
+  // The state rule shows in the gate panel: forbidden is not a state of the bordereaux spec.
+  await expect(sidebar.getByText("acceptance/AC-1/states/1: State 'forbidden' is not in spec bordereaux")).toBeVisible();
 });
 
 test('user can see legacy parity and what it holds a work item to @critical', async () => {

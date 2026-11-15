@@ -390,7 +390,7 @@ def _by_path(fs): return sorted(fs, key=lambda f: f['path'])
 
 
 # ---------- gate clauses ----------
-def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None):
+def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None, acceptance=(), scenarios=()):
     """The mirror of Ui.clauses: {clauses, notes, coverage}. pack: {components, templates} (the ui/pack/ copy);
     sources: {pack: {components, templates} | None}, a pack left out is not compared."""
     pack = pack or {'components': [], 'templates': []}
@@ -429,4 +429,53 @@ def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=No
         for p in check_holdout(f['path'], f['text'], s['spec'] if s else None, s['path'] if s else f'ui/specs/{screen}.json'): push(p, path=f['path'], screen=screen)
     for screen in sorted(parsed):
         if screen not in held: coverage.append(f"{parsed[screen]['path']}: no holdout sample (ui/holdout/{screen}.json), so a page hard-coded to the visible sample would pass")
+    _state_rules(parsed, acceptance or [], scenarios or [], push, coverage)
     return {'clauses': out, 'notes': notes, 'coverage': coverage}
+
+
+# The spec's states are the spine: R1 (criterion states/cases), R2 (parity step states), R4 (unrecorded states), R5 (commits).
+_ACCEPTANCE_STATES = ['ready', 'loading', 'empty', 'error', 'forbidden']
+
+
+def _state_rules(parsed, acceptance, scenarios, push, coverage):
+    specs = sorted((x for x in parsed.values() if _is_map(x['spec']) and _is_map(x['spec'].get('states'))), key=lambda x: x['path'])
+    for x in specs:
+        path, spec = x['path'], x['spec']
+        names = list(spec['states'])
+        hint = f"The spec has: {', '.join(names)}"
+        def bad(at, state, path=path, spec=spec, hint=hint): push(_fmt(at, '', f"State '{show(state)}' is not in spec {spec.get('screen')}", hint), path=path, screen=spec.get('screen'))
+        for a in acceptance:
+            if not isinstance(a, dict) or a.get('component') != spec.get('component'): continue
+            for i, st in enumerate(a['states'] if isinstance(a.get('states'), list) else []):
+                if st in _ACCEPTANCE_STATES and st not in names: bad(f"acceptance/{a['id']}/states/{i}", st)
+            for i, c in enumerate(a['cases'] if isinstance(a.get('cases'), list) else []):
+                if isinstance(c, dict) and c.get('state') in _ACCEPTANCE_STATES and c['state'] not in names: bad(f"acceptance/{a['id']}/cases/{i}/state", c['state'])
+        recorded = set()
+        for sc in scenarios:
+            if not isinstance(sc, dict) or not isinstance(sc.get('screen'), str) or sc['screen'] != spec.get('screen'): continue
+            for i, st in enumerate(sc['steps'] if isinstance(sc.get('steps'), list) else []):
+                if not isinstance(st, dict) or not isinstance(st.get('state'), str): continue
+                recorded.add(st['state'])
+                if st['state'] not in names: bad(f"parity/scenarios/{sc.get('id')}/steps/{i}/state", st['state'])
+        trans = spec['transitions'] if isinstance(spec.get('transitions'), list) else []
+        initial = [n for n in names if _is_map(spec['states'][n]) and spec['states'][n].get('initial')]
+        def reach(read_only):
+            m = {}
+            for t in trans:
+                if _is_map(t) and (not read_only or t.get('commits') is not True): m.setdefault(_edge_key(t.get('from', _UNDEF)), []).append(t.get('to', _UNDEF))
+            seen = set(initial) if len(initial) == 1 else set()
+            todo = list(seen)
+            while todo:
+                for n in m.get(_edge_key(todo.pop()), []):
+                    if isinstance(n, str) and n not in seen: seen.add(n); todo.append(n)
+            return seen
+        commit_only = set()
+        for i, t in enumerate(trans):
+            if _is_map(t) and t.get('commits') is True: coverage.append(f"{path} /transitions/{i}: {show(t.get('from', _UNDEF))} → {show(t.get('to', _UNDEF))} commits, so parity cannot record it read-only")
+        if len(initial) == 1:
+            allr, ro = reach(False), reach(True)
+            for n in names:
+                if n in allr and n not in ro:
+                    commit_only.add(n); coverage.append(f"{path} /states/{n}: State '{n}' is reachable only through transitions that commit, so no read-only scenario can record it")
+        for n in names:
+            if n not in recorded and n not in commit_only: coverage.append(f"{path} /states/{n}: State '{n}' is recorded by no parity step, so no scenario shows it")
