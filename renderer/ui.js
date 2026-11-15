@@ -302,7 +302,9 @@ const Ui = (() => {
   //   (parity/scenarios/*.yaml, parsed), hash}): {clauses, notes, coverage}. Gate clauses of kind `ui`. Nothing runs
   //   unless a pack is copied or a spec exists. A source left out of `sources` is not compared. A criterion joins a spec by
   //   `component`, a scenario by `screen`; one with no matching spec is left alone. State rules R1, R2, R4, R5: stateRules.
-  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, acceptance = [], scenarios = [], hash }) {
+  //   D3, check 4 (previewRules): uiElements (names of the model's elements tagged UI), previews {screen: {relpath: sha256}} (what is on
+  //   disk under ui/previews/<screen>/) and specHashes {screen: sha256 of the spec file's bytes}.
+  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, acceptance = [], scenarios = [], previews = {}, specHashes = {}, uiElements = [], hash }) {
     const out = [], notes = [], coverage = [];
     const hasPack = pack.components.length + pack.templates.length > 0;
     if (!hasPack && !specs.length && !holdouts.length) return { clauses: out, notes, coverage };
@@ -341,6 +343,7 @@ const Ui = (() => {
     }
     for (const [screen, s] of [...parsed].sort((a, b) => (a[0] < b[0] ? -1 : 1))) if (!held.has(screen)) coverage.push(`${s.path}: no holdout sample (ui/holdout/${screen}.json), so a page hard-coded to the visible sample would pass`);
     stateRules({ parsed, acceptance, scenarios, push, coverage });
+    previewRules({ parsed, acceptance, ledger, previews, specHashes, uiElements, push });
     return { clauses: out, notes, coverage };
   }
   // The spec's states are the spine (docs/ui-contract.md). R1: a criterion's states and cases must be in the spec (a state
@@ -378,6 +381,33 @@ const Ui = (() => {
       trans.forEach((t, i) => { if (isMap(t) && t.commits === true) coverage.push(`${path} /transitions/${i}: ${show(t.from)} → ${show(t.to)} commits, so parity cannot record it read-only`); });
       if (initial.length === 1) { const all = reach(edges(false)), ro = reach(edges(true)); for (const n of names) if (all.has(n) && !ro.has(n)) { commitOnly.add(n); coverage.push(`${path} /states/${n}: State '${n}' is reachable only through transitions that commit, so no read-only scenario can record it`); } }
       for (const n of names) if (!recorded.has(n) && !commitOnly.has(n)) coverage.push(`${path} /states/${n}: State '${n}' is recorded by no parity step, so no scenario shows it`);
+    }
+  }
+  // Check 4 (docs/ui-contract.md): a UI element needs a bound spec and previews a person approved, for every state its criterion
+  // lists (the spec's states when it has no criterion). One clause per element and spec, the first thing that is wrong, so the next
+  // step is always clear; missing state pictures are listed together. Scoped to a work item through `about`.
+  function previewRules({ parsed, acceptance, ledger, previews, specHashes, uiElements, push }) {
+    const latest = (kind, screen) => (ledger || []).filter(e => e.kind === kind && e.screen === screen).reduce((b, e) => (!b || (e._ts || 0) >= (b._ts || 0) ? e : b), null);
+    for (const name of uiElements) {
+      const mine = [...parsed.values()].filter(x => isMap(x.spec) && x.spec.component === name).sort(byPath2);
+      if (!mine.length) { push(`no screen spec for component ${name}. Add ui/specs/<screen>.json with component "${name}"`, { about: [name] }); continue; }
+      for (const { path, spec } of mine) {
+        const screen = spec.screen, extra = { about: [name], path, screen };
+        const say = (msg, hint) => push(fmt(path, '', msg, hint), extra);
+        if (spec.status !== 'bound') { say('spec not bound', 'Check the previews, then press Approve and bind'); continue; }
+        const rend = latest('ui_preview_rendered', screen);
+        if (!rend) { say('previews not rendered', `Run factory-s2 preview for ${screen}`); continue; }
+        const appr = latest('ui_preview_approved', screen);
+        if (!appr) { say('previews not approved', 'Look at the page pictures, then press Approve previews'); continue; }
+        if ((appr._ts || 0) <= (rend._ts || 0)) { say('approval is stale: rendered again since', 'Look at the new previews, then approve again'); continue; }
+        const disk = previews[screen] || {}, held = isMap(appr.files) ? appr.files : {};
+        const keys = Object.keys(disk).sort();
+        if (canon(Object.fromEntries(keys.map(k => [k, disk[k]]))) !== canon(held)) { say('approval is stale: files changed since', 'Render again, then approve'); continue; }
+        if (appr.spec !== specHashes[screen]) { say('approval is stale: the spec changed since', 'Render again, then approve'); continue; }
+        const crit = acceptance.filter(a => a && a.component === name);
+        const wanted = crit.length ? [...new Set(crit.flatMap(a => (Array.isArray(a.states) ? a.states : [])))] : Object.keys(isMap(spec.states) ? spec.states : {});
+        for (const st of wanted) if (!Object.keys(held).some(k => !k.includes('/') && k.startsWith(`${st}-`) && k.endsWith('.png'))) say(`no approved preview for state ${st}`, 'Render the spec again, then approve');
+      }
     }
   }
   const byPath2 = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);

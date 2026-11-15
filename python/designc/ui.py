@@ -390,7 +390,7 @@ def _by_path(fs): return sorted(fs, key=lambda f: f['path'])
 
 
 # ---------- gate clauses ----------
-def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None, acceptance=(), scenarios=()):
+def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None, acceptance=(), scenarios=(), previews=None, spec_hashes=None, ui_elements=()):
     """The mirror of Ui.clauses: {clauses, notes, coverage}. pack: {components, templates} (the ui/pack/ copy);
     sources: {pack: {components, templates} | None}, a pack left out is not compared."""
     pack = pack or {'components': [], 'templates': []}
@@ -430,6 +430,7 @@ def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=No
     for screen in sorted(parsed):
         if screen not in held: coverage.append(f"{parsed[screen]['path']}: no holdout sample (ui/holdout/{screen}.json), so a page hard-coded to the visible sample would pass")
     _state_rules(parsed, acceptance or [], scenarios or [], push, coverage)
+    _preview_rules(parsed, acceptance or [], ledger or [], previews or {}, spec_hashes or {}, ui_elements or [], push)
     return {'clauses': out, 'notes': notes, 'coverage': coverage}
 
 
@@ -479,3 +480,40 @@ def _state_rules(parsed, acceptance, scenarios, push, coverage):
                     commit_only.add(n); coverage.append(f"{path} /states/{n}: State '{n}' is reachable only through transitions that commit, so no read-only scenario can record it")
         for n in names:
             if n not in recorded and n not in commit_only: coverage.append(f"{path} /states/{n}: State '{n}' is recorded by no parity step, so no scenario shows it")
+
+
+def _preview_rules(parsed, acceptance, ledger, previews, spec_hashes, ui_elements, push):
+    """Check 4, the mirror of previewRules in renderer/ui.js: a UI element needs a bound spec and previews a person approved."""
+    def latest(kind, screen):
+        best = None
+        for e in ledger:
+            if e.get('kind') == kind and e.get('screen') == screen and (best is None or (e.get('_ts') or 0) >= (best.get('_ts') or 0)): best = e
+        return best
+    for name in ui_elements:
+        mine = sorted((x for x in parsed.values() if _is_map(x['spec']) and x['spec'].get('component') == name), key=lambda x: x['path'])
+        if not mine:
+            push(f'no screen spec for component {name}. Add ui/specs/<screen>.json with component "{name}"', about=[name]); continue
+        for x in mine:
+            path, spec = x['path'], x['spec']
+            screen = spec.get('screen')
+            extra = {'about': [name], 'path': path, 'screen': screen}
+            def say(msg, hint, path=path, extra=extra): push(_fmt(path, '', msg, hint), **extra)
+            if spec.get('status') != 'bound': say('spec not bound', 'Check the previews, then press Approve and bind'); continue
+            rend = latest('ui_preview_rendered', screen)
+            if not rend: say('previews not rendered', f'Run factory-s2 preview for {screen}'); continue
+            appr = latest('ui_preview_approved', screen)
+            if not appr: say('previews not approved', 'Look at the page pictures, then press Approve previews'); continue
+            if (appr.get('_ts') or 0) <= (rend.get('_ts') or 0): say('approval is stale: rendered again since', 'Look at the new previews, then approve again'); continue
+            disk = previews.get(screen) or {}
+            held = appr['files'] if _is_map(appr.get('files')) else {}
+            if disk != held: say('approval is stale: files changed since', 'Render again, then approve'); continue
+            if appr.get('spec') != spec_hashes.get(screen): say('approval is stale: the spec changed since', 'Render again, then approve'); continue
+            crit = [a for a in acceptance if isinstance(a, dict) and a.get('component') == name]
+            if crit:
+                wanted = []
+                for a in crit:
+                    for st in (a['states'] if isinstance(a.get('states'), list) else []):
+                        if st not in wanted: wanted.append(st)
+            else: wanted = list(spec['states']) if _is_map(spec.get('states')) else []
+            for st in wanted:
+                if not any('/' not in k and k.startswith(f'{st}-') and k.endswith('.png') for k in held): say(f'no approved preview for state {st}', 'Render the spec again, then approve')

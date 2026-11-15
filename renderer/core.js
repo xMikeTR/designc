@@ -806,7 +806,9 @@ const Core = (() => {
     // A criterion joins a spec by its element's component name: the last segment of its elements.json id.
     const uiAcceptance = acceptance.filter(a => a && typeof a === 'object' && a.element).map(a => ({ a, el: Core.resolveElement(model, a.element) })).filter(x => x.el)
       .map(({ a, el }) => ({ id: String(a.id), component: model.label(el.id).split('/').pop(), states: Array.isArray(a.states) ? a.states : [], cases: Array.isArray(a.cases) ? a.cases : [] }));
-    const uc = UI.clauses({ tokens, acceptance: uiAcceptance, ...ui, ledger, hash: hash16 });
+    // Check 4 (previews approved) joins an element tagged UI to a spec by name.
+    const uiElements = [...new Set([...model.elements.values()].filter(e => e.tags.has('UI')).map(e => e.name))].sort();
+    const uc = UI.clauses({ tokens, acceptance: uiAcceptance, uiElements, ...ui, ledger, hash: hash16 });
     clauses.push(...uc.clauses); notes.push(...uc.notes);
     return { ready: clauses.length === 0, clauses, notes, coverage: uc.coverage };
   }
