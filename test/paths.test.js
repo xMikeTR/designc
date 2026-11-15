@@ -80,3 +80,26 @@ test('a symlink inside a listed registry cannot lead out of it', () => {
   fs.symlinkSync(outside, path.join(dir, 'escape'));
   assert.throws(() => confine(registryDir(root, { a: '../design-a' }, 'a'), 'escape/secret.txt'), /outside the open folder/);
 });
+
+test('copyPreviews copies approved preview files into a handover and refuses a changed or misplaced one', () => {
+  const fs = require('fs'), os = require('os'), path = require('path'), crypto = require('crypto');
+  const { copyPreviews } = require('../paths');
+  const sha = b => crypto.createHash('sha256').update(b).digest('hex');
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-cp-'));
+  fs.mkdirSync(path.join(root, 'ui/previews/s1/placements'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'ui/previews/s1/ready.png'), 'AAA');
+  fs.writeFileSync(path.join(root, 'ui/previews/s1/placements/p.png'), 'BBB');
+  const ent = (rel, data) => ({ from: `ui/previews/s1/${rel}`, to: `handovers/h1/ui/previews/s1/${rel}`, sha256: sha(data) });
+  const n = copyPreviews(root, [ent('ready.png', 'AAA'), ent('placements/p.png', 'BBB')]);
+  assert.equal(n, 2);
+  assert.equal(fs.readFileSync(path.join(root, 'handovers/h1/ui/previews/s1/placements/p.png'), 'utf8'), 'BBB');
+  // changed since approval: refused, nothing written
+  assert.throws(() => copyPreviews(root, [ent('ready.png', 'AAA'), { ...ent('ready.png', 'ZZZ'), to: 'handovers/h2/ui/previews/s1/ready.png' }]), /changed since it was approved/);
+  assert.ok(!fs.existsSync(path.join(root, 'handovers/h2')));
+  // wrong places
+  assert.throws(() => copyPreviews(root, [{ from: 'ui/specs/s1.json', to: 'handovers/h3/x.png', sha256: sha('x') }]), /ui\/previews/);
+  assert.throws(() => copyPreviews(root, [{ from: 'ui/previews/s1/ready.png', to: 'elsewhere/x.png', sha256: sha('AAA') }]), /handovers/);
+  assert.throws(() => copyPreviews(root, [{ from: 'ui/previews/../../x', to: 'handovers/h3/x.png', sha256: sha('x') }]));
+  // a frozen file is never overwritten
+  assert.throws(() => copyPreviews(root, [ent('ready.png', 'AAA')]), /frozen|exists/);
+});

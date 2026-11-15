@@ -133,4 +133,21 @@ function previewImage(root, screen, rel) {
   try { const f = path.join(base, rel); if (!fs.lstatSync(f).isFile()) return null; return `data:image/png;base64,${fs.readFileSync(f).toString('base64')}`; } catch { return null; }
 }
 
-module.exports = { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages, previewHashes, specHash, previewImage };
+// Copy approved preview files into a handover folder. Every entry is checked before any is written: the source is under
+// ui/previews/, the target under handovers/, and the source still hashes to what the handover recorded. A frozen file is never rewritten.
+function copyPreviews(root, entries) {
+  const plan = entries.map(e => {
+    if (!e || typeof e.from !== 'string' || typeof e.to !== 'string' || !/^[0-9a-f]{64}$/.test(e.sha256)) throw new Error('copyPreviews: malformed entry');
+    if (!/^ui\/previews\/[a-z0-9-]+\//.test(e.from) || e.from.split('/').includes('..')) throw new Error(`${e.from} is not under ui/previews/<screen>/`);
+    if (!/^handovers\//.test(e.to) || e.to.split('/').includes('..')) throw new Error(`${e.to} is not under handovers/`);
+    const from = confine(root, e.from), to = confine(root, e.to);
+    let data; try { data = fs.readFileSync(from); } catch { throw new Error(`${e.from} cannot be read`); }
+    if (sha256(data) !== e.sha256) throw new Error(`${e.from} changed since it was approved: render and approve again`);
+    return { from, to, data };
+  });
+  for (const p of plan) if (fs.existsSync(p.to)) throw new Error(`${path.relative(root, p.to)} exists: part of a frozen handover, never rewritten`);
+  for (const p of plan) { fs.mkdirSync(path.dirname(p.to), { recursive: true }); fs.writeFileSync(p.to, p.data, { flag: 'wx' }); }
+  return plan.length;
+}
+
+module.exports = { copyPreviews, commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages, previewHashes, specHash, previewImage };

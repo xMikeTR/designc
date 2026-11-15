@@ -13,6 +13,7 @@ contextBridge.exposeInMainWorld('host', {
   parityShot: sha => ipcRenderer.invoke('parity:shot', sha),
   uiPreviewHashes: screen => ipcRenderer.invoke('ui:previewHashes', screen),
   uiSpecHash: screen => ipcRenderer.invoke('ui:specHash', screen),
+  uiCopyPreviews: entries => ipcRenderer.invoke('ui:copyPreviews', entries),
   uiPreviewImage: (screen, rel) => ipcRenderer.invoke('ui:previewImage', screen, rel),
   parityTools: () => ipcRenderer.invoke('parity:tools'),
   write: (rel, text) => ipcRenderer.invoke('fs:write', rel, text),

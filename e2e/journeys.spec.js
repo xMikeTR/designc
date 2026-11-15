@@ -449,6 +449,16 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   await expect(page.locator('#termBody')).toContainText('preview --registry');
   await expect(page.locator('#termBody')).toContainText('--screen');
   await expect(page.locator('#termBody')).toContainText('--repo');
+  // D5: a UI-scoped work item. Before approval its handover is refused, and nothing is written.
+  fs.mkdirSync(path.join(reg, 'work'), { recursive: true }); fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/R-1.yaml'), 'id: R-1\ntitle: See received bordereaux\nsource: ""\nversion: 1\nelements: [BordereauxList]\n');
+  fs.writeFileSync(path.join(reg, 'work/W-ui.yaml'), 'id: W-ui\ntitle: Bordereaux screen\nrequirement: R-1\nelements: [BordereauxList]\ndone_when:\n  - gate: "true"\n');
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const wi = page.locator('[data-workitem="W-ui"]');
+  await expect(wi).toBeVisible();
+  await expect(wi.getByRole('button', { name: 'Freeze item' })).toBeDisabled();
+  expect(fs.existsSync(path.join(reg, 'handovers'))).toBe(false);
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
   await sidebar.getByRole('button', { name: 'Approve and bind' }).click();
   await expect.poll(() => JSON.parse(fs.readFileSync(specFile, 'utf8')).status).toBe('bound');
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'ui_spec_bound' || e.kind === 'ui_preview_approved').map(e => e.kind)).toEqual(['ui_spec_bound', 'ui_preview_approved']);
@@ -457,6 +467,24 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   expect(approved.files).toEqual(hashes);
   await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: spec not bound/)).toHaveCount(0);
   await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: (previews not approved|approval is stale)/)).toHaveCount(0);
+  // D5, closing D3's freeze step: with the approval valid the item freezes, and the handover carries ui.json and the approved pictures.
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(wi.getByText('Gate for this item: ready.', { exact: false })).toBeVisible();
+  await wi.getByRole('button', { name: 'Freeze item' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'handovers')) && fs.readdirSync(path.join(reg, 'handovers')).length).toBe(1);
+  const hid = fs.readdirSync(path.join(reg, 'handovers'))[0], hdir = path.join(reg, 'handovers', hid);
+  const uij = JSON.parse(fs.readFileSync(path.join(hdir, 'ui.json'), 'utf8'));
+  expect(uij.schema).toBe('designc.handover.ui/1');
+  expect(uij.screens.map(x => x.screen)).toEqual(['bordereaux']);
+  expect(uij.screens[0].previews.files).toEqual(hashes);
+  for (const [rel, h] of Object.entries(hashes)) expect(sha(fs.readFileSync(path.join(hdir, 'ui/previews/bordereaux', rel)))).toBe(h);
+  expect(fs.existsSync(path.join(hdir, 'ui/specs/bordereaux.json'))).toBe(true);
+  expect(fs.existsSync(path.join(hdir, 'ui/holdout'))).toBe(false);
+  const holdText = fs.readFileSync(path.join(reg, 'ui/holdout/bordereaux.json'), 'utf8');
+  expect(uij.screens[0].holdout.sha256).toBe(require('../renderer/ui.js').sha256(holdText));
+  const leak = JSON.parse(holdText).bordereaux[0].Cedant;
+  for (const f of fs.readdirSync(hdir, { recursive: true })) { const full = path.join(hdir, f); if (fs.statSync(full).isFile() && !f.endsWith('.png')) expect(fs.readFileSync(full, 'utf8')).not.toContain(leak); }
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
   // A new render, even of the same bytes, takes the approval away; the button now says Approve previews.
   fs.appendFileSync(path.join(reg, 'ledger/designc.jsonl'), rendered(Date.now() + 60000));
   await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: approval is stale: rendered again since/)).toBeVisible();

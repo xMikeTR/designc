@@ -1281,9 +1281,25 @@ async function freezeOnce(item) {
     if (c.error) { toast(c.error, 'warning'); return; }
     contracts = c.contracts || null;
   }
+  // The UI half (D5): the gate has already checked the approval against the disk, so the disk hashes are the approved ones. The
+  // holdout files are hashed here and never put in the plan; their text stays in ui/holdout/.
+  let uiIn = null;
+  if (A.ui && (A.ui.specs || []).length) {
+    const pin = Ui.latestPin(A.ledger || []), previews = [];
+    for (const f of A.ui.specs) {
+      let sp; try { sp = JSON.parse(f.text); } catch { continue; }
+      if (!sp || !sp.screen) continue;
+      const ap = (A.ledger || []).filter(e => e.kind === 'ui_preview_approved' && e.screen === sp.screen).reduce((b, e) => (!b || (e._ts || 0) >= (b._ts || 0) ? e : b), null);
+      previews.push({ screen: sp.screen, approved_ts: ap ? ap._ts || null : null, files: ap ? (A.ui.previews[sp.screen] || {}) : {} });
+    }
+    const holdouts = {};
+    for (const h of A.ui.holdouts || []) holdouts[h.path.split('/').pop().replace(/\.json$/, '')] = Ui.sha256(h.text);
+    uiIn = { specs: A.ui.specs, pack: A.ui.pack, pin: pin ? { name: pin.pack, hash: pin.hash } : null, previews, holdouts };
+  }
   let plan;
   try {
     plan = Core.handoverPlan({
+      ui: uiIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
@@ -1313,6 +1329,11 @@ async function freezeOnce(item) {
     ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
   if (!confirm(ask)) return;
+  // Preview pictures are binary: the main process copies them first, re-hashing every one against the id and writing nothing
+  // unless all still match (a picture changed since approval refuses the freeze before any file is written).
+  if ((plan.binaryCopies || []).length) {
+    try { await host.uiCopyPreviews(plan.binaryCopies); } catch (e) { toast(`Not frozen: ${String(e.message || e)}`, 'error'); return; }
+  }
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
   // An item handover follows the gate scoped to that item; recording the whole model's gate would say nothing about it.
