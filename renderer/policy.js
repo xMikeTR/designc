@@ -4,8 +4,8 @@
 const Policy = (() => {
   // Folders each role may write through ACP fs/write_text_file.
   const WRITE_PATHS = { architect: [/^model\//, /^decisions\//], grill: [/^decisions\//, /^acceptance\//], analyst: [/^proposals\//, /^factory\/tasks\//],
-    // The UI stages. Nothing writes ui/pack/ (a person pins it), ui/previews/ (a render writes it) or ui/holdout/ (a person writes it).
-    compose: [/^ui\/specs\/[a-z][a-z0-9-]*\.json$/], catalogue: [/^ui\/(components|templates)\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/] };
+    // The UI stages. compose also drafts ui/legacy/ (D8, never bound). Nothing writes ui/pack/ (a person pins it), ui/previews/ (a render writes it) or ui/holdout/ (a person writes it).
+    compose: [/^ui\/specs\/[a-z][a-z0-9-]*\.json$/, /^ui\/legacy\/[a-z][a-z0-9-]*\.json$/], catalogue: [/^ui\/(components|templates)\/[A-Za-z0-9][A-Za-z0-9._-]*\.json$/] };
 
   // Written only by a human binding a decision (bindDecision), never by an agent.
   const PROMOTION_FIELDS = ['promoted_against', 'promoted_by', 'promoted_at'];

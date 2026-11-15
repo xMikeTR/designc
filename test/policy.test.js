@@ -201,6 +201,11 @@ test('compose and catalogue write only their own ui/ files; no stage writes the 
   assert.equal(may('catalogue', 'ui/components/Button.json'), true);
   assert.equal(may('catalogue', 'ui/templates/list-detail.json'), true);
   assert.equal(may('catalogue', 'ui/specs/home.json'), false);
+  // D8: a legacy spec draft lives in ui/legacy/ and only compose writes it
+  assert.equal(may('compose', 'ui/legacy/tags.json'), true);
+  assert.equal(may('compose', 'ui/legacy/Tags.json'), false);
+  assert.equal(may('compose', 'ui/legacy/a/b.json'), false);
+  for (const role of ['catalogue', 'architect', 'grill', 'analyst']) assert.equal(may(role, 'ui/legacy/tags.json'), false, role);
   for (const role of ['compose', 'catalogue', 'architect', 'grill', 'analyst'])
     for (const rel of ['ui/pack/components/Button.json', 'ui/previews/home/a.png', 'ui/holdout/home.json', 'ui/holdout/x.json']) assert.equal(may(role, rel), false, `${role} ${rel}`);
 });
@@ -210,6 +215,9 @@ test('writeVerdict: a ui/ file an agent writes must be JSON and minted, never bo
   assert.deepEqual(wv('compose', 'ui/specs/home.json', doc({})), { ok: true });
   assert.match(wv('compose', 'ui/specs/home.json', doc({ status: 'bound' })).error, /minted/);
   assert.match(wv('compose', 'ui/specs/home.json', doc({ status: undefined })).error, /minted/);
+  assert.deepEqual(wv('compose', 'ui/legacy/home.json', doc({})), { ok: true });
+  assert.match(wv('compose', 'ui/legacy/home.json', doc({ status: 'bound' })).error, /minted/);
+  assert.match(wv('catalogue', 'ui/legacy/home.json', doc({})).error, /may not write/);
   assert.match(wv('compose', 'ui/specs/home.json', '{').error, /JSON/);
   assert.match(wv('compose', 'ui/specs/home.json', '[]').error, /JSON/);
   assert.deepEqual(wv('catalogue', 'ui/components/Button.json', doc({})), { ok: true });

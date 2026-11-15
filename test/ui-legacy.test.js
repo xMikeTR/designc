@@ -50,3 +50,39 @@ test('nothing given is a note, not a crash', () => {
   assert.deepEqual(Ui.legacySkeleton({}).placements, []);
   assert.ok(Ui.legacySkeleton().notes.length);
 });
+
+// ---- slice 2: ui/legacy/ drafts ----
+const { ROOT: FROOT, load } = require('./helpers/ui.js');
+const L = load();
+const groups = Ui.tokenGroups(L.tokens), pack = Ui.readPack(L.pack, groups);
+const bspec = () => ({ ...JSON.parse(fs.readFileSync(path.join(FROOT, 'ui/specs/bordereaux.json'), 'utf8')), status: 'minted' });
+
+test('mintSpec legacy: writes ui/legacy/<screen>.json with the same checks, never asks for supersedes', () => {
+  const r = Ui.mintSpec({ screen: 'bordereaux', spec: bspec(), pack, groups, legacy: true });
+  assert.equal(r.error, undefined);
+  assert.equal(r.path, 'ui/legacy/bordereaux.json');
+  assert.equal(r.supersedes, false);
+  const bad = Ui.mintSpec({ screen: 'bordereaux', spec: { ...bspec(), template: 'nope' }, pack, groups, legacy: true });
+  assert.match(bad.error, /fails its checks/);
+  assert.match(Ui.mintSpec({ screen: 'bordereaux', spec: { ...bspec(), status: 'bound' }, pack, groups, legacy: true }).error, /minted/);
+});
+
+test('mintSpec legacy: a legacy file is never bound; an existing one is simply replaced; supersedes is refused', () => {
+  const old = JSON.stringify(bspec());
+  assert.equal(Ui.mintSpec({ screen: 'bordereaux', spec: bspec(), pack, groups, legacy: true, existing: old }).error, undefined);
+  assert.match(Ui.mintSpec({ screen: 'bordereaux', spec: bspec(), pack, groups, legacy: true, supersedes: 'bordereaux' }).error, /legacy/);
+});
+
+test('legacyDraft: from graph or parity picks the right source and says what is missing', () => {
+  const g = graph();
+  const sc = [{ id: 'tags-list', screen: 'tags' }, { id: 'tags-apply', screen: 'tags' }];
+  const baselines = { 'tags-list': baseline('tags-list'), 'tags-apply': false };
+  assert.equal(Ui.legacyDraft({ screen: 'tags', from: 'graph', graph: g }).skeleton.placements.length > 5, true);
+  assert.match(Ui.legacyDraft({ screen: 'tags', from: 'graph', graph: null }).error, /no UI graph/);
+  const p = Ui.legacyDraft({ screen: 'tags', from: 'parity', scenarios: sc, baselines });
+  assert.equal(p.skeleton.screen, 'tags', 'the skeleton names the screen asked for, not the scenario');
+  assert.equal(p.skeleton.placements[0].from, 'scenario step 1');
+  assert.match(Ui.legacyDraft({ screen: 'tags', from: 'parity', scenarios: [{ id: 'x', screen: 'other' }], baselines }).error, /no parity scenario/);
+  assert.match(Ui.legacyDraft({ screen: 'tags', from: 'parity', scenarios: [{ id: 'tags-apply', screen: 'tags' }], baselines }).error, /no recorded baseline/);
+  assert.match(Ui.legacyDraft({ screen: 'tags', from: 'x' }).error, /graph or parity/);
+});

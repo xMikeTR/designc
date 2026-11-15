@@ -482,16 +482,18 @@ const Ui = (() => {
   // mintSpec({screen, spec (object or JSON text), supersedes, existing (the file's text now, or null), pack (readPack result or null),
   //   groups}): {error} (what the agent is told, before any card) or {path, text, spec}. A spec is minted, never bound; one spec per
   //   screen, so a bound spec at the path is replaced only when `supersedes` names its screen.
-  function mintSpec({ screen, spec, supersedes, existing = null, pack = null, groups = null }) {
+  function mintSpec({ screen, spec, supersedes, existing = null, pack = null, groups = null, legacy = false }) {
     let doc = spec;
     if (typeof doc === 'string') { try { doc = JSON.parse(doc); } catch { return { error: 'spec does not parse as JSON.' }; } }
     if (!isMap(doc)) return { error: 'spec must be a JSON object.' };
     if (typeof screen !== 'string' || !SCREEN_RE.test(screen)) return { error: 'screen must be lower case letters, digits and hyphens, starting with a letter.' };
-    if (doc.screen !== screen) return { error: `spec.screen is ${show(doc.screen)} but screen is ${screen}; the file is ui/specs/${screen}.json.` };
+    if (doc.screen !== screen) return { error: `spec.screen is ${show(doc.screen)} but screen is ${screen}; the file is ui/${legacy ? 'legacy' : 'specs'}/${screen}.json.` };
     if (doc.status !== 'minted') return { error: `status must be "minted" (it is ${show(doc.status)}). A person binds a spec with Approve and bind; an agent never does.` };
-    const path = `ui/specs/${screen}.json`, text = JSON.stringify(doc, null, 2) + '\n';
+    const path = `ui/${legacy ? 'legacy' : 'specs'}/${screen}.json`, text = JSON.stringify(doc, null, 2) + '\n';
     const r = checkSpec(path, text, { pack, groups });
     if (r.problems.length) return { error: `The spec fails its checks, so no card was shown. Fix these and mint again:\n${r.problems.map(p => `- ${p}`).join('\n')}` };
+    // A legacy draft is never bound and is replaced freely: it is the record of what the old screen was, redrafted until right.
+    if (legacy) return supersedes != null ? { error: 'supersedes does not apply to a legacy draft; mint it again to replace it.' } : { path, text, spec: doc, notes: r.notes, supersedes: false };
     let old = null; if (existing != null) { try { old = JSON.parse(existing); } catch { old = {}; } }
     const bound = isMap(old) && old.status === 'bound';
     if (bound && supersedes !== screen) return { error: `${path} is bound. One spec per screen: to replace it, mint again with supersedes: "${screen}". A person then approves the new previews.` };
@@ -531,7 +533,7 @@ const Ui = (() => {
   // legacySkeleton({graph} | {baseline}): the placements a legacy screen already shows, as locators with where each came
   // from. `graph` is UiGraph.screen output; `baseline` a parity legacy.json. A control with no role or no literal name is a
   // note, never a guessed placement. The agent picks components for the placements; this is only the skeleton.
-  function legacySkeleton({ graph = null, baseline = null } = {}) {
+  function legacySkeleton({ graph = null, baseline = null, label = 'scenario' } = {}) {
     const placements = [], notes = [], seen = new Set();
     const add = (role, name, from) => { const k = `${role}\n${name}`; if (seen.has(k)) return; seen.add(k); placements.push({ role, name, from }); };
     if (graph) {
@@ -545,13 +547,35 @@ const Ui = (() => {
     }
     if (!baseline) return { screen: null, placements, states: ['initial'], notes: ['no graph or baseline given'] };
     const states = [];
-    const walk = (els, n) => { for (const e of els || []) { if (LOCATOR_ROLES.includes(e.role) && typeof e.name === 'string' && e.name.trim()) add(e.role, e.name, `scenario step ${n}`); walk(e.children, n); } };
+    const walk = (els, n) => { for (const e of els || []) { if (LOCATOR_ROLES.includes(e.role) && typeof e.name === 'string' && e.name.trim()) add(e.role, e.name, `${label} step ${n}`); walk(e.children, n); } };
     for (const st of baseline.steps || []) {
       if (typeof st.state === 'string' && st.state.trim() && !states.includes(st.state)) states.push(st.state);
       walk(st.elements, st.n);
     }
     return { screen: baseline.scenario || null, placements, states: states.length ? states : ['initial'], notes };
   }
-  return { legacySkeleton, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
+  // legacyDraft({screen, from: 'graph'|'parity', graph, scenarios, baselines}): what the draft_legacy tool returns. `graph` is
+  // UiGraph.screen output (null when the code map has none); `scenarios` are parity scenarios and `baselines` {id: parsed
+  // legacy.json | false}. Several recorded scenarios on one screen are merged, each place named after its scenario.
+  function legacyDraft({ screen, from, graph = null, scenarios = [], baselines = {} } = {}) {
+    if (from === 'graph') {
+      if (!graph) return { error: `The code map has no UI graph for ${screen}. Extract the code map, or draft from parity instead.` };
+      return { skeleton: legacySkeleton({ graph }) };
+    }
+    if (from !== 'parity') return { error: 'from must be graph or parity.' };
+    const mine = scenarios.filter(sc => sc && (sc.screen === screen || sc.id === screen));
+    if (!mine.length) return { error: `There is no parity scenario for ${screen}. Record one, or draft from the graph.` };
+    const have = mine.filter(sc => baselines[sc.id]);
+    if (!have.length) return { error: `${mine.map(sc => sc.id).join(', ')} has no recorded baseline yet. Record the legacy app first.` };
+    const parts = have.map(sc => legacySkeleton({ baseline: baselines[sc.id], label: have.length > 1 ? sc.id : 'scenario' }));
+    const placements = [], notes = [], states = [], seen = new Set();
+    for (const p of parts) {
+      for (const pl of p.placements) { const k = `${pl.role}\n${pl.name}`; if (!seen.has(k)) { seen.add(k); placements.push(pl); } }
+      for (const st of p.states) if (!states.includes(st)) states.push(st);
+      notes.push(...p.notes);
+    }
+    return { skeleton: { screen, placements, states: states.length > 1 ? states.filter(x => x !== 'initial') : states, notes } };
+  }
+  return { legacySkeleton, legacyDraft, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;

@@ -218,7 +218,7 @@ async function loadUi() {
   A.ui = null; A.uiRegistries = [];
   const files = async d => (await host.list(d, ['.json'])).map(f => ({ path: f.path, text: textOf(f.path) ?? f.text }));
   const pack = { components: await files('ui/pack/components'), templates: await files('ui/pack/templates') };
-  const specs = await files('ui/specs'), holdouts = await files('ui/holdout');
+  const specs = await files('ui/specs'), holdouts = await files('ui/holdout'), legacy = await files('ui/legacy');
   try { for (const r of await host.registries()) if (r.exists && await uiSource(r.key)) A.uiRegistries.push(r.key); } catch { /* none listed */ }
   if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length) return;
   const pin = Ui.latestPin(A.ledger || []), sources = {};
@@ -233,7 +233,7 @@ async function loadUi() {
     if (!/^[a-z0-9-]+$/.test(screen)) continue;
     try { previews[screen] = await host.uiPreviewHashes(screen); specHashes[screen] = await host.uiSpecHash(screen); } catch { /* the gate then says the previews are not rendered */ }
   }
-  A.ui = { pack, specs, holdouts, sources, scenarios, previews, specHashes };
+  A.ui = { pack, specs, legacy, holdouts, sources, scenarios, previews, specHashes };
   // The page pictures people look at (a .png directly in the screen's folder; placements are never shown), cached by hash.
   A.uiImages = A.uiImages || {};
   for (const [screen, fs_] of Object.entries(previews)) for (const [rel, h] of Object.entries(fs_)) {
