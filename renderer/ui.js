@@ -526,6 +526,32 @@ const Ui = (() => {
     return best ? { pack: best.pack, hash: best.hash, registry: best.registry || best.pack } : null;
   }
 
-  return { CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
+
+  // ---------- Lane A: drafting a legacy spec (session D8) ----------
+  // legacySkeleton({graph} | {baseline}): the placements a legacy screen already shows, as locators with where each came
+  // from. `graph` is UiGraph.screen output; `baseline` a parity legacy.json. A control with no role or no literal name is a
+  // note, never a guessed placement. The agent picks components for the placements; this is only the skeleton.
+  function legacySkeleton({ graph = null, baseline = null } = {}) {
+    const placements = [], notes = [], seen = new Set();
+    const add = (role, name, from) => { const k = `${role}\n${name}`; if (seen.has(k)) return; seen.add(k); placements.push({ role, name, from }); };
+    if (graph) {
+      for (const c of graph.controls || []) {
+        const at = `${c.file}:${c.line}`;
+        if (!c.role) notes.push(`${at}: <${c.tag}> has no role the source can show, so it is not a placement`);
+        else if (!c.name) notes.push(`${at}: ${c.role} has no literal name, so it is not a placement`);
+        else add(c.role, c.name, at);
+      }
+      return { screen: graph.name, placements, states: ['initial'], notes };
+    }
+    if (!baseline) return { screen: null, placements, states: ['initial'], notes: ['no graph or baseline given'] };
+    const states = [];
+    const walk = (els, n) => { for (const e of els || []) { if (LOCATOR_ROLES.includes(e.role) && typeof e.name === 'string' && e.name.trim()) add(e.role, e.name, `scenario step ${n}`); walk(e.children, n); } };
+    for (const st of baseline.steps || []) {
+      if (typeof st.state === 'string' && st.state.trim() && !states.includes(st.state)) states.push(st.state);
+      walk(st.elements, st.n);
+    }
+    return { screen: baseline.scenario || null, placements, states: states.length ? states : ['initial'], notes };
+  }
+  return { legacySkeleton, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;
