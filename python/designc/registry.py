@@ -107,7 +107,7 @@ def load_ui(root, cfg, led):
     (designc.json `registries`, by the registry name the ledger pin gives) for a newer version. None when the
     project has no pack, no spec and no holdout (UI rules do not run)."""
     pack = {'components': _ui_files(root, 'ui/pack/components'), 'templates': _ui_files(root, 'ui/pack/templates')}
-    specs, holdouts = _ui_files(root, 'ui/specs'), _ui_files(root, 'ui/holdout')
+    specs, holdouts, legacy = _ui_files(root, 'ui/specs'), _ui_files(root, 'ui/holdout'), _ui_files(root, 'ui/legacy')
     if not pack['components'] and not pack['templates'] and not specs and not holdouts: return None
     sources = {}
     pin = ui_mod.latest_pin(led)
@@ -118,7 +118,7 @@ def load_ui(root, cfg, led):
         if not re.fullmatch(r'[a-z0-9-]+', screen): continue
         previews[screen] = _preview_hashes(os.path.join(root, 'ui', 'previews', screen))
         with open(os.path.join(root, f['path']), 'rb') as fh: spec_hashes[screen] = hashlib.sha256(fh.read()).hexdigest()
-    return {'pack': pack, 'specs': specs, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root), 'previews': previews, 'specHashes': spec_hashes}
+    return {'pack': pack, 'specs': specs, 'legacy': legacy, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root), 'previews': previews, 'specHashes': spec_hashes}
 
 
 def _preview_hashes(base):

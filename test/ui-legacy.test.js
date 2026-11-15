@@ -99,8 +99,9 @@ test('Done when (D8): tags graph -> skeleton -> the scripted legacy spec passes 
   assert.equal(r.spec.status, 'minted', 'a legacy spec is never bound');
   const known = new Set(sk.placements.map(p => `${p.role}:${p.name}`));
   const locs = Object.values(r.spec.slots).flat().filter(p => p.locator).map(p => `${p.locator.role}:${p.locator.name}`);
-  assert.ok(locs.length >= 3);
-  for (const l of locs) assert.ok(known.has(l), `${l} is in the skeleton`);
+  assert.ok(locs.length >= 4);
+  // the graph names no table, so the table's locator is the one judgement the drafter adds (a changed placement needs a locator)
+  for (const l of locs.filter(x => x !== 'table:Tags')) assert.ok(known.has(l), `${l} is in the skeleton`);
   assert.equal(Ui.mintSpec({ screen: 'tags', spec: r.spec, pack: Ui.readPack(L.pack, groups), groups, legacy: true }).error, undefined);
 });
 
@@ -115,7 +116,7 @@ test('Done when (D8): specDiff of an unedited copy is empty; of a copy with 3 ed
   assert.equal(d.template, null);
   assert.deepEqual(d.placements.added.map(p => p.key), ['button:Refresh']);
   assert.deepEqual(d.placements.removed.map(p => p.key), ['button:Clear']);
-  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['main/table', ['props.density']]]);
+  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['table:Tags', ['props.density']]]);
   assert.deepEqual([d.states, d.data], [{ added: [], removed: [] }, { added: [], removed: [], changed: [] }]);
 });
 
@@ -128,10 +129,10 @@ test('specDiff: identity is the locator, else slot/id; slot, component, bind, te
   b.data.extra = { shape: 'money', source: 'GET /x' }; delete b.data.selected; b.data.tags.shape = 'record';
   const d = Ui.specDiff(a, b);
   assert.deepEqual(d.template, { from: 'list-detail', to: 'other' });
-  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['bind.record']], ['main/table', ['component']]]);
+  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['bind.record']], ['table:Tags', ['component']]]);
   assert.deepEqual(d.placements.added, []); assert.deepEqual(d.placements.removed, []);
   assert.deepEqual(d.states, { added: ['filtered'], removed: ['empty'] });
   assert.deepEqual(d.data, { added: ['extra'], removed: ['selected'], changed: [{ key: 'tags', fields: ['shape'] }] });
   const m = clone(legacySpec()); m.slots.main[0].props.density = 'compact'; m.slots.aside[0].props.title = 'T';
-  assert.deepEqual(Ui.specDiff(a, m).placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['props.title']], ['main/table', ['props.density']]]);
+  assert.deepEqual(Ui.specDiff(a, m).placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['props.title']], ['table:Tags', ['props.density']]]);
 });

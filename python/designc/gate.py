@@ -371,7 +371,7 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
         if not isinstance(a, dict) or not a.get('element') or not a.get('id'): continue
         el = resolve_element(model, a['element'])
         if el: ui_acc.append({'id': _s(a['id']), 'component': model.label(el.id).split('/')[-1], 'states': a['states'] if isinstance(a.get('states'), list) else [], 'cases': a['cases'] if isinstance(a.get('cases'), list) else []})
-    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {}, ui_acc, ui.get('scenarios') or [], ui.get('previews') or {}, ui.get('specHashes') or {}, sorted({e.name for e in model.elements.values() if 'UI' in e.tags}))
+    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {}, ui_acc, ui.get('scenarios') or [], ui.get('previews') or {}, ui.get('specHashes') or {}, sorted({e.name for e in model.elements.values() if 'UI' in e.tags}), ui.get('legacy') or [], decisions or [])
     clauses.extend(uc['clauses']); notes.extend(uc['notes'])
     return {'ready': not clauses, 'clauses': clauses, 'notes': notes, 'coverage': uc['coverage']}
 

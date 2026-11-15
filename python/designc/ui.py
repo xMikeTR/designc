@@ -390,7 +390,7 @@ def _by_path(fs): return sorted(fs, key=lambda f: f['path'])
 
 
 # ---------- gate clauses ----------
-def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None, acceptance=(), scenarios=(), previews=None, spec_hashes=None, ui_elements=()):
+def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=None, acceptance=(), scenarios=(), previews=None, spec_hashes=None, ui_elements=(), legacy=(), decisions=()):
     """The mirror of Ui.clauses: {clauses, notes, coverage}. pack: {components, templates} (the ui/pack/ copy);
     sources: {pack: {components, templates} | None}, a pack left out is not compared."""
     pack = pack or {'components': [], 'templates': []}
@@ -431,7 +431,100 @@ def clauses(pack=None, specs=(), holdouts=(), tokens=None, ledger=(), sources=No
         if screen not in held: coverage.append(f"{parsed[screen]['path']}: no holdout sample (ui/holdout/{screen}.json), so a page hard-coded to the visible sample would pass")
     _state_rules(parsed, acceptance or [], scenarios or [], push, coverage)
     _preview_rules(parsed, acceptance or [], ledger or [], previews or {}, spec_hashes or {}, ui_elements or [], push)
+    _legacy_rules(parsed, legacy or [], decisions or [], ledger or [], previews or {}, spec_hashes or {}, read_p, push, notes)
     return {'clauses': out, 'notes': notes, 'coverage': coverage}
+
+
+def spec_diff(legacy, nxt):
+    """The mirror of Ui.specDiff."""
+    def place(spec):
+        m = {}
+        slots = spec.get('slots') if _is_map(spec) and _is_map(spec.get('slots')) else {}
+        for slot, lst in slots.items():
+            for pl in lst if isinstance(lst, list) else []:
+                if not _is_map(pl): continue
+                loc = pl['locator'] if _is_map(pl.get('locator')) and pl['locator'].get('role') and pl['locator'].get('name') is not None else None
+                loc = {'role': loc['role'], 'name': loc['name']} if loc else None
+                key = f"{loc['role']}:{loc['name']}" if loc else f"{slot}/{pl.get('id')}"
+                m[key] = {'key': key, 'slot': slot, 'id': pl.get('id'), 'component': pl.get('component'), 'locator': loc,
+                          'props': pl['props'] if _is_map(pl.get('props')) else {}, 'bind': pl['bind'] if _is_map(pl.get('bind')) else {}}
+        return m
+    brief = lambda p: {'key': p['key'], 'slot': p['slot'], 'id': p['id'], 'component': p['component'], 'locator': p['locator']}
+    a, b = place(legacy), place(nxt)
+    added = [brief(p) for k, p in b.items() if k not in a]
+    removed, changed = [], []
+    for k, p in a.items():
+        q = b.get(k)
+        if q is None: removed.append(brief(p)); continue
+        fields = []
+        if p['slot'] != q['slot']: fields.append('slot')
+        if p['component'] != q['component']: fields.append('component')
+        for grp in ('props', 'bind'):
+            x, y = p[grp], q[grp]
+            for n in set(x) | set(y):
+                if (n in x) != (n in y) or canon(x.get(n)) != canon(y.get(n)): fields.append(f'{grp}.{n}')
+        if fields: changed.append({**brief(q), 'fields': sorted(fields)})
+    def names(x, y):
+        x = x if _is_map(x) else {}; y = y if _is_map(y) else {}
+        return sorted(n for n in y if n not in x)
+    ld = legacy['data'] if _is_map(legacy) and _is_map(legacy.get('data')) else {}
+    nd = nxt['data'] if _is_map(nxt) and _is_map(nxt.get('data')) else {}
+    dchanged = []
+    for n in sorted(nd):
+        if n in ld:
+            f = [k for k in ('shape', 'source') if canon((ld[n] or {}).get(k) if _is_map(ld[n]) else None) != canon((nd[n] or {}).get(k) if _is_map(nd[n]) else None)]
+            if f: dchanged.append({'key': n, 'fields': f})
+    lt, nt = (legacy or {}).get('template'), (nxt or {}).get('template')
+    key = lambda p: p['key']
+    return {'template': None if lt == nt else {'from': lt, 'to': nt},
+            'placements': {'added': sorted(added, key=key), 'removed': sorted(removed, key=key), 'changed': sorted(changed, key=key)},
+            'states': {'added': names((legacy or {}).get('states'), (nxt or {}).get('states')), 'removed': names((nxt or {}).get('states'), (legacy or {}).get('states'))},
+            'data': {'added': names(ld, nd), 'removed': names(nd, ld), 'changed': dchanged}}
+
+
+def _legacy_rules(parsed, legacy, decisions, ledger, previews, spec_hashes, read_p, push, notes):
+    """The mirror of legacyRules in renderer/ui.js: a spec copied from ui/legacy/<screen>.json says what it changed."""
+    sq = lambda t: re.sub(r'\s+', ' ', '' if t is None else str(t)).strip()
+    for f in _by_path(legacy):
+        screen = _base_name(f['path'])
+        mine = parsed.get(screen)
+        if not mine or not _is_map(mine['spec']): continue
+        try: old = json.loads(f['text'])
+        except ValueError: old = None
+        if not _is_map(old): notes.append(f"{f['path']} does not parse as a JSON object, so {mine['path']} is not compared with it"); continue
+        d, path = spec_diff(old, mine['spec']), mine['path']
+        extra = {'path': path, 'screen': screen}
+        bound = [x for x in decisions if isinstance(x, dict) and x.get('status') == 'bound']
+        for p in d['placements']['added'] + d['placements']['changed']:
+            if not p['locator']: push(_fmt(path, '', f"{p['key']} is new or changed from legacy, so it needs a locator"), **extra)
+        removes = []
+        for x in bound:
+            if x.get('kind') != 'business' or not isinstance(x.get('removes'), list): continue
+            for r in x['removes']:
+                if _is_map(r) and isinstance(r.get('role'), str) and (r.get('screen') in (None, '', screen)): removes.append(f"{r['role']}\n{sq(r.get('name'))}")
+        for p in d['placements']['removed']:
+            if not p['locator']: push(_fmt(path, '', f"{p['key']} is removed from legacy and has no locator, so no decision can say it is removed", 'Give it a locator in the legacy spec'), **extra)
+            elif f"{p['locator']['role']}\n{sq(p['locator']['name'])}" not in removes: push(_fmt(path, '', f"{p['locator']['role']} '{p['locator']['name']}' is removed from legacy with no bound decision that removes it"), **extra)
+        def token_prop(p, x):
+            if not x.startswith('props.'): return False
+            c = read_p['components'].get(p['component']) if read_p else None
+            props = c['m'].get('props') if c and _is_map(c['m'].get('props')) else {}
+            dfn = props.get(x[6:])
+            return _is_map(dfn) and dfn.get('type') == 'token'
+        look = d['template'] is not None or any(token_prop(p, x) for p in d['placements']['changed'] for x in p['fields'])
+        if look and not (any(x.get('look') == screen for x in bound) and _approval_current(screen, ledger, previews, spec_hashes)):
+            push(_fmt(path, '', f'the look of {screen} differs from legacy with no bound decision citing its approved previews'), **extra)
+
+
+def _approval_current(screen, ledger, previews, spec_hashes):
+    def latest(kind):
+        best = None
+        for e in ledger:
+            if e.get('kind') == kind and e.get('screen') == screen and (best is None or (e.get('_ts') or 0) >= (best.get('_ts') or 0)): best = e
+        return best
+    rend, appr = latest('ui_preview_rendered'), latest('ui_preview_approved')
+    if not rend or not appr or (appr.get('_ts') or 0) <= (rend.get('_ts') or 0): return False
+    return canon(appr['files'] if _is_map(appr.get('files')) else {}) == canon(previews.get(screen) or {}) and appr.get('spec') == spec_hashes.get(screen)
 
 
 # The spec's states are the spine: R1 (criterion states/cases), R2 (parity step states), R4 (unrecorded states), R5 (commits).

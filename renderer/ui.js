@@ -331,7 +331,7 @@ const Ui = (() => {
   //   `component`, a scenario by `screen`; one with no matching spec is left alone. State rules R1, R2, R4, R5: stateRules.
   //   D3, check 4 (previewRules): uiElements (names of the model's elements tagged UI), previews {screen: {relpath: sha256}} (what is on
   //   disk under ui/previews/<screen>/) and specHashes {screen: sha256 of the spec file's bytes}.
-  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, acceptance = [], scenarios = [], previews = {}, specHashes = {}, uiElements = [], hash }) {
+  function clauses({ pack = { components: [], templates: [] }, specs = [], holdouts = [], tokens = null, ledger = [], sources = {}, acceptance = [], scenarios = [], previews = {}, specHashes = {}, uiElements = [], legacy = [], decisions = [], hash }) {
     const out = [], notes = [], coverage = [];
     const hasPack = pack.components.length + pack.templates.length > 0;
     if (!hasPack && !specs.length && !holdouts.length) return { clauses: out, notes, coverage };
@@ -371,12 +371,49 @@ const Ui = (() => {
     for (const [screen, s] of [...parsed].sort((a, b) => (a[0] < b[0] ? -1 : 1))) if (!held.has(screen)) coverage.push(`${s.path}: no holdout sample (ui/holdout/${screen}.json), so a page hard-coded to the visible sample would pass`);
     stateRules({ parsed, acceptance, scenarios, push, coverage });
     previewRules({ parsed, acceptance, ledger, previews, specHashes, uiElements, push });
+    legacyRules({ parsed, legacy, decisions, ledger, previews, specHashes, readP, push, notes });
     return { clauses: out, notes, coverage };
   }
   // The spec's states are the spine (docs/ui-contract.md). R1: a criterion's states and cases must be in the spec (a state
   // outside the acceptance five is the acceptance clause's to say). R2: a parity step's state must be. R4: a spec state no step
   // records is coverage. R5: a commits transition cannot be recorded read-only; a state reachable only through such edges is uncovered.
   const ACCEPTANCE_STATES = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+
+  // D8, a spec copied from a legacy one (ui/legacy/<screen>.json exists next to ui/specs/<screen>.json). What changed from the legacy
+  // screen has to be said: an added or changed placement has a locator, a removed one is covered by a bound business decision whose
+  // `removes` holds its {role, name} (screen this one or absent), and a changed look (the template, or a token-typed prop) is
+  // covered by a bound decision with `look: <screen>` while the approval of the screen's previews is current.
+  function legacyRules({ parsed, legacy, decisions, ledger, previews, specHashes, readP, push, notes }) {
+    const sq = t => String(t == null ? '' : t).replace(/\s+/g, ' ').trim();
+    for (const f of [...legacy].sort(byPath)) {
+      const screen = baseName(f.path), mine = parsed.get(screen);
+      if (!mine || !isMap(mine.spec)) continue;
+      let old = null; try { old = JSON.parse(f.text); } catch { /* a note */ }
+      if (!isMap(old)) { notes.push(`${f.path} does not parse as a JSON object, so ${mine.path} is not compared with it`); continue; }
+      const d = specDiff(old, mine.spec), path = mine.path, extra = { path, screen };
+      const bound = (decisions || []).filter(x => x && x.status === 'bound');
+      for (const p of [...d.placements.added, ...d.placements.changed]) if (!p.locator) push(fmt(path, '', `${p.key} is new or changed from legacy, so it needs a locator`), extra);
+      const removes = bound.filter(x => x.kind === 'business' && Array.isArray(x.removes)).flatMap(x => x.removes.filter(r => isMap(r) && typeof r.role === 'string' && (r.screen == null || r.screen === '' || r.screen === screen)).map(r => `${r.role}\n${sq(r.name)}`));
+      for (const p of d.placements.removed) {
+        if (!p.locator) push(fmt(path, '', `${p.key} is removed from legacy and has no locator, so no decision can say it is removed`, 'Give it a locator in the legacy spec'), extra);
+        else if (!removes.includes(`${p.locator.role}\n${sq(p.locator.name)}`)) push(fmt(path, '', `${p.locator.role} '${p.locator.name}' is removed from legacy with no bound decision that removes it`), extra);
+      }
+      const lookChanged = d.template !== null || d.placements.changed.some(p => p.fields.some(x => {
+        if (!x.startsWith('props.')) return false;
+        const c = readP && readP.components.get(p.component), def = c && isMap(c.m.props) ? c.m.props[x.slice(6)] : null;
+        return isMap(def) && def.type === 'token';
+      }));
+      if (lookChanged && !(bound.some(x => x.look === screen) && approvalCurrent(screen, { ledger, previews, specHashes })))
+        push(fmt(path, '', `the look of ${screen} differs from legacy with no bound decision citing its approved previews`), extra);
+    }
+  }
+  // Is the latest ui_preview_approved of a screen current: strictly after the latest render, the files on disk and the spec as approved.
+  function approvalCurrent(screen, { ledger, previews, specHashes }) {
+    const latest = kind => (ledger || []).filter(e => e.kind === kind && e.screen === screen).reduce((b, e) => (!b || (e._ts || 0) >= (b._ts || 0) ? e : b), null);
+    const rend = latest('ui_preview_rendered'), appr = latest('ui_preview_approved');
+    if (!rend || !appr || (appr._ts || 0) <= (rend._ts || 0)) return false;
+    return canon(isMap(appr.files) ? appr.files : {}) === canon((previews || {})[screen] || {}) && appr.spec === (specHashes || {})[screen];
+  }
   function stateRules({ parsed, acceptance, scenarios, push, coverage }) {
     const specs = [...parsed.values()].filter(x => isMap(x.spec) && isMap(x.spec.states)).sort(byPath2);
     for (const { path, spec } of specs) {

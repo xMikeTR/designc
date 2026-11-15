@@ -50,6 +50,7 @@
         "component": "DataTable",
         "props": { "density": "comfortable", "rowAction": "selectTag" },
         "bind": { "rows": "tags" },
+        "locator": { "role": "table", "name": "Tags" },
         "why": "Many tags, scanned by name"
       }
     ],
