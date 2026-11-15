@@ -201,7 +201,7 @@ Each slice names the repo it lands in. Factory slices are detailed in its `docs/
 1. **Standalone at work.** The kit in the app repo: bootstrap the pack from one agreed screen, one Lane B screen end to end. No designc or Factory change.
 2. **designc: pack and spec.** `kind: ui` registry, Pin and Re-pin, `ui_pinned`, `ui/specs/` loading, spec and state clauses (checks 1–3), Python mirror.
 3. **designc: state names join up.** Acceptance, scenario and QA state checks; the walkthrough's state graph step reads the spec.
-4. **Factory: preview run** (`factory-s2 preview`). **designc:** Render previews, Approve previews, `ui_preview_approved`, check 4.
+4. **Factory: preview run** (`factory-s2 preview`). **designc:** Render previews, Approve previews, `ui_preview_approved`, check 4 (enforced, D3: a UI-tagged element's spec must be bound, rendered, and approved after the latest render, with the approved file hashes and spec hash equal to disk).
 5. **designc: stages.** `compose` and `catalogue` with the UI tools, as new `ROLES` entries in `renderer/agent.js`. Until then the kit skills do the same job outside designc.
 6. **designc: handover** (`ui.json`, preview files in the id hash, `done_when: ui:`). **Factory:** the `ui:` check in integration verify, frozen baselines, test-author-first page tests, sabotage cases.
 7. **designc: Lane A drafting.** Specs drafted from the UI graph or recording; spec diff for intended differences; visual exceptions.
