@@ -86,3 +86,52 @@ test('legacyDraft: from graph or parity picks the right source and says what is 
   assert.match(Ui.legacyDraft({ screen: 'tags', from: 'parity', scenarios: [{ id: 'tags-apply', screen: 'tags' }], baselines }).error, /no recorded baseline/);
   assert.match(Ui.legacyDraft({ screen: 'tags', from: 'x' }).error, /graph or parity/);
 });
+
+// ---- slice 3: specDiff, and the Done-when round trip ----
+const legacyText = fs.readFileSync(path.join(FROOT, 'ui/legacy/tags.json'), 'utf8');
+const legacySpec = () => JSON.parse(legacyText);
+const clone = o => JSON.parse(JSON.stringify(o));
+
+test('Done when (D8): tags graph -> skeleton -> the scripted legacy spec passes the checks, and every locator came from the skeleton', () => {
+  const sk = Ui.legacySkeleton({ graph: graph() });
+  const r = Ui.checkSpec('ui/legacy/tags.json', legacyText, { pack: Ui.readPack(L.pack, groups), groups });
+  assert.deepEqual(r.problems, []);
+  assert.equal(r.spec.status, 'minted', 'a legacy spec is never bound');
+  const known = new Set(sk.placements.map(p => `${p.role}:${p.name}`));
+  const locs = Object.values(r.spec.slots).flat().filter(p => p.locator).map(p => `${p.locator.role}:${p.locator.name}`);
+  assert.ok(locs.length >= 3);
+  for (const l of locs) assert.ok(known.has(l), `${l} is in the skeleton`);
+  assert.equal(Ui.mintSpec({ screen: 'tags', spec: r.spec, pack: Ui.readPack(L.pack, groups), groups, legacy: true }).error, undefined);
+});
+
+test('Done when (D8): specDiff of an unedited copy is empty; of a copy with 3 edits it lists exactly those 3', () => {
+  const none = Ui.specDiff(legacySpec(), legacySpec());
+  assert.deepEqual(none, { template: null, placements: { added: [], removed: [], changed: [] }, states: { added: [], removed: [] }, data: { added: [], removed: [], changed: [] } });
+  const next = clone(legacySpec());
+  next.slots['header.actions'] = next.slots['header.actions'].filter(p => p.id !== 'clear');          // removed
+  next.slots['header.actions'].push({ id: 'refresh', component: 'Button', props: { label: 'Refresh', variant: 'ghost', onClick: 'refresh' }, locator: { role: 'button', name: 'Refresh' } }); // added
+  next.slots.main[0].props.density = 'compact';                                                         // changed token prop
+  const d = Ui.specDiff(legacySpec(), next);
+  assert.equal(d.template, null);
+  assert.deepEqual(d.placements.added.map(p => p.key), ['button:Refresh']);
+  assert.deepEqual(d.placements.removed.map(p => p.key), ['button:Clear']);
+  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['main/table', ['props.density']]]);
+  assert.deepEqual([d.states, d.data], [{ added: [], removed: [] }, { added: [], removed: [], changed: [] }]);
+});
+
+test('specDiff: identity is the locator, else slot/id; slot, component, bind, template, states and data are reported, sorted', () => {
+  const a = clone(legacySpec()), b = clone(legacySpec());
+  b.slots.filters[0].id = 'renamed-handle';                                   // same locator: not a change
+  b.slots.aside[0].bind.record = 'tags';                                      // no locator: slot/id identity, bind changed
+  b.slots.main[0].component = 'DetailPanel';                                  // component changed
+  b.template = 'other'; b.states.filtered = { description: 'x' }; delete b.states.empty;
+  b.data.extra = { shape: 'money', source: 'GET /x' }; delete b.data.selected; b.data.tags.shape = 'record';
+  const d = Ui.specDiff(a, b);
+  assert.deepEqual(d.template, { from: 'list-detail', to: 'other' });
+  assert.deepEqual(d.placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['bind.record']], ['main/table', ['component']]]);
+  assert.deepEqual(d.placements.added, []); assert.deepEqual(d.placements.removed, []);
+  assert.deepEqual(d.states, { added: ['filtered'], removed: ['empty'] });
+  assert.deepEqual(d.data, { added: ['extra'], removed: ['selected'], changed: [{ key: 'tags', fields: ['shape'] }] });
+  const m = clone(legacySpec()); m.slots.main[0].props.density = 'compact'; m.slots.aside[0].props.title = 'T';
+  assert.deepEqual(Ui.specDiff(a, m).placements.changed.map(p => [p.key, p.fields]), [['aside/detail', ['props.title']], ['main/table', ['props.density']]]);
+});

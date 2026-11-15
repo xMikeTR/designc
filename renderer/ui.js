@@ -554,6 +554,46 @@ const Ui = (() => {
     }
     return { screen: baseline.scenario || null, placements, states: states.length ? states : ['initial'], notes };
   }
+
+  // specDiff(legacy, next): what a copy changed from the legacy spec it was drafted from. A placement's identity is its locator
+  // {role, name}, else slot/id. `changed` means the slot, the component, a prop or a bind differs, and lists which fields.
+  // Every list is sorted by key; `template` is null when it is the same.
+  function specDiff(legacy, next) {
+    const place = spec => {
+      const m = new Map();
+      for (const [slot, list] of Object.entries(isMap(spec && spec.slots) ? spec.slots : {})) for (const pl of Array.isArray(list) ? list : []) {
+        if (!isMap(pl)) continue;
+        const loc = isMap(pl.locator) && pl.locator.role && pl.locator.name != null ? { role: pl.locator.role, name: pl.locator.name } : null;
+        const key = loc ? `${loc.role}:${loc.name}` : `${slot}/${pl.id}`;
+        m.set(key, { key, slot, id: pl.id == null ? null : pl.id, component: pl.component, locator: loc, props: isMap(pl.props) ? pl.props : {}, bind: isMap(pl.bind) ? pl.bind : {} });
+      }
+      return m;
+    };
+    const byKey = (a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0);
+    const brief = p => ({ key: p.key, slot: p.slot, id: p.id, component: p.component, locator: p.locator });
+    const a = place(legacy), b = place(next);
+    const added = [], removed = [], changed = [];
+    for (const [k, p] of b) if (!a.has(k)) added.push(brief(p));
+    for (const [k, p] of a) {
+      const q = b.get(k);
+      if (!q) { removed.push(brief(p)); continue; }
+      const fields = [];
+      if (p.slot !== q.slot) fields.push('slot');
+      if (p.component !== q.component) fields.push('component');
+      for (const [grp, x, y] of [['props', p.props, q.props], ['bind', p.bind, q.bind]])
+        for (const n of new Set([...Object.keys(x), ...Object.keys(y)])) if (canon(x[n]) !== canon(y[n])) fields.push(`${grp}.${n}`);
+      if (fields.length) changed.push({ ...brief(q), fields: fields.sort() });
+    }
+    const names = (x, y) => Object.keys(isMap(y) ? y : {}).filter(n => !(n in (isMap(x) ? x : {}))).sort();
+    const ld = isMap(legacy && legacy.data) ? legacy.data : {}, nd = isMap(next && next.data) ? next.data : {};
+    const dchanged = [];
+    for (const n of Object.keys(nd).sort()) if (n in ld) { const f = ['shape', 'source'].filter(k => canon(ld[n] && ld[n][k]) !== canon(nd[n] && nd[n][k])); if (f.length) dchanged.push({ key: n, fields: f }); }
+    const lt = legacy && legacy.template, nt = next && next.template;
+    return { template: lt === nt ? null : { from: lt == null ? null : lt, to: nt == null ? null : nt },
+      placements: { added: added.sort(byKey), removed: removed.sort(byKey), changed: changed.sort(byKey) },
+      states: { added: names(legacy && legacy.states, next && next.states), removed: names(next && next.states, legacy && legacy.states) },
+      data: { added: names(ld, nd), removed: names(nd, ld), changed: dchanged } };
+  }
   // legacyDraft({screen, from: 'graph'|'parity', graph, scenarios, baselines}): what the draft_legacy tool returns. `graph` is
   // UiGraph.screen output (null when the code map has none); `scenarios` are parity scenarios and `baselines` {id: parsed
   // legacy.json | false}. Several recorded scenarios on one screen are merged, each place named after its scenario.
@@ -576,6 +616,6 @@ const Ui = (() => {
     }
     return { skeleton: { screen, placements, states: states.length > 1 ? states.filter(x => x !== 'initial') : states, notes } };
   }
-  return { legacySkeleton, legacyDraft, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
+  return { legacySkeleton, legacyDraft, specDiff, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;

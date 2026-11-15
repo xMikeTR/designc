@@ -1,0 +1,78 @@
+{
+  "screen": "tags",
+  "component": "TagsPage",
+  "intent": "People browse the adhoc tags, search them, clear the search, create a tag and open one to see it.",
+  "template": "list-detail",
+  "data": {
+    "tags": {
+      "shape": "table",
+      "source": "GET /api/tags",
+      "sample": [
+        { "Tag": "uk-property", "Colour": "#336699" },
+        { "Tag": "marine", "Colour": "#003366" }
+      ]
+    },
+    "selected": {
+      "shape": "record",
+      "source": "GET /api/tags/:id",
+      "sample": { "Tag": "marine", "Colour": "#003366" }
+    }
+  },
+  "slots": {
+    "header": [
+      { "id": "hdr", "component": "PageHeader", "props": { "title": "Tags" } }
+    ],
+    "header.actions": [
+      {
+        "id": "new-tag",
+        "component": "Button",
+        "props": { "label": "New tag", "variant": "primary", "onClick": "newTag" },
+        "locator": { "role": "link", "name": "New tag" }
+      },
+      {
+        "id": "clear",
+        "component": "Button",
+        "props": { "label": "Clear", "variant": "ghost", "onClick": "clearSearch" },
+        "locator": { "role": "button", "name": "Clear" }
+      }
+    ],
+    "filters": [
+      {
+        "id": "search",
+        "component": "FilterBar",
+        "props": { "fields": "tag" },
+        "locator": { "role": "searchbox", "name": "Search tags" }
+      }
+    ],
+    "main": [
+      {
+        "id": "table",
+        "component": "DataTable",
+        "props": { "density": "comfortable", "rowAction": "selectTag" },
+        "bind": { "rows": "tags" },
+        "why": "Many tags, scanned by name"
+      }
+    ],
+    "aside": [
+      {
+        "id": "detail",
+        "component": "DetailPanel",
+        "props": { "title": "Tag" },
+        "bind": { "record": "selected" }
+      }
+    ]
+  },
+  "states": {
+    "loading": { "initial": true, "pending": ["tags", "selected"] },
+    "ready": { "description": "Tags loaded" },
+    "empty": { "description": "Search matches nothing", "data": { "tags": [], "selected": null } },
+    "error": { "failed": ["tags"], "error": "Tags could not be loaded", "data": { "selected": null } }
+  },
+  "transitions": [
+    { "from": "loading", "to": "ready", "on": { "event": "data arrives" } },
+    { "from": "loading", "to": "error", "on": { "event": "request fails" } },
+    { "from": "ready", "to": "empty", "on": { "fill": { "role": "searchbox", "name": "Search tags" } } },
+    { "from": "empty", "to": "ready", "on": { "click": { "role": "button", "name": "Clear" } } }
+  ],
+  "status": "minted"
+}
