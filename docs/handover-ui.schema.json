@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.ui/1",
+  "title": "Handover UI",
+  "description": "ui.json in a frozen handover (handovers/<id>/), present only when a screen spec is bound to an in-scope UI element. Written by Core.handoverPlan at freeze, listed and hashed in handover.yaml (named there as `ui:`, with `ui_screens:`), outside the handover id (the files it names are inside it). The spec, the template and the components each screen places are copied as text under ui/specs/ and ui/pack/; the approved preview pictures are copied under ui/previews/<screen>/. The holdout sample and holdout acceptance cases are NEVER copied: only their sha256 is here, so a consumer can name them and the Factory can judge them. designc owns this contract; consumers conform to it. docs/handover-ui.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "pack", "screens"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.ui/1" },
+    "pack": {
+      "description": "The pinned UI pack the copies come from (ledger ui_pinned); null when no pin is recorded.",
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["name", "hash"], "additionalProperties": false, "properties": { "name": { "type": "string" }, "hash": { "type": "string" } } }
+      ]
+    },
+    "screens": {
+      "description": "One entry per bound screen in scope, ordered by spec path.",
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["screen", "spec", "template", "components", "previews", "holdout", "holdout_cases"],
+        "additionalProperties": false,
+        "properties": {
+          "screen": { "type": "string", "pattern": "^[a-z0-9-]+$" },
+          "spec": { "$ref": "#/$defs/file" },
+          "template": { "$ref": "#/$defs/file" },
+          "components": {
+            "description": "The library components the spec places, ordered by name. Each is a copy of the pack's manifest.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["name", "path", "sha256"],
+              "additionalProperties": false,
+              "properties": { "name": { "type": "string" }, "path": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } }
+            }
+          },
+          "previews": {
+            "type": "object",
+            "required": ["approved_ts", "files"],
+            "additionalProperties": false,
+            "properties": {
+              "approved_ts": { "description": "Ledger time of the approval; null when it carries none.", "type": ["number", "null"] },
+              "files": {
+                "description": "Path under ui/previews/<screen>/ (placements included) to the sha256 of the picture. The pictures are in the handover at handovers/<id>/ui/previews/<screen>/<path>.",
+                "type": "object",
+                "minProperties": 1,
+                "additionalProperties": { "$ref": "#/$defs/sha256" }
+              }
+            }
+          },
+          "holdout": {
+            "description": "The holdout sample for the screen (ui/holdout/<screen>.json in the registry): hash only, never copied. null when the screen has none.",
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "required": ["path", "sha256"], "additionalProperties": false, "properties": { "path": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } } }
+            ]
+          },
+          "holdout_cases": {
+            "description": "Acceptance cases marked holdout on this screen's component: left out of the acceptance copies and the generated specs, named by the sha256 of the case's canonical JSON (keys sorted).",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["criterion", "case", "state", "sha256"],
+              "additionalProperties": false,
+              "properties": {
+                "criterion": { "type": "string" },
+                "case": { "description": "Index in the criterion's cases list in the registry.", "type": "integer", "minimum": 0 },
+                "state": { "type": "string" },
+                "sha256": { "$ref": "#/$defs/sha256" }
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "file": {
+      "type": "object",
+      "required": ["path", "sha256"],
+      "additionalProperties": false,
+      "properties": { "path": { "description": "Relative to the handover folder.", "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } }
+    }
+  }
+}

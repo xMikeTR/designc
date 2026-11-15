@@ -42,7 +42,7 @@ const PLAIN = { id: 'AC-PLAIN', requirement: 'R-1', element: 'Bordereaux API', s
 const textOf = c => yaml.dump(c);
 
 function criteria() {
-  return [CRITERION, PLAIN].map(c => ({ ...c, _path: `acceptance/${c.id}.yaml`, _text: textOf(c) }));
+  return [CRITERION, PLAIN].map(c => JSON.parse(JSON.stringify(c))).map(c => ({ ...c, _path: `acceptance/${c.id}.yaml`, _text: textOf(c) }));
 }
 function fixture({ holdout = true } = {}) {
   const base = load();

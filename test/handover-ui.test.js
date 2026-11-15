@@ -113,3 +113,19 @@ test('holdoutCaseHash is the sha256 of the canonical JSON of the case, whatever 
   assert.equal(Core.holdoutCaseHash(c), sha(Ui.canon(c)));
   assert.equal(Core.holdoutCaseHash({ holdout: true, then: 't', given: 'g', state: 'ready' }), Core.holdoutCaseHash(c));
 });
+
+test('docs/handover-ui.schema.json validates ui.json and the pinned example, and rejects a leak-shaped change', () => {
+  const Ajv2020 = require('ajv/dist/2020'), fs = require('fs'), path = require('path');
+  const read = n => JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', n), 'utf8'));
+  const schema = read('handover-ui.schema.json'), example = read('handover-ui.example.json');
+  const validate = new Ajv2020({ strict: false, allErrors: true }).compile(schema);
+  const doc = JSON.parse(Core.handoverPlan(inputs(fixture())).files.find(x => x.path.endsWith('/ui.json')).text);
+  assert.equal(schema.$id, doc.schema);
+  assert.ok(validate(doc), JSON.stringify(validate.errors));
+  assert.ok(validate(example), JSON.stringify(validate.errors));
+  assert.deepEqual(doc, example, 'the example is what the planner writes for the fixture');
+  const bad = JSON.parse(JSON.stringify(example)); bad.screens[0].holdout.text = 'Quillfeather';
+  assert.ok(!validate(bad), 'a field that would carry holdout text is not in the contract');
+  const bad2 = JSON.parse(JSON.stringify(example)); bad2.screens[0].holdout_cases[0].sha256 = 'nothex';
+  assert.ok(!validate(bad2));
+});
