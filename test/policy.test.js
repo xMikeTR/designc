@@ -184,3 +184,10 @@ test('unapprovedChanges: a change under ui/ is flagged unless a write was approv
   assert.deepEqual(flagged(['ui/specs/home.json']), ['ui/specs/home.json']);
   assert.deepEqual(flagged(['ui/components/button.json'], { approved: { 'ui/components/button.json': 95000 } }), []);
 });
+
+test('writeVerdict: holdout on an acceptance case is the person\'s, an agent write with it is refused', () => {
+  const doc = h => `id: AC-1\nrequirement: R-1\nelement: x\nstates: [ready]\ncases:\n  - { state: ready, given: a, then: b${h} }\n`;
+  assert.deepEqual(wv('grill', 'acceptance/AC-1.yaml', doc('')), { ok: true });
+  for (const h of [', holdout: true', ', holdout: false'])
+    assert.match(wv('grill', 'acceptance/AC-1.yaml', doc(h)).error || '', /holdout is set by the person binding the criterion; leave it out/, h);
+});

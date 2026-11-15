@@ -53,6 +53,7 @@ const Policy = (() => {
         const field = ['bound_by', 'bound_at', 'hash'].find(f => Object.prototype.hasOwnProperty.call(doc, f));
         if (field) return no(`${field} is recorded when a human binds a task; leave it out.`);
       }
+      if (dir[1] === 'acceptance' && Array.isArray(doc.cases) && doc.cases.some(c => c && typeof c === 'object' && Object.prototype.hasOwnProperty.call(c, 'holdout'))) return no('holdout is set by the person binding the criterion; leave it out.');
       if (dir[1] === 'decisions' && (status === 'bound' || status === 'superseded')) return no('Binding a decision is a human action; write it as minted.');
       if (dir[1] === 'decisions') {
         const field = PROMOTION_FIELDS.find(f => Object.prototype.hasOwnProperty.call(doc, f));

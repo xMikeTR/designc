@@ -188,6 +188,13 @@ def acceptance_clauses(model, acceptance, requirements, decisions):
         need = ['ready', 'loading', 'empty', 'error'] + (['forbidden'] if auth_boundary(el) or 'forbidden' in a['states'] else [])
         for st in need:
             if not any(isinstance(c, dict) and c.get('state') == st for c in a['cases']): say(f"{aid}: no case for state {st}", [el.name])
+        for c in a['cases']:
+            if isinstance(c, dict) and 'holdout' in c and not isinstance(c['holdout'], bool): say(f"{aid}: case for {c.get('state')}: holdout must be true or false", [el.name])
+        seen = []
+        for c in a['cases']:
+            if isinstance(c, dict) and c.get('state') in UI_STATES and c['state'] not in seen: seen.append(c['state'])
+        for st in seen:
+            if all(c.get('holdout') is True for c in a['cases'] if isinstance(c, dict) and c.get('state') == st): say(f"{aid}: the only case for state {st} is holdout; add a visible case", [el.name])
     for req in requirements:
         for n in req.get('elements') or []:
             for el in model.elements.values():
