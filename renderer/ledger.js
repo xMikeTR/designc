@@ -74,6 +74,8 @@ const Ledger = (() => {
     domain_pinned: 'designc.jsonl',
     ui_pinned: 'designc.jsonl',
     ui_preview_rendered: 'designc.jsonl',
+    ui_preview_approved: 'designc.jsonl',
+    ui_spec_bound: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
@@ -375,6 +377,23 @@ const Ledger = (() => {
       types: { screen: 'string', spec_hash: 'string', files: 'object', image: 'string' },
       rules: ['preview_rendered_shape'],
     },
+    // A person approved a screen's rendered previews (D3). `spec` is the sha256 of the spec file as it is on disk, `files` maps every
+    // file under ui/previews/<screen>/ (placements included) to its sha256. Human only: not a Factory kind, `designc record` refuses it.
+    ui_preview_approved: {
+      required: ['screen', 'spec', 'files'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', spec: 'string', files: 'object' },
+      rules: ['preview_approved_shape'],
+    },
+    // A person bound a screen spec (its status became `bound`); `hash` is the sha256 of the bound file. Human only.
+    ui_spec_bound: {
+      required: ['screen', 'hash'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', hash: 'string' },
+      rules: ['spec_bound_shape'],
+    },
     // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in
     // telemetry). Written by the app only; the latest per observation wins. `failure_mode` names a mode in
     // factory/taxonomy.yaml (null or absent: not assigned).
@@ -491,6 +510,13 @@ const Ledger = (() => {
       if (isPlainObject(ev.files)) for (const [k, v] of Object.entries(ev.files)) if (typeof v !== 'string' || !hex.test(v)) return `files: '${k}' must map to 64 hex characters`;
       return null;
     },
+    preview_approved_shape: ev => {
+      const hex = /^[0-9a-f]{64}$/;
+      if (typeof ev.spec === 'string' && !hex.test(ev.spec)) return 'spec: must be 64 hex characters';
+      if (isPlainObject(ev.files)) for (const [k, v] of Object.entries(ev.files)) if (typeof v !== 'string' || !hex.test(v)) return `files: '${k}' must map to 64 hex characters`;
+      return null;
+    },
+    spec_bound_shape: ev => (typeof ev.hash === 'string' && !/^[0-9a-f]{64}$/.test(ev.hash) ? 'hash: must be 64 hex characters' : null),
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),

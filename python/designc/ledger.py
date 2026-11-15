@@ -41,6 +41,14 @@ def _rule(rid, ev):
         if isinstance(ev.get('files'), dict):
             for k, v in ev['files'].items():
                 if not (isinstance(v, str) and hexre.match(v)): return f"files: '{k}' must map to 64 hex characters"
+    elif rid == 'preview_approved_shape':
+        hexre = re.compile(r'^[0-9a-f]{64}$')
+        if isinstance(ev.get('spec'), str) and not hexre.match(ev['spec']): return 'spec: must be 64 hex characters'
+        if isinstance(ev.get('files'), dict):
+            for k, v in ev['files'].items():
+                if not (isinstance(v, str) and hexre.match(v)): return f"files: '{k}' must map to 64 hex characters"
+    elif rid == 'spec_bound_shape':
+        if isinstance(ev.get('hash'), str) and not re.match(r'^[0-9a-f]{64}$', ev['hash']): return 'hash: must be 64 hex characters'
     elif rid == 'failures_shape':
         fs = ev.get('failures')
         if not isinstance(fs, list): return None
