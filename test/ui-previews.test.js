@@ -116,3 +116,43 @@ test('check 4 is in Core.gate, scoped to the work item that names the UI element
   assert.equal(Core.scopedGate(g, { model, elements: ['BordereauxList'] }).clauses.filter(c => /spec not bound/.test(c.text)).length, 1);
   assert.equal(Core.scopedGate(g, { model, elements: ['Other'] }).clauses.filter(c => /spec not bound/.test(c.text)).length, 0);
 });
+
+// ---- the buttons: what Approve and bind may do (Ui.approveState) and the command Render previews types (Dispatch.uiPreview) ----
+const Dispatch = require('../renderer/dispatch.js');
+function state(over = {}) {
+  const inp = input({ status: 'minted', rows: [rendered(10)] });
+  const spec = JSON.parse(inp.specs[0].text);
+  const ctx = { spec, path: P, ledger: inp.ledger, clauses: Ui.clauses({ ...inp, hash }).clauses, previews: inp.previews, specHashes: inp.specHashes };
+  ctx.ledger = ctx.ledger.map(e => (e.kind === 'ui_preview_rendered' ? { ...e, spec_hash: inp.specHashes.bordereaux, files: files() } : e));
+  return Ui.approveState({ ...ctx, ...over });
+}
+test('approveState: a minted spec with a current render offers Approve and bind', () => {
+  assert.deepEqual(state(), { label: 'Approve and bind', enabled: true, why: '' });
+});
+test('approveState: a bound spec offers Approve previews', () => {
+  const inp = input({ status: 'bound', rows: [rendered(10, { spec_hash: sha(input({ status: 'bound' }).specs[0].text), files: files() })] });
+  const r = Ui.approveState({ spec: JSON.parse(inp.specs[0].text), path: P, ledger: inp.ledger, clauses: Ui.clauses({ ...inp, hash }).clauses, previews: inp.previews, specHashes: inp.specHashes });
+  assert.equal(r.label, 'Approve previews'); assert.equal(r.enabled, true);
+});
+test('approveState: disabled, and says why, with no render, another spec version, other files, or another UI clause', () => {
+  assert.match(state({ ledger: [] }).why, /not rendered/);
+  assert.match(state({ specHashes: { bordereaux: sha('else') } }).why, /another version of the spec/);
+  assert.match(state({ previews: { bordereaux: { ...files(), 'ready-chromium-linux.png': sha('x') } } }).why, /files on disk are not the ones rendered/);
+  assert.match(state({ clauses: [{ kind: 'ui', text: 'ui/specs/bordereaux.json /template: broken', path: P, screen: 'bordereaux' }] }).why, /Another UI clause/);
+  assert.equal(state({ ledger: [] }).enabled, false);
+});
+test('approveState: only check 4 clauses (they name an element) do not block it', () => {
+  assert.equal(state({ clauses: [{ kind: 'ui', text: 'spec not bound', about: ['BordereauxList'], path: P, screen: 'bordereaux' }] }).enabled, true);
+});
+test('approveState: no button for another status', () => {
+  assert.equal(state({ spec: { screen: 'bordereaux', status: 'deprecated' } }), null);
+});
+
+test('uiPreview: the line for the Terminal names the registry, the screen and the codebase, each quoted', () => {
+  assert.equal(Dispatch.uiPreview({ factory: null, registry: '/r/my reg', screen: 'bordereaux', repo: '/r/app' }, 'linux'), "factory-s2 preview --registry '/r/my reg' --screen 'bordereaux' --repo '/r/app'");
+  assert.equal(Dispatch.uiPreview({ factory: '/opt/f/factory-s2', registry: '/r', screen: 'a-b', repo: "/r/o'k" }, 'linux'), "'/opt/f/factory-s2' preview --registry '/r' --screen 'a-b' --repo '/r/o'\\''k'");
+  assert.equal(Dispatch.uiPreview({ registry: 'C:\\r', screen: 'a', repo: 'C:\\app' }, 'win32'), "factory-s2 preview --registry 'C:\\r' --screen 'a' --repo 'C:\\app'");
+});
+test('uiPreview: a missing value, a bad screen or a multi-line value is an error, never a line', () => {
+  for (const bad of [{ registry: '/r', screen: 'a' }, { registry: '/r', screen: 'A b', repo: '/x' }, { registry: '/r', screen: 'a', repo: '/x\n/y' }, { registry: '', screen: 'a', repo: '/x' }]) assert.ok(Dispatch.uiPreview(bad, 'linux').error, JSON.stringify(bad));
+});

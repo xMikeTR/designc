@@ -410,6 +410,21 @@ const Ui = (() => {
       }
     }
   }
+  // The Approve button on a spec. {label, enabled, why} or null when the spec's status has no button. It is enabled only when
+  // approving would be valid at once: no other UI clause stands (a clause that names an element is check 4's, the rest are not), the
+  // latest render is of the spec as it is on disk, and the files on disk are the ones that render wrote.
+  function approveState({ spec, path, ledger, clauses = [], previews = {}, specHashes = {} }) {
+    if (!isMap(spec) || (spec.status !== 'minted' && spec.status !== 'bound')) return null;
+    const label = spec.status === 'minted' ? 'Approve and bind' : 'Approve previews', screen = spec.screen;
+    const no = why => ({ label, enabled: false, why });
+    const others = clauses.filter(c => c.kind === 'ui' && !c.about && (!c.path || c.path === path || c.screen === screen));
+    if (others.length) return no(`${others.length === 1 ? 'Another UI clause' : `${others.length} other UI clauses`} must be fixed first: ${others[0].text}`);
+    const rend = (ledger || []).filter(e => e.kind === 'ui_preview_rendered' && e.screen === screen).reduce((b, e) => (!b || (e._ts || 0) >= (b._ts || 0) ? e : b), null);
+    if (!rend) return no(`Previews are not rendered: run Render previews for ${screen}`);
+    if (rend.spec_hash !== specHashes[screen]) return no('The latest render is of another version of the spec: render again');
+    if (canon(isMap(rend.files) ? Object.fromEntries(Object.keys(rend.files).sort().map(k => [k, rend.files[k]])) : {}) !== canon(Object.fromEntries(Object.keys(previews[screen] || {}).sort().map(k => [k, previews[screen][k]])))) return no('The files on disk are not the ones rendered: render again');
+    return { label, enabled: true, why: '' };
+  }
   const byPath2 = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0);
   // The project has one pack in ui/pack/, so the latest pin overall is the one that counts.
@@ -422,6 +437,6 @@ const Ui = (() => {
     return best ? { pack: best.pack, hash: best.hash, registry: best.registry || best.pack } : null;
   }
 
-  return { CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses };
+  return { CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;

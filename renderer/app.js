@@ -234,6 +234,43 @@ async function loadUi() {
     try { previews[screen] = await host.uiPreviewHashes(screen); specHashes[screen] = await host.uiSpecHash(screen); } catch { /* the gate then says the previews are not rendered */ }
   }
   A.ui = { pack, specs, holdouts, sources, scenarios, previews, specHashes };
+  // The page pictures people look at (a .png directly in the screen's folder; placements are never shown), cached by hash.
+  A.uiImages = A.uiImages || {};
+  for (const [screen, fs_] of Object.entries(previews)) for (const [rel, h] of Object.entries(fs_)) {
+    if (rel.includes('/') || !rel.endsWith('.png') || A.uiImages[`${screen}/${rel}@${h}`] !== undefined) continue;
+    try { A.uiImages[`${screen}/${rel}@${h}`] = await host.uiPreviewImage(screen, rel); } catch { A.uiImages[`${screen}/${rel}@${h}`] = null; }
+  }
+}
+// Render previews: types the Factory's preview command into the Terminal for a person to run. Nothing runs from here.
+async function renderUiPreviews(screen) {
+  if (!A.cfg.codebase) return toast('Set codebase in designc.json first: the previews are rendered with the app\'s own component library.', 'warning');
+  const abs = /^([A-Za-z]:|[\\/])/.test(A.cfg.codebase) ? A.cfg.codebase : `${A.root.root.replace(/[\\/]$/, '')}/${A.cfg.codebase}`;
+  const f = A.cfg.factory, factory = typeof f === 'string' ? f : f && typeof f.command === 'string' ? f.command : null;
+  const line = Dispatch.uiPreview({ factory, registry: A.root.root, screen, repo: abs }, A.platform);
+  if (line.error) return toast(line.error, 'error');
+  return typeInTerminal(line, 'Render previews');
+}
+// Approve (and bind) a screen's previews. Binding rewrites the spec (status: bound), which changes its bytes, so approving first
+// would be stale at once: it is one action. The ledger gets ui_spec_bound (when it binds) and ui_preview_approved with the hash of
+// the spec as it is now on disk and of every file under the screen's previews. A person only; `designc record` refuses both.
+async function approveUiPreviews(screen) {
+  const f = ((A.ui && A.ui.specs) || []).find(x => x.path === `ui/specs/${screen}.json`);
+  let spec = null; try { spec = f ? JSON.parse(textOf(f.path) ?? f.text) : null; } catch { /* the gate says so */ }
+  if (!spec) return;
+  const b = A.buffers.get(f.path);
+  if (b && b.dirty) return toast(`${f.path} has unsaved edits. Save it first, so what you approve is the file on disk.`, 'warning');
+  const st = Ui.approveState({ spec, path: f.path, ledger: A.ledger, clauses: (A.gate.clauses || []).filter(c => c.kind === 'ui'), previews: A.ui.previews, specHashes: A.ui.specHashes });
+  if (!st || !st.enabled) return toast(st ? st.why : `${screen} cannot be approved in this status.`, 'warning');
+  const binds = spec.status === 'minted';
+  if (!confirm(`${st.label} for ${screen}? You, ${A.user}, say the page pictures in ui/previews/${screen}/ are the screen you want${binds ? ', and bind the spec: it is then frozen, and a change is a new spec' : ''}. Rendering again, or editing a picture or the spec, undoes the approval.`)) return;
+  if (binds) {
+    const text = await host.read(f.path);
+    await host.write(f.path, JSON.stringify({ ...JSON.parse(text), status: 'bound' }, null, 2) + (/\n$/.test(text) ? '\n' : ''));
+  }
+  const hash = await host.uiSpecHash(screen), files = await host.uiPreviewHashes(screen);
+  if (binds) await recordEvent('ui_spec_bound', { screen, hash });
+  await recordEvent('ui_preview_approved', { screen, spec: hash, files });
+  toast(binds ? `Bound ${screen} and approved its previews.` : `Approved the previews of ${screen}.`, 'info');
 }
 // Pin or re-pin the UI pack: a person's copy of the registry's ui/components and ui/templates as they are now, shown as a
 // diff first, with the hash of the copy in the ledger. The pack is named after its registry. Nothing else writes ui/pack/.
@@ -263,8 +300,14 @@ function uiBody() {
   const pack = `<div class="item"><div class="l1"><span class="id">${esc(pin ? pin.pack : 'UI pack')}</span><span class="tag ${pin && have ? 'bound' : 'open'}">${pin && have ? 'pinned' : 'not pinned'}</span>${pin ? `<span class="desc">from ${esc(pin.registry)}</span>` : ''}</div>
     <div class="acts"><button class="lnk" data-pinui="${esc(pin ? pin.registry : '*')}">${pin && have ? 'Re-pin' : 'Pin'}</button></div></div>`;
   const held = new Set(((A.ui && A.ui.holdouts) || []).map(f => f.path.split('/').pop().replace(/\.json$/, '')));
+  const uiClauses = ((A.gate && A.gate.clauses) || []).filter(c => c.kind === 'ui');
   const specs = ((A.ui && A.ui.specs) || []).map(f => { const n = f.path.split('/').pop().replace(/\.json$/, '');
-    return `<div class="item" data-open="${esc(f.path)}"><div class="l1"><span class="id">${esc(n)}</span><span class="tag ${held.has(n) ? 'bound' : 'open'}">${held.has(n) ? 'holdout' : 'no holdout'}</span></div></div>`; }).join('');
+    let spec = null; try { spec = JSON.parse(textOf(f.path) ?? f.text); } catch { /* the gate says so */ }
+    const ap = spec ? Ui.approveState({ spec, path: f.path, ledger: A.ledger || [], clauses: uiClauses, previews: A.ui.previews || {}, specHashes: A.ui.specHashes || {} }) : null;
+    const pics = Object.entries(A.ui.previews[n] || {}).filter(([rel]) => !rel.includes('/') && rel.endsWith('.png')).map(([rel, h]) => ({ rel, url: (A.uiImages || {})[`${n}/${rel}@${h}`] })).filter(x => x.url);
+    return `<div class="item"><div class="l1" data-open="${esc(f.path)}"><span class="id">${esc(n)}</span>${spec && spec.status ? `<span class="tag ${spec.status === 'bound' ? 'bound' : 'minted'}">${esc(spec.status)}</span>` : ''}<span class="tag ${held.has(n) ? 'bound' : 'open'}">${held.has(n) ? 'holdout' : 'no holdout'}</span></div>
+      <div class="acts"><button class="lnk" data-uirender="${esc(n)}" title="Types the Factory's preview command into the Terminal. You press Enter">Render previews</button>${ap ? `<button class="lnk" data-uiapprove="${esc(n)}" ${ap.enabled ? '' : 'disabled'} title="${esc(ap.enabled ? 'Records that you approve the page pictures below' : ap.why)}">${esc(ap.label)}</button>` : ''}</div>
+      ${pics.length ? `<div class="uipics" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${pics.map(x => `<figure style="margin:0;max-width:140px"><img alt="Preview of ${esc(n)}: ${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}" src="${x.url}" style="max-width:140px;border:1px solid var(--border,#888)"><figcaption style="font-size:11px">${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}</figcaption></figure>`).join('')}</div>` : ''}</div>`; }).join('');
   const notes = ((A.gate && A.gate.notes) || []).filter(n => /^ui\/|registry could not be read/.test(n));
   return pack + specs + notes.map(n => `<div class="hint">note: ${esc(n)}</div>`).join('');
 }
@@ -2244,6 +2287,8 @@ document.addEventListener('click', async e => {
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
+  if (d.uirender) { e.stopPropagation(); return renderUiPreviews(d.uirender); }
+  if (d.uiapprove) { e.stopPropagation(); return approveUiPreviews(d.uiapprove); }
   if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }

@@ -401,9 +401,11 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   const { reg, dir } = copyRegistry('fixtures/ui-project');
   fs.cpSync(path.join(__dirname, '..', 'fixtures/ui-pack-registry'), path.join(dir, 'ui-pack-registry'), { recursive: true });
   fs.rmSync(path.join(reg, 'ui/pack'), { recursive: true });
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app' }, null, 2));
   // D2: a criterion on the screen's component asks for a state the spec does not have (forbidden).
   const dsl = path.join(reg, 'model/workspace.dsl');
-  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('app = softwareSystem "Bordereaux app"', 'app = softwareSystem "Bordereaux app" {\n      list = container "BordereauxList"\n    }'));
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('app = softwareSystem "Bordereaux app"', 'app = softwareSystem "Bordereaux app" {\n      list = container "BordereauxList" "" "" "UI"\n    }'));
   fs.mkdirSync(path.join(reg, 'acceptance'), { recursive: true });
   fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), 'id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [ready, forbidden]\ncases:\n  - { state: ready, given: g, then: t }\n  - { state: forbidden, given: g, then: t }\n');
   session = await launch(reg);
@@ -426,6 +428,39 @@ test('user can pin a UI pack and see a screen spec checked against it @critical'
   await expect(sidebar.getByText('holdout', { exact: true })).toBeVisible();
   // The state rule shows in the gate panel: forbidden is not a state of the bordereaux spec.
   await expect(sidebar.getByText("acceptance/AC-1/states/1: State 'forbidden' is not in spec bordereaux")).toBeVisible();
+
+  // D3, check 4: the criterion is fixed, the Factory renders (a fixture row and files stand in for it), a person approves and binds.
+  const sha = b => require('crypto').createHash('sha256').update(b).digest('hex');
+  fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), 'id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [ready, loading, empty, error]\ncases:\n' + ['ready', 'loading', 'empty', 'error'].map(st => `  - { state: ${st}, given: g, then: t }`).join('\n') + '\n');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pv = path.join(reg, 'ui/previews/bordereaux');
+  fs.mkdirSync(path.join(pv, 'placements'), { recursive: true });
+  const states = ['ready', 'loading', 'empty', 'error', 'filtered'], hashes = {};
+  for (const st of states) { const f = `${st}-chromium-linux.png`; fs.writeFileSync(path.join(pv, f), Buffer.concat([PNG, Buffer.from(st)])); hashes[f] = sha(fs.readFileSync(path.join(pv, f))); }
+  fs.writeFileSync(path.join(pv, 'placements/ready__header-chromium-linux.png'), PNG); hashes['placements/ready__header-chromium-linux.png'] = sha(PNG);
+  const specFile = path.join(reg, 'ui/specs/bordereaux.json');
+  const row = (kind, ts, extra) => JSON.stringify({ schema_version: 1, event_id: `e2e-${kind}-${ts}`, ts, by: 'factory', kind, ...extra }) + '\n';
+  const rendered = ts => row('ui_preview_rendered', ts, { screen: 'bordereaux', spec_hash: sha(fs.readFileSync(specFile)), files: hashes, image: 'ready-chromium-linux.png' });
+  fs.appendFileSync(path.join(reg, 'ledger/designc.jsonl'), rendered(Date.now() - 60000));
+  await expect(sidebar.getByText('ui/specs/bordereaux.json: spec not bound. Check the previews, then press Approve and bind')).toBeVisible();
+  await expect(sidebar.getByRole('img', { name: /Preview of bordereaux: ready/ })).toBeVisible();
+  // Render previews types the command and stops: nothing runs.
+  await sidebar.getByRole('button', { name: 'Render previews' }).click();
+  await expect(page.locator('#termBody')).toContainText('preview --registry');
+  await expect(page.locator('#termBody')).toContainText('--screen');
+  await expect(page.locator('#termBody')).toContainText('--repo');
+  await sidebar.getByRole('button', { name: 'Approve and bind' }).click();
+  await expect.poll(() => JSON.parse(fs.readFileSync(specFile, 'utf8')).status).toBe('bound');
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'ui_spec_bound' || e.kind === 'ui_preview_approved').map(e => e.kind)).toEqual(['ui_spec_bound', 'ui_preview_approved']);
+  const approved = readLedger(reg, 'designc.jsonl').find(e => e.kind === 'ui_preview_approved');
+  expect(approved.spec).toBe(sha(fs.readFileSync(specFile)));
+  expect(approved.files).toEqual(hashes);
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: spec not bound/)).toHaveCount(0);
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: (previews not approved|approval is stale)/)).toHaveCount(0);
+  // A new render, even of the same bytes, takes the approval away; the button now says Approve previews.
+  fs.appendFileSync(path.join(reg, 'ledger/designc.jsonl'), rendered(Date.now() + 60000));
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: approval is stale: rendered again since/)).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'Approve previews' })).toBeVisible();
 });
 
 test('user can see legacy parity and what it holds a work item to @critical', async () => {
