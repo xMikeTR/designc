@@ -222,6 +222,12 @@ def parity_scenarios(root, errors):
     return ids
 
 
+def ui_screens(root):
+    """The screens that have a spec: names of ui/specs/*.json."""
+    d = os.path.join(root, 'ui', 'specs')
+    return sorted(n[:-5] for n in os.listdir(d) if n.endswith('.json')) if os.path.isdir(d) else []
+
+
 def work_cmd(root, as_json):
     """Exit 0 when every work item file is sound, 1 when one has a problem, 2 when the folder cannot be read."""
     if not os.path.isdir(root):
@@ -229,7 +235,7 @@ def work_cmd(root, as_json):
     errors = []
     items = load_yaml_dir(root, 'work', errors)
     reg = load_registry(root)
-    r = work.report(items, reg['requirements'], load_ledger(root), errors, parity_scenarios(root, errors))
+    r = work.report(items, reg['requirements'], load_ledger(root), errors, parity_scenarios(root, errors), ui_screens(root))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         for row in r['items']:

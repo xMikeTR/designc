@@ -28,6 +28,7 @@ Pipe JSON lines into `designc record <registry> --by <name>`. It accepts exactly
 | `grader` | `suite_run_id, task_id, trial, grader, verdict (pass, fail, unknown, skipped)`, `reason?, ms?, judge_version?, rubric_hash?, trace_id?` | One per grader per trial. `reason` helps on a fail; `trace_id` links to Langfuse |
 | `suite_run_finished` | `suite_run_id, outcome (completed, aborted)`, `reason?` (required when aborted) | Once, at the end |
 | `ui_preview_rendered` | `screen, spec_hash (64 hex), files {<path>: <64 hex sha256>}, image` | After the Factory renders a UI screen's previews; example: `docs/ui-preview-rendered.example.json`. Written to `designc.jsonl` |
+| `ui_result` | `screen, commit (string or null), outcome (pass, fail, could_not_run), item?` | After the Factory's `ui:` check of a screen at a commit; example: `docs/ui-result.example.json`. Written to `pipeline.jsonl` |
 
 Rules designc applies when reading: a trial fails if any pinned gate failed and passes if every gate passed; otherwise it is `incomplete` while the run is open and `harness` once finished (left out of pass@1). The latest event per grader wins. Events naming an undeclared task, trial or grader are counted as stray. pass@1 is the share of judged trials that passed; pass^k is pass@1 to the power `k` (`designc.json` `factory.k`, default 3).
 

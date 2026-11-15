@@ -48,6 +48,7 @@
     "run_started",
     "run_ended",
     "parity_result",
+    "ui_result",
     "trace",
     "outcome"
   ],
@@ -1054,6 +1055,31 @@
       "rules": [
         "preview_rendered_shape"
       ]
+    },
+    "ui_result": {
+      "stream": "pipeline.jsonl",
+      "required": [
+        "screen",
+        "commit",
+        "outcome"
+      ],
+      "optional": [
+        "item"
+      ],
+      "enums": {
+        "outcome": [
+          "pass",
+          "fail",
+          "could_not_run"
+        ]
+      },
+      "types": {
+        "screen": "string",
+        "commit": "string|null",
+        "outcome": "string",
+        "item": "string"
+      },
+      "rules": []
     },
     "ui_spec_bound": {
       "stream": "designc.jsonl",

@@ -6,7 +6,7 @@
 const Work = (() => {
   const PP = typeof PathPattern !== 'undefined' ? PathPattern : require('./pathpattern.js');
   const LG = typeof Ledger !== 'undefined' ? Ledger : require('./ledger.js');
-  const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity'];
+  const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity', 'ui'];
   const TARGETS = ['document', 'jira', 'investigation'];
 
   const isRepo = item => !item.target;
@@ -20,7 +20,7 @@ const Work = (() => {
 
   // What is wrong with this work item file. Plain sentences, each saying what to change.
   // scenarios: the ids in parity/scenarios/, when known; a parity entry naming another id is then a problem.
-  function validate(item, { requirements = [], items = [], scenarios = null } = {}) {
+  function validate(item, { requirements = [], items = [], scenarios = null, screens = null } = {}) {
     const out = [];
     const id = item && item.id ? item.id : '(no id)';
     if (!item || typeof item !== 'object') return ['The work item is not a mapping.'];
@@ -62,13 +62,15 @@ const Work = (() => {
       const ks = e && typeof e === 'object' ? Object.keys(e) : [];
       const known = ks.filter(k => KINDS.includes(k));
       const unknown = ks.filter(k => !KINDS.includes(k));
-      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review, judge or parity.`);
-      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review, judge or parity.`);
+      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review, judge, parity or ui.`);
+      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review, judge, parity or ui.`);
       else if (!String(e[known[0]] == null ? '' : e[known[0]]).trim()) out.push(`${id}: done_when entry ${i + 1} (${known[0]}) is empty.`);
       else {
         kinds.push(known[0]);
         const v = String(e[known[0]]).trim();
         if (known[0] === 'parity' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (parity) is allowed only on a repo item: parity is judged at the commit that finished it.`);
+        else if (known[0] === 'ui' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (ui) is allowed only on a repo item: ui is judged at the commit that finished it.`);
+        else if (known[0] === 'ui' && Array.isArray(screens) && !screens.includes(v)) out.push(`${id}: done_when entry ${i + 1} names ui screen ${v}, which has no spec in ui/specs/.`);
         else if (known[0] === 'parity' && Array.isArray(scenarios) && v !== 'all' && !scenarios.includes(v)) out.push(`${id}: done_when entry ${i + 1} names parity scenario ${v}, which is not in parity/scenarios/.`);
       }
     });
@@ -183,6 +185,21 @@ const Work = (() => {
     return out;
   }
 
+  // Why a `ui: <screen>` entry is not met at this commit: the same rule as parity. The latest ui_result for the screen at the
+  // commit, recorded before the item was declared done there, must be a pass; an unknown outcome is ignored.
+  function uiProblems(item, e, { events, commit }) {
+    const screen = String(e.ui).trim();
+    if (!commit) return [];
+    const done = list(events).filter(x => x.kind === 'item_done' && x.item === item.id && x.commit === commit).map(x => x._ts || 0);
+    const cutoff = done.length ? Math.min(...done) : Infinity;
+    const last = list(events).filter(x => x.kind === 'ui_result' && x.screen === screen && x.commit === commit && PARITY_OUTCOMES.includes(x.outcome) && (x._ts || 0) <= cutoff)
+      .sort((a, b) => (a._ts || 0) - (b._ts || 0)).pop();
+    if (!last) return [`UI ${screen} has no result at ${short(commit)}. Run the Factory's ui check for it and record ui_result for ${commit}.`];
+    if (last.outcome === 'fail') return [`UI ${screen} failed at ${short(commit)}. Fix the build, or change the spec and approve new previews.`];
+    if (last.outcome === 'could_not_run') return [`UI ${screen} could not run at ${short(commit)}. Fix what stopped the check and run it again.`];
+    return [];
+  }
+
   // Everything still missing before this item may be recorded done. [] means it may.
   // events: ledger events; commit: the commit being declared done (repo items); onMain: true, false or
   // null (could not be checked); ticks: entryKey strings a person ticked; scenarios: ids in parity/scenarios/.
@@ -207,6 +224,8 @@ const Work = (() => {
         if (!list(ticks).includes(entryKey(e))) out.push(`${k === 'review' ? 'Review by' : 'Checklist'}: ${e[k]} is not ticked.`);
       } else if (k === 'parity' && repo) {
         out.push(...parityProblems(item, e, { events, commit, scenarios }));
+      } else if (k === 'ui' && repo) {
+        out.push(...uiProblems(item, e, { events, commit }));
       }
     }
     return out;

@@ -55,6 +55,7 @@ const Ledger = (() => {
     item_budget: 'pipeline.jsonl',
     item_judge: 'pipeline.jsonl',
     parity_result: 'pipeline.jsonl',
+    ui_result: 'pipeline.jsonl',
     run_started: 'pipeline.jsonl',
     run_ended: 'pipeline.jsonl',
     trace: 'pipeline.jsonl',
@@ -80,7 +81,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'trace', 'outcome'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'ui_result', 'trace', 'outcome'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -234,6 +235,14 @@ const Ledger = (() => {
       // visual (tier 2, additive): {ratio, threshold, outcome: pass | fail | skipped}. The outcome above is tier 1 only.
       types: { scenario: 'string', commit: 'string|null', outcome: 'string', failures: 'array', item: 'string', report: 'string', visual: 'object' },
       rules: ['failures_shape'],
+    },
+    // The Factory's `ui:` check of a screen at a commit (docs/ui-result.example.json). A Factory kind. The latest per screen at an
+    // item's done commit decides a `ui: <screen>` done_when entry, as parity_result does; could_not_run is not a pass.
+    ui_result: {
+      required: ['screen', 'commit', 'outcome'],
+      optional: ['item'],
+      enums: { outcome: ['pass', 'fail', 'could_not_run'] },
+      types: { screen: 'string', commit: 'string|null', outcome: 'string', item: 'string' },
     },
     // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own
     // id for the attempt; the status is generic so any pipeline maps its own outcomes onto it.
