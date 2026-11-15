@@ -113,7 +113,7 @@ const READERS = {
     const page = item && r.pages.find(f => f.name === item.file);
     return page ? cap(`Page ${page.name} for ${req.id} (${req.title}):\n\n${page.text}`) : `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.`;
   },
-  read_registry_file: async a => { const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
+  read_registry_file: async a => { const d = Policy.readVerdict(AG.role, a.path); if (!d.ok) return d.error; const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
   get_code_map: () => {
     if (!A.facts) return A.cfg.codebase ? 'The codebase has not been extracted yet. Ask the user to run Extract Code Map.' : 'No codebase is configured.';
     const d = A.drift;

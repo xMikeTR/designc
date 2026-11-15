@@ -17,6 +17,16 @@ const Policy = (() => {
   // Tools that change the registry. Settings can deny them or leave them out, never make them silent.
   const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question'];
 
+  // Read deny, for every role, no settings override: the holdout sample is written by a person and never shown to a stage.
+  const HOLDOUT_DENIED = 'ui/holdout/ is never shown to an agent stage; a person writes it.';
+  function readVerdict(role, rel) {
+    if (typeof rel !== 'string') return { ok: true };
+    const norm = rel.replace(/\\/g, '/').split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, []).join('/').toLowerCase();
+    if (norm === 'ui/holdout' || norm.startsWith('ui/holdout/')) return { ok: false, error: HOLDOUT_DENIED };
+    return { ok: true };
+  }
+  const isHidden = rel => !readVerdict(null, rel).ok;
+
   // Fail closed: a tool is usable only if the role lists it, and deny always wins.
   function verdict(cfg, tool) {
     if (cfg.deny.includes(tool)) return 'deny';
@@ -93,6 +103,6 @@ const Policy = (() => {
     });
   }
 
-  return { WRITE_PATHS, WRITE_TOOLS, verdict, writeVerdict, checkProblem, checkFailHint, unapprovedChanges };
+  return { WRITE_PATHS, WRITE_TOOLS, HOLDOUT_DENIED, verdict, readVerdict, isHidden, writeVerdict, checkProblem, checkFailHint, unapprovedChanges };
 })();
 if (typeof module !== 'undefined') module.exports = Policy;

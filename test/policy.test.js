@@ -160,3 +160,27 @@ test('checkFailHint names what the shell got wrong, not the decision', () => {
   assert.equal(Policy.checkFailHint('./checks/x.sh', 1, 'linux'), null);
   assert.equal(Policy.checkFailHint('bash checks/x.sh', 1, 'win32'), null);
 });
+
+test('readVerdict: ui/holdout/ is denied for every role, however the path is spelled', () => {
+  for (const role of ['architect', 'grill', 'analyst', 'tutor', 'researcher', 'compose', 'catalogue', null])
+    for (const rel of ['ui/holdout/home.json', 'ui/holdout', './ui/holdout/home.json', 'ui\\holdout\\home.json', 'ui/specs/../holdout/home.json', 'UI/Holdout/home.json'])
+      assert.deepEqual(Policy.readVerdict(role, rel), { ok: false, error: Policy.HOLDOUT_DENIED }, `${role} ${rel}`);
+  assert.match(Policy.HOLDOUT_DENIED, /never shown to an agent stage; a person writes it/);
+});
+
+test('readVerdict: other registry paths stay readable', () => {
+  for (const rel of ['ui/specs/home.json', 'ui/holdouts.json', 'ui/pack/tokens.json', 'decisions/a.yaml', 'model/workspace.dsl', null])
+    assert.deepEqual(Policy.readVerdict('compose', rel), { ok: true }, String(rel));
+});
+
+test('readVerdict: designc.json agents settings cannot open the holdout', () => {
+  // The verdict takes no settings, so no allow list can reach it.
+  assert.equal(Policy.readVerdict.length, 2);
+  assert.equal(Policy.verdict({ allow: ['read_registry_file'], ask: [], deny: [] }, 'read_registry_file'), 'allow');
+  assert.equal(Policy.readVerdict('architect', 'ui/holdout/x.json').ok, false);
+});
+
+test('unapprovedChanges: a change under ui/ is flagged unless a write was approved', () => {
+  assert.deepEqual(flagged(['ui/specs/home.json']), ['ui/specs/home.json']);
+  assert.deepEqual(flagged(['ui/components/button.json'], { approved: { 'ui/components/button.json': 95000 } }), []);
+});
