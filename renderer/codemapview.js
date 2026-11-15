@@ -10,6 +10,40 @@ async function setCodebase(p) {
   cfg.model = cfg.model || A.cfg.model; cfg.codebase = p;
   await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n'); A.cfg.codebase = p; return true;
 }
+async function readCfgFile() {
+  const t = await readText('designc.json'); if (!t) return {};
+  try { return JSON.parse(t); } catch { toast('designc.json is not valid JSON; fix it first.', 'error'); return null; }
+}
+async function saveRepoCfg(cfg) {
+  await host.write('designc.json', JSON.stringify(cfg, null, 2) + '\n');
+  if (cfg.repos) A.cfg.repos = cfg.repos; else delete A.cfg.repos;
+  if (cfg.codebase) A.cfg.codebase = cfg.codebase; else delete A.cfg.codebase;
+  renderSidebar(); if (A.active === 'special:codemap') renderCodemap();
+}
+// Add a repo to designc.json `repos` from a folder picker (RepoConfig does the edit). An existing `codebase` becomes a repo too, after asking its name.
+async function addRepo() {
+  const cfg = await readCfgFile(); if (!cfg) return;
+  const p = await host.chooseCodebase(); if (!p) return;
+  const have = Object.keys(cmRepos() || {});
+  const name = await askText('Name this repo (for example Api or Ui). It begins every file path from it in the code map.', have.includes('Api') ? (have.includes('Ui') ? '' : 'Ui') : 'Api');
+  if (name == null) return;
+  let r = RepoConfig.add(cfg, name, p);
+  if (r.needsName) {
+    const other = await askText(`The existing codebase (${cfg.codebase}) becomes a repo too. What should it be called?`, name.trim() === 'Api' ? 'Ui' : 'Api');
+    if (other == null) return;
+    r = RepoConfig.add(cfg, name, p, { codebaseName: other.trim() });
+  }
+  if (r.error) { toast(r.error, 'error'); return; }
+  await saveRepoCfg(r.cfg);
+  toast(`Added ${name.trim()}. Extract the code map again to read it, and set d.repo on the containers that live there.`);
+}
+async function removeRepo(key) {
+  const cfg = await readCfgFile(); if (!cfg) return;
+  const r = RepoConfig.remove(cfg, key);
+  if (r.error) { toast(r.error, 'error'); return; }
+  await saveRepoCfg(r.cfg);
+  toast(`Removed ${key}. Elements with d.repo ${key} will now show finding DC010.`, 'warning');
+}
 // Split repos: designc.json repos {Key: folder}. When declared, the map reads each one (main.js ignores `codebase`).
 function cmRepos() { const r = A.cfg.repos; return r && typeof r === 'object' && !Array.isArray(r) && Object.keys(r).length ? r : null; }
 function cmCodeLabel() { return cmRepos() ? 'Repos: ' + Object.keys(cmRepos()).join(', ') : A.cfg.codebase; }
@@ -48,12 +82,19 @@ async function adoptComponents(builtId, designId) {
   toast(`Adopted ${plural(n, 'component')} into ${want.name}.`);
 }
 function codemapSidebar() {
-  const cb = cmCodeLabel(), f = A.facts, d = A.drift;
-  let h = section('cb', 'Codebase', cb
-    ? `<div class="hint"><b>${esc(cb)}</b>${f ? `<br>Extracted ${esc(new Date(f.extractedAt).toLocaleString())}` : '<br>Not extracted yet'}</div>
-       <button class="btn ${A.asbuilt ? '' : 'primary'} block" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : A.asbuilt ? 'Re-extract' : 'Extract the as-built map'}</button>
-       ${cmRepos() ? '' : '<div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button></div>'}`
-    : `<div class="hint">Point designc at a repository to map what exists today. It only reads the folder.</div><button class="btn primary block" data-a="choosecode">Choose codebase folder</button>`);
+  const cb = cmCodeLabel(), f = A.facts, d = A.drift, repos = cmRepos();
+  const extractBtn = `<button class="btn ${A.asbuilt ? '' : 'primary'} block" data-a="extract" ${A.extracting ? 'disabled' : ''}>${A.extracting ? 'Extracting…' : A.asbuilt ? 'Re-extract' : 'Extract the as-built map'}</button>`;
+  const stamp = f ? `<br>Extracted ${esc(new Date(f.extractedAt).toLocaleString())}` : '<br>Not extracted yet';
+  let h = section('cb', repos ? 'Repos' : 'Codebase', repos
+    ? `<div class="hint">${Object.entries(repos).map(([k, v]) => `<div data-repo-row="${esc(k)}"><b>${esc(k)}</b> <span class="note">${esc(v)}</span> <button class="lnk" data-a="removerepo" data-key="${esc(k)}" aria-label="Remove repo ${esc(k)}">Remove</button></div>`).join('')}${stamp}</div>
+       ${extractBtn}
+       <div style="padding:0 20px 8px"><button class="lnk" data-a="addrepo">Add repo</button></div>`
+    : cb
+    ? `<div class="hint"><b>${esc(cb)}</b>${stamp}</div>
+       ${extractBtn}
+       <div style="padding:0 20px 8px"><button class="lnk" data-a="choosecode">Change folder</button> · <button class="lnk" data-a="addrepo">Add a second repo</button></div>`
+    : `<div class="hint">Point designc at a repository to map what exists today. It only reads the folder.</div><button class="btn primary block" data-a="choosecode">Choose codebase folder</button>
+       <div style="padding:6px 20px 8px"><button class="lnk" data-a="addrepo">Or add several repos (for example Api and Ui)</button></div>`);
   if (f) h += section('cbstats', 'Found', `<div class="hint">${plural(f.projects.length, 'project')}: ${plural(f.projects.filter(p => ['web', 'worker', 'app'].includes(p.kind)).length, 'deployable')}, ${plural(f.projects.filter(p => p.kind === 'library').length, 'library')}, ${plural(f.projects.filter(p => p.kind === 'test').length, 'test project')} (not mapped). ${plural(f.edges.length, 'dependency', )} with evidence.</div>`);
   if (A.asbuilt && !A.model.elements.size) h += `<button class="btn primary block" data-a="adopt">Start the design from this map</button>`;
   if (d) {

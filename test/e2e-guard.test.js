@@ -13,6 +13,7 @@ const CRITICAL = [
   'user can freeze a handover @critical',
   'user can extract the code map @critical',
   'user can extract one code map from an API repo and a UI repo @critical',
+  'user can add a second repo from the code map @critical',
   'user can see the UI graph of a screen @critical',
   'user can track a work item @critical',
   'user can study a topic and decide from it @critical',
