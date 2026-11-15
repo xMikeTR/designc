@@ -118,6 +118,8 @@ A person approves the page pictures, not the JSON and not the crops. **Approve p
 
 ## Handover
 
+**Built (D5).** `Core.handoverPlan` takes `ui` (specs, pack, pin, approved previews, holdout hashes), `criteria` and `yamlDump`. Freeze writes `ui.json` (`docs/handover-ui.schema.json`, example `docs/handover-ui.example.json`), the spec, template and used components as text under `ui/`, and the approved pictures under `ui/previews/<screen>/`, copied by the main process (`ui:copyPreviews`) after re-hashing each against the approval. The id covers every copied file, every preview hash, the holdout sample hash and each holdout case hash; `ui.json` is derived, outside the id, like `domain.json`. A criterion with a holdout case is copied again without it (a comment line says so); other criteria stay verbatim. `designc-core holdout-spec --registry <dir> --criterion <id> --case <n>` prints the generated spec for one holdout case, for the Factory to judge; nothing writes it into a handover.
+
 The handover copies the bound spec, the pinned pack's manifests and templates the spec uses, and the approved preview files, inside the id hash. The holdout sample (`ui/holdout/<screen>.json`) and acceptance cases marked `holdout: true` are listed by hash only and never copied into files that go to a worktree. A derived `ui.json` (`designc.handover.ui/1`) lists them with their hashes. `BUILD.md` gains one rule: build from the spec, one library component per placement, `data-ui-id` first, no inline styles or raw values. `done_when` gains `ui: <screen>`. What the Factory does with them is in its `docs/ui-contract-verify.md`.
 
 ## Two lanes
@@ -203,7 +205,7 @@ Each slice names the repo it lands in. Factory slices are detailed in its `docs/
 3. **designc: state names join up.** Acceptance, scenario and QA state checks; the walkthrough's state graph step reads the spec.
 4. **Factory: preview run** (`factory-s2 preview`). **designc:** Render previews, Approve previews, `ui_preview_approved`, check 4 (enforced, D3: a UI-tagged element's spec must be bound, rendered, and approved after the latest render, with the approved file hashes and spec hash equal to disk).
 5. **designc: stages.** `compose` and `catalogue` with the UI tools, as new `ROLES` entries in `renderer/agent.js`. Until then the kit skills do the same job outside designc.
-6. **designc: handover** (`ui.json`, preview files in the id hash, `done_when: ui:`). **Factory:** the `ui:` check in integration verify, frozen baselines, test-author-first page tests, sabotage cases.
+6. **designc: handover, built (D5)** (`ui.json`, preview files in the id hash, `done_when: ui:`). **Factory:** the `ui:` check in integration verify, frozen baselines, test-author-first page tests, sabotage cases.
 7. **designc: Lane A drafting.** Specs drafted from the UI graph or recording; spec diff for intended differences; visual exceptions.
 8. **Both: System 3.** The Factory projects `ui-code`/`ui-visual` rows; designc adds the stages, `catalogue_gap` and the "Record QA escapes" button.
 9. **Factory: request parity**, then **designc:** the `.razor` extractor and split-repo `ui.screens`.

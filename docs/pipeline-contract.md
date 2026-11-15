@@ -72,6 +72,10 @@ A work item names the elements it changes (`in_scope`). A pipeline works only th
 
 `item_judge {item, judge, score, threshold, outcome, commit, judge_version?, rubric_hash?, trace_id?}` reports one judge score for an item. `judge` is the value of the item's `judge` done_when entry, `outcome` is `pass` or `fail`, and `commit` is a string or null. designc shows the latest score on that entry and marks it stale when `commit` differs from the commit the item was declared done at. A judge is a gradient: a fail never enters Failed and never decides Done.
 
+## Holdout specs
+
+`node scripts/designc-core.js holdout-spec --registry <dir> --criterion <id> --case <n> [--json]` prints the generated test file for one acceptance case marked `holdout: true`, built by the code that builds the handover's `acceptance/*.spec.ts` files. `--case` is the case's index in the criterion's `cases` list, the same `case` that `ui.json` `holdout_cases` lists with the case's `sha256` (of its canonical JSON, keys sorted). `--json` gives `{spec, sha256, state, element}`. It refuses a case that is not a holdout (it is in the handover already), a missing case or criterion (exit 2), and writes nothing. A holdout case and `ui/holdout/<screen>.json` are never in a handover or a bundle: ask for them here, at judging time. Schema of the UI half of a handover: `docs/handover-ui.schema.json`.
+
 ## Item handover
 
 A handover frozen for a work item carries `work_item`, `design_version` and `in_scope` in `handover.yaml`, and its `elements.json` uses schema `designc.handover.elements/2`: every element is present, those the item may change have `in_scope: true`. Treat the rest as context. Its `handover` ledger event carries `item`. A pipeline works the item's `in_scope` elements only (see Item scope).
