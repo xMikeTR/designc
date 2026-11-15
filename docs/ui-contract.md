@@ -124,7 +124,7 @@ The handover copies the bound spec, the pinned pack's manifests and templates th
 
 ## Two lanes
 
-**Lane A, migration.** Legacy screen → round-trip spec → new screen.
+**Lane A, migration (built, D8).** Legacy screen → round-trip spec → new screen.
 
 1. Draft the legacy screen's spec from what designc already has: the UI graph (controls, `when` conditions as state hints, formats) for TS/JS legacy, or the parity recording for Blazor until a `.razor` extractor exists. The draft must describe the legacy screen as it is.
 2. Copy it as the new screen's spec. Each edit is a difference from legacy, and the diff of the two specs lists them. Added or changed placements carry locators (acceptance's added rule), removed ones need a bound business decision with `removes:`. A changed look is a bound decision citing the approved new previews: the approved visual exception the parity contract lacks.
@@ -206,7 +206,7 @@ Each slice names the repo it lands in. Factory slices are detailed in its `docs/
 4. **Factory: preview run** (`factory-s2 preview`). **designc:** Render previews, Approve previews, `ui_preview_approved`, check 4 (enforced, D3: a UI-tagged element's spec must be bound, rendered, and approved after the latest render, with the approved file hashes and spec hash equal to disk).
 5. **designc: stages.** `compose` and `catalogue` with the UI tools, as new `ROLES` entries in `renderer/agent.js`. Until then the kit skills do the same job outside designc.
 6. **designc: handover, built (D5)** (`ui.json`, preview files in the id hash, `done_when: ui:`). **Factory:** the `ui:` check in integration verify, frozen baselines, test-author-first page tests, sabotage cases.
-7. **designc: Lane A drafting.** Specs drafted from the UI graph or recording; spec diff for intended differences; visual exceptions.
+7. **designc: Lane A drafting, built (D8).** The `draft_legacy` tool returns a skeleton from the UI graph or the parity recording (placements with `from`, state names, notes for unnamed controls); `mint_ui_spec legacy:true` writes `ui/legacy/<screen>.json` (same schema as a spec, status `minted`, never bound). The person presses Copy as new spec (no agent tool does) to write `ui/specs/<screen>.json` byte for byte, refused if it exists; a diff panel (`Ui.specDiff`) shows what the copy changed. Gate clauses for a spec with a legacy file: an added or changed placement needs a locator; a removed one needs a bound decision with `removes: [{role, name}]`; a changed template or token-typed prop needs a bound decision with `look: <screen>` and a current approval of the previews. Mirrored in `python/designc/ui.py`.
 8. **Both: System 3.** The Factory projects `ui-code`/`ui-visual` rows; designc adds the stages, `catalogue_gap` and the "Record QA escapes" button.
 9. **Factory: request parity**, then **designc:** the `.razor` extractor and split-repo `ui.screens`.
 
