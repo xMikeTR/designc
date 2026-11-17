@@ -602,6 +602,23 @@ test('user can record the QA bugs as escapes, once', async () => {
   expect(lines().length).toBe(before + 5);
 });
 
+test('Improve shows time to signal, escape rate and review veto and recovery per screen', async () => {
+  const { reg } = copyRegistry('fixtures/system3-registry');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Improve', exact: true }).click();
+  const s3 = page.locator('[data-system3]');
+  await expect(s3).toBeVisible();
+  await s3.getByLabel('Screen').selectOption('bordereaux');
+  const row = s3.locator('tr[data-s3stage="ui-visual"]');
+  await expect(row).toContainText('10 s (n=1)');
+  await expect(row).toContainText('67% (2 of 3)');
+  await expect(s3.locator('[data-s3="review-veto"]')).toContainText('1 of 1 (100%)');
+  await expect(s3.locator('[data-s3="review-recovery"]')).toContainText('1 of 1 (100%)');
+  await s3.getByLabel('Screen').selectOption('summary');
+  await expect(s3.locator('[data-s3="review-veto"]')).not.toContainText('1 of 1');
+});
+
 test('user can accept or dismiss a swept Jira issue @critical', async () => {
   const { reg } = copyRegistry('e2e/fixtures/ready-registry');
   fs.mkdirSync(path.join(reg, 'inbox'));

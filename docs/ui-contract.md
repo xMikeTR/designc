@@ -145,7 +145,7 @@ From designc-vs-sysml and the walkthrough's known gaps:
 | Blazor legacy has no UI graph | Not closed. A `.razor` extractor is still needed for full Lane A drafts; the recording is the stopgap |
 | `ui.screens` with split `repos` | Not closed. Needed for drafts and parity in split repos; the pack and specs work regardless |
 
-## Feeding System 3 (contract built, D7 part 1)
+## Feeding System 3 (built, D7 parts 1 and 2: `Ledger.system3`, Improve table, Analyst `get_system3`)
 
 The QA bucket mapping stands (state not recorded → `spec_gap`, captured but not flagged → `gate_gap`, and so on). The UI contract adds:
 
