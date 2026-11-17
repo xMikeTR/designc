@@ -145,12 +145,33 @@ From designc-vs-sysml and the walkthrough's known gaps:
 | Blazor legacy has no UI graph | Not closed. A `.razor` extractor is still needed for full Lane A drafts; the recording is the stopgap |
 | `ui.screens` with split `repos` | Not closed. Needed for drafts and parity in split repos; the pack and specs work regardless |
 
-## Feeding System 3
+## Feeding System 3 (contract built, D7 part 1)
 
 The QA bucket mapping stands (state not recorded → `spec_gap`, captured but not flagged → `gate_gap`, and so on). The UI contract adds:
 
 - `caught_by` stages: `ui-spec` (spec checks, designc), `ui-preview` (a person rejected a preview, designc), `ui-code` and `ui-visual` (the Factory's checks, projected into the registry ledger; `ui-visual` includes the placement kinds), `holdout` (the visible checks passed without the behaviour being right, counted on its own), alongside `parity` and `acceptance`. This touches `ledger.js`, the schema and the Python mirror.
 - Origin `catalogue_gap`: the spec passed but was wrong, because a slot accepts too much, a `useWhen` is vague or a template is missing. System 3 proposes a pack change.
+### What the ledger now carries (contract built, D7 part 1)
+
+- `caught_by` (the stage that should have caught an escape) is: `S1-lint, S1-p, S1-grill, ui-spec, ui-preview, ui-code, ui-visual, acceptance, holdout, parity, review, qa, pipeline`. `pipeline` stays as "other / unknown" so old rows validate. Origin gains `catalogue_gap`.
+- `escape` takes optional `screen` (string) and `bucket` (`caught, not_captured, state_not_recorded, not_flagged, triage`, the parity QA buckets; rule `bucket_member`). `caught_but_reached_qa` below means escapes with `bucket: caught`.
+- The Factory kind `stage_verdict {run, stage, outcome, change_ts, task?, element?, screen?, item?, round?, failures?}` (`docs/stage-verdict.example.json`, `docs/factory-evals-contract.md`, rule `verdict_shape`) goes to `pipeline.jsonl`. `stage` is `ui-code, ui-visual, acceptance, holdout, review, qa`; `outcome` is `pass, fail, could_not_run`; `round` only on `review`; a failure is `{state?, kind?, placement?, criterion?}` and never carries detail text, so holdout stays sealed.
+
+Metrics (computed by `Ledger.system3` in D7 part 2; `ui-spec`, `ui-preview` and `parity` show "–" for time to signal, and `ui-spec` and `ui-preview` show escapes only because designc does not count its own catches yet):
+
+| Metric | Formula |
+| --- | --- |
+| Time to signal | The first `stage_verdict` per (run, task or none, stage) whose `change_ts` is set; value `ts - change_ts`. Median and n per stage, and per screen when the row has `screen` |
+| Escape rate of stage S | `escaped(S) / (caught(S) + escaped(S))`. `caught(S)`: distinct (run, task, stage) with a `fail` verdict; for parity, `parity_result` rows with outcome `fail`. `escaped(S)`: escapes whose classified `caught_by` is S. The overall rate adds unclassified escapes to both top and bottom |
+| Review veto | Tasks with at least one `review` `fail` / tasks with any `review` verdict |
+| Review recovery | Vetoed review tasks whose latest `task` row has outcome `passed` / vetoed review tasks |
+| QA veto | Runs with a `qa` `fail` / runs with a `qa` verdict |
+| QA recovery | Vetoed QA runs whose item (or handover, with no item) has a later run that passes `qa` / vetoed QA runs |
+| Caught but reached QA | Escapes with `bucket: caught`, counted per screen |
+| Screen join | The row's `screen`; else the task's `element` matched to a spec's `component`; else "no screen" |
+
+`could_not_run` is in no numerator and no denominator.
+
 - The variance test: mint the same ticket's spec several times and diff them. Where the drafts disagree, a rule is missing; each disagreement is a `catalogue_gap` proposal.
 
 ## Agents (built, D4)
