@@ -566,6 +566,18 @@ const Ui = (() => {
   }
 
 
+  // D7 part 2: the Analyst's catalogue gap proposal. It names the pinned pack and a component, and the pack's source
+  // registry as its target; the Analyst never writes there, the pack owner acts on it. -> {error} | {fields: [[key, value]]}
+  // (values are plain strings: the caller quotes them for YAML).
+  function catalogueGapProposal(a, pin) {
+    const text = v => (typeof v === 'string' ? v.trim() : '');
+    if (!pin) return { error: 'No pack is pinned in this registry, so there is no pack owner to propose to. A person pins one first.' };
+    if (!text(a.pack)) return { error: `A catalogue gap proposal needs pack, the pinned pack name (${pin.pack}).` };
+    if (!text(a.component)) return { error: 'A catalogue gap proposal needs component, the catalogue component or template the gap is in.' };
+    if (text(a.pack) !== pin.pack) return { error: `The pinned pack is ${pin.pack}, not ${text(a.pack)}.` };
+    return { fields: [['pack', pin.pack], ['component', text(a.component)], ['target', pin.registry]] };
+  }
+
   // ---------- Lane A: drafting a legacy spec (session D8) ----------
   // legacySkeleton({graph} | {baseline}): the placements a legacy screen already shows, as locators with where each came
   // from. `graph` is UiGraph.screen output; `baseline` a parity legacy.json. A control with no role or no literal name is a
@@ -653,6 +665,6 @@ const Ui = (() => {
     }
     return { skeleton: { screen, placements, states: states.length > 1 ? states.filter(x => x !== 'initial') : states, notes } };
   }
-  return { legacySkeleton, legacyDraft, specDiff, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, packFiles, packHash, packDiff, clauses, approveState };
+  return { legacySkeleton, legacyDraft, specDiff, CLOSED_TOKEN_GROUPS, LOCATOR_ROLES, canon, sha256, specList, packView, specRows, mintSpec, mintCatalogue, validate, tokenGroups, readPack, checkSpec, checkHoldout, pins, latestPin, catalogueGapProposal, packFiles, packHash, packDiff, clauses, approveState };
 })();
 if (typeof module !== 'undefined') module.exports = Ui;

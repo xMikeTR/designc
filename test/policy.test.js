@@ -230,3 +230,18 @@ test('ui mint tools ask even when listed under allow', () => {
   for (const t of ['mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage'])
     assert.equal(Policy.verdict({ allow: [t], ask: [], deny: [] }, t), 'ask', t);
 });
+
+test('D7 part 2: get_system3 is a read tool for the Analyst only; the Analyst still writes only proposals/ and factory/tasks/', () => {
+  const src = require('fs').readFileSync(require('path').join(__dirname, '..', 'renderer', 'agent.js'), 'utf8');
+  const roleLine = key => src.split('\n').find(l => l.startsWith(`  ${key}: { label:`));
+  assert.match(roleLine('analyst'), /allow: \[[^\]]*'get_system3'/);
+  for (const k of ['architect', 'grill', 'tutor', 'compose', 'catalogue']) assert.equal(/get_system3/.test(roleLine(k)), false, k);
+  assert.equal(Policy.WRITE_TOOLS.includes('get_system3'), false);
+  assert.match(roleLine('analyst'), /ask: \[[^\]]*'mint_proposal'/);
+  assert.match(src, /mint_proposal:[^\n]*'catalogue gap'/);
+  assert.deepEqual(Policy.WRITE_PATHS.analyst.map(String), ['/^proposals\\//', '/^factory\\/tasks\\//']);
+  const may = rel => Policy.WRITE_PATHS.analyst.some(re => re.test(rel));
+  for (const rel of ['ui/pack/components/DataTable.json', 'ui/components/DataTable.json', 'ui/specs/home.json', 'ui/holdout/home.json', '../acme-ui-registry/ui/components/DataTable.json', 'ledger/designc.jsonl']) assert.equal(may(rel), false, rel);
+  assert.equal(may('proposals/catalogue-gap.yaml'), true);
+  assert.equal(Policy.readVerdict('analyst', 'ui/holdout/home.json').ok, false, 'holdout stays sealed');
+});

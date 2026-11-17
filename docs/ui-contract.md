@@ -186,7 +186,7 @@ The UI contract adds no new agent. It adds `compose` and `catalogue` as new `ROL
 Changes to existing stages:
 
 - **`grill`** reads the screen's spec (`read_ui_spec`) and uses its state names in `mint_acceptance`. It may suggest `holdout: true` on a case; only a person sets it. It asks about the spec's gaps: unreachable states, states with no acceptance case, transitions marked `commits` with no mock. With no spec for a UI element, it suggests `compose` (`suggest_stage`) instead of improvising one.
-- **Analyst (System 3)** reads the `ui-*` escape stages and variance-test diffs, and drafts `catalogue_gap` proposals aimed at the pack's source registry.
+- **Analyst (System 3)** reads the `ui-*` escape stages and variance-test diffs (`get_system3`, built in D7 part 2), and drafts `catalogue_gap` proposals aimed at the pack's source registry (`mint_proposal`, kind `catalogue gap`, with `pack` and `component`; it writes to `proposals/` only).
 - **`model`** (today's Architect) is unchanged. Screen composition stays out of it.
 
 Tools:

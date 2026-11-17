@@ -142,3 +142,40 @@ test('system3 does not mutate its input and ignores non-system3 kinds', () => {
   assert.equal(JSON.stringify(ev), copy);
   assert.equal(Ledger.system3([], {}).overall.rate, null);
 });
+
+// Slice 6: what the Analyst reads (get_system3) and the catalogue gap proposal it mints.
+const Ui = require('../renderer/ui.js');
+const yaml = require('js-yaml');
+
+test('system3Brief: the metrics and the escapes as {id, caught_by, origin, screen}, no descriptions', () => {
+  const b = Ledger.system3Brief(load(), { specs: SPECS, scenarios: SCENARIOS });
+  assert.equal(b.system3.overall.escaped, 5);
+  assert.equal(b.escapes.length, 5);
+  assert.deepEqual(b.escapes.find(e => e.id === 'E-s3000002'), { id: 'E-s3000002', caught_by: 'ui-visual', origin: 'catalogue_gap', screen: 'bordereaux' }, 'classification applied');
+  assert.deepEqual(Object.keys(b.escapes[0]).sort(), ['caught_by', 'id', 'origin', 'screen']);
+  const text = JSON.stringify(b);
+  for (const e of load().filter(x => x.kind === 'escape')) assert.ok(!text.includes(e.description), e.id);
+  assert.equal(b.escapes.find(e => e.id === 'E-s3000004').screen, 'no screen');
+});
+
+test('system3Brief with a screen narrows both parts; an unknown screen is empty', () => {
+  const b = Ledger.system3Brief(load(), { specs: SPECS, scenarios: SCENARIOS }, 'summary');
+  assert.deepEqual(b.escapes.map(e => e.id), ['E-s3000003']);
+  assert.equal(b.system3.review.n, 1);
+  assert.equal(b.system3.screens, undefined);
+  const none = Ledger.system3Brief(load(), { specs: SPECS, scenarios: SCENARIOS }, 'nowhere');
+  assert.deepEqual(none, { screen: 'nowhere', system3: null, escapes: [] });
+});
+
+test('catalogue gap proposal: needs the pinned pack and a component, names the pack registry as target', () => {
+  const pin = { pack: 'acme-ui', registry: 'acme-ui-registry', hash: 'h' };
+  const a = { kind: 'catalogue gap', statement: 'DataTable slot accepts any text', evidence: 'E-s3000002', check: 'variance test on bordereaux', pack: 'acme-ui', component: 'DataTable' };
+  const ok = Ui.catalogueGapProposal(a, pin);
+  assert.equal(ok.error, undefined);
+  const doc = yaml.load(ok.fields.map(([k, v]) => `${k}: ${v}`).join('\n'));
+  assert.deepEqual([doc.pack, doc.component, doc.target], ['acme-ui', 'DataTable', 'acme-ui-registry']);
+  assert.match(Ui.catalogueGapProposal({ ...a, pack: undefined }, pin).error, /pack/);
+  assert.match(Ui.catalogueGapProposal({ ...a, component: ' ' }, pin).error, /component/);
+  assert.match(Ui.catalogueGapProposal({ ...a, pack: 'other' }, pin).error, /pinned pack is acme-ui/);
+  assert.match(Ui.catalogueGapProposal(a, null).error, /no pack is pinned/i);
+});

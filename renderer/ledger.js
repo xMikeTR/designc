@@ -953,12 +953,24 @@ const Ledger = (() => {
     }
 
     const out = shape(verdicts, parity, escapes);
+    // Each escape as the Analyst may see it: no description. The screen is the joined one.
+    out.escapes = escapes.map(x => ({ id: x.e.id, caught_by: x.e.caught_by || null, origin: x.e.origin || null, screen: x.screen }));
     const names = new Set([...verdicts, ...parity, ...escapes].map(x => x.screen));
     out.screens = {};
     for (const name of [...names].sort((a, b) => (a === S3_NO_SCREEN) - (b === S3_NO_SCREEN) || (a < b ? -1 : a > b ? 1 : 0))) {
       out.screens[name] = shape(verdicts.filter(x => x.screen === name), parity.filter(x => x.screen === name), escapes.filter(x => x.screen === name));
     }
     return out;
+  }
+
+  // What get_system3 hands the Analyst: system3's figures (the whole, or one screen's) and the escapes as
+  // {id, caught_by, origin, screen}. No descriptions, and a stage_verdict carries no text, so nothing sealed gets through.
+  function system3Brief(events, opts, screen) {
+    const { escapes, ...rest } = system3(events, opts);
+    if (screen == null || screen === '') return { system3: rest, escapes };
+    const mine = rest.screens[screen];
+    if (!mine) return { screen, system3: null, escapes: [] };
+    return { screen, system3: mine, escapes: escapes.filter(e => e.screen === screen) };
   }
 
   function totalTokens(ev) {
@@ -1515,7 +1527,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, ESCAPE_BUCKETS, VERDICT_STAGES, escapeMetrics, system3, S3_STAGES, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, ESCAPE_BUCKETS, VERDICT_STAGES, escapeMetrics, system3, system3Brief, S3_STAGES, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

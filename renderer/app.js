@@ -1162,7 +1162,7 @@ async function newProposal(p = {}) {
   const id = Core.slugId(p.statement || p.kind || 'proposal', A.proposals.map(x => x.id));
   await createAndOpen(`proposals/${id}.yaml`, `id: ${id}
 status: minted          # minted | checked | bound | rejected
-kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing
+kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing | catalogue gap
 evidence: ${yamlStr(p.evidence || '')}
 statement: ${p.statement ? yamlStr(p.statement) : 'TODO the change to Design or Build'}
 check: ${yamlStr(p.check || '')}
@@ -1834,6 +1834,12 @@ function buildSidebar() {
   const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>${ndOptionsHtml(n.id)}
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
   return section('bsum', 'Summary', summary) + section('needs', `Waiting on a decision (${needs.length})`, nd);
+}
+// What Ledger.system3 needs to join rows to screens: each spec's screen and component, each parity scenario's screen.
+function system3Input() {
+  const specs = [];
+  for (const f of ((A.ui && A.ui.specs) || [])) { try { const o = JSON.parse(f.text); if (o && typeof o.screen === 'string') specs.push({ screen: o.screen, component: o.component }); } catch { /* an unreadable spec joins nothing */ } }
+  return { specs, scenarios: (A.parity || []).map(s => ({ id: s.id, screen: s.screen })) };
 }
 function escapeMetricsHtml(L) {
   const ui = A.model ? [...A.model.elements.values()].filter(e => e.tags && e.tags.has('UI')).map(e => e.name) : [];
