@@ -579,6 +579,29 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   expect(fs.readFileSync(report, 'utf8')).toBe(before);
 });
 
+test('user can record the QA bugs as escapes, once', async () => {
+  const { reg } = copyRegistry('fixtures/system3-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const lines = () => fs.readFileSync(path.join(reg, 'ledger/designc.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  const before = lines().length;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await page.locator('#special').getByRole('button', { name: 'Show parity' }).first().click();
+  const special = page.locator('#special');
+  await expect(special.getByRole('heading', { name: /^QA bugs/ })).toBeVisible();
+  await special.getByRole('button', { name: 'Record QA escapes' }).click();
+  await expect.poll(() => lines().length).toBe(before + 5);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'Recorded 5 QA escapes' })).toBeVisible();
+  const mine = lines().filter(e => String(e.id).startsWith('qa-bordereaux-'));
+  expect(mine.map(e => e.id).sort()).toEqual(['qa-bordereaux-BDX-1', 'qa-bordereaux-BDX-2', 'qa-bordereaux-BDX-3', 'qa-bordereaux-BDX-4', 'qa-bordereaux-BDX-5']);
+  expect(mine.find(e => e.id === 'qa-bordereaux-BDX-1')).toMatchObject({ kind: 'escape', screen: 'bordereaux', bucket: 'caught', caught_by: 'parity' });
+  expect(JSON.stringify(mine)).not.toContain('Inception dates show year first');
+  // The bug with no where and kind needs triage: it is not recorded. A second press adds nothing.
+  await special.getByRole('button', { name: 'Record QA escapes' }).click();
+  await expect(page.locator('#toasts .toast').filter({ hasText: '5 already recorded' })).toBeVisible();
+  expect(lines().length).toBe(before + 5);
+});
+
 test('user can accept or dismiss a swept Jira issue @critical', async () => {
   const { reg } = copyRegistry('e2e/fixtures/ready-registry');
   fs.mkdirSync(path.join(reg, 'inbox'));

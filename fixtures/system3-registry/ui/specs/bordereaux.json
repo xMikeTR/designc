@@ -1,1 +1,6 @@
-{ "screen": "bordereaux", "component": "Portal", "status": "minted", "states": { "ready": {} } }
+{
+  "screen": "bordereaux",
+  "component": "Portal",
+  "status": "minted",
+  "states": { "ready": {}, "list": {}, "filtered": {}, "apply dialog": {}, "no programs": {} }
+}
