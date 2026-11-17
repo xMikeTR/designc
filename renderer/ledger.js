@@ -892,6 +892,75 @@ const Ledger = (() => {
     return { escapes: esc.length, uiEscapes, uiEscapeRate: judged.length ? uiEscapes / judged.length : null, byOrigin, unclassified, acceptance: { done: judged.length, firstPass }, tamper };
   }
 
+  // D7 part 2: System 3 over the ledger (formulas: docs/ui-contract.md "Feeding System 3"). Pure.
+  // opts.specs: [{screen, component}] for the screen join; opts.scenarios: [{id, screen}] to place parity_result rows.
+  // Returns {stages, review, qa, caughtReachedQa, overall, screens: {<screen>: the same shape without screens}}.
+  const S3_STAGES = ['ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa'];
+  const S3_NO_SCREEN = 'no screen';
+  function system3(events, { specs = [], scenarios = [] } = {}) {
+    const at = e => (typeof e._ts === 'number' ? e._ts : typeof e.ts === 'number' ? e.ts : 0);
+    const ev = derive(events || []).slice().sort((a, b) => at(a) - at(b));
+    const tail = el => String(el == null ? '' : el).split('/').pop();
+    const specOf = el => (el ? (specs || []).find(sp => sp && sp.component && (sp.component === el || sp.component === tail(el))) : null);
+    const taskEl = new Map();
+    for (const e of ev) if (e.kind === 'task' && e.task != null && e.element) taskEl.set(e.task, e.element);
+    const screenOfRow = e => {
+      if (typeof e.screen === 'string' && e.screen) return e.screen;
+      const sp = specOf(e.element || (e.task != null ? taskEl.get(e.task) : null));
+      return sp && sp.screen ? sp.screen : S3_NO_SCREEN;
+    };
+    const verdicts = ev.filter(e => e.kind === 'stage_verdict').map(e => ({ e, screen: screenOfRow(e) }));
+    const taskRows = ev.filter(e => e.kind === 'task');
+    const scen = new Map((scenarios || []).map(s => [s.id, s.screen]));
+    const parity = ev.filter(e => e.kind === 'parity_result' && e.outcome === 'fail').map(e => ({ e, screen: scen.get(e.scenario) || S3_NO_SCREEN }));
+    const escapes = ev.filter(e => e.kind === 'escape').map(e => ({ e, screen: typeof e.screen === 'string' && e.screen ? e.screen : screenOfRow(e) }));
+    const handoverOf = new Map();
+    for (const e of ev) if (e.run != null && e.handover && !handoverOf.has(e.run)) handoverOf.set(e.run, e.handover);
+    const rate = (n, d) => (d ? n / d : null);
+    const median = xs => { if (!xs.length) return null; const a = xs.slice().sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+    const key = e => `${e.run}\u0000${e.task == null ? '' : e.task}\u0000${e.stage}`;
+
+    function shape(vs, ps, es) {
+      const stages = S3_STAGES.map(stage => {
+        const mine = vs.filter(v => v.e.stage === stage), firsts = new Map();
+        for (const v of mine) if (typeof v.e.change_ts === 'number' && !firsts.has(key(v.e))) firsts.set(key(v.e), v.e.ts - v.e.change_ts);
+        const times = [...firsts.values()];
+        const escaped = es.filter(x => x.e.caught_by === stage).length;
+        const own = stage === 'parity' ? ps.length : new Set(mine.filter(v => v.e.outcome === 'fail').map(v => key(v.e))).size;
+        const caught = stage === 'ui-spec' || stage === 'ui-preview' ? null : own;
+        return { stage, signal: { median: median(times), n: times.length }, rate: { caught, escaped, rate: caught === null ? null : rate(escaped, caught + escaped) } };
+      });
+      // Review: per (run, task). A verdict with no task is not a task.
+      const rv = new Map();
+      for (const v of vs) if (v.e.stage === 'review' && v.e.task != null && v.e.outcome !== 'could_not_run') { const k = `${v.e.run}\u0000${v.e.task}`; rv.set(k, (rv.get(k) || false) || v.e.outcome === 'fail'); }
+      const vetoedTasks = [...rv].filter(([, f]) => f).map(([k]) => k.split('\u0000'));
+      const recoveredTasks = vetoedTasks.filter(([run, task]) => {
+        const rows = taskRows.filter(t => t.task === task && (t.run == null || t.run === run));
+        return rows.length && rows[rows.length - 1].status === 'passed';
+      }).length;
+      const review = { n: rv.size, vetoed: vetoedTasks.length, veto: rate(vetoedTasks.length, rv.size), recovered: recoveredTasks, recovery: rate(recoveredTasks, vetoedTasks.length) };
+      // QA: per run. A later run of the same item (else handover) that passes qa recovers a veto.
+      const qr = new Map();
+      for (const v of vs) if (v.e.stage === 'qa' && v.e.outcome !== 'could_not_run') { const r = qr.get(v.e.run) || { fail: null }; if (v.e.outcome === 'fail' && r.fail === null) r.fail = v.e; qr.set(v.e.run, r); }
+      const group = e => (e.item != null ? `item:${e.item}` : handoverOf.has(e.run) ? `handover:${handoverOf.get(e.run)}` : `run:${e.run}`);
+      const allPass = verdicts.filter(v => v.e.stage === 'qa' && v.e.outcome === 'pass').map(v => v.e);
+      const vetoedRuns = [...qr].filter(([, r]) => r.fail).map(([run, r]) => ({ run, f: r.fail }));
+      const recoveredRuns = vetoedRuns.filter(({ run, f }) => allPass.some(p => p.run !== run && group(p) === group(f) && at(p) > at(f))).length;
+      const qa = { n: qr.size, vetoed: vetoedRuns.length, veto: rate(vetoedRuns.length, qr.size), recovered: recoveredRuns, recovery: rate(recoveredRuns, vetoedRuns.length) };
+      const caught = stages.reduce((n, s) => n + (s.rate.caught || 0), 0);
+      const overall = { caught, escaped: es.length, unclassified: es.filter(x => !x.e.caught_by).length, rate: rate(es.length, caught + es.length) };
+      return { stages, review, qa, caughtReachedQa: es.filter(x => x.e.bucket === 'caught').length, overall };
+    }
+
+    const out = shape(verdicts, parity, escapes);
+    const names = new Set([...verdicts, ...parity, ...escapes].map(x => x.screen));
+    out.screens = {};
+    for (const name of [...names].sort((a, b) => (a === S3_NO_SCREEN) - (b === S3_NO_SCREEN) || (a < b ? -1 : a > b ? 1 : 0))) {
+      out.screens[name] = shape(verdicts.filter(x => x.screen === name), parity.filter(x => x.screen === name), escapes.filter(x => x.screen === name));
+    }
+    return out;
+  }
+
   function totalTokens(ev) {
     if (typeof ev.tokens === 'number') return ev.tokens;
     if (typeof ev.tokens_in === 'number' || typeof ev.tokens_out === 'number') return (ev.tokens_in || 0) + (ev.tokens_out || 0);
@@ -1446,7 +1515,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, ESCAPE_BUCKETS, VERDICT_STAGES, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, ESCAPE_BUCKETS, VERDICT_STAGES, escapeMetrics, system3, S3_STAGES, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

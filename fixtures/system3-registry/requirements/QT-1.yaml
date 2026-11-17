@@ -1,0 +1,5 @@
+id: QT-1
+title: A reseller can request a booking
+source: ""
+version: 1
+elements: [Bookings API]

@@ -1,0 +1,6 @@
+{"kind":"escape","id":"E-s3000001","description":"Totals row hidden on the ready state","screen":"bordereaux","element":"App/Portal","caught_by":"ui-visual","origin":"gate_gap","by":"fixture","schema_version":1,"event_id":"s3fixture-0001","ts":1794909720000}
+{"kind":"escape","id":"E-s3000002","description":"Filter chip accepts any text","screen":"bordereaux","caught_by":null,"by":"fixture","schema_version":1,"event_id":"s3fixture-0002","ts":1794909721000}
+{"kind":"escape","id":"E-s3000003","description":"Empty state shows stale rows","screen":"summary","element":"App/Summary","caught_by":"holdout","origin":"spec_gap","by":"fixture","schema_version":1,"event_id":"s3fixture-0003","ts":1794909722000}
+{"kind":"escape","id":"E-s3000004","description":"Export button label wrong, no screen named","by":"fixture","schema_version":1,"event_id":"s3fixture-0004","ts":1794909723000}
+{"kind":"escape","id":"E-s3000005","description":"BDX-5: Captured but not flagged","screen":"bordereaux","bucket":"caught","caught_by":"parity","by":"fixture","schema_version":1,"event_id":"s3fixture-0005","ts":1794909724000}
+{"kind":"escape_classified","escape":"E-s3000002","caught_by":"ui-visual","origin":"catalogue_gap","by":"fixture","schema_version":1,"event_id":"s3fixture-0006","ts":1794909725000}
