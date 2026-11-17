@@ -1324,10 +1324,12 @@ async function freezeOnce(item) {
     for (const h of A.ui.holdouts || []) holdouts[h.path.split('/').pop().replace(/\.json$/, '')] = Ui.sha256(h.text);
     uiIn = { specs: A.ui.specs, pack: A.ui.pack, pin: pin ? { name: pin.pack, hash: pin.hash } : null, previews, holdouts };
   }
+  // The as-built facts, only to map tests to elements (D6): hashed into the id, never copied.
+  const factsRaw = await readText('asbuilt/facts.json'), factsIn = factsRaw ? { text: factsRaw } : null;
   let plan;
   try {
     plan = Core.handoverPlan({
-      ui: uiIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
+      ui: uiIn, facts: factsIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
@@ -1356,7 +1358,8 @@ async function freezeOnce(item) {
   const ask = (item
     ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
-  if (!confirm(ask)) return;
+  const uncovered = plan.testsUnmapped && plan.testsUnmapped.length ? `\n\nNo existing test covers: ${plan.testsUnmapped.map(u => u.element).join(', ')}. The tests the agent writes are their only cover (tests.json).` : '';
+  if (!confirm(ask + uncovered)) return;
   // Preview pictures are binary: the main process copies them first, re-hashing every one against the id and writing nothing
   // unless all still match (a picture changed since approval refuses the freeze before any file is written).
   if ((plan.binaryCopies || []).length) {
