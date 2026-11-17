@@ -146,6 +146,17 @@ def _rule(rid, ev):
         v = ev.get('bucket')
         if 'bucket' in ev and v is not None and v not in SCHEMA['escape_buckets']:
             return f"bucket: must be null or one of {'|'.join(SCHEMA['escape_buckets'])}"
+    elif rid == 'verdict_shape':
+        ct, ts = ev.get('change_ts'), ev.get('ts')
+        if _is_num(ct) and _is_num(ts) and ct > ts: return 'change_ts: must not be later than ts'
+        if 'round' in ev and ev.get('stage') != 'review': return "round: allowed only when stage is 'review'"
+        if 'round' in ev and not (_is_num(ev['round']) and float(ev['round']).is_integer() and ev['round'] >= 1): return 'round: must be a whole number of at least 1'
+        if isinstance(ev.get('failures'), list):
+            for i, f in enumerate(ev['failures']):
+                if not isinstance(f, dict): return f'failures[{i}]: must be an object'
+                for k, v in f.items():
+                    if k not in ('state', 'kind', 'placement', 'criterion'): return f"failures[{i}]: only state, kind, placement and criterion are allowed (got '{k}')"
+                    if not isinstance(v, str): return f'failures[{i}].{k}: must be a string'
     elif rid == 'origin_member':
         v = ev.get('origin')
         if 'origin' in ev and v is not None and v not in SCHEMA['origins']:

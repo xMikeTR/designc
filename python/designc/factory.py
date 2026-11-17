@@ -8,7 +8,7 @@ import json
 
 from . import ledger
 
-FACTORY_KINDS = ('suite_run', 'grader', 'suite_run_finished', 'ui_preview_rendered', 'ui_result')
+FACTORY_KINDS = ('suite_run', 'grader', 'suite_run_finished', 'ui_preview_rendered', 'ui_result', 'stage_verdict')
 
 
 def parse_lines(text, by):

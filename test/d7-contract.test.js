@@ -50,3 +50,51 @@ test('STAGES in app.js labels every caught_by value', () => {
   assert.match(src, /catalogue_gap: 'Catalogue gap'/);
 });
 
+// stage_verdict (slice 2)
+const V = { kind: 'stage_verdict', by: 'factory', run: 'r1', stage: 'ui-code', outcome: 'pass', change_ts: 900 };
+const verdict = o => env({ ...V, ...o });
+
+test('stage_verdict: required fields, enums, pipeline kind and stream', () => {
+  assert.deepEqual(Ledger.validate(verdict()), []);
+  assert.deepEqual(Ledger.validate(verdict({ change_ts: null, outcome: 'could_not_run' })), []);
+  for (const k of ['run', 'stage', 'outcome', 'change_ts']) {
+    const { [k]: _, ...rest } = V;
+    assert.ok(Ledger.validate(env(rest)).some(e => e.includes(k)), k);
+  }
+  for (const s of ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'review', 'qa']) assert.deepEqual(Ledger.validate(verdict({ stage: s })), [], s);
+  assert.ok(Ledger.validate(verdict({ stage: 'parity' })).some(e => /stage/.test(e)));
+  assert.ok(Ledger.validate(verdict({ outcome: 'flaky' })).some(e => /outcome/.test(e)));
+  assert.equal(Ledger.KINDS.stage_verdict.stream, 'pipeline.jsonl');
+  assert.ok(Ledger.PIPELINE_KINDS.includes('stage_verdict'));
+  assert.deepEqual(Ledger.validate(verdict({ task: 't', element: 'e', screen: 's', item: 'W-1', failures: [{ state: 'empty', kind: 'aria', placement: 'p', criterion: 'AC-1' }] })), []);
+});
+
+test('verdict_shape: change_ts not after ts, failures carry four keys only, round only on review', () => {
+  assert.deepEqual(Ledger.validate(verdict({ change_ts: 1000 })), [], 'equal is fine');
+  assert.ok(Ledger.validate(verdict({ change_ts: 1001 })).some(e => /change_ts/.test(e)));
+  assert.deepEqual(Ledger.validate({ ...V, change_ts: 5 }), [], 'no ts yet: not judged');
+  assert.ok(Ledger.validate(verdict({ failures: [{ state: 's', msg: 'detail' }] })).some(e => /failures\[0\]/.test(e)));
+  assert.ok(Ledger.validate(verdict({ failures: [{ state: 3 }] })).some(e => /failures\[0\]/.test(e)));
+  assert.ok(Ledger.validate(verdict({ round: 1 })).some(e => /round/.test(e)));
+  assert.deepEqual(Ledger.validate(verdict({ stage: 'review', round: 2 })), []);
+  assert.ok(Ledger.validate(verdict({ stage: 'review', round: 0 })).some(e => /round/.test(e)));
+});
+
+test('designc record accepts stage_verdict into pipeline.jsonl and refuses a bad one', { skip }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-d7r-'));
+  try {
+    const rec = ev => spawnSync('python3', ['-m', 'designc', 'record', root, '--by', 'factory'], { cwd: PY, input: JSON.stringify(ev) + '\n', encoding: 'utf8' });
+    const ex = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'stage-verdict.example.json'), 'utf8').trim().split('\n')[0]);
+    assert.equal(rec(ex).status, 0);
+    const rows = fs.readFileSync(path.join(root, 'ledger', 'pipeline.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+    assert.deepEqual(rows.map(r => r.kind), ['stage_verdict']);
+    assert.equal(rec({ ...ex, ts: 1000, change_ts: 2000 }).status, 1);
+    assert.equal(rec({ ...ex, failures: [{ msg: 'x' }] }).status, 1);
+    assert.equal(rec({ ...ex, stage: 'ui-code', round: 1 }).status, 1);
+  } finally { fs.rmSync(root, { recursive: true, force: true }); }
+});
+
+test('the example file validates in JS', () => {
+  const ex = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'stage-verdict.example.json'), 'utf8').trim().split('\n')[0]);
+  assert.deepEqual(Ledger.validate(ex), []);
+});
