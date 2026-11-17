@@ -413,6 +413,50 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))], binaryCopies: uiPart ? uiPart.binary.map(b => ({ from: b.from, to: dir + b.rel, sha256: b.sha256 })) : [] };
   }
 
+  // The test map (D6, designc.handover.tests/1, docs/handover-tests.schema.json): for each element with a code area, the tests that
+  // must turn green (fail_to_pass: its generated acceptance specs, and the page test of a screen it is the component of) and the
+  // existing tests that must stay green (pass_to_pass: found statically in the as-built facts). designc does not know tasks: this is
+  // keyed per element and the Factory maps a task to its tests through the task's elements. An element with code and no mapped
+  // existing test is listed in `unmapped`: coverage information, never a gate clause. Pure.
+  //  elementsDoc: handoverElements(...); facts: {text} (asbuilt/facts.json as read) or null; specs: acceptanceSpecs(...);
+  //  ui: [{screen, component}] (component is an element name). Returns null when no element has a code area.
+  const byPath = (a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : a.kind < b.kind ? -1 : a.kind > b.kind ? 1 : 0);
+  function handoverTests(elementsDoc, facts, specs, ui = []) {
+    const coded = elementsDoc.elements.filter(e => e.code && e.code.length && (e.in_scope === undefined || e.in_scope));
+    if (!coded.length) return null;
+    let doc = null;
+    if (facts) { try { doc = JSON.parse(facts.text); } catch { throw new Error('handover refused: asbuilt/facts.json does not parse as JSON'); } }
+    const tests = doc && Array.isArray(doc.tests) ? doc.tests : [];
+    // Split repos: an entry names its repo and its paths carry the key as a prefix; d.code is relative to the repo.
+    const local = (t, p) => (t.repo && p.startsWith(t.repo + '/') ? p.slice(t.repo.length + 1) : p);
+    const dirOf = p => (p.includes('/') ? p.slice(0, p.lastIndexOf('/')) : '');
+    const quote = p => (/^[\w./-]+$/.test(p) ? p : JSON.stringify(p));
+    const out = [], unmapped = [];
+    for (const e of coded) {
+      const hit = (p, dir) => e.code.some(c => PP.matches(c, p) || (dir && PP.matches(c, dirOf(p))));
+      const p2p = new Map();
+      const add = (t, command, via) => { const k = `${t.kind}\0${t.path}`; if (!p2p.has(k)) p2p.set(k, { kind: t.kind, path: t.path, command, via }); };
+      for (const t of tests) {
+        if (e.repo && t.repo && e.repo !== t.repo) continue;
+        if (t.kind === 'dotnet') {
+          if ((t.refs || []).some(r => hit(local(t, r), true))) add(t, `dotnet test ${quote(t.path)}`, 'project-ref');
+        } else {
+          const via = hit(local(t, t.path), false) ? 'co-located' : (t.imports || []).some(i => hit(local(t, i), false)) ? 'import' : null;
+          if (via) add(t, t.kind === 'vitest' ? `npx vitest run ${quote(t.path)}` : t.kind === 'jest' ? `npx jest ${quote(t.path)}` : null, via);
+        }
+      }
+      const f2p = [];
+      const prefix = `tests/acceptance/${aSlug(e.id)}/`;
+      for (const f of specs && specs.files ? specs.files : []) if (f.path.startsWith(prefix)) f2p.push({ kind: 'acceptance', path: f.path, command: `npx playwright test ${quote(f.path)}` });
+      for (const u of ui || []) if (u.component === e.name) { const p = `ui-contract/tests/${u.screen}.page.test.tsx`; f2p.push({ kind: 'ui-page', path: p, command: `npx vitest run --project ui-page ${quote(p)}` }); }
+      const row = { element: e.id };
+      if (e.repo) row.repo = e.repo;
+      out.push({ ...row, fail_to_pass: f2p.sort(byPath), pass_to_pass: [...p2p.values()].sort(byPath) });
+      if (!p2p.size) unmapped.push({ element: e.id, reason: doc ? 'no existing test references its code' : 'no as-built facts: run Extract' });
+    }
+    return { schema: 'designc.handover.tests/1', facts: doc ? { path: 'asbuilt/facts.json', sha256: UI.sha256(facts.text), extracted_at: doc.extractedAt == null ? null : doc.extractedAt } : null, elements: out, unmapped };
+  }
+
   // A frozen handover never changes. Freezing again is refused when its folder already exists (same id), or when
   // the content hash equals the newest handover's (nothing changed since it). Returns that handover's id, else null.
   function frozenAs(id, handovers) {
@@ -436,5 +480,5 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
 
 
-  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverPlan, frozenAs, rebindable, latestHandoverModel });
+  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);
