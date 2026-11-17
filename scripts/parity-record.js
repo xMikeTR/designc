@@ -21,7 +21,7 @@ const { appendEvent } = require('../ledger-store.js');
 
 const USAGE = `usage: parity-record --registry <dir> --scenario <id|all> --side <legacy|next>
        [--adapter web|fixture:<file.json>] [--base-url <url>] [--param name=value]...
-       [--commit <sha>] [--item <work item>] [--ledger] [--by <name>] [--no-shots]
+       [--commit <sha>] [--item <work item>] [--ledger] [--by <name>] [--no-shots] [--har]
        [--allow-writes] [--allow-request <url part>]... [--json]`;
 
 function parseArgs(argv) {
@@ -43,6 +43,7 @@ function parseArgs(argv) {
     else if (a === '--allow-writes') o.allowWrites = true;
     else if (a === '--ledger') o.ledger = true;
     else if (a === '--no-shots') o.shots = false;
+    else if (a === '--har') o.har = true;
     else if (a === '--json') o.json = true;
     else if (a === '--help' || a === '-h') o.help = true;
     else throw new Error(`unknown argument ${a}`);
@@ -92,6 +93,15 @@ function writeShots(registry, shots) {
   }
 }
 
+// A HAR holds page data, so parity/har/ is ignored by git like parity/shots/. Only the baseline's `requests` (shapes) is kept.
+function harFile(registry, id, side) {
+  const dir = path.join(registry, 'parity', 'har');
+  fs.mkdirSync(dir, { recursive: true });
+  const ignore = path.join(dir, '.gitignore');
+  if (!fs.existsSync(ignore)) fs.writeFileSync(ignore, '*\n');
+  return path.join(dir, `${id}-${side}.har`);
+}
+
 // Tier 2: legacy and new app screenshots of each step that ran on both, from parity/shots/ (images stay out of git, so a
 // shot missing on this machine skips the step: never a pass). Identical bytes need no decoding.
 function visualStage(registry, scenario, result) {
@@ -129,12 +139,18 @@ async function runOne(o, entry, settings, adapter) {
     baseline = readJson(base);
     if (!baseline) return { scenario: scenario.id, error: `no baseline for ${scenario.id}: record legacy first (--side legacy)` };
   }
-  const rec = await Recorder.record({ scenario, side: o.side, adapter, params, screenshots: o.shots, allowWrites: !!o.allowWrites, allowRequests: o.allowRequests });
+  if (o.har && !params.baseUrl) return { scenario: scenario.id, error: '--har needs a base URL (parity.<side>.baseUrl in designc.json, or --base-url) to know which requests are the app\'s' };
+  const har = o.har ? harFile(o.registry, scenario.id, o.side) : null;
+  if (har) fs.rmSync(har, { force: true });
+  const rec = await Recorder.record({ scenario, side: o.side, adapter, params, screenshots: o.shots, allowWrites: !!o.allowWrites, allowRequests: o.allowRequests, har });
   if (rec.error) return { scenario: scenario.id, error: rec.error };
   // A login page is not the legacy app, so it must not replace a baseline. On the new app it is could not run, below.
   if (rec.wall && o.side === 'legacy') return { scenario: scenario.id, error: `legacy stopped at a login wall: ${rec.wall}. No baseline written. Run legacy with sign-in off, then record again.` };
   if (o.shots) writeShots(o.registry, rec.shots);
   const snap = Parity.snapshot(rec, scenario, { params });
+  // The HAR is read for its shapes alone; an adapter that wrote none (or a scenario that stopped early) leaves the field out.
+  const recorded = har && readJson(har);
+  if (recorded) snap.requests = Parity.requests(recorded, { baseUrl: params.baseUrl });
   if (o.side === 'legacy') {
     writeJson(base, snap);
     const notOk = snap.steps.filter(s => s.status !== 'ok');

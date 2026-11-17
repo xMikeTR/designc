@@ -24,6 +24,8 @@ test.before(async () => {
     if (req.method === 'POST') { posts.push(req.url); res.end('{}'); return; }
     const page = new URL(req.url, 'http://x').pathname;
     if (page === '/sso') { res.statusCode = 302; res.setHeader('location', `http://localhost:${server.address().port}/tags.html`); res.end(); return; }
+    if (page === '/api/items') { res.setHeader('content-type', 'application/json'); res.end(JSON.stringify([{ name: 'Secret Item', qty: 12 }])); return; }
+    if (page === '/fetching') { res.setHeader('content-type', 'text/html'); res.end('<title>f</title><h1>Items</h1><script>fetch("/api/items")</script>'); return; }
     if (page === '/login' || page === '/change') {
       res.setHeader('content-type', 'text/html');
       res.end(`<title>x</title><input type="password"><input ${page === '/change' ? 'type="password"' : 'type="hidden"'}>`);
@@ -105,4 +107,18 @@ test('an element the page does not have is could not run', async t => {
     { goto: { path: 'tags.html' } }, { click: { role: 'button', name: 'Edit', index: 3 } },
   ] }, screenshots: false });
   assert.deepStrictEqual(r.steps.map(s => s.status), ['ok', 'could_not_run']);
+});
+
+test('har: the HAR is saved when the session closes, holds the page\'s data requests, and Parity.requests keeps their shapes only', async t => {
+  if (skip) return t.skip(skip);
+  const har = path.join(require('os').tmpdir(), `web-har-${process.pid}.har`);
+  fs.rmSync(har, { force: true });
+  const r = await R.record({ adapter: Web.create(), side: 'legacy', params: { baseUrl }, har, screenshots: false,
+    scenario: { id: 'f', steps: [{ goto: { path: 'fetching' } }] } });
+  assert.strictEqual(r.steps[0].status, 'ok');
+  const doc = JSON.parse(fs.readFileSync(har, 'utf8'));
+  fs.rmSync(har, { force: true });
+  assert.ok(JSON.stringify(doc).includes('Secret Item'), 'content is embedded');
+  const reqs = require('../renderer/parity.js').requests(doc, { baseUrl });
+  assert.deepStrictEqual(reqs, [{ method: 'GET', path: '/api/items', status: 200, request: null, response: [{ name: 'text:Aa', qty: 'num:?0' }] }]);
 });
