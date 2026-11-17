@@ -26,9 +26,13 @@ const Ledger = (() => {
   ];
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
-  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'pipeline'];
+  // D7: `caught_by` is the stage that SHOULD have caught the escape. `pipeline` stays as "other / unknown" so old rows validate.
+  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa', 'pipeline'];
   // Where an escape came from, beside the stage that should have caught it (slice 33).
-  const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap'];
+  const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap', 'catalogue_gap'];
+  // `escape.bucket`: where a QA bug stood in parity (renderer/parity-qa.js BUCKETS; test/d7-contract.test.js keeps them equal).
+  const ESCAPE_BUCKETS = ['caught', 'not_captured', 'state_not_recorded', 'not_flagged', 'triage'];
+
 
   const STREAM = {
     check: 'checks.jsonl',
@@ -117,10 +121,10 @@ const Ledger = (() => {
     },
     escape: {
       required: ['id', 'description'],
-      optional: ['code', 'caught_by', 'source', 'traces', 'origin', 'ref', 'run'],
+      optional: ['code', 'caught_by', 'source', 'traces', 'origin', 'ref', 'run', 'screen', 'bucket'],
       enums: {},
-      types: { run: 'string' },
-      rules: ['caught_by_member', 'origin_member', 'ref_shape'],
+      types: { run: 'string', screen: 'string' },
+      rules: ['caught_by_member', 'origin_member', 'bucket_member', 'ref_shape'],
     },
     escape_classified: {
       required: ['escape', 'caught_by'],
@@ -530,6 +534,7 @@ const Ledger = (() => {
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
+    bucket_member: ev => ('bucket' in ev && ev.bucket !== undefined && ev.bucket !== null && !ESCAPE_BUCKETS.includes(ev.bucket) ? `bucket: must be null or one of ${ESCAPE_BUCKETS.join('|')}` : null),
     origin_member: ev => ('origin' in ev && ev.origin !== undefined && ev.origin !== null && !ORIGINS.includes(ev.origin) ? `origin: must be null or one of ${ORIGINS.join('|')}` : null),
   };
   // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
@@ -1416,7 +1421,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, ESCAPE_BUCKETS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

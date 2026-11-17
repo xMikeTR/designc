@@ -142,6 +142,10 @@ def _rule(rid, ev):
         v = ev.get('caught_by')
         if 'caught_by' in ev and v is not None and v not in SCHEMA['caught_by']:
             return f"caught_by: must be null or one of {'|'.join(SCHEMA['caught_by'])}"
+    elif rid == 'bucket_member':
+        v = ev.get('bucket')
+        if 'bucket' in ev and v is not None and v not in SCHEMA['escape_buckets']:
+            return f"bucket: must be null or one of {'|'.join(SCHEMA['escape_buckets'])}"
     elif rid == 'origin_member':
         v = ev.get('origin')
         if 'origin' in ev and v is not None and v not in SCHEMA['origins']:

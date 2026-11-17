@@ -21,13 +21,30 @@
     "S1-lint",
     "S1-p",
     "S1-grill",
+    "ui-spec",
+    "ui-preview",
+    "ui-code",
+    "ui-visual",
+    "acceptance",
+    "holdout",
+    "parity",
+    "review",
+    "qa",
     "pipeline"
   ],
   "origins": [
     "spec_gap",
     "design_error",
     "translation_error",
-    "gate_gap"
+    "gate_gap",
+    "catalogue_gap"
+  ],
+  "escape_buckets": [
+    "caught",
+    "not_captured",
+    "state_not_recorded",
+    "not_flagged",
+    "triage"
   ],
   "pipeline_stream": "pipeline.jsonl",
   "pipeline_kinds": [
@@ -70,6 +87,7 @@
     "ended_needs_reason",
     "aborted_needs_reason",
     "caught_by_member",
+    "bucket_member",
     "origin_member"
   ],
   "kinds": {
@@ -252,15 +270,19 @@
         "traces",
         "origin",
         "ref",
-        "run"
+        "run",
+        "screen",
+        "bucket"
       ],
       "enums": {},
       "types": {
-        "run": "string"
+        "run": "string",
+        "screen": "string"
       },
       "rules": [
         "caught_by_member",
         "origin_member",
+        "bucket_member",
         "ref_shape"
       ]
     },

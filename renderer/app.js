@@ -38,8 +38,8 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
   }
 }
 const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
-const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap' };
-const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['pipeline', 'Pipeline']];
+const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap', catalogue_gap: 'Catalogue gap' };
+const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
   const stageKeys = STAGES.map(([k]) => k).sort().join(',');
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');

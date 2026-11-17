@@ -5,7 +5,7 @@ const Ledger = require('../renderer/ledger.js');
 const env = (o) => ({ schema_version: 1, event_id: 'e' + Math.random(), ts: 1, by: 'x', ...o });
 
 test('origin is a closed list on escape and escape_classified', () => {
-  assert.deepEqual(Ledger.ORIGINS, ['spec_gap', 'design_error', 'translation_error', 'gate_gap']);
+  assert.deepEqual(Ledger.ORIGINS, ['spec_gap', 'design_error', 'translation_error', 'gate_gap', 'catalogue_gap']);
   assert.deepEqual(Ledger.validate(env({ kind: 'escape', id: 'E-1', description: 'd', origin: 'spec_gap' })), []);
   const bad = Ledger.validate(env({ kind: 'escape', id: 'E-1', description: 'd', origin: 'defect' }));
   assert.ok(bad.some(m => /origin/.test(m)), bad.join('; '));
