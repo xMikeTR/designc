@@ -119,7 +119,7 @@ test('screen join: the row screen, else the task element matched to a spec compo
   assert.deepEqual(r.screens.bordereaux.stages.find(s => s.stage === 'parity').rate, { caught: 1, escaped: 1, rate: 0.5 }, 'scenario -> screen');
   assert.deepEqual(r.screens.summary.review, { n: 1, vetoed: 0, veto: 0, recovered: 0, recovery: null });
   assert.deepEqual(r.screens.summary.stages.find(s => s.stage === 'holdout').rate, { caught: 1, escaped: 1, rate: 0.5 });
-  // acceptance rows have an element and no screen: the spec join finds summary
+  // the Factory fills `screen` on the acceptance verdict (92dfd84): it lands on summary by the row, not the join
   assert.deepEqual(r.screens.summary.stages.find(s => s.stage === 'acceptance').signal, { median: 79000, n: 1 });
   // the QA verdict names neither, and neither does escape E-s3000004
   assert.deepEqual(r.screens['no screen'].qa, { n: 1, vetoed: 1, veto: 1, recovered: 0, recovery: 0 });
@@ -127,8 +127,15 @@ test('screen join: the row screen, else the task element matched to a spec compo
   assert.equal(r.screens['no screen'].overall.unclassified, 1);
 });
 
-test('with no specs, an acceptance verdict that has only an element falls to "no screen"', () => {
+test('an acceptance verdict with a screen lands there even with no specs', () => {
   const r = run({ specs: [], scenarios: [] });
+  assert.deepEqual(r.screens.summary.stages.find(s => s.stage === 'acceptance').signal, { median: 79000, n: 1 });
+});
+
+test('with no specs, an acceptance verdict that has only an element falls to "no screen"', () => {
+  // older rows: drop the screen the Factory now fills, leaving only the element
+  const events = load().map(e => (e.kind === 'stage_verdict' && e.stage === 'acceptance' ? (({ screen, ...rest }) => rest)(e) : e));
+  const r = run({ specs: [], scenarios: [] }, events);
   assert.deepEqual(r.screens['no screen'].stages.find(s => s.stage === 'acceptance').signal, { median: 79000, n: 1 });
   assert.deepEqual(r.screens.summary.stages.find(s => s.stage === 'acceptance').signal, { median: null, n: 0 });
   assert.equal(r.screens.bordereaux.review.n, 0, 'the element does not match any spec');

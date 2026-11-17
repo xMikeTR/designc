@@ -168,7 +168,7 @@ Metrics (computed by `Ledger.system3` in D7 part 2; `ui-spec`, `ui-preview` and 
 | QA veto | Runs with a `qa` `fail` / runs with a `qa` verdict |
 | QA recovery | Vetoed QA runs whose item (or handover, with no item) has a later run that passes `qa` / vetoed QA runs |
 | Caught but reached QA | Escapes with `bucket: caught`, counted per screen |
-| Screen join | The row's `screen`; else the task's `element` matched to a spec's `component`; else "no screen" |
+| Screen join | The row's `screen` (the Factory fills it on acceptance verdicts when the criterion's element matches exactly one spec's component); else the task's `element` matched to a spec's `component`; else "no screen" |
 
 `could_not_run` is in no numerator and no denominator.
 
