@@ -2,7 +2,7 @@
   "name": "designc-ide",
   "productName": "designc",
   "version": "0.1.0",
-  "description": "System design IDE: design compiler (S1), pipeline view (S2), improvement loop (S4)",
+  "description": "System design IDE: design compiler (S1), pipeline view (S2), improvement loop (System 3)",
   "main": "main.js",
   "license": "UNLICENSED",
   "scripts": {

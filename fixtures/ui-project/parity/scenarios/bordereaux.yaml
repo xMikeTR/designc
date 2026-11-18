@@ -1,0 +1,9 @@
+id: bordereaux-list
+screen: bordereaux
+title: Browse, filter and clear
+steps:
+  - { goto: /bordereaux, state: loading }
+  - { state: ready }
+  - { state: filtered }
+  - { state: empty }
+  - { state: error }

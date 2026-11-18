@@ -414,7 +414,9 @@ async function scan(ctx) {
   }
 
   return {
-    projects: projects.map(p => ({ name: p.name, kind: p.kind, lang: p.lang, file: rel(p.file), sources: p.sources.length })),
+    projects: projects.map(p => ({ name: p.name, kind: p.kind, lang: p.lang, file: rel(p.file), sources: p.sources.length, refs: p.refs.filter(r => byFile.has(path.resolve(r))).map(r => rel(byFile.get(path.resolve(r)).file)).sort() })),
+    // One entry per test project: which projects it references says what it covers (D6, static only).
+    tests: projects.filter(p => p.kind === 'test').map(p => ({ kind: 'dotnet', path: rel(p.file), project: p.name, refs: p.refs.filter(r => byFile.has(path.resolve(r))).map(r => rel(byFile.get(path.resolve(r)).file)).sort() })),
     elements: [...elements.values()],
     edges,
     consumes,

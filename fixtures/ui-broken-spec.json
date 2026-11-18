@@ -1,0 +1,67 @@
+{
+  "screen": "broken",
+  "component": "Broken",
+  "intent": "Deliberately wrong spec to show what the validator catches.",
+  "template": "list-detail",
+  "data": {
+    "count": {
+      "shape": "number",
+      "source": "useCount()"
+    }
+  },
+  "slots": {
+    "main": [
+      {
+        "component": "DataTable",
+        "props": {
+          "density": "spacious",
+          "colour": "red"
+        },
+        "bind": {
+          "rows": "count"
+        }
+      },
+      {
+        "component": "MetricCard",
+        "props": {},
+        "bind": {
+          "value": "missing"
+        }
+      }
+    ],
+    "sidebar": [
+      {
+        "component": "Chart"
+      }
+    ],
+    "header.actions": [
+      {
+        "component": "PageHeader",
+        "props": {
+          "title": "Oops"
+        }
+      }
+    ]
+  },
+  "status": "minted",
+  "states": {
+    "ready": {
+      "initial": true
+    },
+    "loading": {
+      "initial": true
+    }
+  },
+  "transitions": [
+    {
+      "from": "ready",
+      "to": "saved",
+      "on": {
+        "click": {
+          "role": "button",
+          "name": "Save"
+        }
+      }
+    }
+  ]
+}

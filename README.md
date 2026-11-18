@@ -15,7 +15,7 @@ New here? Open [docs/guide.html](docs/guide.html) for a start-to-finish walkthro
 - [Code map](#code-map), its levels, code quality and coverage
 - [Agent panel](#agent-panel), [Langfuse](#langfuse-build-and-improve), [settings](#settings-designcjson)
 - [Recording legacy parity](#recording-legacy-parity), including login and mock mode
-- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
+- [Registry folder](#the-registry-folder), [command line](#command-line-ci), [health audit and overlay](#health-audit-and-overlay), [selfcheck](#selfcheck-local-ci), [tests](#tests-and-mocks), [code layout](#layout-of-the-code)
 - Deeper reference for contributors and coding agents: [AGENTS.md](AGENTS.md) and [ARCHITECTURE.md](ARCHITECTURE.md)
 
 ## The views
@@ -68,7 +68,7 @@ The installers are unsigned. On a managed Windows machine SmartScreen or Intune 
 
 Set `"codebase"` in `designc.json` (or use the Code map view's "Choose codebase folder"), then Run > Extract Code Map (Ctrl+Shift+R). The codebase is only read, never changed. The result is written to `asbuilt/workspace.dsl` and `asbuilt/facts.json` in the registry, so extractions are versioned with everything else, and an `extraction` event goes to the ledger.
 
-**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), declare them in `designc.json` and leave `codebase` out:
+**Split repos.** When the app lives in several repositories (an API repo and a UI repo, each with its own git tree), add them from the Code map view (**Add a second repo**, then **Add repo** for each further one; it asks for a name such as `Api` or `Ui`, and an existing `codebase` becomes one of the repos), or declare them in `designc.json` yourself and leave `codebase` out:
 
 ```json
 "repos": { "Api": "../api", "Ui": "../ui" }
@@ -515,6 +515,88 @@ To record on every commit, add a `post-commit` hook (the registry may be a subfo
 #!/bin/sh
 cd path/to/registry && python3 -m designc check . --record >/dev/null
 ```
+
+## Health audit and overlay
+
+Shows, on the C4 sheet, which elements have findings (build warnings, lint, duplicated code, dead code) and which design properties are backed by evidence. The audit calls no model and never writes to the repo it analyses.
+
+```mermaid
+flowchart LR
+  R[code repo] -->|audit scan| S[findings.sarif]
+  S -->|audit rollup + d.code paths| H[health.json in the registry folder]
+  C[audit record] --> E[evidence.json]
+  E --> H
+  H --> O[sheet: Badges, health]
+```
+
+### Use it
+
+1. Give your elements `d.code` paths (see [Code areas](#code-areas-dcode)); findings are mapped to elements by path.
+2. Scan. It analyses a copy of the committed tree. The JS analyzers (eslint, jscpd, knip) install once into `~/.cache/designc-audit/tools` (override with `DESIGNC_AUDIT_TOOLS`); .NET repos use `dotnet build`:
+
+   ```
+   node audit/audit.js scan /path/to/repo --out /tmp/audit            # writes findings.sarif and scan.json
+   node audit/audit.js scan /path/to/repo --out /tmp/audit --tools eslint,jscpd   # a subset
+   ```
+   `--project <sln|csproj>` picks the .NET project; `--sonar` adds SonarAnalyzer.
+3. Roll up into the registry folder. `--model` is the registry folder, not its `model/` subfolder:
+
+   ```
+   node audit/audit.js rollup --sarif /tmp/audit/findings.sarif --model /path/to/registry --out /path/to/registry --repo /path/to/repo
+   ```
+   This writes `health.json`. Add `--write-baseline` once to accept today's findings as `baseline.json`; later rollups mark findings as new or old against it.
+4. Open the registry in the app, then in the C4 sheet set the badge select to **Badges: health**.
+
+### Evidence for design properties
+
+A property you declare on an element (for example `idempotent` or `cached`) is shown as *declared* until something checks it. Record a check:
+
+```
+node audit/audit.js record --out /path/to/registry --element <element id> --property idempotent --by "my test name" --result pass --repo /path/to/repo
+```
+
+This appends to `evidence.json`, stamped with the repo's HEAD commit. Re-run rollup to refresh `health.json`. Status is computed, never stored: *unknown*, *inferred*, *declared*, *verified* (a passing check) or *violated* (a failing one). A check counts as fresh only while no file under the element's paths changed since the commit it ran at; after that it falls back to *declared*.
+
+### Gate a branch in CI
+
+```
+node audit/audit.js diff /path/to/repo --base origin/main > new.sarif
+```
+
+Prints SARIF of findings new since the base ref. Exit 0 means none, 1 means new findings, 2 means it could not run.
+
+## Selfcheck (local CI)
+
+Runs the tests on what is **committed**, in a clean worktree and a container with no network, and records the result on the commit. It calls no model.
+
+```mermaid
+flowchart LR
+  C[commit] --> W[clean git worktree]
+  W -->|npm ci, bridge network| R[restore]
+  R -->|--network none| T[tests]
+  T --> P[parity-of-rules]
+  P --> Y[pytest if python/ has tests]
+  Y --> N[git note refs/notes/selfcheck + JSON on stdout]
+  N --> H[pre-push hook gates main and release/*]
+```
+
+### Use it
+
+1. Build the runner image once. Podman is the default engine; with Docker set the engine variable:
+
+   ```
+   DESIGNC_CONTAINER_ENGINE=docker docker/runner/build.sh
+   ```
+2. Check HEAD: `DESIGNC_CONTAINER_ENGINE=docker scripts/selfcheck.sh`. Progress goes to stderr, one JSON record to stdout.
+3. Other forms: `--commit <sha>` checks another commit, `--stage tests|pytest|parity-of-rules` runs one stage, `--local` runs on the host without a container (recorded as env `local`, which the gate does not accept).
+4. See the last result for a commit: `scripts/selfcheck.sh --status [sha]`. It exits 0 only for a full, container, passing record.
+5. Gate pushes: `scripts/selfcheck.sh --install-hook`. A push to `main` or `release/*` is then refused unless the tip commit has a current container pass. Only the tip is checked, and `git push --no-verify` skips the hook. The hook will not overwrite one that is not ours.
+
+Exit codes: 0 pass, 1 a check failed, 2 could not run (no engine, no image, restore failed, bad arguments), 3 no record (`--status` only). A failed stage does not stop the later ones.
+
+A record is current only while `checks_hash` matches: the hash covers `scripts/selfcheck.sh` and `scripts/selfcheck/**` (`--checks-hash [sha]` prints it), so changing the checks invalidates old passes. Records live in `refs/notes/selfcheck`; push them with `git push origin refs/notes/selfcheck` if you want them shared.
+
+The Playwright/Electron e2e suite is not run (it needs the electron binary and a display). Environment variables: `DESIGNC_CONTAINER_ENGINE`, `DESIGNC_RUNNER_IMAGE` (default `designc-runner:latest`).
 
 ## Decision checks run on your machine
 

@@ -189,4 +189,15 @@ function conflicts(reg, draft = {}) {
   return { overlaps: Knowledge.overlaps(draft, reg.decisions.map(r => r.rec), { resolve: resolver(reg) }) };
 }
 
-module.exports = { open, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
+// The spec text for one acceptance case marked `holdout: true`, built by the code that builds the handover's generated specs
+// (Core.holdoutSpec), so the Factory can judge a case that is never in a handover. Reads acceptance/ in the registry; writes
+// nothing. {spec, sha256, state, element} or {error}. `case` is the case's index in the criterion's cases list.
+function holdoutSpec(reg, { criterion, case: index } = {}) {
+  if (!reg.model) return { error: 'the model is missing: nothing to name the element by' };
+  const crit = readYamlDir(reg.dir, 'acceptance').recs.map(r => r.rec);
+  const n = Number(index);
+  if (!Number.isInteger(n) || n < 0) return { error: `--case must be a case index (0 is the first), not ${index}` };
+  try { return Core.holdoutSpec({ model: reg.model, criteria: crit, criterion, index: n }); } catch (e) { return { error: e.message }; }
+}
+
+module.exports = { open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };

@@ -13,12 +13,15 @@ const CRITICAL = [
   'user can freeze a handover @critical',
   'user can extract the code map @critical',
   'user can extract one code map from an API repo and a UI repo @critical',
+  'user can add a second repo from the code map @critical',
   'user can see the UI graph of a screen @critical',
   'user can track a work item @critical',
   'user can study a topic and decide from it @critical',
   'user can pin a domain pack and see it checked @critical',
+  'user can pin a UI pack and see a screen spec checked against it @critical',
   'user can see legacy parity and what it holds a work item to @critical',
   'user can accept or dismiss a swept Jira issue @critical',
+  'user can see health on the C4 sheet @critical',
 ];
 const specs = () => fs.readdirSync(DIR).filter(f => f.endsWith('.spec.js'))
   .map(f => ({ f, text: fs.readFileSync(path.join(DIR, f), 'utf8') }));

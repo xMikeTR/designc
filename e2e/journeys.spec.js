@@ -95,7 +95,7 @@ test('user can extract one code map from an API repo and a UI repo @critical', a
   session = await launch(reg);
   const { page } = session;
   await page.getByRole('button', { name: 'Code map' }).click();
-  await expect(page.locator('#sbBody').getByText('Repos: Api, Ui')).toBeVisible();
+  await expect(page.locator('#sbBody').locator('[data-repo-row]')).toHaveText([/^Api/, /^Ui/]);
   await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
   await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
   const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
@@ -114,6 +114,31 @@ test('user can extract one code map from an API repo and a UI repo @critical', a
   const hits = await page.evaluate(() => host.searchCode(undefined, 'VITE_API', 20));
   expect(hits.length).toBeGreaterThan(0);
   expect(hits.every(h => /^(Api|Ui)\//.test(h.file))).toBe(true);
+});
+
+test('user can add a second repo from the code map @critical', async () => {
+  const { dir, reg } = copyRegistry('sample-registry', { codebase: true });
+  const ui = path.join(dir, 'ui'); fs.mkdirSync(ui);
+  session = await launch(reg);
+  const { app, page } = session;
+  // The folder picker is a native dialog: answer it with the folder, as a person would.
+  await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, ui);
+  await page.getByRole('button', { name: 'Code map' }).click();
+  const side = page.locator('#sbBody');
+  await side.getByRole('button', { name: 'Add a second repo' }).click();
+  // Name the new repo, then the existing codebase, which becomes a repo too.
+  await page.locator('.askcard input').fill('Ui');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await page.locator('.askcard input').fill('Api');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect(side.locator('[data-repo-row]')).toHaveCount(2);
+  const cfg = () => JSON.parse(fs.readFileSync(path.join(reg, 'designc.json'), 'utf8'));
+  expect(cfg().repos).toEqual({ Api: '../designc-sample-codebase', Ui: '../ui' });
+  expect(cfg().codebase).toBeUndefined();
+  // Remove drops one repo from designc.json and the list.
+  await side.getByRole('button', { name: 'Remove repo Ui' }).click();
+  await expect(side.locator('[data-repo-row]')).toHaveCount(1);
+  expect(cfg().repos).toEqual({ Api: '../designc-sample-codebase' });
 });
 
 test('user can see the UI graph of a screen @critical', async () => {
@@ -379,6 +404,154 @@ test('user can pin a domain pack and see it checked @critical', async () => {
   await expect(sidebar.getByText('fares/Booking', { exact: true })).toBeVisible();
 });
 
+test('user can pin a UI pack and see a screen spec checked against it @critical', async () => {
+  const { reg, dir } = copyRegistry('fixtures/ui-project');
+  fs.cpSync(path.join(__dirname, '..', 'fixtures/ui-pack-registry'), path.join(dir, 'ui-pack-registry'), { recursive: true });
+  fs.rmSync(path.join(reg, 'ui/pack'), { recursive: true });
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app' }, null, 2));
+  // D2: a criterion on the screen's component asks for a state the spec does not have (forbidden).
+  const dsl = path.join(reg, 'model/workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('app = softwareSystem "Bordereaux app"', 'app = softwareSystem "Bordereaux app" {\n      list = container "BordereauxList" "" "" "UI"\n    }'));
+  fs.mkdirSync(path.join(reg, 'acceptance'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), 'id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [ready, forbidden]\ncases:\n  - { state: ready, given: g, then: t }\n  - { state: forbidden, given: g, then: t }\n');
+  session = await launch(reg);
+  const { page } = session;
+  const asked = [];
+  page.on('dialog', d => asked.push(d.message()));
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // A spec with no pack: the gate says so and offers the pin.
+  const sidebar = page.locator('#sbBody');
+  await expect(sidebar.getByText('ui/specs/bordereaux.json /template: No UI pack is pinned')).toBeVisible();
+  await sidebar.locator('.clause').getByRole('button', { name: 'Pin' }).first().click();
+  // Pinning shows what is copied, writes ui/pack/ as the registry has it, and records who accepted it.
+  await expect.poll(() => asked.some(m => /Pin the UI pack from acme-ui\?.*Added: .*components\/Button\.json/s.test(m))).toBe(true);
+  const src = path.join(dir, 'ui-pack-registry/ui/components/Button.json');
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/pack/components/Button.json')) && fs.readFileSync(path.join(reg, 'ui/pack/components/Button.json'), 'utf8')).toBe(fs.readFileSync(src, 'utf8'));
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'ui_pinned').map(e => `${e.pack}:${e.registry}`)).toEqual(['acme-ui:acme-ui']);
+  await expect(sidebar.locator('.clause', { hasText: 'UI pack' })).toHaveCount(0);
+  // The bordereaux spec passes with its holdout; the section lists it.
+  await expect(sidebar.getByText('bordereaux', { exact: true })).toBeVisible();
+  await expect(sidebar.getByText('holdout', { exact: true })).toBeVisible();
+  // The state rule shows in the gate panel: forbidden is not a state of the bordereaux spec.
+  await expect(sidebar.getByText("acceptance/AC-1/states/1: State 'forbidden' is not in spec bordereaux")).toBeVisible();
+
+  // D3, check 4: the criterion is fixed, the Factory renders (a fixture row and files stand in for it), a person approves and binds.
+  const sha = b => require('crypto').createHash('sha256').update(b).digest('hex');
+  fs.writeFileSync(path.join(reg, 'acceptance/AC-1.yaml'), 'id: AC-1\nrequirement: R-1\nelement: BordereauxList\nstates: [ready, loading, empty, error]\ncases:\n' + ['ready', 'loading', 'empty', 'error'].map(st => `  - { state: ${st}, given: g, then: t }`).join('\n') + '\n');
+  const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
+  const pv = path.join(reg, 'ui/previews/bordereaux');
+  fs.mkdirSync(path.join(pv, 'placements'), { recursive: true });
+  const states = ['ready', 'loading', 'empty', 'error', 'filtered'], hashes = {};
+  for (const st of states) { const f = `${st}-chromium-linux.png`; fs.writeFileSync(path.join(pv, f), Buffer.concat([PNG, Buffer.from(st)])); hashes[f] = sha(fs.readFileSync(path.join(pv, f))); }
+  fs.writeFileSync(path.join(pv, 'placements/ready__header-chromium-linux.png'), PNG); hashes['placements/ready__header-chromium-linux.png'] = sha(PNG);
+  const specFile = path.join(reg, 'ui/specs/bordereaux.json');
+  const row = (kind, ts, extra) => JSON.stringify({ schema_version: 1, event_id: `e2e-${kind}-${ts}`, ts, by: 'factory', kind, ...extra }) + '\n';
+  const rendered = ts => row('ui_preview_rendered', ts, { screen: 'bordereaux', spec_hash: sha(fs.readFileSync(specFile)), files: hashes, image: 'ready-chromium-linux.png' });
+  fs.appendFileSync(path.join(reg, 'ledger/designc.jsonl'), rendered(Date.now() - 60000));
+  await expect(sidebar.getByText('ui/specs/bordereaux.json: spec not bound. Check the previews, then press Approve and bind')).toBeVisible();
+  await expect(sidebar.getByRole('img', { name: /Preview of bordereaux: ready/ })).toBeVisible();
+  // Render previews types the command and stops: nothing runs.
+  await sidebar.getByRole('button', { name: 'Render previews' }).click();
+  await expect(page.locator('#termBody')).toContainText('preview --registry');
+  await expect(page.locator('#termBody')).toContainText('--screen');
+  await expect(page.locator('#termBody')).toContainText('--repo');
+  // D5: a UI-scoped work item. Before approval its handover is refused, and nothing is written.
+  fs.mkdirSync(path.join(reg, 'work'), { recursive: true }); fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/R-1.yaml'), 'id: R-1\ntitle: See received bordereaux\nsource: ""\nversion: 1\nelements: [BordereauxList]\n');
+  fs.writeFileSync(path.join(reg, 'work/W-ui.yaml'), 'id: W-ui\ntitle: Bordereaux screen\nrequirement: R-1\nelements: [BordereauxList]\ndone_when:\n  - gate: "true"\n');
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const wi = page.locator('[data-workitem="W-ui"]');
+  await expect(wi).toBeVisible();
+  await expect(wi.getByRole('button', { name: 'Freeze item' })).toBeDisabled();
+  expect(fs.existsSync(path.join(reg, 'handovers'))).toBe(false);
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await sidebar.getByRole('button', { name: 'Approve and bind' }).click();
+  await expect.poll(() => JSON.parse(fs.readFileSync(specFile, 'utf8')).status).toBe('bound');
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'ui_spec_bound' || e.kind === 'ui_preview_approved').map(e => e.kind)).toEqual(['ui_spec_bound', 'ui_preview_approved']);
+  const approved = readLedger(reg, 'designc.jsonl').find(e => e.kind === 'ui_preview_approved');
+  expect(approved.spec).toBe(sha(fs.readFileSync(specFile)));
+  expect(approved.files).toEqual(hashes);
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: spec not bound/)).toHaveCount(0);
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: (previews not approved|approval is stale)/)).toHaveCount(0);
+  // D5, closing D3's freeze step: with the approval valid the item freezes, and the handover carries ui.json and the approved pictures.
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(wi.getByText('Gate for this item: ready.', { exact: false })).toBeVisible();
+  await wi.getByRole('button', { name: 'Freeze item' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'handovers')) && fs.readdirSync(path.join(reg, 'handovers')).length).toBe(1);
+  const hid = fs.readdirSync(path.join(reg, 'handovers'))[0], hdir = path.join(reg, 'handovers', hid);
+  const uij = JSON.parse(fs.readFileSync(path.join(hdir, 'ui.json'), 'utf8'));
+  expect(uij.schema).toBe('designc.handover.ui/1');
+  expect(uij.screens.map(x => x.screen)).toEqual(['bordereaux']);
+  expect(uij.screens[0].previews.files).toEqual(hashes);
+  for (const [rel, h] of Object.entries(hashes)) expect(sha(fs.readFileSync(path.join(hdir, 'ui/previews/bordereaux', rel)))).toBe(h);
+  expect(fs.existsSync(path.join(hdir, 'ui/specs/bordereaux.json'))).toBe(true);
+  expect(fs.existsSync(path.join(hdir, 'ui/holdout'))).toBe(false);
+  const holdText = fs.readFileSync(path.join(reg, 'ui/holdout/bordereaux.json'), 'utf8');
+  expect(uij.screens[0].holdout.sha256).toBe(require('../renderer/ui.js').sha256(holdText));
+  const leak = JSON.parse(holdText).bordereaux[0].Cedant;
+  for (const f of fs.readdirSync(hdir, { recursive: true })) { const full = path.join(hdir, f); if (fs.statSync(full).isFile() && !f.endsWith('.png')) expect(fs.readFileSync(full, 'utf8')).not.toContain(leak); }
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // A new render, even of the same bytes, takes the approval away; the button now says Approve previews.
+  fs.appendFileSync(path.join(reg, 'ledger/designc.jsonl'), rendered(Date.now() + 60000));
+  await expect(sidebar.getByText(/^ui\/specs\/bordereaux\.json: approval is stale: rendered again since/)).toBeVisible();
+  await expect(sidebar.getByRole('button', { name: 'Approve previews' })).toBeVisible();
+});
+
+test('the Compose stage mints a spec behind a card, and a spec that fails its checks is refused @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/ui-project');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'compose' } } } }, null, 2));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('compose');
+  await page.locator('#agInput').fill('Compose the orders screen');
+  await page.locator('#agSend').click();
+  // The spec that fails its checks is refused with its clauses: no card, nothing written.
+  await expect(page.locator('#agent')).toContainText('fails its checks');
+  await expect(page.locator('#agent')).toContainText("Unknown template 'no-such-template'");
+  // The good one shows the placements as a table, and writes nothing until Approve.
+  const card = page.locator('#agent .agcard');
+  await expect(card.locator('table.uispec th')).toHaveText(['Slot', 'Component', 'Data', 'Why']);
+  expect(fs.existsSync(path.join(reg, 'ui/specs/orders.json'))).toBe(false);
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/orders.json')) && JSON.parse(fs.readFileSync(path.join(reg, 'ui/specs/orders.json'), 'utf8')).status).toBe('minted');
+});
+
+test('a legacy spec is drafted by the agent and copied as a new spec by the person @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/ui-project');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'legacy' } } } }, null, 2));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('compose');
+  await page.locator('#agInput').fill('Draft the legacy invoices screen');
+  await page.locator('#agSend').click();
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('Draft legacy spec invoices');
+  expect(fs.existsSync(path.join(reg, 'ui/legacy/invoices.json'))).toBe(false);
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/legacy/invoices.json'))).toBe(true);
+  // No agent tool writes ui/specs: only the person's button does, byte for byte, and it never overwrites.
+  expect(fs.existsSync(path.join(reg, 'ui/specs/invoices.json'))).toBe(false);
+  const led = () => { try { return fs.readFileSync(path.join(reg, 'ledger/designc.jsonl'), 'utf8'); } catch { return ''; } }, ledgerBefore = led();
+  const row = page.locator('#sbBody .item').filter({ hasText: 'invoices' });
+  await row.getByRole('button', { name: 'Copy as new spec' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/invoices.json'))).toBe(true);
+  expect(fs.readFileSync(path.join(reg, 'ui/specs/invoices.json'), 'utf8')).toBe(fs.readFileSync(path.join(reg, 'ui/legacy/invoices.json'), 'utf8'));
+  expect(led()).toBe(ledgerBefore);
+  await expect(page.locator('#sbBody .uidiff')).toContainText('nothing');
+  await expect(page.locator('#sbBody .item').filter({ hasText: 'invoices' }).getByRole('button', { name: 'Copy as new spec' })).toBeDisabled();
+});
+
 test('user can see legacy parity and what it holds a work item to @critical', async () => {
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
@@ -417,6 +590,46 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   await expect(page.locator('#termBody')).toContainText('parity-record.js');
   await expect(page.locator('#termBody')).toContainText('tags-list');
   expect(fs.readFileSync(report, 'utf8')).toBe(before);
+});
+
+test('user can record the QA bugs as escapes, once', async () => {
+  const { reg } = copyRegistry('fixtures/system3-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const lines = () => fs.readFileSync(path.join(reg, 'ledger/designc.jsonl'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  const before = lines().length;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await page.locator('#special').getByRole('button', { name: 'Show parity' }).first().click();
+  const special = page.locator('#special');
+  await expect(special.getByRole('heading', { name: /^QA bugs/ })).toBeVisible();
+  await special.getByRole('button', { name: 'Record QA escapes' }).click();
+  await expect.poll(() => lines().length).toBe(before + 5);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'Recorded 5 QA escapes' })).toBeVisible();
+  const mine = lines().filter(e => String(e.id).startsWith('qa-bordereaux-'));
+  expect(mine.map(e => e.id).sort()).toEqual(['qa-bordereaux-BDX-1', 'qa-bordereaux-BDX-2', 'qa-bordereaux-BDX-3', 'qa-bordereaux-BDX-4', 'qa-bordereaux-BDX-5']);
+  expect(mine.find(e => e.id === 'qa-bordereaux-BDX-1')).toMatchObject({ kind: 'escape', screen: 'bordereaux', bucket: 'caught', caught_by: 'parity' });
+  expect(JSON.stringify(mine)).not.toContain('Inception dates show year first');
+  // The bug with no where and kind needs triage: it is not recorded. A second press adds nothing.
+  await special.getByRole('button', { name: 'Record QA escapes' }).click();
+  await expect(page.locator('#toasts .toast').filter({ hasText: '5 already recorded' })).toBeVisible();
+  expect(lines().length).toBe(before + 5);
+});
+
+test('Improve shows time to signal, escape rate and review veto and recovery per screen', async () => {
+  const { reg } = copyRegistry('fixtures/system3-registry');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Improve', exact: true }).click();
+  const s3 = page.locator('[data-system3]');
+  await expect(s3).toBeVisible();
+  await s3.getByLabel('Screen').selectOption('bordereaux');
+  const row = s3.locator('tr[data-s3stage="ui-visual"]');
+  await expect(row).toContainText('10 s (n=1)');
+  await expect(row).toContainText('67% (2 of 3)');
+  await expect(s3.locator('[data-s3="review-veto"]')).toContainText('1 of 1 (100%)');
+  await expect(s3.locator('[data-s3="review-recovery"]')).toContainText('1 of 1 (100%)');
+  await s3.getByLabel('Screen').selectOption('summary');
+  await expect(s3.locator('[data-s3="review-veto"]')).not.toContainText('1 of 1');
 });
 
 test('user can accept or dismiss a swept Jira issue @critical', async () => {
@@ -474,4 +687,30 @@ test('a gate clause on a check offers the next step, and the TODO is replaced on
   // set_check fills a decision that has none.
   await page.evaluate(async () => { await WRITERS.set_check({ decision: 'D-0002', check: 'bash ./checks/b.sh', summary: 'x' }).apply(); });
   await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks:\n  - "?bash \.\/checks\/b\.sh/m);
+});
+
+test('user can see health on the C4 sheet @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  // The model holds the claims; health.json holds the evidence, keyed by the handover id (names joined by "/").
+  const dsl = path.join(reg, 'model', 'workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('"d.instances" "3"', '"d.instances" "3"\n          "d.idempotent" "yes"\n          "d.cached" "ttl 5m"'));
+  const health = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'health.example.json'), 'utf8'));
+  health.elements = { 'Fares Platform/Fares API': health.elements['Pricing/Quotes'] };
+  fs.writeFileSync(path.join(reg, 'health.json'), JSON.stringify(health));
+  session = await launch(reg);
+  const { page } = session;
+  // Off by default: the sheet is as it always was.
+  await expect(page.locator('#sheetscroll .chip')).toHaveCount(0);
+  await page.locator('#sheetBadges').selectOption('health');
+  // The element's finding count, and one chip per property: claimed, with no check fresh against git yet, so declared.
+  const api = page.locator('#sheetscroll .node', { hasText: 'Fares API' });
+  await expect(api.locator('text', { hasText: /^14$/ })).toHaveCount(1);
+  await expect(api.locator('.chip')).toHaveText(['idempotent: declared', 'cached: declared']);
+  await expect(page.locator('#sheetscroll .chip')).toHaveCount(2); // nothing is drawn for elements the file does not mention
+  // Headline numbers on the title block; selecting the element adds its findings by category.
+  const block = page.locator('#titleblock');
+  await expect(block).toContainText('2 properties'); // both claimed, neither verified
+  await expect(block).toContainText('3 findings');
+  await api.click();
+  await expect(block).toContainText('8 smell, 3 duplication, 2 dead-code, 1 security (2 new)');
 });

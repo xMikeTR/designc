@@ -9,8 +9,11 @@ const dialog = E2E ? {
   showOpenDialog: (...a) => e2eDialog('showOpenDialog', a),
   showMessageBox: (...a) => e2eDialog('showMessageBox', a),
 } : nativeDialog;
+const nativeOriginals = { showOpenDialog: nativeDialog.showOpenDialog, showMessageBox: nativeDialog.showMessageBox };
 async function e2eDialog(kind, args) {
   if (typeof global.designcE2eDialog === 'function') return global.designcE2eDialog(kind, args[args.length - 1]);
+  // A test may also replace the method on Electron's dialog itself: that is a stub, so call it.
+  if (nativeDialog[kind] !== nativeOriginals[kind]) return nativeDialog[kind](...args);
   throw new Error(`native dialog in e2e: stub it with app.evaluate (${kind}: ${(args[args.length - 1] || {}).title || ''})`);
 }
 const shell = E2E ? {
@@ -52,7 +55,7 @@ function inside(rel) {
   return confine(root, rel);
 }
 const toRel = abs => path.relative(root, abs).split(path.sep).join('/');
-const { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages } = require('./paths');
+const { commandCheck, confine, childEnv, isTrusted, trustChoices, registryDir, readPages, previewHashes, specHash, previewImage, copyPreviews } = require('./paths');
 const SKIP = new Set(['.git', 'node_modules', '.venv', 'bin', 'obj', '.idea', '.vs']);
 
 async function tree(abs, depth = 0) {
@@ -203,6 +206,12 @@ handle('parity:shot', async sha => {
   if (typeof sha !== 'string' || !/^[0-9a-f]{64}$/.test(sha)) return null;
   try { return `data:image/png;base64,${(await fsp.readFile(inside(`parity/shots/${sha}.png`))).toString('base64')}`; } catch { return null; }
 });
+// UI previews, read-only (paths.js): the hash of every file under ui/previews/<screen>/ (so the renderer need not hash a PNG), the hash of
+// the spec file on disk, and one page picture as a data URL (never a placement). The screen must be [a-z0-9-]+.
+handle('ui:previewHashes', async screen => { if (!root) throw new Error('No folder is open'); return previewHashes(root, screen); });
+handle('ui:specHash', async screen => { if (!root) throw new Error('No folder is open'); return specHash(root, screen); });
+handle('ui:copyPreviews', async entries => { if (!root) throw new Error('No folder is open'); return copyPreviews(root, entries); });
+handle('ui:previewImage', async (screen, rel) => { if (!root) throw new Error('No folder is open'); return previewImage(root, screen, rel); });
 // What the Parity view's buttons need on this machine, read-only. The recorder and Playwright are not in an installer,
 // so `record` is null there and the view says to run from source. Paths only; nothing is started.
 handle('parity:tools', async () => {

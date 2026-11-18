@@ -38,8 +38,8 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
   }
 }
 const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
-const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap' };
-const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['pipeline', 'Pipeline']];
+const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap', catalogue_gap: 'Catalogue gap' };
+const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
   const stageKeys = STAGES.map(([k]) => k).sort().join(',');
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
@@ -47,7 +47,7 @@ if (typeof Ledger !== 'undefined') {
 }
 const REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance'];
 // Files whose change reloads the registry: the gate's inputs plus work items (which never reach the gate).
-const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/');
+const isRegPath = p => REG_DIRS.some(d => p.startsWith(d + '/')) || p.startsWith('work/') || p.startsWith('inbox/') || p.startsWith('verdicts/') || p.startsWith('procedures/') || p.startsWith('study/') || p.startsWith('domain/') || p.startsWith('ui/');
 
 // ---------------------------------------------------------------- state
 const A = {
@@ -65,7 +65,7 @@ const A = {
   selected: null, zoom: 'fit', cursor: null,
   asbuilt: null, facts: null, drift: null, extracting: false, cmSel: null, cmZoom: 'fit', showGhost: true,
   cmLevel: 'container', cmScope: null, asbuiltFull: null, cdrift: null,
-  tel: { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: null, loading: false }, badges: 'findings',
+  health: null, tel: { runs: [], tasks: { spans: [], empty: 0 }, meta: null, error: null, loading: false }, badges: 'findings',
   canvasApi: null, canvasLayout: null,
   regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
@@ -129,6 +129,7 @@ async function loadSettings() {
   A.kind = k.kind; A.kindProblem = k.problem;
   $('#shell').classList.toggle('kind-study', A.kind === 'study');
   $('#shell').classList.toggle('kind-domain', A.kind === 'domain');
+  $('#shell').classList.toggle('kind-ui', A.kind === 'ui');
 }
 // study/*.yaml: topics of a study registry (designc.json kind study). Read only there; a problem shows in Problems.
 async function loadStudies() {
@@ -167,7 +168,7 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains();
+  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains(); await loadUi();
 }
 // domain/<key>.yaml: the pinned copies of domain packs. The source of each pin is read from the sibling registry the
 // pin names (read-only); null when it cannot be read, which the gate states as an unknown, never as a block.
@@ -202,6 +203,141 @@ async function pinDomain(key) {
   await host.write(path, text);
   await recordEvent('domain_pinned', { pack: key, registry, hash: Core.evalHash({ _text: text }) });
   toast(`Pinned ${key} from ${registry}.`, 'info');
+}
+// ui/pack/ (the pinned copy of a UI pack), ui/specs/ and ui/holdout/. The gate runs the UI checks only when one of them
+// exists. The source of the pin is read from the sibling registry it names (read-only); null when it cannot be read,
+// which the gate states as an unknown, never as a block. uiRegistries are the listed registries that hold a UI pack,
+// so the first Pin has somewhere to start.
+async function uiSource(registry) {
+  try {
+    const components = await host.registryList(registry, 'ui/components', ['.json']), templates = await host.registryList(registry, 'ui/templates', ['.json']);
+    return components.length || templates.length ? { components, templates } : null;
+  } catch { return null; }
+}
+async function loadUi() {
+  A.ui = null; A.uiRegistries = [];
+  const files = async d => (await host.list(d, ['.json'])).map(f => ({ path: f.path, text: textOf(f.path) ?? f.text }));
+  const pack = { components: await files('ui/pack/components'), templates: await files('ui/pack/templates') };
+  const specs = await files('ui/specs'), holdouts = await files('ui/holdout'), legacy = await files('ui/legacy');
+  try { for (const r of await host.registries()) if (r.exists && await uiSource(r.key)) A.uiRegistries.push(r.key); } catch { /* none listed */ }
+  if (!pack.components.length && !pack.templates.length && !specs.length && !holdouts.length && !legacy.length) return;
+  const pin = Ui.latestPin(A.ledger || []), sources = {};
+  if (pin && (pack.components.length || pack.templates.length)) sources[pin.pack] = await uiSource(pin.registry);
+  // parity/scenarios, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's).
+  const scenarios = [];
+  try { for (const f of await host.list('parity/scenarios', ['.yaml', '.yml'])) { try { const o = jsyaml.load(textOf(f.path) ?? f.text); if (o && typeof o === 'object' && !Array.isArray(o)) scenarios.push(o); } catch { /* parity says so */ } } } catch { /* none */ }
+  // Check 4 reads the disk, not a buffer: the hash of each spec file and of every preview file under its screen's folder.
+  const previews = {}, specHashes = {};
+  for (const f of specs) {
+    const screen = f.path.split('/').pop().replace(/\.json$/, '');
+    if (!/^[a-z0-9-]+$/.test(screen)) continue;
+    try { previews[screen] = await host.uiPreviewHashes(screen); specHashes[screen] = await host.uiSpecHash(screen); } catch { /* the gate then says the previews are not rendered */ }
+  }
+  A.ui = { pack, specs, legacy, holdouts, sources, scenarios, previews, specHashes };
+  // The page pictures people look at (a .png directly in the screen's folder; placements are never shown), cached by hash.
+  A.uiImages = A.uiImages || {};
+  for (const [screen, fs_] of Object.entries(previews)) for (const [rel, h] of Object.entries(fs_)) {
+    if (rel.includes('/') || !rel.endsWith('.png') || A.uiImages[`${screen}/${rel}@${h}`] !== undefined) continue;
+    try { A.uiImages[`${screen}/${rel}@${h}`] = await host.uiPreviewImage(screen, rel); } catch { A.uiImages[`${screen}/${rel}@${h}`] = null; }
+  }
+}
+// Render previews: types the Factory's preview command into the Terminal for a person to run. Nothing runs from here.
+// The one place the command is built, for the button and for the request_preview card: {line} or {error}.
+function uiPreviewLine(screen) {
+  if (!A.cfg.codebase) return { error: 'Set codebase in designc.json first: the previews are rendered with the app\'s own component library.', warn: true };
+  const abs = /^([A-Za-z]:|[\\/])/.test(A.cfg.codebase) ? A.cfg.codebase : `${A.root.root.replace(/[\\/]$/, '')}/${A.cfg.codebase}`;
+  const f = A.cfg.factory, factory = typeof f === 'string' ? f : f && typeof f.command === 'string' ? f.command : null;
+  const line = Dispatch.uiPreview({ factory, registry: A.root.root, screen, repo: abs }, A.platform);
+  return line.error ? { error: line.error } : { line };
+}
+async function renderUiPreviews(screen) {
+  const r = uiPreviewLine(screen);
+  if (r.error) return toast(r.error, r.warn ? 'warning' : 'error');
+  return typeInTerminal(r.line, 'Render previews');
+}
+// Approve (and bind) a screen's previews. Binding rewrites the spec (status: bound), which changes its bytes, so approving first
+// would be stale at once: it is one action. The ledger gets ui_spec_bound (when it binds) and ui_preview_approved with the hash of
+// the spec as it is now on disk and of every file under the screen's previews. A person only; `designc record` refuses both.
+async function approveUiPreviews(screen) {
+  const f = ((A.ui && A.ui.specs) || []).find(x => x.path === `ui/specs/${screen}.json`);
+  let spec = null; try { spec = f ? JSON.parse(textOf(f.path) ?? f.text) : null; } catch { /* the gate says so */ }
+  if (!spec) return;
+  const b = A.buffers.get(f.path);
+  if (b && b.dirty) return toast(`${f.path} has unsaved edits. Save it first, so what you approve is the file on disk.`, 'warning');
+  const st = Ui.approveState({ spec, path: f.path, ledger: A.ledger, clauses: (A.gate.clauses || []).filter(c => c.kind === 'ui'), previews: A.ui.previews, specHashes: A.ui.specHashes });
+  if (!st || !st.enabled) return toast(st ? st.why : `${screen} cannot be approved in this status.`, 'warning');
+  const binds = spec.status === 'minted';
+  if (!confirm(`${st.label} for ${screen}? You, ${A.user}, say the page pictures in ui/previews/${screen}/ are the screen you want${binds ? ', and bind the spec: it is then frozen, and a change is a new spec' : ''}. Rendering again, or editing a picture or the spec, undoes the approval.`)) return;
+  if (binds) {
+    const text = await host.read(f.path);
+    await host.write(f.path, JSON.stringify({ ...JSON.parse(text), status: 'bound' }, null, 2) + (/\n$/.test(text) ? '\n' : ''));
+  }
+  const hash = await host.uiSpecHash(screen), files = await host.uiPreviewHashes(screen);
+  if (binds) await recordEvent('ui_spec_bound', { screen, hash });
+  await recordEvent('ui_preview_approved', { screen, spec: hash, files });
+  toast(binds ? `Bound ${screen} and approved its previews.` : `Approved the previews of ${screen}.`, 'info');
+}
+// Pin or re-pin the UI pack: a person's copy of the registry's ui/components and ui/templates as they are now, shown as a
+// diff first, with the hash of the copy in the ledger. The pack is named after its registry. Nothing else writes ui/pack/.
+async function pinUi(hint) {
+  const pin = Ui.latestPin(A.ledger || []), regs = Object.keys(A.cfg.registries || {});
+  const candidates = A.uiRegistries && A.uiRegistries.length ? A.uiRegistries : regs;
+  const registry = hint && regs.includes(hint) ? hint : pin ? pin.registry : candidates.length > 1 ? await askChoice('Pin the UI pack from which registry?', candidates.map(r => ({ value: r, label: r }))) : candidates[0];
+  if (!registry) return toast('No registry is listed in designc.json registries. Add the registry that holds the UI pack, then pin.', 'warning');
+  const dirty = [...A.buffers].find(([id, b]) => id.startsWith('ui/pack/') && b.dirty);
+  if (dirty) return toast(`${dirty[0]} has unsaved edits. Save or close it first.`, 'warning');
+  const src = await uiSource(registry);
+  if (!src) return toast(`No ui/components or ui/templates could be read from the ${registry} registry. Check the folder in designc.json registries.`, 'error');
+  const read = Ui.readPack(src, Ui.tokenGroups(A.tokens));
+  if (read.problems.length) return toast(`The pack in ${registry} has problems: ${read.problems[0]}${read.problems.length > 1 ? ` (and ${read.problems.length - 1} more)` : ''}. Fix it there, then pin.`, 'error');
+  const files = Ui.packFiles(src, 'ui/'), now = Ui.packFiles(A.ui ? A.ui.pack : { components: [], templates: [] }, 'ui/pack/');
+  const d = Ui.packDiff(now, files), same = !d.added.length && !d.removed.length && !d.changed.length;
+  const list = (t, xs) => (xs.length ? `\n${t}: ${xs.join(', ')}` : '');
+  if (!confirm(`${now.length ? 'Re-pin' : 'Pin'} the UI pack from ${registry}? Copying it into ui/pack/ means you, ${A.user}, accept this version: the gate checks every screen spec against it.${same ? '\nNo file differs from what is here.' : list('Added', d.added) + list('Removed', d.removed) + list('Changed', d.changed)}`)) return;
+  for (const f of files) await host.write(`ui/pack/${f.path}`, f.text);
+  for (const p of d.removed) await host.remove(`ui/pack/${p}`);
+  await recordEvent('ui_pinned', { pack: registry, registry, hash: Ui.packHash(files, Core._shared.hash16) });
+  toast(`Pinned the UI pack from ${registry}.`, 'info');
+}
+// What a spec changed from the legacy spec it was copied from (Ui.specDiff), as a list the person can read.
+function uiDiffPanel(d) {
+  const L = [];
+  if (d.template) L.push(`template ${d.template.from} to ${d.template.to}`);
+  for (const k of ['added', 'removed', 'changed']) for (const p of d.placements[k]) L.push(`placement ${k}: ${p.key}${p.fields ? ' (' + p.fields.join(', ') + ')' : ''}`);
+  for (const k of ['added', 'removed']) for (const x of d.states[k]) L.push(`state ${k}: ${x}`);
+  for (const k of ['added', 'removed', 'changed']) for (const x of d.data[k]) L.push(`data ${k}: ${typeof x === 'string' ? x : x.name || x.key || JSON.stringify(x)}`);
+  return `<div class="uidiff hint" style="margin-top:6px"><b>Changed from legacy</b>${L.length ? `<ul>${L.map(x => `<li>${esc(x)}</li>`).join('')}</ul>` : ': nothing. This spec is still the legacy spec.'}</div>`;
+}
+async function copyLegacySpec(screen) {
+  const from = `ui/legacy/${screen}.json`, to = `ui/specs/${screen}.json`;
+  if (((A.ui && A.ui.specs) || []).some(f => f.path === to) || await host.read(to).then(() => true, () => false)) return toast(`${to} exists already. Copy as new spec never overwrites a spec.`, 'warning');
+  const text = await host.read(from);
+  await host.write(to, text);
+  toast(`Copied ${from} to ${to}. Edit the copy; the gate compares it with the legacy spec.`, 'info');
+  await loadUi(); renderAll();
+}
+// UI: the pinned pack, and each screen spec with whether it has a holdout. Notes never block the gate.
+function uiBody() {
+  const pin = Ui.latestPin(A.ledger || []), have = A.ui && (A.ui.pack.components.length || A.ui.pack.templates.length);
+  const pack = `<div class="item"><div class="l1"><span class="id">${esc(pin ? pin.pack : 'UI pack')}</span><span class="tag ${pin && have ? 'bound' : 'open'}">${pin && have ? 'pinned' : 'not pinned'}</span>${pin ? `<span class="desc">from ${esc(pin.registry)}</span>` : ''}</div>
+    <div class="acts"><button class="lnk" data-pinui="${esc(pin ? pin.registry : '*')}">${pin && have ? 'Re-pin' : 'Pin'}</button></div></div>`;
+  const held = new Set(((A.ui && A.ui.holdouts) || []).map(f => f.path.split('/').pop().replace(/\.json$/, '')));
+  const uiClauses = ((A.gate && A.gate.clauses) || []).filter(c => c.kind === 'ui');
+  const specs = ((A.ui && A.ui.specs) || []).map(f => { const n = f.path.split('/').pop().replace(/\.json$/, '');
+    let spec = null; try { spec = JSON.parse(textOf(f.path) ?? f.text); } catch { /* the gate says so */ }
+    const ap = spec ? Ui.approveState({ spec, path: f.path, ledger: A.ledger || [], clauses: uiClauses, previews: A.ui.previews || {}, specHashes: A.ui.specHashes || {} }) : null;
+    const pics = Object.entries(A.ui.previews[n] || {}).filter(([rel]) => !rel.includes('/') && rel.endsWith('.png')).map(([rel, h]) => ({ rel, url: (A.uiImages || {})[`${n}/${rel}@${h}`] })).filter(x => x.url);
+    const lf = ((A.ui && A.ui.legacy) || []).find(x => x.path === `ui/legacy/${n}.json`); let lspec = null; try { lspec = lf && spec ? JSON.parse(lf.text) : null; } catch { /* a note says so */ }
+    const dp = lspec ? uiDiffPanel(Ui.specDiff(lspec, spec)) : '';
+    return `<div class="item"><div class="l1" data-open="${esc(f.path)}"><span class="id">${esc(n)}</span>${spec && spec.status ? `<span class="tag ${spec.status === 'bound' ? 'bound' : 'minted'}">${esc(spec.status)}</span>` : ''}<span class="tag ${held.has(n) ? 'bound' : 'open'}">${held.has(n) ? 'holdout' : 'no holdout'}</span></div>
+      <div class="acts"><button class="lnk" data-uirender="${esc(n)}" title="Types the Factory's preview command into the Terminal. You press Enter">Render previews</button>${ap ? `<button class="lnk" data-uiapprove="${esc(n)}" ${ap.enabled ? '' : 'disabled'} title="${esc(ap.enabled ? 'Records that you approve the page pictures below' : ap.why)}">${esc(ap.label)}</button>` : ''}</div>
+      ${dp}${pics.length ? `<div class="uipics" style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px">${pics.map(x => `<figure style="margin:0;max-width:140px"><img alt="Preview of ${esc(n)}: ${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}" src="${x.url}" style="max-width:140px;border:1px solid var(--border,#888)"><figcaption style="font-size:11px">${esc(x.rel.replace(/-[a-z]+-[a-z0-9]+\.png$/, ''))}</figcaption></figure>`).join('')}</div>` : ''}</div>`; }).join('');
+  const have_ = new Set(((A.ui && A.ui.specs) || []).map(f => f.path.split('/').pop()));
+  const legacyRows = ((A.ui && A.ui.legacy) || []).map(f => { const file = f.path.split('/').pop(), n = file.replace(/\.json$/, ''), made = have_.has(file);
+    return `<div class="item"><div class="l1" data-open="${esc(f.path)}"><span class="id">${esc(n)}</span><span class="tag open">legacy</span>
+      <div class="acts"><button class="lnk" data-uicopy="${esc(n)}" ${made ? 'disabled' : ''} title="${esc(made ? `ui/specs/${file} exists already` : 'Writes ui/specs/' + file + ' as a copy of this legacy spec, for you to edit')}">Copy as new spec</button></div></div></div>`; }).join('');
+  const notes = ((A.gate && A.gate.notes) || []).filter(n => /^ui\/|registry could not be read/.test(n));
+  return pack + legacyRows + specs + notes.map(n => `<div class="hint">note: ${esc(n)}</div>`).join('');
 }
 // factory/tasks/*.yaml: eval tasks for the Build pipeline. Their hash is of the text on disk (or in an open buffer), so
 // binding pins exactly what was read. Not a gate input.
@@ -369,6 +505,8 @@ async function recordSessionEvent(kind, { session_id, payload, parent_session_id
   return sendLedgerEvent({ kind, project: A.cfg.project || (A.root ? A.root.name : ''), session_id, payload, parent_session_id, agent_id, acting_as });
 }
 const layoutPathFor = p => p.replace(/\.dsl$/, '') + '.layout.json';
+// health.json: evidence for the health overlay. Optional and read-only; absent or unreadable means the map renders as before.
+async function loadHealth() { try { const t = await readText('health.json'); A.health = t == null ? null : JSON.parse(t); } catch { A.health = null; } }
 async function loadModel() { A.modelText = (await readText(A.cfg.model)) ?? ''; await loadCanvasLayout(); }
 async function loadCanvasLayout() {
   const t = await readText(layoutPathFor(A.cfg.model));
@@ -407,7 +545,7 @@ function cmQualityBadge(e) {
 function recompile() {
   A.model = Core.parse(A.modelText);
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), workStates: Work.states(A.work || [], A.ledger || []) });
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), ui: A.ui, workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -415,7 +553,7 @@ function recompile() {
   setMarkers();
 }
 async function reloadAll() {
-  await loadSettings(); await loadModel(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
+  await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadUi(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
 }
 
 // ---------------------------------------------------------------- telemetry (Langfuse)
@@ -697,8 +835,8 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour')) await loadRegistry();
-  if (any('ledger')) { await loadLedger(); await loadDomains(); }
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
 }
@@ -1050,7 +1188,7 @@ async function newProposal(p = {}) {
   const id = Core.slugId(p.statement || p.kind || 'proposal', A.proposals.map(x => x.id));
   await createAndOpen(`proposals/${id}.yaml`, `id: ${id}
 status: minted          # minted | checked | bound | rejected
-kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing
+kind: ${p.kind || 'lint rule'}         # lint rule | P property | grill-me question | gate clause | eval case | routing | catalogue gap
 evidence: ${yamlStr(p.evidence || '')}
 statement: ${p.statement ? yamlStr(p.statement) : 'TODO the change to Design or Build'}
 check: ${yamlStr(p.check || '')}
@@ -1197,9 +1335,27 @@ async function freezeOnce(item) {
     if (c.error) { toast(c.error, 'warning'); return; }
     contracts = c.contracts || null;
   }
+  // The UI half (D5): the gate has already checked the approval against the disk, so the disk hashes are the approved ones. The
+  // holdout files are hashed here and never put in the plan; their text stays in ui/holdout/.
+  let uiIn = null;
+  if (A.ui && (A.ui.specs || []).length) {
+    const pin = Ui.latestPin(A.ledger || []), previews = [];
+    for (const f of A.ui.specs) {
+      let sp; try { sp = JSON.parse(f.text); } catch { continue; }
+      if (!sp || !sp.screen) continue;
+      const ap = (A.ledger || []).filter(e => e.kind === 'ui_preview_approved' && e.screen === sp.screen).reduce((b, e) => (!b || (e._ts || 0) >= (b._ts || 0) ? e : b), null);
+      previews.push({ screen: sp.screen, approved_ts: ap ? ap._ts || null : null, files: ap ? (A.ui.previews[sp.screen] || {}) : {} });
+    }
+    const holdouts = {};
+    for (const h of A.ui.holdouts || []) holdouts[h.path.split('/').pop().replace(/\.json$/, '')] = Ui.sha256(h.text);
+    uiIn = { specs: A.ui.specs, pack: A.ui.pack, pin: pin ? { name: pin.pack, hash: pin.hash } : null, previews, holdouts };
+  }
+  // The as-built facts, only to map tests to elements (D6): hashed into the id, never copied.
+  const factsRaw = await readText('asbuilt/facts.json'), factsIn = factsRaw ? { text: factsRaw } : null;
   let plan;
   try {
     plan = Core.handoverPlan({
+      ui: uiIn, facts: factsIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
@@ -1228,7 +1384,13 @@ async function freezeOnce(item) {
   const ask = (item
     ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
-  if (!confirm(ask)) return;
+  const uncovered = plan.testsUnmapped && plan.testsUnmapped.length ? `\n\nNo existing test covers: ${plan.testsUnmapped.map(u => u.element).join(', ')}. The tests the agent writes are their only cover (tests.json).` : '';
+  if (!confirm(ask + uncovered)) return;
+  // Preview pictures are binary: the main process copies them first, re-hashing every one against the id and writing nothing
+  // unless all still match (a picture changed since approval refuses the freeze before any file is written).
+  if ((plan.binaryCopies || []).length) {
+    try { await host.uiCopyPreviews(plan.binaryCopies); } catch (e) { toast(`Not frozen: ${String(e.message || e)}`, 'error'); return; }
+  }
   for (const f of plan.files) await host.write(f.path, f.text);
   const rev = plan.files[0].text.match(/^revision: r-(\w+)/m)[1];
   // An item handover follows the gate scoped to that item; recording the whole model's gate would say nothing about it.
@@ -1464,7 +1626,7 @@ function treeHTML(nodes, depth) {
   }).join('');
 }
 function checkState(id) { const l = Core.latestCheck(A.ledger, id); return l ? (l.outcome === 'pass' ? 'pass' : 'fail') : ''; }
-const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
+const CLAUSE_LABEL = { parse: 'model', registry: 'file', duplicate: 'duplicate', finding: 'finding', decision: 'decision', evidence: 'evidence', check: 'check', promotion: 'promotion', assumption: 'assumption', requirement: 'requirement', scenario: 'scenario', acceptance: 'acceptance', domain: 'domain', ui: 'UI', tokens: 'tokens', contracts: 'contract', unpinned_contract: 'API contract', eval: 'eval', needs: 'pipeline' };
 const CLAUSE_ORDER = Object.keys(CLAUSE_LABEL);
 // Blocking items in the order they are best worked through; i stays the index into the gate's clauses.
 function gateOrder(clauses) {
@@ -1501,6 +1663,7 @@ function clauseActions(c) {
   if (c.kind === 'decision' && / has no check$/.test(c.text) && c.decision) return b('data-draftcheck', c.decision, 'Draft a check', 'Grill-me proposes one check line; you approve the edit');
   if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
   if (c.kind === 'domain' && c.pack && /not pinned|changed in its registry|edited after/.test(c.text)) return b('data-pin', c.pack, /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the pack from its registry into domain/ and records that you accepted it');
+  if (c.kind === 'ui' && /No UI pack is pinned|is not pinned|edited after it was pinned|changed in its registry/.test(c.text)) return b('data-pinui', c.pack || '*', /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the UI pack from its registry into ui/pack/, after showing what changes, and records that you accepted it');
   if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
   if (c.kind === 'check') {
     const d = A.decisions.find(x => x.id === c.decision), runs = d ? Records.runs(d) : [];
@@ -1693,6 +1856,7 @@ function designSidebar() {
     + section('evals', `Evals (${A.evals.length})`, evs, `<button title="New eval" data-a="neweval">+</button><button title="Run all evals" data-a="runevals">▶</button>`)
     + contractsSection()
     + (domainsInput() || A.kind === 'domain' ? section('domain', 'Domain', domainBody()) : '')
+    + (A.ui || (A.uiRegistries || []).length ? section('ui', 'UI', uiBody()) : '')
     + section('grill', 'Grill-me', grillBody);
 }
 // Domain: the packs this project pins, the aggregates its elements own (those the work touches first), and what a
@@ -1725,6 +1889,12 @@ function buildSidebar() {
   const nd = needs.map(n => `<div class="item"><div class="l1"><span class="id">${esc(n.id)}</span><span class="tag open">open</span><span class="desc">${esc(elementLabel(n.element))}</span></div><div class="l2">${esc(n.question)}</div>${ndOptionsHtml(n.id)}
       <div class="acts"><button class="lnk" data-ndans="${esc(n.id)}">Answer with a decision</button><button class="lnk" data-ndres="${esc(n.id)}">Mark resolved</button></div></div>`).join('') || '<div class="hint">Nothing is waiting on the design.</div>';
   return section('bsum', 'Summary', summary) + section('needs', `Waiting on a decision (${needs.length})`, nd);
+}
+// What Ledger.system3 needs to join rows to screens: each spec's screen and component, each parity scenario's screen.
+function system3Input() {
+  const specs = [];
+  for (const f of ((A.ui && A.ui.specs) || [])) { try { const o = JSON.parse(f.text); if (o && typeof o.screen === 'string') specs.push({ screen: o.screen, component: o.component }); } catch { /* an unreadable spec joins nothing */ } }
+  return { specs, scenarios: (A.parity || []).map(s => ({ id: s.id, screen: s.screen })) };
 }
 function escapeMetricsHtml(L) {
   const ui = A.model ? [...A.model.elements.values()].filter(e => e.tags && e.tags.has('UI')).map(e => e.name) : [];
@@ -1924,7 +2094,7 @@ function drawModel(m, L, o) {
     const ty = store ? n.y + 35 : n.y + 28;
     const bw = st.badge ? Math.max(22, String(st.badge).length * 7 + 10) : 0;
     const badge = st.badge ? `<rect x="${n.x + n.w + 9 - bw}" y="${n.y - 9}" width="${bw}" height="22" rx="11" fill="${st.badgeColor}"/><text x="${n.x + n.w + 9 - bw / 2}" y="${n.y + 6}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--node)">${esc(st.badge)}</text>` : '';
-    svg += `<g class="node" data-${o.attr}="${esc(e.id)}"><title>${esc(e.name)}</title>${shape}<text x="${n.x + n.w / 2}" y="${ty}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${esc(trunc(e.name, 22))}</text><text x="${n.x + n.w / 2}" y="${ty + 16}" text-anchor="middle" font-size="10.5" fill="var(--ink2)">${esc(trunc(`[${kind}${e.technology ? ': ' + e.technology : ''}]`, 30))}</text>${st.note ? `<text x="${n.x + n.w / 2}" y="${n.y + n.h + 14}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--warn)">${esc(st.note)}</text>` : ''}${badge}</g>`;
+    svg += `<g class="node" data-${o.attr}="${esc(e.id)}"><title>${esc(e.name)}</title>${shape}<text x="${n.x + n.w / 2}" y="${ty}" text-anchor="middle" font-size="13" font-weight="700" fill="var(--ink)">${esc(trunc(e.name, 22))}</text><text x="${n.x + n.w / 2}" y="${ty + 16}" text-anchor="middle" font-size="10.5" fill="var(--ink2)">${esc(trunc(`[${kind}${e.technology ? ': ' + e.technology : ''}]`, 30))}</text>${st.note ? `<text x="${n.x + n.w / 2}" y="${n.y + n.h + 14}" text-anchor="middle" font-size="10.5" font-weight="600" fill="var(--warn)">${esc(st.note)}</text>` : ''}${badge}${chipsSvg(n, st.chips)}</g>`;
   }
   return svg + '</svg>';
 }
@@ -1954,6 +2124,10 @@ function renderSheet() {
   const amp = tim && A.selected && m.elements.has(A.selected) ? Core.amplificationFrom(m, A.selected) : new Map();
   const TIM_COL = { ok: 'var(--ink3)', violation: 'var(--err)', unknown: 'var(--warn)' };
   const timLabel = (r, t) => [r.description, t.timeout == null ? '' : t.status === 'unknown' ? t.timeout + ' ms vs ?' : `${t.timeout} ms vs ${t.worst} ms`, t.factor > 1 ? '×' + t.factor : ''].filter(Boolean).join(' · ');
+  // Health overlay: claims come from the model (a person wrote them); evidence from health.json. Without git wired in yet, no check counts as fresh.
+  // health.json keys are the handover's hierarchical ids (names joined by "/"), which is what m.label builds; the model's own ids are DSL identifiers.
+  const byLabel = new Map([...m.elements.values()].map(e => [m.label(e.id), e]));
+  const health = A.badges === 'health' ? HealthOverlay.build({ health: A.health, claims: id => { const e = byLabel.get(id); return e ? { idempotent: Core._shared.get(e, 'd.idempotent') === 'yes', cached: Core._shared.get(e, 'd.cached') != null } : {}; } }) : null;
   const BLAST_BADGE = { down: ['down', 'var(--err)'], degraded: ['deg', 'var(--warn)'], unknown: ['?', 'var(--ink3)'] };
   host_.innerHTML = drawModel(m, L, {
     attr: 'el', zoom: fitZoom(host_, L, A.zoom),
@@ -1966,6 +2140,7 @@ function renderSheet() {
       const base = { stroke: A.selected === e.id ? 'var(--accent)' : 'var(--ink)', sw: A.selected === e.id ? 2.6 : 1.5 };
       if (tim) { const x = amp.get(e.id); return x > 1 ? { ...base, badge: '×' + x, badgeColor: x > (A.cfg.retryAmplification || 4) ? 'var(--err)' : 'var(--ink3)' } : base; }
       if (A.badges === 'blast') { const b = BLAST_BADGE[blast.get(e.id)]; return b ? { ...base, badge: b[0], badgeColor: b[1] } : base; }
+      if (A.badges === 'health') { const h = health && health.byElement[m.label(e.id)]; return h ? { ...base, badge: h.badge && h.badge.count, badgeColor: col(h.badge && h.badge.worst), chips: h.chips } : base; }
       if (A.badges === 'findings') return { ...base, badge: elN.get(e.id), badgeColor: col(elSev.get(e.id)) };
       const t = telByEl.get(e.name); if (!t) return base;
       return A.badges === 'cost' ? { ...base, badge: money(t.cost), badgeColor: 'var(--accent)' } : { ...base, badge: t.failed || null, badgeColor: 'var(--err)' };
@@ -1977,7 +2152,23 @@ function renderSheet() {
     <tr><td class="k">Findings</td><td>${plural(live.filter(d => d.sev === 'error').length, 'error')}, ${plural(live.filter(d => d.sev === 'warning').length, 'warning')}</td></tr>
     <tr><td class="k">Gate</td><td class="${A.gate.ready ? 'ok' : 'no'}">${A.gate.ready ? 'Ready to hand over' : `${A.gate.clauses.length} blocking`}</td></tr>
     <tr><td class="k">As built</td><td>${A.drift ? (A.drift.undeclared.length + A.drift.unknownEls.length ? `<span class="no">${plural(A.drift.undeclared.length + A.drift.unknownEls.length, 'difference')}</span>` : '<span class="ok">matches the design</span>') : 'not mapped'}</td></tr>
+    ${healthRows(health, byLabel, m)}
     <tr><td class="k">Handover</td><td>${last ? `${esc(last.id)} at ${esc(last.revision)}` : 'none yet'}</td></tr></table>`;
+}
+
+// Title-block rows for the health overlay: the two headline numbers, then the selected element's findings by category.
+function healthRows(health, byLabel, m) {
+  if (!health) return '';
+  const rows = [['Not verified', plural(health.headline.unverified, 'property')], ['Unmapped', plural(health.headline.unmapped, 'finding')]];
+  const sel = A.selected && m.elements.has(A.selected) && health.byElement[m.label(A.selected)];
+  if (sel && sel.badge) rows.push([esc(m.elements.get(A.selected).name), Object.entries(sel.badge.byCategory).map(([c, n]) => `${n} ${esc(c)}`).join(', ') + (sel.badge.new ? ` (${sel.badge.new} new)` : '')]);
+  return rows.map(([k, v]) => `<tr><td class="k">${k}</td><td>${v}</td></tr>`).join('');
+}
+const CHIP_COL = { verified: 'var(--ok)', violated: 'var(--err)', unknown: 'var(--warn)', declared: 'var(--ink3)', inferred: 'var(--ink3)' };
+// One small chip per applicable property under a box, e.g. "idempotent: declared". Unknown and violated are coloured to draw the eye.
+function chipsSvg(n, chips) {
+  return (chips || []).map((c, i) => { const t = `${c.property}: ${c.status}`, w = t.length * 6 + 10, y = n.y + n.h + 6 + i * 17;
+    return `<g class="chip"><rect x="${n.x}" y="${y}" width="${w}" height="14" rx="7" fill="none" stroke="${CHIP_COL[c.status] || 'var(--ink3)'}"/><text x="${n.x + 5}" y="${y + 10.5}" font-size="9.5" fill="${CHIP_COL[c.status] || 'var(--ink3)'}">${esc(t)}</text></g>`; }).join('');
 }
 
 // ---------------------------------------------------------------- dashboards (Build / Improve)
@@ -2111,6 +2302,27 @@ function ledgerIntegrityHtml() {
   const summary = rows.length ? `${plural(r.errors.length, 'error')}, ${plural(r.warnings.length, 'warning')}.` : 'The ledger is consistent.';
   return `<div class="block"><h3>Ledger integrity</h3><div class="note">${esc(summary)}${r.skipped ? ` ${esc(plural(r.skipped, 'sample event'))} skipped.` : ''} Checks that each handover follows a ready gate event at its revision, each promotion follows a passing check, every line is valid and the handovers folder matches the ledger. <code>designc verify-ledger</code> gives the same answer in CI.</div>${rows.length ? `<div class="tw2"><table class="t"><tr><th>Rule</th><th>Level</th><th>What</th></tr>${rows.map(x => `<tr><td>${esc(x.rule)}</td><td>${esc(x.sev)}</td><td>${esc(x.msg)}</td></tr>`).join('')}</table></div>` : ''}</div>`;
 }
+// System 3 for the UI stages: one row per stage, then review and QA veto and recovery. A Screen select narrows it.
+const s3Rate = (n, d) => (d ? `${n} of ${d} (${Math.round((n / d) * 100)}%)` : 'n/a');
+const s3Secs = ms => (ms == null ? 'n/a' : ms < 1000 ? `${Math.round(ms)} ms` : `${+(ms / 1000).toFixed(1)} s`);
+// The Screen select also narrows the escapes table below it.
+function s3Keep(e) {
+  if (!A.s3Screen) return true;
+  const mine = Ledger.system3Brief(A.ledger, system3Input(), A.s3Screen).escapes;
+  return mine.some(x => x.id === e.id);
+}
+function system3Html(L) {
+  const all = Ledger.system3(L, system3Input());
+  const names = Object.keys(all.screens).sort();
+  if (!all.overall.caught && !all.overall.escaped && !all.review.n && !all.qa.n && !names.length) return '';
+  const sel = names.includes(A.s3Screen) ? A.s3Screen : '';
+  const m = sel ? all.screens[sel] : all;
+  const rows = m.stages.filter(x => x.signal.n || x.rate.caught || x.rate.escaped).map(x => `<tr data-s3stage="${esc(x.stage)}"><td>${esc((STAGES.find(s => s[0] === x.stage) || [0, x.stage])[1])}</td><td class="num">${x.signal.n ? `${s3Secs(x.signal.median)} (n=${x.signal.n})` : 'n/a'}</td><td class="num">${x.rate.caught == null ? 'n/a' : x.rate.caught}</td><td class="num">${x.rate.escaped}</td><td class="num">${x.rate.rate == null ? 'n/a' : `${Math.round(x.rate.rate * 100)}% (${x.rate.escaped} of ${x.rate.caught + x.rate.escaped})`}</td></tr>`).join('');
+  return `<div class="block" data-system3><h3>System 3: time to signal and escape rate</h3><div class="note">Per stage: how long the first verdict took after the change, how many problems it caught, how many got past it, and the share that got past. Review and QA: how often they vetoed, and how often a vetoed item was then fixed.</div>
+    <div class="acts"><label>Screen <select class="inline" data-s3screen aria-label="Screen"><option value="">All screens</option>${names.map(n => `<option value="${esc(n)}" ${n === sel ? 'selected' : ''}>${esc(n)}</option>`).join('')}</select></label></div>
+    <div class="tw2"><table class="t"><tr><th>Stage</th><th class="num">Time to signal (median)</th><th class="num">Caught</th><th class="num">Escaped</th><th class="num">Escape rate</th></tr>${rows || '<tr><td colspan="5">No verdicts or escapes for this screen.</td></tr>'}</table></div>
+    <div class="stats"><div class="stat" data-s3="review-veto"><div class="v">${s3Rate(m.review.vetoed, m.review.n)}</div><div class="l">Review veto</div></div><div class="stat" data-s3="review-recovery"><div class="v">${s3Rate(m.review.recovered, m.review.vetoed)}</div><div class="l">Review recovery</div></div><div class="stat" data-s3="qa-veto"><div class="v">${s3Rate(m.qa.vetoed, m.qa.n)}</div><div class="l">QA veto</div></div><div class="stat" data-s3="qa-recovery"><div class="v">${s3Rate(m.qa.recovered, m.qa.vetoed)}</div><div class="l">QA recovery</div></div><div class="stat" data-s3="caught-reached-qa"><div class="v">${m.caughtReachedQa}</div><div class="l">Caught but reached QA</div></div></div></div>`;
+}
 function improveDash() {
   const L = A.ledger, escapes = L.filter(e => e.kind === 'escape'), fps = L.filter(e => e.kind === 'false_positive'), un = escapes.filter(e => !e.caught_by);
   let h = `<div class="dash"><h1>Improve</h1><p class="lede">Where problems got past the factory, which stage should have caught them, and what should change in the design compiler or the pipeline. Proposals follow the decision lifecycle: nothing changes until you bind one.</p>`;
@@ -2121,8 +2333,8 @@ function improveDash() {
   h += `<div class="block"><h3>Rule health</h3><div class="tw2"><table class="t"><tr><th>Rule</th><th class="num">Firing</th><th class="num">Suppressed</th><th class="num">Escapes</th><th class="num">False +</th></tr>${Core.RULES.map(r => { const f = A.diags.filter(d => d.code === r.code); return `<tr><td><span class="code">${r.code}</span> ${esc(r.title)}<div style="color:var(--fg3);font-size:11.5px">${esc(r.source)}</div></td><td class="num">${f.filter(d => !d.suppressed).length}</td><td class="num">${f.filter(d => d.suppressed).length}</td><td class="num">${escapes.filter(e => e.code === r.code).length}</td><td class="num">${fps.filter(e => e.code === r.code).length}</td></tr>`; }).join('')}</table></div></div></div>`;
   const sug = telSuggestions();
   if (sug.length) h += `<div class="block"><h3>Suggested by telemetry</h3><div class="note">Pipeline tasks that needed three or more attempts, failed, or escalated. Recording one makes it an escape you can classify.</div><div class="tw2"><table class="t"><tr><th>Task</th><th>Element</th><th>Why</th><th class="num">Tokens</th><th>Last error</th><th></th></tr>${sug.map(t => `<tr><td><span class="id">${esc(t.task)}</span></td><td>${esc(elementLabel(t.element))}</td><td>${esc(t.why)}</td><td class="num">${fmtN(t.tokens)}</td><td>${esc((t.runs.filter(r => r.firstError).pop() || {}).firstError || '')}</td><td><button class="btn" data-telesc="${esc(t.task)}">Record as escape</button></td></tr>`).join('')}</table></div></div>`;
-  if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.slice().sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
-  h += reviewSummaryHtml() + escapeMetricsHtml(L);
+  if (escapes.length) h += `<div class="block"><h3>Escapes</h3><div class="tw2"><table class="t"><tr><th>When</th><th>Where</th><th>What happened</th><th>Should have been caught by</th><th>Origin</th></tr>${escapes.filter(s3Keep).sort((a, b) => (b._ts || 0) - (a._ts || 0)).map(e => `<tr><td>${when(e.ts)}</td><td>${esc(e.element || '')}</td><td>${esc(e.description || '')}${e.code ? ` <span class="code">${esc(e.code)}</span>` : ''}</td><td><select class="inline" data-classify="${esc(e.id)}"><option value="">Not classified</option>${STAGES.map(([k, l]) => `<option value="${k}" ${e.caught_by === k ? 'selected' : ''}>${l}</option>`).join('')}</select></td><td><select class="inline" data-origin="${esc(e.id)}" aria-label="Origin of ${esc(e.id)}"><option value="">Not classified</option>${Ledger.ORIGINS.map(o => `<option value="${o}" ${e.origin === o ? 'selected' : ''}>${ORIGIN_LABEL[o]}</option>`).join('')}</select></td></tr>`).join('')}</table></div></div>`;
+  h += system3Html(L) + reviewSummaryHtml() + escapeMetricsHtml(L);
   h += failureModesHtml() + otherRegistriesHtml() + factoryTasksHtml() + calibrationHtml() + proceduresHtml() + knowledgeHtml();
   const acts = Ledger.agentActivity(L), unap = Ledger.unapprovedChanges(L);
   if (acts.length) h += `<div class="block"><h3>Agent activity</h3><div class="note">What agents did through designc, from <code>ledger/agents.jsonl</code>. Declined means a person said no to a write. Unapproved means a registry file changed during an agent turn without an approval.</div><div class="tw2"><table class="t"><tr><th>Agent</th><th>Role</th><th>Via</th><th class="num">Turns</th><th class="num">Tokens</th><th class="num">Tool calls</th><th class="num">Asked</th><th class="num">Declined</th><th class="num">Denied</th><th class="num">Permissions</th><th class="num">Approvals</th><th class="num">Unapproved</th><th>Last</th></tr>${acts.map(r => `<tr><td>${esc(r.agent)}</td><td>${esc(r.role)}</td><td>${esc(r.via || '')}</td><td class="num">${fmtN(r.turns)}</td><td class="num">${fmtN(r.tokens)}</td><td class="num">${fmtN(r.tools)}</td><td class="num">${fmtN(r.asked)}</td><td class="num">${fmtN(r.declined)}</td><td class="num">${fmtN(r.denied)}</td><td class="num">${fmtN(r.permissions)}</td><td class="num">${fmtN(r.approvals)}</td><td class="num">${r.unapproved ? `<b>${fmtN(r.unapproved)}</b>` : '0'}</td><td>${esc(when(r.last))}</td></tr>`).join('')}</table></div></div>`;
@@ -2209,6 +2421,10 @@ document.addEventListener('click', async e => {
     toast(`Recorded ${id}. Classify it in Improve.`); return;
   }
   if (d.pin) { e.stopPropagation(); return pinDomain(d.pin); }
+  if (d.uirender) { e.stopPropagation(); return renderUiPreviews(d.uirender); }
+  if (d.uicopy) { e.stopPropagation(); return copyLegacySpec(d.uicopy); }
+  if (d.uiapprove) { e.stopPropagation(); return approveUiPreviews(d.uiapprove); }
+  if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
   if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }
@@ -2302,6 +2518,8 @@ document.addEventListener('click', async e => {
   if (a === 'extract') return extractCodebase();
   if (a === 'extractrefui') return extractReferenceUi(d.key);
   if (a === 'choosecode') { if (await chooseCodebase()) return extractCodebase(); return; }
+  if (a === 'addrepo') return addRepo();
+  if (a === 'removerepo') return removeRepo(d.key);
   if (a === 'adopt') return adoptAsDesign();
   if (a === 'adoptcomp') return adoptComponents(d.built, d.design);
   if (a === 'cmfit') { A.cmZoom = 'fit'; return drawCodemap(); }
@@ -2320,6 +2538,7 @@ document.addEventListener('change', async e => {
     const esc0 = A.ledger.find(x => x.kind === 'escape' && x.id === d.origin);
     await recordEvent('escape_classified', { escape: d.origin, caught_by: (esc0 && esc0.caught_by) || null, origin: e.target.value || null });
   }
+  if (d.s3screen !== undefined) { A.s3Screen = e.target.value; return renderSpecial(); }
   if (d.cmscreen !== undefined) { A.cmScreen = e.target.value; return renderCodemap(); }
   if (d.cmrepo !== undefined) { A.cmRepo = e.target.value; return cmGo('ui'); }
   if (d.fmReg) await recordEvent('failure_mode_classified', { registry: d.fmReg, escape: d.fmEsc, failure_mode: e.target.value || null });

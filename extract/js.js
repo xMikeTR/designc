@@ -82,7 +82,7 @@ async function scan(ctx) {
     if (kind !== 'library' && (fs.existsSync(path.join(dir, 'staticwebapp.config.json')) || fs.existsSync(path.join(dir, 'public', 'staticwebapp.config.json')))) tech += ', Static Web App';
     pkgDefs.push({ key: keyOf(name), name, dir, kind, deps: Object.keys(deps), tech, file: f, files: [], ports: [] });
   }
-  if (!pkgDefs.length) return { projects: [], elements: [], edges: [], consumes: [], provides: [], unresolved: [] };
+  if (!pkgDefs.length) return { projects: [], elements: [], edges: [], consumes: [], provides: [], tests: [], unresolved: [] };
 
   const byDepth = pkgDefs.slice().sort((a, b) => b.dir.length - a.dir.length);
   for (const f of files.filter(f => SRC_RE.test(f))) {
@@ -126,7 +126,22 @@ async function scan(ctx) {
     el.evidence.push({ file: rel(p.file), line: 1, text: `package.json: ${p.kind === 'spa' ? 'SPA' : 'Node API'} (${p.deps.join(', ')})` });
   }
 
-  const projects = pkgDefs.map(p => ({ name: p.name, kind: p.kind === 'library' ? 'library' : p.kind === 'spa' ? 'app' : 'web', lang: p.files.some(f => /\.tsx?$/i.test(f)) ? 'TS' : 'JS', file: rel(p.file), sources: p.files.length }));
+  const projects = pkgDefs.map(p => ({ name: p.name, kind: p.kind === 'library' ? 'library' : p.kind === 'spa' ? 'app' : 'web', lang: p.files.some(f => /\.tsx?$/i.test(f)) ? 'TS' : 'JS', file: rel(p.file), sources: p.files.length, refs: [...new Set(p.deps.filter(d => byName.has(d) && byName.get(d) !== p).map(d => rel(byName.get(d).file)))].sort() }));
+
+  // Test files (D6): kept out of `units`, listed here with the runner from the nearest package.json and their static relative imports.
+  const tests = [];
+  for (const p of pkgDefs) {
+    const runner = p.deps.includes('vitest') ? 'vitest' : p.deps.includes('jest') ? 'jest' : 'node';
+    for (const f of p.files.filter(f => TEST_RE.test(f))) {
+      const text = await read(f);
+      const imports = new Set();
+      for (const m of text.matchAll(/(?:\bfrom\s*|\bimport\s*\(?\s*|\brequire\(\s*)(['"`])(\.[^'"`]*)\1/g)) {
+        const t = resolveRelative(f, m[2]);
+        if (t) imports.add(rel(t));
+      }
+      tests.push({ kind: runner, path: rel(f), project: p.name, imports: [...imports].sort() });
+    }
+  }
 
   const provides = [];
   for (const p of pkgDefs) {
@@ -164,6 +179,7 @@ async function scan(ctx) {
     consumes: [...calls.consumes],
     provides: [...dedupedProvides, ...calls.provides],
     units,
+    tests,
     unresolved: [...calls.unresolved],
   };
 }

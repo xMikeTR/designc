@@ -1,0 +1,14 @@
+{
+  "name": "designc-audit-tools",
+  "private": true,
+  "description": "The analyzers `audit scan` runs on JS/TS. Installed into the scan's own output dir, never into the analysed repo.",
+  "dependencies": {
+    "@microsoft/eslint-formatter-sarif": "3.1.0",
+    "eslint": "9.39.5",
+    "eslint-plugin-sonarjs": "4.2.2",
+    "jscpd": "5.4.3",
+    "knip": "6.45.0",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2"
+  }
+}

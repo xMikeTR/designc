@@ -329,6 +329,62 @@ const Parity = (() => {
     };
   }
 
+  // ---- requests (a HAR as shapes) ----
+
+  // A JSON value as its shape: keys kept, every leaf the format shape of its text, an array as its first record (the
+  // tier 1 one-record rule: how many records there are is data), so a baseline holds no values.
+  function jsonShape(v) {
+    if (v === null) return 'null';
+    if (Array.isArray(v)) return v.length ? [jsonShape(v[0])] : [];
+    if (typeof v === 'object') return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, jsonShape(x)]));
+    if (typeof v === 'boolean') return 'bool';
+    return shape(String(v));
+  }
+
+  const bodyShape = (text, encoding) => {
+    if (text == null || text === '') return null;
+    const t = encoding === 'base64' ? (typeof Buffer !== 'undefined' ? Buffer.from(text, 'base64').toString('utf8') : atob(text)) : String(text);
+    try { return jsonShape(JSON.parse(t)); } catch { return shape(t.slice(0, 200)); }
+  };
+
+  // A path with its numeric and uuid segments as :id: an identifier is a value.
+  const templatePath = p => p.split('/').map(s => /^\d+$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? ':id' : s).join('/');
+  const STATIC = new Set(['document', 'script', 'stylesheet', 'image', 'font', 'media', 'manifest', 'texttrack']);
+
+  // The data requests a recorded HAR (Playwright recordHar, content embedded) shows the app made to baseUrl's host:
+  // [{method, path, status, request, response}], in recorded order, identical ones once. The query is dropped; request
+  // and response are shapes, or null for no body. A request is data when it is fetch or xhr, a JSON response or not a
+  // GET; the page, scripts, styles, images and fonts are not. Never throws on a bad HAR: it lists nothing.
+  function requests(har, { baseUrl } = {}) {
+    const entries = har && har.log && Array.isArray(har.log.entries) ? har.log.entries : [];
+    let origin = null;
+    try { origin = new URL(baseUrl).origin; } catch { return []; }
+    const out = [];
+    const seen = new Set();
+    for (const e of entries) {
+      const rq = e && e.request;
+      const rs = (e && e.response) || {};
+      let u;
+      try { u = new URL(rq.url); } catch { continue; }
+      if (u.origin !== origin) continue;
+      const method = String(rq.method || 'GET').toUpperCase();
+      const mime = String((rs.content && rs.content.mimeType) || '');
+      const type = e._resourceType;
+      const data = type ? !STATIC.has(type) : (/json/i.test(mime) || method !== 'GET');
+      if (!data) continue;
+      const row = {
+        method, path: templatePath(u.pathname), status: Number(rs.status) || 0,
+        request: bodyShape(rq.postData && rq.postData.text),
+        response: bodyShape(rs.content && rs.content.text, rs.content && rs.content.encoding),
+      };
+      const key = JSON.stringify(row);
+      if (seen.has(key)) continue;
+      seen.add(key);
+      out.push(row);
+    }
+    return out;
+  }
+
   // ---- exceptions ----
 
   // What a requirement allows. added: acceptance criterion locators {role, name} (an element the new app adds or
@@ -516,7 +572,7 @@ const Parity = (() => {
 
   return {
     requirementStage, STAGES, ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
-    shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot,
+    shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot, requests,
     exceptions, removesProblems, diff, compare, failures, resultEvent, detect,
   };
 })();

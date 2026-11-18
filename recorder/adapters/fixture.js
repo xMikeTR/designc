@@ -40,7 +40,7 @@ function create(fixture, name = 'fixture') {
   const fx = load(fixture);
   return {
     name,
-    async open() {
+    async open({ params = {}, har = null } = {}) {
       let screen = fx.start;
       let tree = copy(fx.screens[screen]);
       const go = id => {
@@ -74,7 +74,17 @@ function create(fixture, name = 'fixture') {
           return { tree: copy(tree), viewport: fx.viewport || { width: 1280, height: 800 }, url: screen };
         },
         async screenshot() { return png(JSON.stringify(fx.screens[screen])); },
-        async close() {},
+        async close() {
+          if (!har) return;
+          const base = String(params.baseUrl || 'http://fixture.test').replace(/\/$/, '');
+          const body = v => v === undefined ? undefined : JSON.stringify(v);
+          const entries = (fx.requests || []).map(r => ({
+            request: { method: r.method, url: base + r.path, ...(r.request === undefined ? {} : { postData: { mimeType: 'application/json', text: body(r.request) } }) },
+            response: { status: r.status || 200, content: { mimeType: 'application/json', ...(r.response === undefined ? {} : { text: body(r.response) }) } },
+          }));
+          fs.mkdirSync(require('path').dirname(har), { recursive: true });
+          fs.writeFileSync(har, JSON.stringify({ log: { version: '1.2', creator: { name: 'designc fixture adapter', version: '1' }, entries } }, null, 2));
+        },
       };
     },
   };

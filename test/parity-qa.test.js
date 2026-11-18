@@ -165,3 +165,15 @@ test('ui join: buckets do not change with the code, and without ui nothing is ci
 test('ui join: the widget roles are the UI graph\'s own', () => {
   assert.deepStrictEqual([...ParityQa.WIDGET].sort(), [...require('../extract/ui-roles.js').WIDGET_ROLES].sort());
 });
+
+// D2 R3: a QA bug whose state is not in the screen's spec goes to triage. Only when a spec is given: no spec, no change.
+test('R3: a bug state the spec does not have needs triage, and says why', () => {
+  const bug = { ...cases.bugs.find(c => c.bug.state && c.bucket !== 'triage').bug, key: 'QA-R3', state: 'apply-dialog' };
+  const withSpec = states => ParityQa.report({ screen: W.screen, scenarios: W.scenarios, baselines: W.baselines, reports: W.reports, qa: { screen: W.screen, bugs: [bug], problems: [] }, spec: states && { screen: W.screen, states } });
+  const r = withSpec(['list', 'empty']);
+  assert.strictEqual(r.bugs[0].bucket, 'triage');
+  assert.strictEqual(r.bugs[0].reason, `state 'apply-dialog' is not in spec ${W.screen}`);
+  assert.notStrictEqual(withSpec(null).bugs[0].bucket, 'triage');
+  assert.notStrictEqual(withSpec(['list', 'apply-dialog']).bugs[0].bucket, 'triage');
+  assert.strictEqual(r.counts.triage, 1);
+});

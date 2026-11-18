@@ -79,6 +79,7 @@ async function extract(target, opts = {}) {
   };
   const consumes = [], provides = [];
   const units = [];
+  const tests = [];
   let unresolved = [];
 
   const scanned = [];
@@ -116,6 +117,7 @@ async function extract(target, opts = {}) {
     consumes.push(...(facts.consumes || []).map(c => ({ ...c, owner: qual(pr, c.owner) })));
     provides.push(...(facts.provides || []).map(c => ({ ...c, owner: qual(pr, c.owner) })));
     unresolved.push(...(facts.unresolved || []));
+    tests.push(...(facts.tests || []).map(t => (multi ? { ...t, repo: pr.r.key } : t)));
     units.push(...(facts.units || []).map(u => ({ ...u, owners: (u.owners || []).map(o => qual(pr, o)) })));
   }
 
@@ -152,6 +154,7 @@ async function extract(target, opts = {}) {
   const facts = {
     repo: repoName, extractedAt: new Date().toISOString(),
     projects,
+    tests: tests.sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0)),
     elements: els.map(e => ({ key: keyOf(e.name), name: e.name, kind: e.kind, tech: e.tech, project: e.project || null,
       ...(e.role ? { role: e.role } : {}), ...(e.ports && e.ports.length ? { ports: e.ports } : {}), evidence: e.evidence })),
     edges: edges.map(e => ({ from: elements.get(e.from).name, to: elements.get(e.to).name, kind: e.kind, label: e.label, tech: e.tech, evidence: e.evidence })),

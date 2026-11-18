@@ -58,7 +58,7 @@ Nothing is built in: a missing or empty file maps nothing. Where several entries
 not an error; the import review says how many there were ("N unmapped label or component names"). To write the mapping, run
 `--discover`: it lists the labels, components and issue types in use among the issues the query finds (default: updated in
 the last 30 days), with counts, and prints no page text. The handover carries a requirement's `risk` and `data_class`;
-S2's task spec should prefer them over its own guess (a follow-up, not part of the import).
+it writes them as `requirement_risk` / `requirement_data_class` in `handover.yaml` (see `pipeline-contract.md`), and S2's task spec prefers them over its own guess.
 
 ## Sweeping new issues into the Work inbox
 

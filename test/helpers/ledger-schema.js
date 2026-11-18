@@ -18,6 +18,7 @@ function build() {
     envelope_optional: Ledger.ENVELOPE_OPTIONAL,
     caught_by: Ledger.CAUGHT_BY,
     origins: Ledger.ORIGINS,
+    escape_buckets: Ledger.ESCAPE_BUCKETS,
     pipeline_stream: Ledger.PIPELINE_STREAM,
     pipeline_kinds: Ledger.PIPELINE_KINDS,
     rules: Ledger.RULE_IDS,

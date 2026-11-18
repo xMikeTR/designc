@@ -44,9 +44,10 @@ A covered difference is reported as `covered` and does not fail.
 | --- | --- | --- |
 | `parity/scenarios/<id>.yaml` | `id, title?, screen?, steps[], params {legacy, next}?, masks[]?, test_scenarios[]?` | yes |
 | `test-scenarios/<id>.yaml` | one BDD case proving part of a requirement: `id, requirement, title, given[], when[], then[], by?` (see below) | yes |
-| `parity/baselines/<id>/legacy.json` | the normalised legacy snapshot | yes |
+| `parity/baselines/<id>/legacy.json` | the normalised legacy snapshot; with `--har` also `requests` (shapes only) | yes |
 | `parity/reports/<id>.json` | the latest comparison: the new app's snapshot and every finding | yes |
 | `parity/shots/<sha256>.png` | screenshots, by content hash | no (`parity/shots/.gitignore`) |
+| `parity/har/<id>-<side>.har` | the HAR a `--har` run recorded; holds page data | no (`parity/har/.gitignore`, written by the CLI) |
 | `parity/qa/<screen>.yaml` | the bugs QA logged on a screen (see "QA bugs") | yes |
 | `parity/qa/shots/*` | screenshots QA attached; may show real data | no (`parity/qa/shots/.gitignore`) |
 
@@ -59,7 +60,7 @@ A step has exactly one action: `goto {path}`, `click`, `fill` or `select` `{role
 ```
 node scripts/parity-record.js --registry <dir> --scenario <id|all> --side <legacy|next>
   [--adapter web|fixture:<file.json>] [--base-url <url>] [--param name=value]...
-  [--commit <sha>] [--item <work item>] [--ledger] [--by <name>] [--no-shots]
+  [--commit <sha>] [--item <work item>] [--ledger] [--by <name>] [--no-shots] [--har]
   [--allow-writes] [--allow-request <url part>]... [--json]
 ```
 
@@ -68,7 +69,18 @@ node scripts/parity-record.js --registry <dir> --scenario <id|all> --side <legac
 - The web adapter needs `playwright-core` and Chromium on the machine that can reach both apps. It runs en-GB, Europe/London, 1280×800 by default.
 - Read-only by default: a click whose name looks like it commits (Save, Apply, Delete, Submit…) is `blocked`, and the web adapter aborts every request that is not GET, HEAD or OPTIONS. Only the person running it may pass `--allow-writes` or `--allow-request`; a pipeline never should against a live legacy app.
 - A login wall stops the scenario: a redirect to another host, or a page with exactly one visible password field. On legacy it is an error and the baseline is left as it was, so a sign-in page can never become the baseline; on the new app the scenario is `could_not_run`. The recorder does not sign in. Run the apps with sign-in off, such as a local copy in mock mode. It cannot see a sign-in page on the same host that shows no password field yet (email first), so look at the first baseline's screenshot.
+- `--har` also records the requests the app made (see "Requests"). It needs a base URL, and `parity/har/` is git-ignored because a HAR holds page data.
 - Exit: `0` pass (or baseline recorded), `1` a scenario failed, `2` an error (no baseline, bad scenario, adapter could not open; nothing judged), `3` a scenario could not run. With several scenarios the worst wins: 2, then 1, then 3.
+
+## Requests
+
+`--har` records what the app asked its server for, so a rebuilt screen can be held to the same endpoints and payload shapes. Same rule as the tree: shapes, never data.
+
+- **Recording.** The web adapter passes `recordHar: {path: parity/har/<scenario>-<side>.har, content: 'embed', mode: 'minimal', urlFilter: <origin of baseUrl>/**}` to `browser.newContext`, and `close()` awaits `ctx.close()` before `browser.close()` because Playwright writes the HAR only when the context closes. The fixture adapter has a `requests: [{method, path, status?, request?, response?}]` field (real JSON values) and writes the same kind of HAR on close. The HAR holds data, so it stays on the recording machine (git-ignored); only the baseline's `requests` is committed.
+- **`Parity.requests(har, {baseUrl})`** (pure, `renderer/parity.js`) returns `[{method, path, status, request, response}]` in recorded order, identical rows once. Only requests to `baseUrl`'s origin that are data requests are kept: `_resourceType` is not `document`, `script`, `stylesheet`, `image`, `font`, `media`, `manifest` or `texttrack` (or, with no `_resourceType`, the response is JSON or the method is not GET). `path` is the URL path without the query, with each numeric or uuid segment replaced by `:id` (`/api/bordereaux/17` is `/api/bordereaux/:id`). `status` is the HTTP status (0 when unknown).
+- **`request` and `response`** are `null` for no body, otherwise a shape of the body: a JSON object keeps its keys and shapes each value, an array is a one-element array holding the shape of its first element (the tier 1 one-record rule: a count is data) or `[]` when empty, a string or number is `Parity.shape(String(value))` (`text:Aa`, `num:$#,##0`, `date:dddd-dd-0d`), a boolean is `bool`, `null` is `null`. A body that is not JSON is one `shape` of its first 200 characters. A base64 body (`content.encoding`) is decoded first.
+- **Where it lands.** `legacy.json` gets a top-level `requests` array after `steps` (only with `--har`; a baseline recorded without it has no `requests` key, which means "not recorded", not "no requests"). `--side next` with `--har` puts the same field in the report's `next` snapshot; tier 1 does not compare it. Schema: `docs/parity-requests.schema.json`, example: `docs/parity-requests.example.json`.
+- **Not kept:** the query string, headers, cookies, timings and the ordering of identical calls. Object keys are kept as written, so a response that is a map keyed by customer name would leak those names: that is a design smell in the app, and a scenario can't mask it.
 
 ## Drafting scenarios from legacy tests
 

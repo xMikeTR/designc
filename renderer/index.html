@@ -42,7 +42,7 @@
         </div>
       </div>
       <div class="group sheetgroup" id="g2">
-        <div class="tabbar"><div class="tab active"><span class="ticon sheet-i"></span>C4 sheet</div><div class="spacer"></div><select id="sheetBadges" class="inline badgesel" title="What the badges on boxes show" aria-label="Badges show"><option value="findings">Badges: findings</option><option value="failures">Badges: agent failures</option><option value="cost">Badges: agent cost</option><option value="blast">Badges: blast radius</option><option value="timing">Badges: timing</option></select><button class="iconbtn" id="sheetFit" title="Fit">Fit</button><button class="iconbtn" id="sheetClose" title="Close sheet (Ctrl+Alt+V)" aria-label="Close sheet">✕</button></div>
+        <div class="tabbar"><div class="tab active"><span class="ticon sheet-i"></span>C4 sheet</div><div class="spacer"></div><select id="sheetBadges" class="inline badgesel" title="What the badges on boxes show" aria-label="Badges show"><option value="findings">Badges: findings</option><option value="failures">Badges: agent failures</option><option value="cost">Badges: agent cost</option><option value="blast">Badges: blast radius</option><option value="timing">Badges: timing</option><option value="health">Badges: health</option></select><button class="iconbtn" id="sheetFit" title="Fit">Fit</button><button class="iconbtn" id="sheetClose" title="Close sheet (Ctrl+Alt+V)" aria-label="Close sheet">✕</button></div>
         <div class="sheet" id="sheet"><div class="sheetscroll" id="sheetscroll"></div><div class="titleblock" id="titleblock"></div></div>
       </div>
     </div>
@@ -54,7 +54,7 @@
     </div>
   </section>
   <aside class="agent" id="agent" aria-label="Agent panel">
-    <div class="aghead"><select id="agAgent" class="inline" aria-label="Agent"><option value="builtin">designc (gateway)</option></select><select id="agRole" class="inline" aria-label="Agent role"><option value="architect">Architect</option><option value="grill">Grill-me</option><option value="analyst">Analyst (Improve)</option><option value="tutor">Tutor</option><option value="researcher" hidden>Researcher</option></select><span class="agconn" id="agConn"></span><span class="spacer"></span><button class="iconbtn" id="agNew" title="New chat">New chat</button><button class="iconbtn" data-agenttoggle title="Close (Ctrl+Alt+I)" aria-label="Close agent panel">✕</button></div>
+    <div class="aghead"><select id="agAgent" class="inline" aria-label="Agent"><option value="builtin">designc (gateway)</option></select><select id="agRole" class="inline" aria-label="Agent role"><option value="architect">Architect</option><option value="grill">Grill-me</option><option value="analyst">Analyst (Improve)</option><option value="tutor">Tutor</option><option value="compose">Compose (UI)</option><option value="catalogue" hidden>Catalogue (UI)</option><option value="researcher" hidden>Researcher</option></select><span class="agconn" id="agConn"></span><span class="spacer"></span><button class="iconbtn" id="agNew" title="New chat">New chat</button><button class="iconbtn" data-agenttoggle title="Close (Ctrl+Alt+I)" aria-label="Close agent panel">✕</button></div>
     <div class="aglog" id="agLog"></div>
     <div class="agin"><textarea id="agInput" rows="3" placeholder="Ask about the design, the code or the runs. Enter to send, Shift+Enter for a new line."></textarea>
       <div class="agbar"><span class="muted">Selection in the editor is included.</span><span class="spacer"></span><button class="btn" id="agStop" style="display:none">Stop</button><button class="btn primary" id="agSend">Send</button></div></div>
@@ -64,9 +64,13 @@
 <div class="toasts" id="toasts"></div>
 <script src="../node_modules/js-yaml/dist/js-yaml.min.js"></script>
 <script src="pathpattern.js"></script>
+<script src="health-status.js"></script>
+<script src="health-overlay.js"></script>
 <script src="records.js"></script>
 <script src="verdicts.js"></script>
 <script src="domain.js"></script>
+<script src="ui-schemas.js"></script>
+<script src="ui.js"></script>
 <script src="core.js"></script>
 <script src="core-drift.js"></script>
 <script src="core-deployment.js"></script>
@@ -80,6 +84,7 @@
 <script src="procloop.js"></script>
 <script src="knowledge.js"></script>
 <script src="policy.js"></script>
+<script src="repoconfig.js"></script>
 <script src="records-convert.js"></script>
 <script src="work.js"></script>
 <script src="look.js"></script>

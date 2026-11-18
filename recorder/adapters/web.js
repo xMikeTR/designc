@@ -4,6 +4,7 @@
 // them) with each node's box and data-testid. Playwright is required lazily, so loading this file costs nothing where
 // it is not installed. Runs on a machine that can reach the apps (the work VM).
 //
+// open({params, readOnly, allowRequests, har?: HAR file path})
 // params: { baseUrl, viewport?: {width, height}, locale?, timezoneId?, clock?: ISO time, headless? }
 const IGNORED = new Set(['InlineTextBox', 'LineBreak']);
 
@@ -90,12 +91,15 @@ function create(name = 'web', { timeout = 10000 } = {}) {
     name,
     // readOnly aborts every request that is not GET, HEAD or OPTIONS, except URLs containing one of allowRequests (a
     // search that is sent as a POST, say); each abort is listed in the next capture as blockedRequests.
-    async open({ params = {}, readOnly = true, allowRequests = [] }) {
+    async open({ params = {}, readOnly = true, allowRequests = [], har = null }) {
       if (!params.baseUrl) throw new Error('no baseUrl in params');
       const { chromium } = require('playwright-core');
       const browser = await chromium.launch({ headless: params.headless !== false });
       const viewport = params.viewport || { width: 1280, height: 800 };
-      const ctx = await browser.newContext({ viewport, locale: params.locale || 'en-GB', timezoneId: params.timezoneId || 'Europe/London' });
+      // har: a file path. Playwright saves the HAR only when the context closes (close() below), and it holds page data, so
+      // the caller keeps it out of git. Only requests to the app's own origin are recorded.
+      const recordHar = har ? { path: har, content: 'embed', mode: 'minimal', urlFilter: `${new URL(params.baseUrl).origin}/**` } : undefined;
+      const ctx = await browser.newContext({ viewport, locale: params.locale || 'en-GB', timezoneId: params.timezoneId || 'Europe/London', ...(recordHar ? { recordHar } : {}) });
       // Tier 2 needs the same pixels twice: a frozen clock (params.clock, an ISO time) so dates and "x minutes ago" do not move.
       await ctx.clock.setFixedTime(new Date(params.clock || '2024-01-15T10:00:00Z'));
       const page = await ctx.newPage();
@@ -136,7 +140,7 @@ function create(name = 'web', { timeout = 10000 } = {}) {
           return out;
         },
         async screenshot(opts) { return page.screenshot({ fullPage: true, animations: 'disabled', caret: 'hide', mask: ((opts && opts.mask) || []).map(sel => page.locator(sel)) }); },
-        async close() { await browser.close(); },
+        async close() { await ctx.close(); await browser.close(); },
       };
     },
   };
