@@ -1,5 +1,25 @@
 // designc desktop: main process. Owns the file system, the ledger, check runs and model calls.
-const { app, BrowserWindow, ipcMain, dialog, Menu, shell, nativeTheme } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog: nativeDialog, Menu, shell: nativeShell, nativeTheme } = require('electron');
+
+// e2e mode (DESIGNC_E2E=1, set by e2e/helpers.js): the window is never shown, no native dialog opens and
+// nothing is handed to the system browser or file manager. A test that needs a dialog sets
+// `global.designcE2eDialog = (kind, opts) => result` through app.evaluate.
+const E2E = process.env.DESIGNC_E2E === '1';
+const dialog = E2E ? {
+  showOpenDialog: (...a) => e2eDialog('showOpenDialog', a),
+  showMessageBox: (...a) => e2eDialog('showMessageBox', a),
+} : nativeDialog;
+const nativeOriginals = { showOpenDialog: nativeDialog.showOpenDialog, showMessageBox: nativeDialog.showMessageBox };
+async function e2eDialog(kind, args) {
+  if (typeof global.designcE2eDialog === 'function') return global.designcE2eDialog(kind, args[args.length - 1]);
+  // A test may also replace the method on Electron's dialog itself: that is a stub, so call it.
+  if (nativeDialog[kind] !== nativeOriginals[kind]) return nativeDialog[kind](...args);
+  throw new Error(`native dialog in e2e: stub it with app.evaluate (${kind}: ${(args[args.length - 1] || {}).title || ''})`);
+}
+const shell = E2E ? {
+  openExternal: async u => { console.log('[e2e] openExternal skipped:', u); },
+  openPath: async p => { console.log('[e2e] openPath skipped:', p); return ''; },
+} : nativeShell;
 const path = require('path');
 const fs = require('fs');
 const fsp = fs.promises;
@@ -146,8 +166,9 @@ function buildMenu() {
 function createWindow() {
   win = new BrowserWindow({
     width: 1440, height: 920, minWidth: 960, minHeight: 600, title: 'designc',
+    ...(E2E ? { show: false, focusable: false, skipTaskbar: true } : {}),
     backgroundColor: nativeTheme.shouldUseDarkColors ? '#1b1f24' : '#f3f4f6',
-    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true },
+    webPreferences: { preload: path.join(__dirname, 'preload.js'), contextIsolation: true, nodeIntegration: false, sandbox: true, ...(E2E ? { backgroundThrottling: false } : {}) },
   });
   win.loadFile(path.join(__dirname, 'renderer', 'index.html'));
   win.webContents.setWindowOpenHandler(({ url }) => { if (/^https?:/.test(url)) shell.openExternal(url); return { action: 'deny' }; });

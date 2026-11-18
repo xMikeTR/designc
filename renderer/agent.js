@@ -18,11 +18,11 @@ Rules:
 const RESEARCH_RULE = 'To research, search the web if you can. If web search is not available or is blocked, fetch pages you know directly with web fetch (vendor documentation, standards, well-known articles and books\' sites). If you can do neither, say so and answer from your own knowledge and the model, marked as unsourced. Link only pages you actually read; never invent a link.';
 const DONT_KNOW = "I don't know.";
 const ROLES = {
-  architect: { label: 'Architect', system: 'S1', allow: [...READ_TOOLS, ...UI_READ_TOOLS], ask: ['propose_model_edit', 'mint_decision', 'write_check'],
+  architect: { label: 'Architect', system: 'S1', allow: [...READ_TOOLS, ...UI_READ_TOOLS], ask: ['propose_model_edit', 'mint_decision', 'write_check', 'set_check'],
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
-  grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity', ...UI_READ_TOOLS], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'write_check', 'suggest_stage'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
+  grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity', ...UI_READ_TOOLS], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'mint_test_scenarios', 'propose_parity_cover', 'write_check', 'set_check', 'suggest_stage'],
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When asked to draft test scenarios for a requirement: read its page with read_import_page, then call mint_test_scenarios once with one case per behaviour the page states, each quoting the sentence it comes from, given, when and then as short plain sentences. Never invent behaviour; where the page is unclear, say so in your reply instead of writing a case. That requirement only. Parity diagnosis: for a failing parity finding, read_parity, then judge the cause with evidence. If a requirement removes or changes it, call propose_parity_cover kind br (removes) or, for an added or changed element, mint_acceptance. If the code differs, call propose_parity_cover kind tech citing file:line. If neither is clear, do not write: name the one question the BA or QA must answer. Never decide the cause without citing the requirement or file. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
     starters: ['Grill me on this design', 'Grill me on Bookings DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: [...READ_TOOLS, 'list_reviews', 'get_system3'], ask: ['mint_proposal', 'group_reviews', 'draft_eval_task'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can. When asked to group failure notes (error analysis): call list_reviews, read every failed note, and group them by the first thing that went wrong, reusing a mode of the taxonomy where it fits and naming a new one (a short phrase for the failure, not its cause) only where none does. A note that fits nowhere stays ungrouped. Propose the grouping with group_reviews, saying why each group belongs together; the person approves it. You never change a verdict or a note. When asked to draft an eval task for a failure mode: call list_reviews, pick the failed reviews in that mode that show it most plainly, and draft one task with draft_eval_task whose title says what the pipeline must get right (not what went wrong). It is minted; a person checks and binds it. System 3: get_system3 gives time to signal, escape rate, review and QA veto and recovery per screen and stage, and the escapes without their text. For a `catalogue_gap` escape, draft a catalogue gap proposal for the pack owner with mint_proposal (kind catalogue gap, the pinned pack and the component): the pack\'s source registry is its target and you never write there.',
@@ -62,6 +62,7 @@ const TOOLS = {
   get_system3: { d: 'System 3 for the UI stages: per stage (and per screen) the time to signal, the escape rate, review and QA veto and recovery, and caught-but-reached-QA; plus every escape as {id, caught_by, origin, screen} with no description. With a screen, only that screen.', p: obj({ screen: { type: 'string' } }) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
+  set_check: { d: 'Put one check line on an existing decision that has no check. The check is a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>" when no command exists yet. One line, this decision only. The user approves the edit.', p: obj({ decision: { type: 'string' }, check: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'check', 'summary']) },
   write_check: { d: 'Write the shell script for a decision whose check is still "TODO ./checks/<name>.sh: <what it must prove>". The script path comes from that TODO. It must be bash, read-only (read model/, behaviour/, decisions/ and other registry files; no network, no deletes, no writes outside a temp dir) and exit 0 only when the decision holds, printing why when it fails. The user reads the script and approves; only then is it saved and the TODO replaced by the command that runs it.', p: obj({ decision: { type: 'string' }, script: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'script', 'summary']) },
   mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
   mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) }, suggest_holdout: { type: 'array', items: { type: 'string' }, description: 'states whose case you suggest the person keeps hidden from the build; shown on the card, never written' } }, ['requirement', 'element', 'cases']) },
@@ -76,6 +77,8 @@ const TOOLS = {
   suggest_stage: { d: 'Suggest the person move to another stage (compose, catalogue, grill, architect). The card has an Open button; the stage changes after this turn ends, only if the person approves.', p: obj({ stage: { type: 'string', enum: ['compose', 'catalogue', 'grill', 'architect'] }, why: { type: 'string' } }, ['stage', 'why']) },
   read_parity: { d: 'Read the legacy parity recordings: each scenario\'s steps, whether a legacy baseline is recorded, its latest result and the differences the latest report found. Shapes and interface text only, never page data or screenshots. Read-only.', p: obj({ scenario: { type: 'string' } }, []) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
+  propose_parity_cover: { d: 'For one parity finding you have judged from read_parity: kind "br" (a requirement removes the legacy element: writes a PROPOSED business decision with removes, for the business to evidence and a person to bind) or kind "tech" (a technical difference: writes a work item whose done_when is that parity scenario plus a TODO gate). Never for an unknown cause: ask the BA or QA in chat instead.', p: obj({ kind: { type: 'string', enum: ['br', 'tech'] }, scenario: { type: 'string' }, requirement: { type: 'string' }, reason: { type: 'string', description: 'why, citing the finding and the requirement or file:line' }, removes: { type: 'array', items: obj({ role: { type: 'string' }, name: { type: 'string' } }, ['role', 'name']), description: 'kind br: the legacy elements the requirement drops' }, elements: { type: 'array', items: { type: 'string' }, description: 'kind tech: design element names the work changes' }, title: { type: 'string', description: 'kind tech: short work title' } }, ['kind', 'scenario', 'requirement', 'reason']) },
+  mint_test_scenarios: { d: 'Propose BDD test scenarios for one requirement, written to test-scenarios/ in one batch the person approves or declines. One case per behaviour the requirement page states; quote the sentence each case comes from. Never invent behaviour: where the page is unclear, say so instead of writing a case.', p: obj({ requirement: { type: 'string' }, scenarios: { type: 'array', items: obj({ title: { type: 'string' }, quote: { type: 'string' }, given: { type: 'array', items: { type: 'string' } }, when: { type: 'array', items: { type: 'string' } }, then: { type: 'array', items: { type: 'string' } } }, ['title', 'quote', 'given', 'when', 'then']) } }, ['requirement', 'scenarios']) },
   map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
   list_reviews: { d: 'Error analysis: the failed reviews of pipeline task attempts (the latest per observation: task, note, failure_mode) and the failure modes of factory/taxonomy.yaml.', p: obj({}) },
   group_reviews: { d: 'Propose failure modes for failed reviews: each group names an existing mode id or a new_mode, the observations it covers (from list_reviews) and why. New modes are added to factory/taxonomy.yaml. The user sees the grouping and approves or declines.', p: obj({ groups: { type: 'array', items: obj({ mode: { type: 'string' }, new_mode: obj({ name: { type: 'string' }, description: { type: 'string' }, triage: { type: 'string', enum: ['spec', 'fix', 'grader'] } }, ['name']), observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['observations', 'why']) } }, ['groups']) },
@@ -281,6 +284,30 @@ const WRITERS = {
         return `Saved ${file} and replaced the TODO in ${d._path} with "${cmd}". Run the check from the decision card.`;
       } };
   },
+  set_check: a => {
+    const d = A.decisions.find(x => x.id === a.decision);
+    if (!d || !d._path) return { error: `Decision ${a.decision} is not in the registry.` };
+    if (d.status === 'superseded' || d.status === 'retired') return { error: `${d.id} is ${d.status}; its checks are not read.` };
+    if (Records.runs(d).length) return { error: `${d.id} already has a check. This tool only fills in a decision that has none.` };
+    const check = String(a.check || '').trim();
+    if (!check || /[\r\n]/.test(check)) return { error: 'The check must be one line.' };
+    const prose = Policy.checkProblem(check);
+    if (prose) return { error: `Check "${check}": ${prose} Write a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>".` };
+    return { title: `Add a check to ${d.id}`, detail: a.summary,
+      preview: `<div class="note">Adds <code>${esc(check)}</code> under checks: in ${esc(d._path)}. Nothing else in the file changes.</div>`,
+      apply: async () => {
+        const text = await host.read(d._path), lines = text.split('\n');
+        const i = lines.findIndex(l => /^checks:/.test(l));
+        const item = `  - ${yamlStr(check)}`;
+        if (i >= 0 && !/^checks:\s*(\[\s*\])?\s*$/.test(lines[i])) throw new Error(`The checks: line in ${d._path} is not empty or [], so nothing was written.`);
+        if (i >= 0) { let j = i + 1; while (j < lines.length && /^\s*-\s*$/.test(lines[j])) j++; lines.splice(i, j - i, 'checks:', item); }
+        else { while (lines.length && lines[lines.length - 1] === '') lines.pop(); lines.push('checks:', item, ''); }
+        AG.approved.set(d._path, Date.now());
+        await host.write(d._path, lines.join('\n'));
+        A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll();
+        return `Added the check to ${d._path}. ${/^TODO/.test(check) ? 'Use Write the check in the gate to draft its script.' : 'Run the check from the gate.'}`;
+      } };
+  },
   mint_decision: a => {
     const prose = (a.checks || []).find(c => Policy.checkProblem(c));
     if (prose != null) return { error: `Check "${prose}": ${Policy.checkProblem(prose)} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" when none exists yet.` };
@@ -371,6 +398,72 @@ drafted_by: ide-agent
     const note = hold.length ? `<div class="note">Grill suggests keeping these hidden from the build: ${esc(hold.join(', '))}. Nothing is written for this; the person binding the criterion sets <code>holdout: true</code> on the case before its first freeze.</div>` : '';
     return { title: `Mint acceptance criterion ${id}`, detail: `${label}: ${states.join(', ')}`, preview: `${note}<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`acceptance/${id}.yaml`, Date.now()); await host.write(`acceptance/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created acceptance/${id}.yaml. A person names the locators and reviews the cases.`; } };
+  },
+  propose_parity_cover: a => {
+    const sc = (A.parity || []).find(x => x.id === a.scenario);
+    if (!sc) return { error: `No parity scenario ${a.scenario}. Use an id from read_parity.` };
+    const req = A.requirements.find(r => r.id === a.requirement);
+    if (!req) return { error: `Requirement ${a.requirement} is not in the registry. Agents never create requirements.` };
+    if (!String(a.reason || '').trim()) return { error: 'reason is required: cite the finding and the requirement (br) or the file and line (tech).' };
+    if (a.kind === 'br') {
+      const d = { id: 'x', kind: 'business', removes: a.removes };
+      if (!Array.isArray(a.removes) || !a.removes.length) return { error: 'kind br needs removes: the legacy elements (role and name) the requirement drops. For an added or changed element use mint_acceptance with a locator instead.' };
+      const bad = Parity.removesProblems(d); if (bad.length) return { error: bad[0].replace(/^x: /, '') };
+      const statement = `PROPOSED: ${req.id} removes ${a.removes.map(r => `${r.role} "${r.name}"`).join(', ')} from ${a.scenario}`;
+      const id = Core.slugId(statement, A.decisions.map(x => x.id));
+      const text = `id: ${id}
+status: minted          # minted | checked | bound | superseded
+kind: business
+effect: accept
+requirement: ${yamlStr(req.id)}
+binds: []
+resolves: []
+statement: ${yamlStr(statement)}
+removes:
+${a.removes.map(r => `  - { role: ${yamlStr(r.role)}, name: ${yamlStr(r.name)}${sc.screen ? `, screen: ${yamlStr(sc.screen)}` : ''} }`).join('\n')}
+evidence: ""
+rationale: ${yamlStr(a.reason)}
+drafted_by: ide-agent
+`;
+      return { title: `Propose business decision ${id}`, detail: statement, preview: `<div class="note">Covers the parity difference only once the business adds evidence and a person binds it.</div><pre class="yamlprev">${esc(text)}</pre>`,
+        apply: async () => { AG.approved.set(`decisions/${id}.yaml`, Date.now()); await host.write(`decisions/${id}.yaml`, text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Created decisions/${id}.yaml as minted. The business adds evidence and a person binds it.`; } };
+    }
+    if (a.kind !== 'tech') return { error: 'kind must be br or tech. For an unknown cause, ask the BA or QA in chat; nothing is written.' };
+    const els = (a.elements || []).map(String);
+    if (!els.length) return { error: 'kind tech needs elements: the design elements the work changes (from the Code map or the requirement).' };
+    const title = String(a.title || `Match legacy in ${a.scenario}`).trim();
+    const id = Core.slugId(`W ${title}`, new Set((A.work || []).map(i => i.id)));
+    const text = `id: ${id}
+title: ${yamlStr(title)}
+requirement: ${yamlStr(req.id)}
+elements: ${JSON.stringify(els)}
+writes: []
+depends_on: []
+done_when:
+  - parity: ${a.scenario}
+  - gate: "TODO a command that exits 0 when this is done"
+# ${String(a.reason).replace(/\s+/g, ' ')}
+`;
+    const item = { id, title, requirement: req.id, elements: els, writes: [], depends_on: [], done_when: [{ parity: a.scenario }, { gate: 'TODO a command that exits 0 when this is done' }] };
+    const probs = Work.validate(item, { requirements: A.requirements, items: A.work || [], scenarios: (A.parity || []).map(x => x.id) });
+    if (probs.length) return { error: probs[0] };
+    return { title: `Propose work item ${id}`, detail: title, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
+      apply: async () => { AG.approved.set(`work/${id}.yaml`, Date.now()); await host.write(`work/${id}.yaml`, text); A.tree = await host.tree(); await loadWork(); renderAll(); return `Created work/${id}.yaml. Replace the TODO gate, then Start it from Work.`; } };
+  },
+  mint_test_scenarios: a => {
+    const req = A.requirements.find(r => r.id === a.requirement);
+    if (!req) return { error: `Requirement ${a.requirement} is not in the registry. Agents never create requirements; the person imports pages first.` };
+    const list = Array.isArray(a.scenarios) ? a.scenarios : [];
+    if (!list.length) return { error: 'scenarios is empty. Write one case per behaviour the page states, or say the page states none.' };
+    const built = testScenarioFiles(req, list, 'grill', true);
+    if (built.error) return { error: built.error };
+    const files = built.files;
+    const preview = files.map(f => `<div class="diffhead">${esc(f.path)}</div><div class="note">From the page: “${esc(f.quote)}”</div><pre class="yamlprev">${esc(f.text)}</pre>`).join('');
+    return { title: `Add ${plural(files.length, 'test scenario')} to ${req.id}`, detail: files.map(f => f.rec.title).join('; '), preview,
+      apply: async () => {
+        await writeTestScenarioFiles(files);
+        return `Created ${files.map(f => f.path).join(', ')}. A person reviews them; they never block the gate.`;
+      } };
   },
   map_requirement: a => {
     const req = A.requirements.find(r => r.id === a.id);
@@ -967,6 +1060,45 @@ function mapRequirement(id) {
   const r = A.requirements.find(x => x.id === id); if (!r) return;
   const text = `Map requirement ${id} ("${r.title || id}") to the design elements it concerns. Read its page with read_import_page, read the model, then propose the mapping with map_requirement. This requirement only.`;
   if (!grillInPanel(text)) toast('Map to elements needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
+// Shared by mint_test_scenarios (by grill, quote required) and the .feature import (by qa). Takes the next free nn per requirement.
+function testScenarioFiles(req, list, by, needQuote) {
+  const taken = new Set(A.testScenarioIds || []);
+  const files = [];
+  for (const [i, x] of list.entries()) {
+    let n = 1, id; do { id = `${req.id}-ts-${String(n++).padStart(2, '0')}`; } while (taken.has(id)); taken.add(id);
+    const rec = { id, requirement: req.id, title: x && x.title, given: x && x.given, when: x && x.when, then: x && x.then, by };
+    const errs = Records.validate('test_scenario', rec);
+    if (errs.length) return { error: `Scenario ${i + 1}: ${errs.join('; ')}.` };
+    if (needQuote && !(typeof x.quote === 'string' && x.quote.trim())) return { error: `Scenario ${i + 1}: quote the sentence of the page it comes from.` };
+    const block = k => `${k}:\n${rec[k].map(v => `  - ${yamlStr(v)}`).join('\n')}`;
+    files.push({ id, path: `test-scenarios/${id}.yaml`, quote: needQuote ? x.quote.trim() : '', rec, text: `id: ${id}\nrequirement: ${yamlStr(req.id)}\ntitle: ${yamlStr(rec.title)}\n${block('given')}\n${block('when')}\n${block('then')}\nby: ${by}\n` });
+  }
+  return { files };
+}
+async function writeTestScenarioFiles(files) {
+  for (const f of files) if (await host.exists(f.path)) throw new Error(`${f.path} already exists; nothing was written.`);
+  for (const f of files) { AG.approved.set(f.path, Date.now()); await host.write(f.path, f.text); }
+  A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+}
+// Grill-me on one imported requirement: reads its page and proposes test scenarios in one batch card.
+function draftTestScenarios(id) {
+  if (!A.importDir) { toast('Choose the folder the pages came from first (the ⇩ button in Requirements); designc does not keep that folder between sessions.', 'warning'); return; }
+  const r = A.requirements.find(x => x.id === id); if (!r) return;
+  const text = `Draft test scenarios for requirement ${id} ("${r.title || id}"). Read its page with read_import_page, then call mint_test_scenarios once: one case per behaviour the page states, each quoting its sentence. Do not invent behaviour; say where the page is unclear. This requirement only.`;
+  if (!grillInPanel(text)) toast('Draft test scenarios needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
+function draftCheck(id) {
+  const d = A.decisions.find(x => x.id === id); if (!d) return;
+  const text = `Decision ${id} ("${d.statement || id}") is bound but has no check. Read the decision and the model, then propose one check line with set_check: a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>" if no command exists yet. This decision only.`;
+  if (!grillInPanel(text)) toast('Draft a check needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
+// Read-only: Grill-me explains why the latest check of one decision failed. The ledger keeps the exit code and reason, not the output.
+function explainCheckFail(id) {
+  const d = A.decisions.find(x => x.id === id), l = Core.latestCheck(A.ledger, id); if (!d) return;
+  const seen = l ? `Its latest check run (${new Date(l._ts || l.ts).toISOString()}) failed${l.exit_code != null ? ` with exit code ${l.exit_code}` : ''}${l.reason ? `: ${l.reason}` : ''}.` : 'It has no recorded check run.';
+  const text = `Explain why decision ${id} ("${d.statement || id}") is blocking the gate on a failed check. ${seen} Read the decision, the check command (${Records.runs(d).join('; ') || 'none'}) and the model, and say the most likely cause and what to change. Explain only: do not call any write tool.`;
+  if (!grillInPanel(text)) toast('Why did it fail? needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
 function toggleAgent(force) { AG.open = force ?? !AG.open; renderAgent(); if (AG.open) setTimeout(() => $('#agInput').focus(), 50); }
 

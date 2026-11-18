@@ -29,7 +29,7 @@ test('a write tool never runs without asking, even when settings list it under a
     assert.equal(Policy.verdict(cfg({ allow: [tool], ask: [], deny: [tool] }), tool), 'deny', tool);
     assert.equal(Policy.verdict(cfg({ allow: [], ask: [] }), tool), 'deny', tool);
   }
-  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage']);
+  assert.deepEqual(Policy.WRITE_TOOLS, ['propose_model_edit', 'mint_decision', 'write_check', 'set_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'mint_test_scenarios', 'propose_parity_cover', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage']);
 });
 
 const yaml = require('js-yaml');

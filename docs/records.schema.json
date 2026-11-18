@@ -2,9 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "designc.records/1",
   "title": "designc record envelope",
-  "description": "One envelope for decisions, requirements, verdicts and procedures (intelligence plane phase 2). renderer/records.js validates it and python/designc/records.py mirrors it. Lint across records (repeated ids, unknown or superseded references) is in Records.lint. A string check's id is 'chk-' plus the first 8 hex digits of hash16 of the trimmed command. minted and checked read as proposed.",
+  "description": "One envelope for decisions, requirements, verdicts, procedures and test scenarios (intelligence plane phase 2). renderer/records.js validates it and python/designc/records.py mirrors it. Lint across records (repeated ids, unknown or superseded references) is in Records.lint. A string check's id is 'chk-' plus the first 8 hex digits of hash16 of the trimmed command. minted and checked read as proposed.",
   "$defs": {
     "strings": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "array", "items": { "type": "string", "minLength": 1 } } ] },
+    "steps": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "array", "minItems": 1, "items": { "type": "string", "minLength": 1 } } ] },
     "ref": { "type": "string", "description": "A bare id is another record. A prefixed id points outside: ui:, req:, el:, test:, jira:", "pattern": "^([^:\\s]+|(ui|req|el|test|jira):.+)$" },
     "envelope": {
       "type": "object",
@@ -50,6 +51,20 @@
       "allOf": [ { "$ref": "#/$defs/envelope" } ],
       "required": ["status", "verdict", "scope"],
       "properties": { "verdict": { "enum": ["matched", "diverged", "accepted"] }, "commit": { "type": "string" } }
+    },
+    {
+      "title": "test_scenario",
+      "description": "test-scenarios/<id>.yaml: one BDD case that proves part of a requirement, written by an agent from the requirement's page or by QA. No status. The requirement must be a requirement record (Records.lint). Display only, never a gate input.",
+      "allOf": [ { "$ref": "#/$defs/envelope" } ],
+      "required": ["requirement", "title", "given", "when", "then"],
+      "properties": {
+        "requirement": { "type": "string", "minLength": 1 },
+        "title": { "type": "string", "minLength": 1 },
+        "given": { "$ref": "#/$defs/steps" },
+        "when": { "$ref": "#/$defs/steps" },
+        "then": { "$ref": "#/$defs/steps" },
+        "by": { "type": "string", "minLength": 1, "description": "grill, qa or a person" }
+      }
     },
     {
       "title": "procedure",

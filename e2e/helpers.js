@@ -47,11 +47,14 @@ async function launch(reg, { ready = page => page.getByRole('button', { name: /^
   const app = await electron.launch({
     args: [APP, `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu', reg],
     cwd: APP,
+    env: { ...process.env, DESIGNC_E2E: '1' },
   });
   const page = await app.firstWindow();
   page.on('dialog', d => d.accept());
   await page.waitForLoadState('domcontentloaded');
   await ready(page).waitFor({ timeout: 30000 });
+  const visible = await app.evaluate(({ BrowserWindow }) => BrowserWindow.getAllWindows().filter(w => w.isVisible()).length);
+  if (visible) throw new Error(`e2e must not show a window, but ${visible} BrowserWindow(s) are visible`);
   return { app, page };
 }
 

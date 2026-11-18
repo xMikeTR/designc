@@ -1,0 +1,10 @@
+id: QT-1-ts-02
+requirement: QT-1
+title: Tags can be applied
+given:
+  - a tag exists
+when:
+  - the user applies it
+then:
+  - it is saved
+by: qa

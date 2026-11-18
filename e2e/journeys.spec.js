@@ -322,9 +322,16 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   const answered = fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8');
   expect(answered).toMatch(/^binds: \[Bookings API\]$/m);
   expect(answered).toMatch(/^  - "python3 checks\/retry.py"$/m);
-  // A question that needs no decision is closed from the gate itself.
-  await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
+  // Answering with a decision closes the question, so the gate no longer offers it.
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001']);
+  await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
+  // A question that needs no decision is closed from the gate itself.
+  fs.appendFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'nd2', ts: 2, kind: 'needs_decision',
+    by: 'pipeline', id: 'ND-0002', question: 'Which log level?', status: 'open' }) + '\n');
+  await expect(sidebar.getByText('open needs-decision ND-0002: Which log level?', { exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
+  await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001', 'ND-0002']);
   await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
   await expect(page.locator('#badge-work')).toHaveText('');
 });
@@ -549,11 +556,15 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
   const shots = path.join(reg, 'parity/shots');
+  fs.mkdirSync(shots, { recursive: true });
   for (const f of fs.readdirSync(shots)) if (f.endsWith('.png')) fs.rmSync(path.join(shots, f));
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   fs.writeFileSync(path.join(shots, '3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a.png'), png);
   session = await launch(reg);
   const { page } = session;
+  // The requirement says where it is on the way to proven parity, and the one next step (display only).
+  await page.getByRole('button', { name: 'Design' }).click();
+  await expect(page.locator('#sbBody').getByText('Next: Automate 1 of 2 test scenarios in a parity scenario')).toBeVisible();
   // The work item names parity as done_when, and its card says what each scenario last gave.
   await page.getByRole('button', { name: 'Work', exact: true }).click();
   const special = page.locator('#special');
@@ -562,6 +573,8 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   // The Parity view: the failing scenario, its finding, and the two shots side by side for looking only.
   await page.locator('#sbBody').getByText('tags-list', { exact: true }).click();
   await expect(special.getByRole('heading', { name: /^tags-list/ })).toBeVisible();
+  // It names the test scenario it proves, from the requirement's page (display only).
+  await expect(special.getByText('Proves: QT-1-ts-01 Tags are listed (requirement QT-1)')).toBeVisible();
   await expect(special.getByRole('cell', { name: /^step 1: column "Inception" is date:dddd-0d-dd/ })).toBeVisible();
   await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
   await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);
@@ -648,6 +661,32 @@ test('user can accept or dismiss a swept Jira issue @critical', async () => {
   await page.getByRole('tab', { name: /^WK Work/ }).click();
   await expect(page.locator('[data-workitem]')).toHaveCount(1);
   await expect(page.locator('[data-inbox]')).toHaveCount(0);
+});
+
+test('a gate clause on a check offers the next step, and the TODO is replaced once the card is approved', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  const dec = (id, checks) => `id: ${id}\nstatus: bound\neffect: fix\nrequirement: DEMO-1234\nbinds: [Bookings DB]\nresolves: [DC009]\nstatement: "${id} statement"\n${checks}\n`;
+  fs.writeFileSync(path.join(reg, 'decisions/D-0003.yaml'), dec('D-0003', 'checks:\n  - "TODO ./checks/occ.sh: writers use rowversion"'));
+  fs.writeFileSync(path.join(reg, 'decisions/D-0002.yaml'), dec('D-0002', 'checks: []'));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design' }).click();
+  const rows = page.locator('#sbBody .clause');
+  const todo = rows.filter({ hasText: 'D-0003: no check result recorded yet' });
+  await expect(todo.getByRole('button', { name: 'Write the check' })).toBeVisible();
+  await expect(todo.getByRole('button', { name: 'Run check' })).toHaveCount(0);
+  await expect(rows.filter({ hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
+  // Approving the card (its apply is what the Approve button runs) replaces the TODO; then the check can run.
+  await page.evaluate(async () => {
+    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\nexit 0\n', summary: 'x' });
+    await card.apply();
+  });
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0003.yaml'), 'utf8')).toMatch(/bash \.\/checks\/occ\.sh/);
+  await expect(todo.getByRole('button', { name: 'Run check' })).toBeVisible();
+  await expect(todo.getByRole('button', { name: 'Write the check' })).toHaveCount(0);
+  // set_check fills a decision that has none.
+  await page.evaluate(async () => { await WRITERS.set_check({ decision: 'D-0002', check: 'bash ./checks/b.sh', summary: 'x' }).apply(); });
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks:\n  - "?bash \.\/checks\/b\.sh/m);
 });
 
 test('user can see health on the C4 sheet @critical', async () => {

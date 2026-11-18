@@ -18,7 +18,7 @@ async function loadParityScenarios() {
     let o;
     try { o = jsyaml.load(textOf(f.path) ?? f.text); } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: `${f.path} does not parse: ${e.reason || e.message}` }); continue; }
     if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !o.id.trim()) { A.workErrors.push({ path: f.path, line: 1, msg: `${f.path} has no id; a parity scenario is recorded and judged by its id.` }); continue; }
-    const problems = Parity.scenarioProblems(o);
+    const problems = Parity.scenarioProblems(o, { testScenarios: A.testScenarioIds || [] });
     for (const p of problems) A.workErrors.push({ path: f.path, line: 1, msg: `${o.id}: ${p}` });
     A.parity.push({ ...o, id: o.id.trim(), _path: f.path, problems });
     A.parityIds.push(o.id.trim());
@@ -164,6 +164,15 @@ async function recordParityResult() {
   return recordParity('next', 'all', { item: item.id, commit: full.commit });
 }
 
+// Slice 3: Playwright codegen on the legacy app, then a scenario drafted from the walk and linked to this test scenario.
+async function recordFromLegacy(tsId) {
+  if (!PV.tools) { try { PV.tools = await host.parityTools(); } catch { PV.tools = {}; } }
+  if (!PV.tools.import || !PV.tools.playwright) { toast('Recording needs Playwright and the parity scripts, which an installed build does not carry. Run designc from its source folder.', 'warning'); return; }
+  const url = parityUrl('legacy') || await setParityUrl('legacy');
+  if (!url) return;
+  return typeParity(Dispatch.parityCodegen({ script: PV.tools.import, registry: A.root.root, url, id: `walk-${tsId}`, link: tsId }, A.platform));
+}
+
 async function draftParityScenarios() {
   const refs = Dispatch.references(A.cfg.references);
   const lg = refs && !refs.error ? Dispatch.legacy(refs.refs) : null;
@@ -292,6 +301,22 @@ function parityQaHtml(s) {
     ${rows ? `<div class="tw2"><table class="t"><tr><th>Bug</th><th>Bucket</th><th>Where</th><th>Why</th></tr>${rows}</table></div>` : ''}`;
 }
 
+// Requirement -> test scenarios -> parity scenarios -> latest result. Display only; a case no parity scenario lists is "not automated yet".
+function chainRows(reqId) {
+  return (A.testScenarios || []).filter(t => t.rec.requirement === reqId).map(t => {
+    const proving = (A.parity || []).filter(s => Array.isArray(s.test_scenarios) && s.test_scenarios.includes(t.rec.id));
+    return { id: String(t.rec.id), title: t.rec.title || '', path: t.path, proving: proving.map(s => ({ id: s.id, last: parityLast(s.id) })) };
+  });
+}
+function stageHtml(reqId) {
+  const req = A.requirements.find(r => r.id === reqId); if (!req) return '';
+  const g = Parity.requirementStage(req, { testScenarios: (A.testScenarios || []).map(t => ({ id: String(t.rec.id), requirement: t.rec.requirement })), scenarios: A.parity || [], last: parityLast });
+  return `<div class="l2 reqstage" data-stage="${g.stage}"><span class="tag ${g.stage === 'proven' ? 'pass' : 'open'}">${esc(g.stage)}</span> ${g.index + 1} of ${Parity.STAGES.length}${g.next ? ` · Next: ${esc(g.next)}` : ''}</div>`;
+}
+function chainHtml(reqId) {
+  const rows = chainRows(reqId);
+  return stageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : `<span class="desc">not automated yet</span> <button class="lnk" data-rects="${esc(r.id)}">Record from legacy</button>`}</div>`).join('');
+}
 function renderParity() {
   const el = $('#special');
   if (!PV.sel || !(A.parity || []).some(s => s.id === PV.sel)) PV.sel = A.parity && A.parity.length ? A.parity[0].id : null;
@@ -303,6 +328,7 @@ function renderParity() {
   el.innerHTML = `<div class="dash">${head}
     <div class="block"><h3>${esc(s.id)}${s.title ? ` · ${esc(s.title)}` : ''}<span class="spacer"></span><button class="btn" data-file="${esc(s._path)}">Open file</button></h3>
       <div class="note">${s.screen ? `Screen ${esc(s.screen)}. ` : ''}${PV.baselines[s.id] ? 'Baseline recorded.' : 'No baseline yet: record the legacy app first.'}${s.problems.length ? ` <span style="color:var(--err)">${esc(s.problems.join('; '))}</span>` : ''}</div>
+      ${(s.test_scenarios || []).length ? `<div class="note">Proves: ${s.test_scenarios.map(t => { const x = (A.testScenarios || []).find(y => y.rec.id === t); return x ? `<a data-open="${esc(x.path)}">${esc(t)}</a> ${esc(x.rec.title || '')} (requirement ${esc(x.rec.requirement)})` : esc(t); }).join('; ')}</div>` : ''}
       <ol class="pvsteps">${(s.steps || []).map(st => `<li>${esc(stepText(st))}${st && typeof st.state === 'string' ? ` <span class="desc">state ${esc(st.state)}</span>` : ''}</li>`).join('')}</ol></div>
     <div class="block"><h3>Results in the ledger</h3>${results ? `<div class="tw2"><table class="t"><tr><th>Outcome</th><th>Commit</th><th>Item</th><th>When</th><th>Failures</th></tr>${results}</table></div>` : '<div class="note">No parity_result yet.</div>'}</div>
     <div class="block"><h3>Latest report</h3>${parityReportHtml(s)}</div>

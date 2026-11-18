@@ -17,7 +17,7 @@ const Policy = (() => {
   const REVIEW_FIELDS = ['reviewed_by', 'reviewed_at'];
 
   // Tools that change the registry. Settings can deny them or leave them out, never make them silent.
-  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'write_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage'];
+  const WRITE_TOOLS = ['propose_model_edit', 'mint_decision', 'write_check', 'set_check', 'mint_acceptance', 'mint_proposal', 'map_requirement', 'mint_test_scenarios', 'propose_parity_cover', 'group_reviews', 'draft_eval_task', 'add_source', 'add_finding', 'answer_question', 'mint_ui_spec', 'mint_ui_component', 'mint_ui_template', 'request_preview', 'suggest_stage'];
 
   // Read deny, for every role, no settings override: the holdout sample is written by a person and never shown to a stage.
   const HOLDOUT_DENIED = 'ui/holdout/ is never shown to an agent stage; a person writes it.';

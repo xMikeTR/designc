@@ -281,7 +281,7 @@ const Parity = (() => {
   }
 
   // parity/scenarios/<id>.yaml: {id, screen?, title?, steps[], params?: {legacy: {}, next: {}}, masks?[]}.
-  function scenarioProblems(s) {
+  function scenarioProblems(s, opts = {}) {
     if (!s || typeof s !== 'object' || Array.isArray(s)) return ['the scenario is not a mapping'];
     const out = [];
     if (typeof s.id !== 'string' || !/^[A-Za-z0-9._-]+$/.test(s.id)) out.push('the scenario needs an id of letters, digits, ".", "_" or "-"');
@@ -295,6 +295,12 @@ const Parity = (() => {
     // Tier 2 (pixels): CSS selectors painted over in both apps' screenshots, and the mismatch ratio the scenario tolerates.
     if (s.mask != null && (!Array.isArray(s.mask) || s.mask.some(m => typeof m !== 'string' || !m.trim()))) out.push('mask must be a list of CSS selectors');
     if (s.threshold != null && (typeof s.threshold !== 'number' || !(s.threshold >= 0 && s.threshold <= 1))) out.push('threshold must be a ratio from 0 to 1');
+    // test_scenarios: the test-scenarios/*.yaml ids this scenario proves. An unknown id is a registry problem, never a
+    // parity failure; `opts.testScenarios` (the known ids) is passed only where they have been read.
+    if (s.test_scenarios != null) {
+      if (!Array.isArray(s.test_scenarios) || s.test_scenarios.some(t => typeof t !== 'string' || !t.trim())) out.push('test_scenarios must be a list of test scenario ids');
+      else if (opts.testScenarios) for (const t of s.test_scenarios) if (!opts.testScenarios.includes(t)) out.push(`test_scenarios names ${t}, which is not in test-scenarios/`);
+    }
     return out;
   }
 
@@ -546,8 +552,26 @@ const Parity = (() => {
     return { tech: 'unknown', evidence: [] };
   }
 
+  // Where a requirement is on the way from page to proven parity, and the one next step. Display only: never a gate input.
+  // req {id, elements[]}; testScenarios [{id, requirement}]; scenarios (parity) [{id, test_scenarios[]}]; last(id) is the latest parity result or null.
+  const STAGES = ['imported', 'mapped', 'described', 'automated', 'proven'];
+  function requirementStage(req, { testScenarios = [], scenarios = [], last = () => null } = {}) {
+    const mine = testScenarios.filter(t => t.requirement === req.id).map(t => t.id);
+    const proving = scenarios.filter(s => Array.isArray(s.test_scenarios) && s.test_scenarios.some(t => mine.includes(t)));
+    const covered = mine.filter(t => proving.some(s => s.test_scenarios.includes(t)));
+    const outcomes = proving.map(s => (last(s.id) || {}).outcome || null);
+    let stage, next;
+    if (!(req.elements || []).length) { stage = 'imported'; next = 'Map to elements'; }
+    else if (!mine.length) { stage = 'mapped'; next = 'Draft test scenarios or import a .feature file'; }
+    else if (covered.length < mine.length) { stage = 'described'; next = `Automate ${mine.length - covered.length} of ${mine.length} test scenarios in a parity scenario`; }
+    else if (outcomes.some(o => o === 'fail')) { stage = 'automated'; next = 'Fix the failing parity scenario or cover the difference'; }
+    else if (outcomes.some(o => o !== 'pass')) { stage = 'automated'; next = 'Record a parity result'; }
+    else { stage = 'proven'; next = null; }
+    return { stage, index: STAGES.indexOf(stage), next, tests: mine.length, covered: covered.length };
+  }
+
   return {
-    ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
+    requirementStage, STAGES, ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
     shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot, requests,
     exceptions, removesProblems, diff, compare, failures, resultEvent, detect,
   };

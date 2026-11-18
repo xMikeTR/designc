@@ -6,7 +6,8 @@
 // const, or a page object's property; a page object's method is followed one level, its parameters taken from the call.
 // Anything else (getByLabel, getByText, CSS locators, variables as values, loops, helpers) is flagged with its file and
 // line, never guessed; assertions are counted and skipped, because parity compares the whole screen.
-//   node scripts/parity-import.js --from <legacy tests folder> --registry <dir> [--write] [--json]
+//   node scripts/parity-import.js --from <legacy tests folder> --registry <dir> [--write] [--id <name>] [--link <test scenario id>] [--json]
+// --id names the scenario when the folder holds exactly one test (a Playwright codegen recording); --link lists a test-scenarios/ id in test_scenarios.
 // Without --write it only reports. --write creates parity/scenarios/<id>.yaml and never overwrites a scenario.
 // Exit: 0 drafted (or nothing to draft), 1 some calls could not be translated, 2 an error.
 const fs = require('fs');
@@ -14,7 +15,7 @@ const path = require('path');
 const yaml = require('js-yaml');
 const Parity = require('../renderer/parity.js');
 
-const USAGE = 'usage: parity-import --from <folder> --registry <dir> [--write] [--json]';
+const USAGE = 'usage: parity-import --from <folder> --registry <dir> [--write] [--id <name>] [--link <test scenario id>] [--json]';
 const SOURCE = /\.(spec|test|page|po)?\.?[cm]?[jt]sx?$/;
 const SKIP = new Set(['node_modules', '.git', 'dist', 'build', 'coverage', 'test-results', 'playwright-report']);
 
@@ -231,12 +232,12 @@ function drafts(files, { taken = [] } = {}) {
 }
 
 // The draft as a scenario file: a comment saying where it came from and what was not translated, then the scenario.
-function toYaml(d) {
+function toYaml(d, link) {
   const head = [`# Drafted by scripts/parity-import.js from ${d.file}:${d.line}. Check it before recording a baseline.`];
   if (d.assertions) head.push(`# ${d.assertions} assertion${d.assertions === 1 ? '' : 's'} skipped: parity compares the whole screen.`);
   for (const f of d.flags) head.push(`# not translated: ${f.file}:${f.line} ${f.text.slice(0, 100)} (${f.why})`);
   head.push('# Values are as the legacy test wrote them; move any that differ between the apps to params.');
-  return `${head.join('\n')}\n${yaml.dump({ id: d.id, title: d.title, steps: d.steps }, { lineWidth: 120, flowLevel: 2 })}`;
+  return `${head.join('\n')}\n${yaml.dump({ id: d.id, title: d.title, ...(link ? { test_scenarios: [link] } : {}), steps: d.steps }, { lineWidth: 120, flowLevel: 2 })}`;
 }
 
 function walk(dir, root = dir, out = []) {
@@ -253,7 +254,7 @@ function parseArgs(argv) {
   const o = {};
   for (let i = 0; i < argv.length; i++) {
     const a = argv[i];
-    if (a === '--from' || a === '--registry') { if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`${a} needs a value`); o[a.slice(2)] = argv[++i]; }
+    if (a === '--from' || a === '--registry' || a === '--id' || a === '--link') { if (!argv[i + 1] || argv[i + 1].startsWith('--')) throw new Error(`${a} needs a value`); o[a.slice(2)] = argv[++i]; }
     else if (a === '--write') o.write = true;
     else if (a === '--json') o.json = true;
     else if (a === '--help' || a === '-h') o.help = true;
@@ -272,12 +273,18 @@ function main(argv, { log = s => process.stdout.write(s + '\n'), err = s => proc
   const dir = path.join(o.registry, 'parity', 'scenarios');
   const existing = fs.existsSync(dir) ? fs.readdirSync(dir).filter(f => /\.ya?ml$/.test(f)).map(f => f.replace(/\.ya?ml$/, '')) : [];
   const all = drafts(walk(o.from));
+  if (o.id) {
+    if (all.length !== 1) { err(`--id needs exactly one test under ${o.from}, found ${all.length}`); return 2; }
+    if (!/^[A-Za-z0-9][A-Za-z0-9._-]*$/.test(o.id)) { err('--id uses letters, digits, dots, dashes and underscores'); return 2; }
+    all[0].id = o.id; all[0].title = o.id;
+  }
+  if (o.link && !fs.existsSync(path.join(o.registry, 'test-scenarios', `${o.link}.yaml`))) { err(`no test-scenarios/${o.link}.yaml in ${o.registry}`); return 2; }
   const results = all.map(d => {
     const r = { id: d.id, title: d.title, from: `${d.file}:${d.line}`, steps: d.steps.length, assertions: d.assertions, flags: d.flags, problems: d.steps.length ? Parity.scenarioProblems({ id: d.id, steps: d.steps }) : ['no step could be translated'] };
     if (existing.includes(d.id)) r.status = 'exists, not overwritten';
     else if (!o.write) r.status = 'would write';
     else if (!d.steps.length) r.status = 'not written: no steps';
-    else { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${d.id}.yaml`), toYaml(d), { flag: 'wx' }); r.status = 'written'; }
+    else { fs.mkdirSync(dir, { recursive: true }); fs.writeFileSync(path.join(dir, `${d.id}.yaml`), toYaml(d, o.link), { flag: 'wx' }); r.status = 'written'; }
     return r;
   });
   if (o.json) log(JSON.stringify(results, null, 2));

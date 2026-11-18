@@ -1029,6 +1029,32 @@ async function loadJiraMapping() {
   const t = await readText('jira-mapping.yaml'); if (t == null) return null;
   try { return jsyaml.load(t) || null; } catch { return null; }
 }
+// Import a Gherkin .feature file as test scenarios (by: qa) for one requirement the person picks. A review card, then written.
+async function importFeature() {
+  if (!A.requirements.length) return toast('There are no requirements yet. Import or add one first.', 'warning');
+  const id = await askChoice('Which requirement do these scenarios prove?', A.requirements.map(r => ({ label: `${r.id} ${trunc(r.title || '', 40)}`, value: r.id })));
+  if (!id) return;
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.feature,.txt';
+  const file = await new Promise(res => { input.addEventListener('change', () => res(input.files[0] || null)); input.addEventListener('cancel', () => res(null)); input.click(); });
+  if (!file) return;
+  const parsed = FeatureImport.parse(await file.text());
+  const req = A.requirements.find(r => r.id === id);
+  const built = parsed.scenarios.length ? testScenarioFiles(req, parsed.scenarios, 'qa', false) : { files: [] };
+  if (built.error) return toast(built.error, 'warning');
+  const ok = await new Promise(resolve => {
+    const el = document.createElement('div'); el.className = 'askbox';
+    el.innerHTML = `<div class="askcard" style="width:620px"><label>${esc(`${plural(built.files.length, 'scenario')} from ${file.name} for ${id}; ${parsed.skipped.length} not imported.`)}</label>`
+      + `<div style="max-height:46vh;overflow:auto">${built.files.map(f => `<div class="diffhead">${esc(f.path)}</div><pre class="yamlprev">${esc(f.text)}</pre>`).join('') || '<div class="hint">Nothing to import.</div>'}`
+      + `${parsed.skipped.map(k => `<div class="hint">Line ${k.line}: ${esc(k.what)}</div>`).join('')}</div>`
+      + `<div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button><button type="button" class="btn primary" data-go="1" ${built.files.length ? '' : 'disabled'}>Write ${plural(built.files.length, 'file')}</button></div></div>`;
+    const done = v => { el.remove(); resolve(v); };
+    el.addEventListener('click', e => { const b = e.target.closest('[data-go],[data-ask]'); if (!b || b.disabled) return; e.stopPropagation(); done(!!b.dataset.go); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } });
+    document.body.appendChild(el);
+  });
+  if (!ok) return;
+  try { await writeTestScenarioFiles(built.files); toast(`Wrote ${plural(built.files.length, 'test scenario')} for ${id}.`); } catch (e) { toast(e.message, 'warning'); }
+}
 async function importRequirements() {
   const dir = await host.chooseImportFolder(); if (!dir) return;
   A.importDir = dir;
@@ -1614,17 +1640,40 @@ function clauseHelp(c) {
   if (c.kind === 'acceptance' && / is a UI element with no acceptance criterion$/.test(c.text)) return 'A UI element needs a criterion with one case per state: ready, loading, empty and error (and forbidden behind a sign-in). Use New criterion in the Acceptance section.';
   if (c.kind === 'tokens') return 'Edit design-tokens/tokens.json: raise the text size, or set ux.minTextSize in designc.json to a lower minimum if that is intended.';
   if (c.kind === 'acceptance' && /: no case for state /.test(c.text)) return 'Add a case for that state to the criterion file: what the user sees (given, then).';
+  if (c.kind === 'parse') return 'Fix the model first: the errors are underlined in the editor and listed in Problems. Nothing else can be judged until it parses.';
+  if (c.kind === 'registry') return 'Open the file and fix the YAML (indentation, a missing colon or an unclosed quote). Until it parses, the gate cannot read it.';
+  if (c.kind === 'duplicate') return 'Two files use this id. Rename one or delete the one made by mistake.';
+  if (c.kind === 'decision' && / has kind /.test(c.text)) return 'Set kind to business or technical in the decision file.';
+  if (c.kind === 'decision' && / has no check$/.test(c.text)) return 'A bound technical decision needs a command that exits 0 when it holds, or a TODO line saying what it must prove. Add one under checks: in the decision file.';
+  if (c.kind === 'decision' && /builds a fix but names no work item$/.test(c.text)) return 'Add work: <item id> to the decision, or change its effect. Create the item in Work if there is none.';
+  if (c.kind === 'decision' && /: work item .* does not exist$/.test(c.text)) return 'Fix the work: id in the decision, or create that item in Work.';
+  if (c.kind === 'decision' && /, but the model still raises it$/.test(c.text)) return 'Either the model still has the problem (fix the model), or the decision is wrong (supersede it and record a new one).';
+  if (c.kind === 'assumption') return 'Each assumption needs text and a review_by date written as YYYY-MM-DD. Fix them in the decision file.';
+  if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return 'Evidence is a link to where the business agreed this, starting with https://.';
+  if (c.kind === 'scenario') return 'Open the scenario in scenarios/ and complete it: artifact (an element in the model), attribute and measure. For a failing fitness function, run it and read the output.';
+  if (c.kind === 'unpinned_contract') return 'This requirement spans several elements. Add the OpenAPI file that pins the contract between them under contracts/openapi/.';
+  if (c.kind === 'eval' && !(c.agent && c.evalId)) return 'Open the eval in evals/ and fix it, or add one for the agent named. It needs a command, a results path and thresholds.';
+  if (c.kind === 'domain') return 'Open the domain pack in domain/ (or its source registry) and fix what the line names, then pin it again.';
   return '';
 }
 function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S+) is not allowed/.exec(c.text); return m ? m[1] : null; }
 function clauseActions(c) {
   const b = (attr, v, label, title) => `<button class="lnk" ${attr}="${esc(String(v))}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
   if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') + b('data-bldfi', fi, 'Build it') : '') + b('data-askfi', fi, 'Ask the tutor'); }
+  if (c.kind === 'decision' && / has no check$/.test(c.text) && c.decision) return b('data-draftcheck', c.decision, 'Draft a check', 'Grill-me proposes one check line; you approve the edit');
   if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
   if (c.kind === 'domain' && c.pack && /not pinned|changed in its registry|edited after/.test(c.text)) return b('data-pin', c.pack, /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the pack from its registry into domain/ and records that you accepted it');
   if (c.kind === 'ui' && /No UI pack is pinned|is not pinned|edited after it was pinned|changed in its registry/.test(c.text)) return b('data-pinui', c.pack || '*', /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the UI pack from its registry into ui/pack/, after showing what changes, and records that you accepted it');
   if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
-  if (c.kind === 'check') return b('data-run', c.decision, 'Run check');
+  if (c.kind === 'check') {
+    const d = A.decisions.find(x => x.id === c.decision), runs = d ? Records.runs(d) : [];
+    const todo = runs.some(x => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(x || '')), real = runs.some(x => x && !/^TODO/.test(x));
+    const run = b('data-run', c.decision, 'Run check');
+    const write = b('data-wcheck', c.decision, 'Write the check', 'The agent drafts the check script; you read it before it is saved');
+    if (/last check failed$/.test(c.text)) return run + b('data-whyfail', c.decision, 'Why did it fail?', 'Grill-me explains the failure; it writes nothing');
+    if (todo) return (real ? run : '') + write;
+    return real || !d ? run : b('data-file', d._path, 'Open decision', 'The check is a TODO with no script to write: replace it with a command');
+  }
   if (c.kind === 'assumption' && / was due for review on /.test(c.text)) return b('data-review', c.decision, 'Mark reviewed');
   if (c.kind === 'evidence' && evidenceHost(c)) return b('data-allowhost', evidenceHost(c), `Allow ${evidenceHost(c)}`, 'Adds the host to evidenceHosts in designc.json');
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
@@ -1635,6 +1684,12 @@ function clauseActions(c) {
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
   if (c.kind === 'needs' && c.needs && c.needs.id) return ndOptionsHtml(c.needs.id) + b('data-ndans', c.needs.id, 'Answer with a decision') + b('data-ndres', c.needs.id, 'Mark resolved', 'Closes the question without a decision, for one that is not about the design');
   if (c.kind === 'eval' && c.agent && c.evalId) return b('data-runeval', c.evalId, 'Run eval');
+  if (c.kind === 'eval' && c.evalId != null) { const x = A.evals.find(y => String(y.id) === String(c.evalId)); if (x) return b('data-file', x._path, 'Open eval'); }
+  if (c.kind === 'registry' && c.path) return b('data-file', c.path, 'Open file');
+  if (c.kind === 'domain' && c.pack) return b('data-file', `domain/${c.pack}.yaml`, 'Open domain pack');
+  if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this');
+  if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x && x._path) return b('data-file', x._path, 'Open decision'); }
+  if (c.kind === 'parse') return b('data-file', A.cfg.model, 'Open model');
   return '';
 }
 // Human only: evidence is what a person agreed, so no agent tool writes it.
@@ -1759,7 +1814,7 @@ function designSidebar() {
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
       <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${Records.runs(d).some(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || '')) ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div>${chainHtml(r.id)}<div class="acts"><button class="lnk" data-draftts="${esc(r.id)}" title="Grill-me reads the imported page and proposes BDD test scenarios; you approve">Draft test scenarios</button><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -1794,7 +1849,7 @@ function designSidebar() {
       look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
     + section('gate', 'Ready gate', gate)
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button><button title="Check records: what converting these decisions to the record format would flag. A dry run: nothing is written." data-a="checkrecords">≡</button>`)
-    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
+    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="Import test scenarios from a .feature file" data-a="importfeature">⇧</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
@@ -2377,6 +2432,8 @@ document.addEventListener('click', async e => {
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.rects) { e.stopPropagation(); return recordFromLegacy(d.rects); }
+  if (d.draftts) { e.stopPropagation(); return draftTestScenarios(d.draftts); }
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
   if (d.owner) { e.stopPropagation(); return becomeBusinessOwner(A.decisions.find(x => x.id === d.owner)); }
@@ -2386,6 +2443,8 @@ document.addEventListener('click', async e => {
   if (d.resume) { e.stopPropagation(); return resumeRun(d.resume); }
   if (d.hvcopy) { const h = A.handovers.find(x => x.id === d.hvcopy); if (!h) return; try { await navigator.clipboard.writeText(summaryFor(h)); toast('Summary copied.'); } catch { toast('Could not copy. Select the text in the Output panel instead.', 'warning'); } return; }
   if (d.wcheck) return writeCheckFor(d.wcheck);
+  if (d.draftcheck) return draftCheck(d.draftcheck);
+  if (d.whyfail) return explainCheckFail(d.whyfail);
   if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0);
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
@@ -2439,6 +2498,7 @@ document.addEventListener('click', async e => {
   if (a === 'newdecstudy') return newDecisionFromStudy();
   if (a === 'newreq') return newRequirement();
   if (a === 'importreq') return importRequirements();
+  if (a === 'importfeature') return importFeature();
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();

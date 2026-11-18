@@ -1,5 +1,6 @@
 // End-to-end tests for the designc app itself (Electron through Playwright's _electron).
-// Run with `npm run e2e`; on Linux without a display, `xvfb-run -a npm run e2e`.
+// Run with `npm run e2e`. The app runs hidden on every OS (DESIGNC_E2E=1), so no window appears;
+// xvfb-run -a is optional on Linux.
 const { defineConfig } = require('@playwright/test');
 
 module.exports = defineConfig({

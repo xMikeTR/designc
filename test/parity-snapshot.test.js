@@ -106,3 +106,28 @@ test('detect names the technology from files, and says unsupported or unknown ra
   assert.deepStrictEqual(Parity.detect([{ path: 'App/App.csproj', text: '<UseWPF>true</UseWPF>' }]), { tech: 'unsupported', evidence: ['App/App.csproj: UseWPF'] });
   assert.deepStrictEqual(Parity.detect([{ path: 'README.md', text: '' }]), { tech: 'unknown', evidence: [] });
 });
+
+test('test_scenarios on a parity scenario: a list of ids, and an unknown id is a problem only where the ids are known', () => {
+  const sc = (t) => ({ id: 'tags-sort', steps: [{ goto: { path: '/tags' } }], test_scenarios: t });
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-01', 'DEMO-1-ts-02'])), []);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-01']), { testScenarios: ['DEMO-1-ts-01'] }), []);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-09']), { testScenarios: ['DEMO-1-ts-01'] }), ['test_scenarios names DEMO-1-ts-09, which is not in test-scenarios/']);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc('DEMO-1-ts-01')), ['test_scenarios must be a list of test scenario ids']);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc([''])), ['test_scenarios must be a list of test scenario ids']);
+});
+
+test('requirementStage: the stage and the one next step, from the chain only', () => {
+  const r = { id: 'R', elements: ['A'] };
+  const ts = [{ id: 'R-ts-01', requirement: 'R' }, { id: 'R-ts-02', requirement: 'R' }, { id: 'X-ts-01', requirement: 'X' }];
+  const st = (req, o) => Parity.requirementStage(req, o);
+  assert.strictEqual(st({ id: 'R' }, {}).stage, 'imported');
+  assert.strictEqual(st(r, { testScenarios: [] }).stage, 'mapped');
+  const d = st(r, { testScenarios: ts, scenarios: [{ id: 'p1', test_scenarios: ['R-ts-01'] }] });
+  assert.deepStrictEqual([d.stage, d.covered, d.tests], ['described', 1, 2]);
+  const all = [{ id: 'p1', test_scenarios: ['R-ts-01', 'R-ts-02'] }];
+  assert.strictEqual(st(r, { testScenarios: ts, scenarios: all }).next, 'Record a parity result');
+  assert.strictEqual(st(r, { testScenarios: ts, scenarios: all, last: () => ({ outcome: 'fail' }) }).stage, 'automated');
+  const ok = st(r, { testScenarios: ts, scenarios: all, last: () => ({ outcome: 'pass' }) });
+  assert.deepStrictEqual([ok.stage, ok.next], ['proven', null]);
+  assert.strictEqual(st(r, { testScenarios: ts, scenarios: all, last: () => ({ outcome: 'could_not_run' }) }).stage, 'automated');
+});

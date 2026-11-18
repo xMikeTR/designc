@@ -110,6 +110,19 @@ const Dispatch = (() => {
     return toolLine(script, ['--from', from, '--registry', registry, '--write'], platform);
   }
 
+  // Slice 3: walk the legacy app in Playwright codegen, then draft the scenario from the recording, linked to a test scenario.
+  // One line, typed without Enter: codegen opens a browser, and the import runs when it is closed.
+  function parityCodegen({ script, registry, url, id, link }, platform) {
+    const quote = platform === 'win32' ? pwsh : posix;
+    if (![script, registry, url, id, link].every(v => v && !/[\r\n]/.test(v))) return { error: 'The command is missing a value.' };
+    const sep = platform === 'win32' ? '\\' : '/';
+    const dir = `${registry}${sep}.designc${sep}codegen${sep}${id}`;
+    const file = `${dir}${sep}recording.spec.js`;
+    const rec = ['npx', 'playwright', 'codegen', '--target', 'javascript', '-o', quote(file), quote(url)].join(' ');
+    const imp = toolLine(script, ['--from', dir, '--registry', registry, '--write', '--id', id, '--link', link], platform);
+    return imp.error ? imp : `${rec} ${platform === 'win32' ? ';' : '&&'} ${imp}`;
+  }
+
   // Render previews (docs/ui-contract.md): the Factory's preview command, typed into the Terminal and never run. `factory` is the
   // person's path to it (designc.json factory.command), else the bare `factory-s2`.
   function uiPreview({ factory, registry, screen, repo }, platform) {
@@ -121,6 +134,6 @@ const Dispatch = (() => {
     return parts.map((p, i) => (i === 0 || /^(preview|--[a-z-]+)$/.test(String(p)) ? String(p) : quote(String(p)))).join(' ');
   }
 
-  return { VARS, settings, command, references, legacy, parityRecord, parityImport, uiPreview };
+  return { VARS, settings, command, references, legacy, parityRecord, parityImport, parityCodegen, uiPreview };
 })();
 if (typeof module !== 'undefined') module.exports = Dispatch;

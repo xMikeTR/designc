@@ -106,3 +106,19 @@ test('the CLI reports, writes only with --write, and never overwrites a scenario
     assert.strictEqual(Import.main(['--registry', reg], { err: () => {} }), 2);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test('--id and --link: one recording becomes a named scenario that lists the test scenario it proves', () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'pi-'));
+  const reg = path.join(dir, 'reg'), from = path.join(dir, 'rec');
+  fs.mkdirSync(path.join(reg, 'test-scenarios'), { recursive: true }); fs.mkdirSync(from);
+  fs.writeFileSync(path.join(reg, 'test-scenarios', 'T-ts-01.yaml'), 'id: T-ts-01\n');
+  fs.writeFileSync(from + '/recording.spec.js', "test('test', async ({ page }) => {\n  await page.goto('https://legacy.test/tags');\n  await page.getByRole('button', { name: 'Go' }).click();\n});\n");
+  const quiet = { log() {}, err() {} };
+  const errs = []; const loud = { log() {}, err: s => errs.push(s) };
+  assert.equal(Import.main(['--from', from, '--registry', reg, '--write', '--id', 'walk-1', '--link', 'nope'], loud), 2);
+  assert.match(errs[0], /no test-scenarios\/nope\.yaml/);
+  Import.main(['--from', from, '--registry', reg, '--write', '--id', 'walk-1', '--link', 'T-ts-01'], quiet);
+  const sc = yaml.load(fs.readFileSync(path.join(reg, 'parity/scenarios/walk-1.yaml'), 'utf8'));
+  assert.deepEqual([sc.id, sc.test_scenarios, sc.steps.length], ['walk-1', ['T-ts-01'], 2]);
+  assert.deepEqual(Parity.scenarioProblems(sc, { testScenarios: ['T-ts-01'] }), []);
+});
