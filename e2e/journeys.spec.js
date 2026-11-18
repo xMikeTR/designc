@@ -444,3 +444,29 @@ test('user can accept or dismiss a swept Jira issue @critical', async () => {
   await expect(page.locator('[data-workitem]')).toHaveCount(1);
   await expect(page.locator('[data-inbox]')).toHaveCount(0);
 });
+
+test('a gate clause on a check offers the next step, and the TODO is replaced once the card is approved', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  const dec = (id, checks) => `id: ${id}\nstatus: bound\neffect: fix\nrequirement: DEMO-1234\nbinds: [Bookings DB]\nresolves: [DC009]\nstatement: "${id} statement"\n${checks}\n`;
+  fs.writeFileSync(path.join(reg, 'decisions/D-0003.yaml'), dec('D-0003', 'checks:\n  - "TODO ./checks/occ.sh: writers use rowversion"'));
+  fs.writeFileSync(path.join(reg, 'decisions/D-0002.yaml'), dec('D-0002', 'checks: []'));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design' }).click();
+  const rows = page.locator('#sbBody .clause');
+  const todo = rows.filter({ hasText: 'D-0003: no check result recorded yet' });
+  await expect(todo.getByRole('button', { name: 'Write the check' })).toBeVisible();
+  await expect(todo.getByRole('button', { name: 'Run check' })).toHaveCount(0);
+  await expect(rows.filter({ hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
+  // Approving the card (its apply is what the Approve button runs) replaces the TODO; then the check can run.
+  await page.evaluate(async () => {
+    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\nexit 0\n', summary: 'x' });
+    await card.apply();
+  });
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0003.yaml'), 'utf8')).toMatch(/bash \.\/checks\/occ\.sh/);
+  await expect(todo.getByRole('button', { name: 'Run check' })).toBeVisible();
+  await expect(todo.getByRole('button', { name: 'Write the check' })).toHaveCount(0);
+  // set_check fills a decision that has none.
+  await page.evaluate(async () => { await WRITERS.set_check({ decision: 'D-0002', check: 'bash ./checks/b.sh', summary: 'x' }).apply(); });
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks:\n  - "?bash \.\/checks\/b\.sh/m);
+});
