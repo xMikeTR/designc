@@ -397,6 +397,8 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   // The Parity view: the failing scenario, its finding, and the two shots side by side for looking only.
   await page.locator('#sbBody').getByText('tags-list', { exact: true }).click();
   await expect(special.getByRole('heading', { name: /^tags-list/ })).toBeVisible();
+  // It names the test scenario it proves, from the requirement's page (display only).
+  await expect(special.getByText('Proves: QT-1-ts-01 Tags are listed (requirement QT-1)')).toBeVisible();
   await expect(special.getByRole('cell', { name: /^step 1: column "Inception" is date:dddd-0d-dd/ })).toBeVisible();
   await expect(special.getByRole('listitem').filter({ hasText: 'legacy shows date:dd/0d/dddd' })).toContainText('fail');
   await expect(special.getByRole('img', { name: 'New app screenshot' })).toHaveAttribute('src', /^data:image\/png;base64,/);

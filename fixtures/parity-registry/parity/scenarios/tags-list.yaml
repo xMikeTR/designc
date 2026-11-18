@@ -1,6 +1,7 @@
 id: tags-list
 title: The tags list, sorted by inception
 screen: tags
+test_scenarios: [QT-1-ts-01]
 steps:
   - goto: { path: /tags }
     state: list

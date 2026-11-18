@@ -1,0 +1,10 @@
+id: QT-1-ts-01
+requirement: QT-1
+title: Tags are listed
+given:
+  - tags exist
+when:
+  - the user opens the tags page
+then:
+  - every tag is shown
+by: qa

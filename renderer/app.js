@@ -891,6 +891,32 @@ async function loadJiraMapping() {
   const t = await readText('jira-mapping.yaml'); if (t == null) return null;
   try { return jsyaml.load(t) || null; } catch { return null; }
 }
+// Import a Gherkin .feature file as test scenarios (by: qa) for one requirement the person picks. A review card, then written.
+async function importFeature() {
+  if (!A.requirements.length) return toast('There are no requirements yet. Import or add one first.', 'warning');
+  const id = await askChoice('Which requirement do these scenarios prove?', A.requirements.map(r => ({ label: `${r.id} ${trunc(r.title || '', 40)}`, value: r.id })));
+  if (!id) return;
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.feature,.txt';
+  const file = await new Promise(res => { input.addEventListener('change', () => res(input.files[0] || null)); input.addEventListener('cancel', () => res(null)); input.click(); });
+  if (!file) return;
+  const parsed = FeatureImport.parse(await file.text());
+  const req = A.requirements.find(r => r.id === id);
+  const built = parsed.scenarios.length ? testScenarioFiles(req, parsed.scenarios, 'qa', false) : { files: [] };
+  if (built.error) return toast(built.error, 'warning');
+  const ok = await new Promise(resolve => {
+    const el = document.createElement('div'); el.className = 'askbox';
+    el.innerHTML = `<div class="askcard" style="width:620px"><label>${esc(`${plural(built.files.length, 'scenario')} from ${file.name} for ${id}; ${parsed.skipped.length} not imported.`)}</label>`
+      + `<div style="max-height:46vh;overflow:auto">${built.files.map(f => `<div class="diffhead">${esc(f.path)}</div><pre class="yamlprev">${esc(f.text)}</pre>`).join('') || '<div class="hint">Nothing to import.</div>'}`
+      + `${parsed.skipped.map(k => `<div class="hint">Line ${k.line}: ${esc(k.what)}</div>`).join('')}</div>`
+      + `<div class="ta"><button type="button" class="btn" data-ask="no">Cancel</button><button type="button" class="btn primary" data-go="1" ${built.files.length ? '' : 'disabled'}>Write ${plural(built.files.length, 'file')}</button></div></div>`;
+    const done = v => { el.remove(); resolve(v); };
+    el.addEventListener('click', e => { const b = e.target.closest('[data-go],[data-ask]'); if (!b || b.disabled) return; e.stopPropagation(); done(!!b.dataset.go); });
+    el.addEventListener('keydown', e => { if (e.key === 'Escape') { e.stopPropagation(); done(false); } });
+    document.body.appendChild(el);
+  });
+  if (!ok) return;
+  try { await writeTestScenarioFiles(built.files); toast(`Wrote ${plural(built.files.length, 'test scenario')} for ${id}.`); } catch (e) { toast(e.message, 'warning'); }
+}
 async function importRequirements() {
   const dir = await host.chooseImportFolder(); if (!dir) return;
   A.importDir = dir;
@@ -1625,7 +1651,7 @@ function designSidebar() {
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
       <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${Records.runs(d).some(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || '')) ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div><div class="acts"><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div>${chainHtml(r.id)}<div class="acts"><button class="lnk" data-draftts="${esc(r.id)}" title="Grill-me reads the imported page and proposes BDD test scenarios; you approve">Draft test scenarios</button><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -1660,7 +1686,7 @@ function designSidebar() {
       look.count ? '<button title="Mark as seen: changes start again from now" data-a="lookseen">✓</button>' : '') : '')
     + section('gate', 'Ready gate', gate)
     + section('decisions', `Decisions (${A.decisions.length})`, decs, `<button title="New decision" data-a="newdec">+</button>${Object.keys(A.cfg.registries || {}).length ? '<button title="New decision from a study" data-a="newdecstudy">◇</button>' : ''}<button title="Run all checks" data-a="runall">▶</button><button title="Check records: what converting these decisions to the record format would flag. A dry run: nothing is written." data-a="checkrecords">≡</button>`)
-    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="New requirement" data-a="newreq">+</button>`)
+    + section('reqs', `Requirements (${A.requirements.length})`, reqs, `<button title="Import requirements from exported pages" data-a="importreq">⇩</button><button title="Import test scenarios from a .feature file" data-a="importfeature">⇧</button><button title="New requirement" data-a="newreq">+</button>`)
     + section('scenarios', `Scenarios (${A.scenarios.length})`, scn, `<button title="New scenario" data-a="newscn">+</button><button title="Run all fitness functions" data-a="runfit">▶</button>`)
     + section('acceptance', `Acceptance (${A.acceptance.length})`, acc + depsRow, `<button title="New criterion" data-a="newacc">+</button>`)
     + section('tokens', 'Design tokens', `<div class="item" ${A.tokens != null ? `data-open="${TOKENS}"` : ''}><div class="l1"><span class="id">${TOKENS}</span></div><div class="l2">${A.tokens != null ? 'W3C design tokens, copied into every handover. Text sizes below the minimum block the gate.' : 'None yet. A tokens file gives the build one set of sizes and colours, and the gate a minimum text size.'}</div></div>`, A.tokens == null ? `<button title="New design tokens file" data-a="newtokens">+</button>` : '')
@@ -2190,6 +2216,7 @@ document.addEventListener('click', async e => {
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.draftts) { e.stopPropagation(); return draftTestScenarios(d.draftts); }
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
   if (d.owner) { e.stopPropagation(); return becomeBusinessOwner(A.decisions.find(x => x.id === d.owner)); }
@@ -2254,6 +2281,7 @@ document.addEventListener('click', async e => {
   if (a === 'newdecstudy') return newDecisionFromStudy();
   if (a === 'newreq') return newRequirement();
   if (a === 'importreq') return importRequirements();
+  if (a === 'importfeature') return importFeature();
   if (a === 'newprop') return newProposal();
   if (a === 'runall') return runChecks();
   if (a === 'newscn') return newScenario();
