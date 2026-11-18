@@ -272,10 +272,14 @@ function chainRows(reqId) {
     return { id: String(t.rec.id), title: t.rec.title || '', path: t.path, proving: proving.map(s => ({ id: s.id, last: parityLast(s.id) })) };
   });
 }
+function stageHtml(reqId) {
+  const req = A.requirements.find(r => r.id === reqId); if (!req) return '';
+  const g = Parity.requirementStage(req, { testScenarios: (A.testScenarios || []).map(t => ({ id: String(t.rec.id), requirement: t.rec.requirement })), scenarios: A.parity || [], last: parityLast });
+  return `<div class="l2 reqstage" data-stage="${g.stage}"><span class="tag ${g.stage === 'proven' ? 'pass' : 'open'}">${esc(g.stage)}</span> ${g.index + 1} of ${Parity.STAGES.length}${g.next ? ` · Next: ${esc(g.next)}` : ''}</div>`;
+}
 function chainHtml(reqId) {
   const rows = chainRows(reqId);
-  if (!rows.length) return '';
-  return rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : '<span class="desc">not automated yet</span>'}</div>`).join('');
+  return stageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : '<span class="desc">not automated yet</span>'}</div>`).join('');
 }
 function renderParity() {
   const el = $('#special');

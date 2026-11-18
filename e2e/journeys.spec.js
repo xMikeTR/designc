@@ -389,6 +389,9 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   fs.writeFileSync(path.join(shots, '3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a.png'), png);
   session = await launch(reg);
   const { page } = session;
+  // The requirement says where it is on the way to proven parity, and the one next step (display only).
+  await page.getByRole('button', { name: 'Design' }).click();
+  await expect(page.locator('#sbBody').getByText('Next: Automate 1 of 2 test scenarios in a parity scenario')).toBeVisible();
   // The work item names parity as done_when, and its card says what each scenario last gave.
   await page.getByRole('button', { name: 'Work', exact: true }).click();
   const special = page.locator('#special');

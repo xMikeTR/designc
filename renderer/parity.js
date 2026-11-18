@@ -496,8 +496,26 @@ const Parity = (() => {
     return { tech: 'unknown', evidence: [] };
   }
 
+  // Where a requirement is on the way from page to proven parity, and the one next step. Display only: never a gate input.
+  // req {id, elements[]}; testScenarios [{id, requirement}]; scenarios (parity) [{id, test_scenarios[]}]; last(id) is the latest parity result or null.
+  const STAGES = ['imported', 'mapped', 'described', 'automated', 'proven'];
+  function requirementStage(req, { testScenarios = [], scenarios = [], last = () => null } = {}) {
+    const mine = testScenarios.filter(t => t.requirement === req.id).map(t => t.id);
+    const proving = scenarios.filter(s => Array.isArray(s.test_scenarios) && s.test_scenarios.some(t => mine.includes(t)));
+    const covered = mine.filter(t => proving.some(s => s.test_scenarios.includes(t)));
+    const outcomes = proving.map(s => (last(s.id) || {}).outcome || null);
+    let stage, next;
+    if (!(req.elements || []).length) { stage = 'imported'; next = 'Map to elements'; }
+    else if (!mine.length) { stage = 'mapped'; next = 'Draft test scenarios or import a .feature file'; }
+    else if (covered.length < mine.length) { stage = 'described'; next = `Automate ${mine.length - covered.length} of ${mine.length} test scenarios in a parity scenario`; }
+    else if (outcomes.some(o => o === 'fail')) { stage = 'automated'; next = 'Fix the failing parity scenario or cover the difference'; }
+    else if (outcomes.some(o => o !== 'pass')) { stage = 'automated'; next = 'Record a parity result'; }
+    else { stage = 'proven'; next = null; }
+    return { stage, index: STAGES.indexOf(stage), next, tests: mine.length, covered: covered.length };
+  }
+
   return {
-    ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
+    requirementStage, STAGES, ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
     shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot,
     exceptions, removesProblems, diff, compare, failures, resultEvent, detect,
   };
