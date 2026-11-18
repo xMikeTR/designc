@@ -297,9 +297,16 @@ test('a pipeline needs-decision in the gate is answered once, or marked resolved
   const answered = fs.readFileSync(path.join(reg, 'decisions', 'retry-twice-with-jitter.yaml'), 'utf8');
   expect(answered).toMatch(/^binds: \[Bookings API\]$/m);
   expect(answered).toMatch(/^  - "python3 checks\/retry.py"$/m);
-  // A question that needs no decision is closed from the gate itself.
-  await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
+  // Answering with a decision closes the question, so the gate no longer offers it.
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001']);
+  await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
+  // A question that needs no decision is closed from the gate itself.
+  fs.appendFileSync(path.join(reg, 'ledger', 'pipeline.jsonl'), JSON.stringify({ schema_version: 1, event_id: 'nd2', ts: 2, kind: 'needs_decision',
+    by: 'pipeline', id: 'ND-0002', question: 'Which log level?', status: 'open' }) + '\n');
+  await expect(sidebar.getByText('open needs-decision ND-0002: Which log level?', { exact: true })).toBeVisible();
+  await sidebar.getByRole('button', { name: 'Mark resolved' }).click();
+  await page.locator('.askbox').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'needs_decision_resolved').map(e => e.id)).toEqual(['ND-0001', 'ND-0002']);
   await expect(sidebar.getByRole('button', { name: 'Mark resolved' })).toHaveCount(0);
   await expect(page.locator('#badge-work')).toHaveText('');
 });
@@ -376,6 +383,7 @@ test('user can see legacy parity and what it holds a work item to @critical', as
   const { reg } = copyRegistry('fixtures/parity-registry');
   // Shots are not in git, so make the scratch copy's deterministic: the new app's shot is here, the legacy one is not.
   const shots = path.join(reg, 'parity/shots');
+  fs.mkdirSync(shots, { recursive: true });
   for (const f of fs.readdirSync(shots)) if (f.endsWith('.png')) fs.rmSync(path.join(shots, f));
   const png = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
   fs.writeFileSync(path.join(shots, '3dc21ad15244b718a33419c6912edcffbfa06980a6085abd1104c52d01a0956a.png'), png);

@@ -539,7 +539,7 @@ To stop being asked, set `"trustAllFolders": true` in `state.json` in the app's 
 
 ```
 npm test                          # node --test "test/**/*.test.js"
-npm run e2e                       # @critical journeys; xvfb-run -a npm run e2e without a display
+npm run e2e                       # @critical journeys; the app stays hidden on every OS (xvfb-run is optional)
 ```
 
 The end-to-end journeys (`e2e/journeys.spec.js`) drive the real app on a scratch copy of the registry. `scripts/agent-gate.sh` runs them as a Claude Code Stop hook. They are never skipped or loosened.
