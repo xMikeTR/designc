@@ -5,6 +5,7 @@ import time
 from urllib.parse import urlparse
 
 from . import domain
+from . import ui as ui_mod
 from .evals import _OPS, parse_threshold
 from .records import runs
 from .rules import fingerprint, get, hash16, interaction, num, structural
@@ -187,6 +188,13 @@ def acceptance_clauses(model, acceptance, requirements, decisions):
         need = ['ready', 'loading', 'empty', 'error'] + (['forbidden'] if auth_boundary(el) or 'forbidden' in a['states'] else [])
         for st in need:
             if not any(isinstance(c, dict) and c.get('state') == st for c in a['cases']): say(f"{aid}: no case for state {st}", [el.name])
+        for c in a['cases']:
+            if isinstance(c, dict) and 'holdout' in c and not isinstance(c['holdout'], bool): say(f"{aid}: case for {c.get('state')}: holdout must be true or false", [el.name])
+        seen = []
+        for c in a['cases']:
+            if isinstance(c, dict) and c.get('state') in UI_STATES and c['state'] not in seen: seen.append(c['state'])
+        for st in seen:
+            if all(c.get('holdout') is True for c in a['cases'] if isinstance(c, dict) and c.get('state') == st): say(f"{aid}: the only case for state {st} is holdout; add a visible case", [el.name])
     for req in requirements:
         for n in req.get('elements') or []:
             for el in model.elements.values():
@@ -239,7 +247,7 @@ def token_clauses(text, min_text_size=DEFAULT_MIN_TEXT):
     return out
 
 
-def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=()):
+def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evidence_hosts=(), scenarios=(), evals=(), now=None, business_owners=(), acceptance=(), tokens=None, min_text_size=DEFAULT_MIN_TEXT, domains=None, work_states=None, repos=None, api_contracts=(), ui=None):
     work_states = work_states or {}
     clauses = []
     if model.errors:
@@ -351,10 +359,21 @@ def gate(model, diags, decisions, requirements, ledger, registry_errors=(), evid
     clauses.extend(acceptance_clauses(model, acceptance, requirements, decisions))
     clauses.extend(token_clauses(tokens, min_text_size))
     clauses.extend(eval_clauses(model, evals, ledger, time.time() * 1000 if now is None else now))
-    if domains is None: return {'ready': not clauses, 'clauses': clauses}
-    dc = domain_clauses(model, ledger, domains)
-    clauses.extend(dc['clauses'])
-    return {'ready': not clauses, 'clauses': clauses, 'notes': dc['notes']}
+    if domains is None and ui is None: return {'ready': not clauses, 'clauses': clauses}
+    notes = []
+    if domains is not None:
+        dc = domain_clauses(model, ledger, domains)
+        clauses.extend(dc['clauses']); notes.extend(dc['notes'])
+    if ui is None: return {'ready': not clauses, 'clauses': clauses, 'notes': notes}
+    # A criterion joins a spec by its element's component name: the last segment of its elements.json id.
+    ui_acc = []
+    for a in acceptance or []:
+        if not isinstance(a, dict) or not a.get('element') or not a.get('id'): continue
+        el = resolve_element(model, a['element'])
+        if el: ui_acc.append({'id': _s(a['id']), 'component': model.label(el.id).split('/')[-1], 'states': a['states'] if isinstance(a.get('states'), list) else [], 'cases': a['cases'] if isinstance(a.get('cases'), list) else []})
+    uc = ui_mod.clauses(ui.get('pack'), ui.get('specs') or [], ui.get('holdouts') or [], ui['tokens'] if 'tokens' in ui else tokens, ledger or [], ui.get('sources') or {}, ui_acc, ui.get('scenarios') or [], ui.get('previews') or {}, ui.get('specHashes') or {}, sorted({e.name for e in model.elements.values() if 'UI' in e.tags}), ui.get('legacy') or [], decisions or [])
+    clauses.extend(uc['clauses']); notes.extend(uc['notes'])
+    return {'ready': not clauses, 'clauses': clauses, 'notes': notes, 'coverage': uc['coverage']}
 
 
 def domain_owners(model):

@@ -41,12 +41,12 @@ const sha256 = buf => crypto.createHash('sha256').update(buf).digest('hex');
 // A click that would commit is blocked unless allowWrites, and the steps after it could not run.
 // A step that cannot run on this side (its element or param is missing) is could_not_run, not a failure, and every
 // later step is too, because the screen is no longer the one the scenario expects. shots maps sha256 to the image bytes.
-async function record({ scenario, side, adapter, params = {}, screenshots = true, allowWrites = false, allowRequests = [] }) {
+async function record({ scenario, side, adapter, params = {}, screenshots = true, allowWrites = false, allowRequests = [], har = null }) {
   const problems = scenarioProblems(scenario);
   if (problems.length) return { error: `Scenario ${scenario && scenario.id || '?'} cannot run: ${problems.join('; ')}.` };
   const out = { scenario: scenario.id, side, adapter: adapter.name, steps: [], shots: {} };
   let session;
-  try { session = await adapter.open({ params, readOnly: !allowWrites, allowRequests }); }
+  try { session = await adapter.open({ params, readOnly: !allowWrites, allowRequests, ...(har ? { har } : {}) }); }
   catch (e) { return { error: `The ${adapter.name} adapter could not open ${side}: ${e.message}` }; }
   let stopped = null;
   try {

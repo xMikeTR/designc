@@ -3,6 +3,7 @@ const Core = (() => {
   const DM = typeof require === 'function' && typeof module === 'object' ? require('./domain.js') : Domain;
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
+  const UI = typeof require === 'function' && typeof module === 'object' ? require('./ui.js') : Ui;
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -708,7 +709,7 @@ const Core = (() => {
     if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
     return out;
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -797,10 +798,19 @@ const Core = (() => {
     clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
     clauses.push(...tokenClauses(tokens, minTextSize));
     clauses.push(...contractGaps.map(g => ({ kind: 'contracts', text: g.text, about: [g.name] })));
-    if (!domains) return { ready: clauses.length === 0, clauses };
-    const dc = domainClauses({ model, ledger, ...domains });
-    clauses.push(...dc.clauses);
-    return { ready: clauses.length === 0, clauses, notes: dc.notes };
+    if (!domains && !ui) return { ready: clauses.length === 0, clauses };
+    const notes = [];
+    if (domains) { const dc = domainClauses({ model, ledger, ...domains }); clauses.push(...dc.clauses); notes.push(...dc.notes); }
+    if (!ui) return { ready: clauses.length === 0, clauses, notes };
+    // ui: {pack: {components, templates}, specs, holdouts, tokens, sources, scenarios (parsed parity/scenarios)}. Opt-in: nothing runs without a pack or a spec.
+    // A criterion joins a spec by its element's component name: the last segment of its elements.json id.
+    const uiAcceptance = acceptance.filter(a => a && typeof a === 'object' && a.element).map(a => ({ a, el: Core.resolveElement(model, a.element) })).filter(x => x.el)
+      .map(({ a, el }) => ({ id: String(a.id), component: model.label(el.id).split('/').pop(), states: Array.isArray(a.states) ? a.states : [], cases: Array.isArray(a.cases) ? a.cases : [] }));
+    // Check 4 (previews approved) joins an element tagged UI to a spec by name.
+    const uiElements = [...new Set([...model.elements.values()].filter(e => e.tags.has('UI')).map(e => e.name))].sort();
+    const uc = UI.clauses({ tokens, acceptance: uiAcceptance, uiElements, ...ui, decisions, ledger, hash: hash16 });
+    clauses.push(...uc.clauses); notes.push(...uc.notes);
+    return { ready: clauses.length === 0, clauses, notes, coverage: uc.coverage };
   }
   // ---------- domain packs ----------
   // domains: {listed, packs: [{key, path, text}], sources: {key: text|null}, behaviour: [{path, text}]}. The owners
@@ -906,6 +916,10 @@ const Core = (() => {
       }
       const need = ['ready', 'loading', 'empty', 'error', ...(authBoundary(el) || a.states.includes('forbidden') ? ['forbidden'] : [])];
       for (const st of need) if (!a.cases.some(c => c && c.state === st)) say(`${id}: no case for state ${st}`, [el.name]);
+      // Holdout (D4): a person sets it on a case; the build must still see every state once.
+      for (const c of a.cases) if (c && typeof c === 'object' && 'holdout' in c && typeof c.holdout !== 'boolean') say(`${id}: case for ${c.state}: holdout must be true or false`, [el.name]);
+      const seen = [...new Set(a.cases.filter(c => c && UI_STATES.includes(c.state)).map(c => c.state))];
+      for (const st of seen) if (a.cases.filter(c => c && c.state === st).every(c => c.holdout === true)) say(`${id}: the only case for state ${st} is holdout; add a visible case`, [el.name]);
     }
     for (const req of requirements) {
       for (const n of req.elements || []) {
@@ -999,7 +1013,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
@@ -1090,7 +1104,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;

@@ -26,9 +26,14 @@ const Ledger = (() => {
   ];
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
-  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'pipeline'];
+  // D7: `caught_by` is the stage that SHOULD have caught the escape. `pipeline` stays as "other / unknown" so old rows validate.
+  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa', 'pipeline'];
   // Where an escape came from, beside the stage that should have caught it (slice 33).
-  const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap'];
+  const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap', 'catalogue_gap'];
+  // `escape.bucket`: where a QA bug stood in parity (renderer/parity-qa.js BUCKETS; test/d7-contract.test.js keeps them equal).
+  const ESCAPE_BUCKETS = ['caught', 'not_captured', 'state_not_recorded', 'not_flagged', 'triage'];
+  // `stage_verdict.stage`: the stages whose verdicts the Factory projects (D7, docs/stage-verdict.example.json).
+  const VERDICT_STAGES = ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'review', 'qa'];
 
   const STREAM = {
     check: 'checks.jsonl',
@@ -55,6 +60,8 @@ const Ledger = (() => {
     item_budget: 'pipeline.jsonl',
     item_judge: 'pipeline.jsonl',
     parity_result: 'pipeline.jsonl',
+    ui_result: 'pipeline.jsonl',
+    stage_verdict: 'pipeline.jsonl',
     run_started: 'pipeline.jsonl',
     run_ended: 'pipeline.jsonl',
     trace: 'pipeline.jsonl',
@@ -72,11 +79,15 @@ const Ledger = (() => {
     failure_mode_classified: 'factory.jsonl',
     factory_task_bound: 'factory.jsonl',
     domain_pinned: 'designc.jsonl',
+    ui_pinned: 'designc.jsonl',
+    ui_preview_rendered: 'designc.jsonl',
+    ui_preview_approved: 'designc.jsonl',
+    ui_spec_bound: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'trace', 'outcome'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'ui_result', 'stage_verdict', 'trace', 'outcome'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -112,10 +123,10 @@ const Ledger = (() => {
     },
     escape: {
       required: ['id', 'description'],
-      optional: ['code', 'caught_by', 'source', 'traces', 'origin', 'ref', 'run'],
+      optional: ['code', 'caught_by', 'source', 'traces', 'origin', 'ref', 'run', 'screen', 'bucket'],
       enums: {},
-      types: { run: 'string' },
-      rules: ['caught_by_member', 'origin_member', 'ref_shape'],
+      types: { run: 'string', screen: 'string' },
+      rules: ['caught_by_member', 'origin_member', 'bucket_member', 'ref_shape'],
     },
     escape_classified: {
       required: ['escape', 'caught_by'],
@@ -230,6 +241,23 @@ const Ledger = (() => {
       // visual (tier 2, additive): {ratio, threshold, outcome: pass | fail | skipped}. The outcome above is tier 1 only.
       types: { scenario: 'string', commit: 'string|null', outcome: 'string', failures: 'array', item: 'string', report: 'string', visual: 'object' },
       rules: ['failures_shape'],
+    },
+    // The Factory's `ui:` check of a screen at a commit (docs/ui-result.example.json). A Factory kind. The latest per screen at an
+    // item's done commit decides a `ui: <screen>` done_when entry, as parity_result does; could_not_run is not a pass.
+    ui_result: {
+      required: ['screen', 'commit', 'outcome'],
+      optional: ['item'],
+      enums: { outcome: ['pass', 'fail', 'could_not_run'] },
+      types: { screen: 'string', commit: 'string|null', outcome: 'string', item: 'string' },
+    },
+    // One stage's verdict on one change (D7; docs/stage-verdict.example.json). A Factory kind; System 3 times and counts it.
+    // `change_ts` is when the change under test was made (epoch ms, null when unknown). A failure never carries detail text.
+    stage_verdict: {
+      required: ['run', 'stage', 'outcome', 'change_ts'],
+      optional: ['task', 'element', 'screen', 'item', 'round', 'failures'],
+      enums: { stage: VERDICT_STAGES, outcome: ['pass', 'fail', 'could_not_run'] },
+      types: { run: 'string', task: 'string', element: 'string', screen: 'string', item: 'string', round: 'number', failures: 'array', change_ts: 'number|null' },
+      rules: ['verdict_shape'],
     },
     // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own
     // id for the attempt; the status is generic so any pipeline maps its own outcomes onto it.
@@ -355,6 +383,41 @@ const Ledger = (() => {
       types: { pack: 'string', registry: 'string', hash: 'string' },
       rules: ['hash_not_blank'],
     },
+    // A human pins a UI pack: ui/pack/ in the project is a copy of <registry>'s ui/components and ui/templates, with
+    // this hash over the copy (renderer/ui.js packHash). The latest pin wins. Written by the app only; `designc record` refuses it.
+    ui_pinned: {
+      required: ['pack', 'registry', 'hash'],
+      optional: [],
+      enums: {},
+      types: { pack: 'string', registry: 'string', hash: 'string' },
+      rules: ['hash_not_blank'],
+    },
+    // The Factory rendered a UI screen's previews (docs/ui-contract.md). `files` maps each preview path to its sha256, `image` is
+    // the page picture people approve. A Factory kind: `designc record` accepts it (unlike ui_pinned). Not shown in the UI yet.
+    ui_preview_rendered: {
+      required: ['screen', 'spec_hash', 'files', 'image'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', spec_hash: 'string', files: 'object', image: 'string' },
+      rules: ['preview_rendered_shape'],
+    },
+    // A person approved a screen's rendered previews (D3). `spec` is the sha256 of the spec file as it is on disk, `files` maps every
+    // file under ui/previews/<screen>/ (placements included) to its sha256. Human only: not a Factory kind, `designc record` refuses it.
+    ui_preview_approved: {
+      required: ['screen', 'spec', 'files'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', spec: 'string', files: 'object' },
+      rules: ['preview_approved_shape'],
+    },
+    // A person bound a screen spec (its status became `bound`); `hash` is the sha256 of the bound file. Human only.
+    ui_spec_bound: {
+      required: ['screen', 'hash'],
+      optional: [],
+      enums: {},
+      types: { screen: 'string', hash: 'string' },
+      rules: ['spec_bound_shape'],
+    },
     // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in
     // telemetry). Written by the app only; the latest per observation wins. `failure_mode` names a mode in
     // factory/taxonomy.yaml (null or absent: not assigned).
@@ -465,10 +528,38 @@ const Ledger = (() => {
       return isPlainObject(ev.ref) && kinds.includes(ev.ref.kind) && typeof ev.ref.id === 'string' && ev.ref.id ? null : `ref: must be {kind: ${kinds.join('|')}, id}`;
     },
     fail_needs_note: ev => (ev.verdict === 'fail' && typeof ev.note === 'string' && !ev.note.trim() ? "note: say what went wrong when verdict is 'fail'" : null),
+    preview_rendered_shape: ev => {
+      const hex = /^[0-9a-f]{64}$/;
+      if (typeof ev.spec_hash === 'string' && !hex.test(ev.spec_hash)) return 'spec_hash: must be 64 hex characters';
+      if (isPlainObject(ev.files)) for (const [k, v] of Object.entries(ev.files)) if (typeof v !== 'string' || !hex.test(v)) return `files: '${k}' must map to 64 hex characters`;
+      return null;
+    },
+    preview_approved_shape: ev => {
+      const hex = /^[0-9a-f]{64}$/;
+      if (typeof ev.spec === 'string' && !hex.test(ev.spec)) return 'spec: must be 64 hex characters';
+      if (isPlainObject(ev.files)) for (const [k, v] of Object.entries(ev.files)) if (typeof v !== 'string' || !hex.test(v)) return `files: '${k}' must map to 64 hex characters`;
+      return null;
+    },
+    spec_bound_shape: ev => (typeof ev.hash === 'string' && !/^[0-9a-f]{64}$/.test(ev.hash) ? 'hash: must be 64 hex characters' : null),
     hash_not_blank: ev => (typeof ev.hash === 'string' && !ev.hash.trim() ? 'hash: must not be blank' : null),
     ended_needs_reason: ev => (ev.status !== undefined && ev.status !== 'succeeded' && !ev.reason ? "reason: required when status is not 'succeeded'" : null),
     aborted_needs_reason: ev => (ev.outcome === 'aborted' && !ev.reason ? "reason: required when outcome is 'aborted'" : null),
     caught_by_member: ev => ('caught_by' in ev && ev.caught_by !== undefined && ev.caught_by !== null && !CAUGHT_BY.includes(ev.caught_by) ? `caught_by: must be null or one of ${CAUGHT_BY.join('|')}` : null),
+    bucket_member: ev => ('bucket' in ev && ev.bucket !== undefined && ev.bucket !== null && !ESCAPE_BUCKETS.includes(ev.bucket) ? `bucket: must be null or one of ${ESCAPE_BUCKETS.join('|')}` : null),
+    // stage_verdict: change_ts not after the row's own ts; a failure has only state/kind/placement/criterion (all strings); round only on review.
+    verdict_shape: ev => {
+      if (Number.isFinite(ev.change_ts) && Number.isFinite(ev.ts) && ev.change_ts > ev.ts) return 'change_ts: must not be later than ts';
+      if (ev.round !== undefined && ev.stage !== 'review') return "round: allowed only when stage is 'review'";
+      if (ev.round !== undefined && !(Number.isInteger(ev.round) && ev.round >= 1)) return 'round: must be a whole number of at least 1';
+      if (Array.isArray(ev.failures)) for (const [i, f] of ev.failures.entries()) {
+        if (!isPlainObject(f)) return `failures[${i}]: must be an object`;
+        for (const [k, v] of Object.entries(f)) {
+          if (!['state', 'kind', 'placement', 'criterion'].includes(k)) return `failures[${i}]: only state, kind, placement and criterion are allowed (got '${k}')`;
+          if (typeof v !== 'string') return `failures[${i}].${k}: must be a string`;
+        }
+      }
+      return null;
+    },
     origin_member: ev => ('origin' in ev && ev.origin !== undefined && ev.origin !== null && !ORIGINS.includes(ev.origin) ? `origin: must be null or one of ${ORIGINS.join('|')}` : null),
   };
   // Field types for kinds that declare `types` (table data, so python/designc/ledger_schema.json can carry it).
@@ -799,6 +890,87 @@ const Ledger = (() => {
     const tamper = events.filter(e => e.kind === 'unapproved_change' && /^(acceptance|tests\/acceptance)\//.test(String(e.path || ''))).length;
     const uiEscapes = esc.filter(e => e.element && ui.has(e.element)).length;
     return { escapes: esc.length, uiEscapes, uiEscapeRate: judged.length ? uiEscapes / judged.length : null, byOrigin, unclassified, acceptance: { done: judged.length, firstPass }, tamper };
+  }
+
+  // D7 part 2: System 3 over the ledger (formulas: docs/ui-contract.md "Feeding System 3"). Pure.
+  // opts.specs: [{screen, component}] for the screen join; opts.scenarios: [{id, screen}] to place parity_result rows.
+  // Returns {stages, review, qa, caughtReachedQa, overall, screens: {<screen>: the same shape without screens}}.
+  const S3_STAGES = ['ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa'];
+  const S3_NO_SCREEN = 'no screen';
+  function system3(events, { specs = [], scenarios = [] } = {}) {
+    const at = e => (typeof e._ts === 'number' ? e._ts : typeof e.ts === 'number' ? e.ts : 0);
+    const ev = derive(events || []).slice().sort((a, b) => at(a) - at(b));
+    const tail = el => String(el == null ? '' : el).split('/').pop();
+    const specOf = el => (el ? (specs || []).find(sp => sp && sp.component && (sp.component === el || sp.component === tail(el))) : null);
+    const taskEl = new Map();
+    for (const e of ev) if (e.kind === 'task' && e.task != null && e.element) taskEl.set(e.task, e.element);
+    const screenOfRow = e => {
+      if (typeof e.screen === 'string' && e.screen) return e.screen;
+      const sp = specOf(e.element || (e.task != null ? taskEl.get(e.task) : null));
+      return sp && sp.screen ? sp.screen : S3_NO_SCREEN;
+    };
+    const verdicts = ev.filter(e => e.kind === 'stage_verdict').map(e => ({ e, screen: screenOfRow(e) }));
+    const taskRows = ev.filter(e => e.kind === 'task');
+    const scen = new Map((scenarios || []).map(s => [s.id, s.screen]));
+    const parity = ev.filter(e => e.kind === 'parity_result' && e.outcome === 'fail').map(e => ({ e, screen: scen.get(e.scenario) || S3_NO_SCREEN }));
+    const escapes = ev.filter(e => e.kind === 'escape').map(e => ({ e, screen: typeof e.screen === 'string' && e.screen ? e.screen : screenOfRow(e) }));
+    const handoverOf = new Map();
+    for (const e of ev) if (e.run != null && e.handover && !handoverOf.has(e.run)) handoverOf.set(e.run, e.handover);
+    const rate = (n, d) => (d ? n / d : null);
+    const median = xs => { if (!xs.length) return null; const a = xs.slice().sort((x, y) => x - y), m = a.length >> 1; return a.length % 2 ? a[m] : (a[m - 1] + a[m]) / 2; };
+    const key = e => `${e.run}\u0000${e.task == null ? '' : e.task}\u0000${e.stage}`;
+
+    function shape(vs, ps, es) {
+      const stages = S3_STAGES.map(stage => {
+        const mine = vs.filter(v => v.e.stage === stage), firsts = new Map();
+        for (const v of mine) if (typeof v.e.change_ts === 'number' && !firsts.has(key(v.e))) firsts.set(key(v.e), v.e.ts - v.e.change_ts);
+        const times = [...firsts.values()];
+        const escaped = es.filter(x => x.e.caught_by === stage).length;
+        const own = stage === 'parity' ? ps.length : new Set(mine.filter(v => v.e.outcome === 'fail').map(v => key(v.e))).size;
+        const caught = stage === 'ui-spec' || stage === 'ui-preview' ? null : own;
+        return { stage, signal: { median: median(times), n: times.length }, rate: { caught, escaped, rate: caught === null ? null : rate(escaped, caught + escaped) } };
+      });
+      // Review: per (run, task). A verdict with no task is not a task.
+      const rv = new Map();
+      for (const v of vs) if (v.e.stage === 'review' && v.e.task != null && v.e.outcome !== 'could_not_run') { const k = `${v.e.run}\u0000${v.e.task}`; rv.set(k, (rv.get(k) || false) || v.e.outcome === 'fail'); }
+      const vetoedTasks = [...rv].filter(([, f]) => f).map(([k]) => k.split('\u0000'));
+      const recoveredTasks = vetoedTasks.filter(([run, task]) => {
+        const rows = taskRows.filter(t => t.task === task && (t.run == null || t.run === run));
+        return rows.length && rows[rows.length - 1].status === 'passed';
+      }).length;
+      const review = { n: rv.size, vetoed: vetoedTasks.length, veto: rate(vetoedTasks.length, rv.size), recovered: recoveredTasks, recovery: rate(recoveredTasks, vetoedTasks.length) };
+      // QA: per run. A later run of the same item (else handover) that passes qa recovers a veto.
+      const qr = new Map();
+      for (const v of vs) if (v.e.stage === 'qa' && v.e.outcome !== 'could_not_run') { const r = qr.get(v.e.run) || { fail: null }; if (v.e.outcome === 'fail' && r.fail === null) r.fail = v.e; qr.set(v.e.run, r); }
+      const group = e => (e.item != null ? `item:${e.item}` : handoverOf.has(e.run) ? `handover:${handoverOf.get(e.run)}` : `run:${e.run}`);
+      const allPass = verdicts.filter(v => v.e.stage === 'qa' && v.e.outcome === 'pass').map(v => v.e);
+      const vetoedRuns = [...qr].filter(([, r]) => r.fail).map(([run, r]) => ({ run, f: r.fail }));
+      const recoveredRuns = vetoedRuns.filter(({ run, f }) => allPass.some(p => p.run !== run && group(p) === group(f) && at(p) > at(f))).length;
+      const qa = { n: qr.size, vetoed: vetoedRuns.length, veto: rate(vetoedRuns.length, qr.size), recovered: recoveredRuns, recovery: rate(recoveredRuns, vetoedRuns.length) };
+      const caught = stages.reduce((n, s) => n + (s.rate.caught || 0), 0);
+      const overall = { caught, escaped: es.length, unclassified: es.filter(x => !x.e.caught_by).length, rate: rate(es.length, caught + es.length) };
+      return { stages, review, qa, caughtReachedQa: es.filter(x => x.e.bucket === 'caught').length, overall };
+    }
+
+    const out = shape(verdicts, parity, escapes);
+    // Each escape as the Analyst may see it: no description. The screen is the joined one.
+    out.escapes = escapes.map(x => ({ id: x.e.id, caught_by: x.e.caught_by || null, origin: x.e.origin || null, screen: x.screen }));
+    const names = new Set([...verdicts, ...parity, ...escapes].map(x => x.screen));
+    out.screens = {};
+    for (const name of [...names].sort((a, b) => (a === S3_NO_SCREEN) - (b === S3_NO_SCREEN) || (a < b ? -1 : a > b ? 1 : 0))) {
+      out.screens[name] = shape(verdicts.filter(x => x.screen === name), parity.filter(x => x.screen === name), escapes.filter(x => x.screen === name));
+    }
+    return out;
+  }
+
+  // What get_system3 hands the Analyst: system3's figures (the whole, or one screen's) and the escapes as
+  // {id, caught_by, origin, screen}. No descriptions, and a stage_verdict carries no text, so nothing sealed gets through.
+  function system3Brief(events, opts, screen) {
+    const { escapes, ...rest } = system3(events, opts);
+    if (screen == null || screen === '') return { system3: rest, escapes };
+    const mine = rest.screens[screen];
+    if (!mine) return { screen, system3: null, escapes: [] };
+    return { screen, system3: mine, escapes: escapes.filter(e => e.screen === screen) };
   }
 
   function totalTokens(ev) {
@@ -1355,7 +1527,7 @@ const Ledger = (() => {
   const unapprovedChanges = events => events.filter(e => e.kind === 'unapproved_change');
 
   return {
-    ORIGINS, escapeMetrics, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
+    ORIGINS, ESCAPE_BUCKETS, VERDICT_STAGES, escapeMetrics, system3, system3Brief, S3_STAGES, PIPELINE_KINDS, PIPELINE_STREAM, OWN_SYSTEMS, pipelineRuns, runTotals, agentActivity, evalTrends, suiteRuns, suiteCompare, failureModes, traceReviews, reviewQueue, reviewModes, taxonomyModes, addTaxonomyMode, reviewGrouping, judgeExamples, evalTaskDraft, factoryTasks, taskBindProblem, calibrationStatus, elementHistory, handoverActuals, liveRuns, taskOutcomes, usageByTier, unapprovedChanges, SCHEMA_VERSION, KINDS, CAUGHT_BY, validate, gateUnchanged, verify, upcast, FINAL_KIND_FIELDS, ENVELOPE_OPTIONAL, RULE_IDS: Object.keys(RULES), parse, order, escapeId, derive, ndOptions, parkedOn, resumeCheck, totalTokens,
     HARNESS_ENVELOPE_VERSION, HARNESS_KINDS, HARNESS_STREAM, HARNESS_FIELDS, HARNESS_NULLABLE,
     validateHarness, resolvedEventIds,
   };

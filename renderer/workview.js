@@ -38,7 +38,7 @@ async function loadWork() {
   const ids = A.work.map(i => String(i.id));
   const seen = new Set();
   for (const it of A.work) {
-    for (const m of Work.validate(it, { requirements: A.requirements, items: ids.filter(x => x !== String(it.id)), scenarios: A.parityIds })) A.workErrors.push({ path: it._path, line: 1, msg: m });
+    for (const m of Work.validate(it, { requirements: A.requirements, items: ids.filter(x => x !== String(it.id)), scenarios: A.parityIds, screens: A.ui ? A.ui.specs.map(f => f.path.split('/').pop().replace(/\.json$/, '')) : [] })) A.workErrors.push({ path: it._path, line: 1, msg: m });
     if (seen.has(it.id)) A.workErrors.push({ path: it._path, line: 1, msg: `${it.id}: duplicate work item id` });
     seen.add(it.id);
   }

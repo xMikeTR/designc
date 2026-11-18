@@ -1,0 +1,238 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "ui-component-manifest.schema.json",
+  "title": "Component manifest",
+  "description": "One record per component in a shared UI library (a kind: ui registry, ui/components/<Name>.json). This is the catalogue: a spec may only place components whose manifest is bound.",
+  "type": "object",
+  "required": [
+    "name",
+    "import",
+    "category",
+    "description",
+    "props",
+    "data",
+    "status",
+    "source"
+  ],
+  "additionalProperties": false,
+  "properties": {
+    "$schema": {
+      "type": "string"
+    },
+    "name": {
+      "type": "string",
+      "pattern": "^[A-Z][A-Za-z0-9]*$",
+      "description": "Exported component name."
+    },
+    "import": {
+      "type": "string",
+      "description": "Module to import from, e.g. '@your-org/ui'."
+    },
+    "category": {
+      "$ref": "#/$defs/category"
+    },
+    "description": {
+      "type": "string",
+      "minLength": 10
+    },
+    "useWhen": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Semantic guidance: situations this component is the right choice. Taken from real usage where possible."
+    },
+    "avoidWhen": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      },
+      "description": "Situations where it is type-valid but wrong. Usually names the component to use instead."
+    },
+    "props": {
+      "type": "object",
+      "description": "Non-data props the spec may set. Anything not listed here is rejected.",
+      "additionalProperties": {
+        "$ref": "#/$defs/prop"
+      }
+    },
+    "data": {
+      "type": "object",
+      "description": "Props that receive data. The spec binds these to keys in its data section; the shapes must match.",
+      "additionalProperties": {
+        "type": "object",
+        "required": [
+          "shape"
+        ],
+        "additionalProperties": false,
+        "properties": {
+          "shape": {
+            "$ref": "#/$defs/shape"
+          },
+          "required": {
+            "type": "boolean",
+            "default": false
+          },
+          "description": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "states": {
+      "type": "array",
+      "items": {
+        "enum": [
+          "loading",
+          "empty",
+          "error",
+          "ready",
+          "forbidden",
+          "disabled"
+        ]
+      },
+      "description": "UI states the component renders. Generated code must handle each."
+    },
+    "status": {
+      "enum": [
+        "minted",
+        "bound",
+        "deprecated"
+      ],
+      "description": "An agent mints; only a person binds."
+    },
+    "source": {
+      "type": "object",
+      "required": [
+        "path"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "path": {
+          "type": "string",
+          "description": "Where the component is defined."
+        },
+        "seenIn": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Screens where it is used — the evidence for useWhen."
+        }
+      }
+    },
+    "notes": {
+      "type": "string",
+      "description": "Open questions for the reviewer."
+    }
+  },
+  "$defs": {
+    "category": {
+      "description": "Closed list. Templates accept components by category. Extend deliberately, in one PR, with the templates updated alongside.",
+      "enum": [
+        "page-header",
+        "navigation",
+        "filter",
+        "action",
+        "metric",
+        "chart",
+        "table",
+        "list",
+        "detail",
+        "form",
+        "form-field",
+        "text",
+        "status",
+        "feedback",
+        "container"
+      ]
+    },
+    "shape": {
+      "description": "Coarse data shapes. Enough to stop a table being bound to a single number.",
+      "enum": [
+        "number",
+        "text",
+        "date",
+        "boolean",
+        "record",
+        "list",
+        "table",
+        "series",
+        "money",
+        "percent"
+      ]
+    },
+    "prop": {
+      "type": "object",
+      "required": [
+        "type"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "type": {
+          "enum": [
+            "string",
+            "number",
+            "boolean",
+            "enum",
+            "token",
+            "action"
+          ]
+        },
+        "values": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          },
+          "description": "Required when type is 'enum'."
+        },
+        "token": {
+          "enum": [
+            "space",
+            "color",
+            "density",
+            "tone"
+          ],
+          "description": "Closed token group (a W3C group in design-tokens/tokens.json) when type is 'token'."
+        },
+        "required": {
+          "type": "boolean",
+          "default": false
+        },
+        "description": {
+          "type": "string"
+        }
+      },
+      "allOf": [
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "enum"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "values"
+            ]
+          }
+        },
+        {
+          "if": {
+            "properties": {
+              "type": {
+                "const": "token"
+              }
+            }
+          },
+          "then": {
+            "required": [
+              "token"
+            ]
+          }
+        }
+      ]
+    }
+  }
+}

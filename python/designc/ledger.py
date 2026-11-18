@@ -35,6 +35,20 @@ def _rule(rid, ev):
     if rid == 'fail_needs_evidence':
         if ev.get('outcome') == 'fail' and 'exit_code' not in ev and not ev.get('reason'):
             return "exit_code: required when outcome is 'fail' (or give reason)"
+    elif rid == 'preview_rendered_shape':
+        hexre = re.compile(r'^[0-9a-f]{64}$')
+        if isinstance(ev.get('spec_hash'), str) and not hexre.match(ev['spec_hash']): return 'spec_hash: must be 64 hex characters'
+        if isinstance(ev.get('files'), dict):
+            for k, v in ev['files'].items():
+                if not (isinstance(v, str) and hexre.match(v)): return f"files: '{k}' must map to 64 hex characters"
+    elif rid == 'preview_approved_shape':
+        hexre = re.compile(r'^[0-9a-f]{64}$')
+        if isinstance(ev.get('spec'), str) and not hexre.match(ev['spec']): return 'spec: must be 64 hex characters'
+        if isinstance(ev.get('files'), dict):
+            for k, v in ev['files'].items():
+                if not (isinstance(v, str) and hexre.match(v)): return f"files: '{k}' must map to 64 hex characters"
+    elif rid == 'spec_bound_shape':
+        if isinstance(ev.get('hash'), str) and not re.match(r'^[0-9a-f]{64}$', ev['hash']): return 'hash: must be 64 hex characters'
     elif rid == 'failures_shape':
         fs = ev.get('failures')
         if not isinstance(fs, list): return None
@@ -128,6 +142,21 @@ def _rule(rid, ev):
         v = ev.get('caught_by')
         if 'caught_by' in ev and v is not None and v not in SCHEMA['caught_by']:
             return f"caught_by: must be null or one of {'|'.join(SCHEMA['caught_by'])}"
+    elif rid == 'bucket_member':
+        v = ev.get('bucket')
+        if 'bucket' in ev and v is not None and v not in SCHEMA['escape_buckets']:
+            return f"bucket: must be null or one of {'|'.join(SCHEMA['escape_buckets'])}"
+    elif rid == 'verdict_shape':
+        ct, ts = ev.get('change_ts'), ev.get('ts')
+        if _is_num(ct) and _is_num(ts) and ct > ts: return 'change_ts: must not be later than ts'
+        if 'round' in ev and ev.get('stage') != 'review': return "round: allowed only when stage is 'review'"
+        if 'round' in ev and not (_is_num(ev['round']) and float(ev['round']).is_integer() and ev['round'] >= 1): return 'round: must be a whole number of at least 1'
+        if isinstance(ev.get('failures'), list):
+            for i, f in enumerate(ev['failures']):
+                if not isinstance(f, dict): return f'failures[{i}]: must be an object'
+                for k, v in f.items():
+                    if k not in ('state', 'kind', 'placement', 'criterion'): return f"failures[{i}]: only state, kind, placement and criterion are allowed (got '{k}')"
+                    if not isinstance(v, str): return f'failures[{i}].{k}: must be a string'
     elif rid == 'origin_member':
         v = ev.get('origin')
         if 'origin' in ev and v is not None and v not in SCHEMA['origins']:

@@ -18,6 +18,7 @@ const CRITICAL = [
   'user can track a work item @critical',
   'user can study a topic and decide from it @critical',
   'user can pin a domain pack and see it checked @critical',
+  'user can pin a UI pack and see a screen spec checked against it @critical',
   'user can see legacy parity and what it holds a work item to @critical',
   'user can accept or dismiss a swept Jira issue @critical',
   'user can see health on the C4 sheet @critical',

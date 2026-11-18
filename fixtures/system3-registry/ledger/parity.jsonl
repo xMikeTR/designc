@@ -1,0 +1,2 @@
+{"kind":"parity_result","scenario":"bordereaux-list","commit":"1111111111111111111111111111111111111111","outcome":"fail","failures":[{"step":1,"key":"table:Programs/column:Inception","kind":"shape","msg":"column \"Inception\" is date:dddd-0d-dd; legacy shows date:dd/0d/dddd"}],"by":"fixture","schema_version":1,"event_id":"s3fixture-0007","ts":1794909690000}
+{"kind":"parity_result","scenario":"bordereaux-apply","commit":"1111111111111111111111111111111111111111","outcome":"pass","failures":[],"by":"fixture","schema_version":1,"event_id":"s3fixture-0008","ts":1794909691000}

@@ -1,0 +1,6 @@
+id: W-parity
+requirement: QT-1
+elements: [Bookings API]
+done_when:
+  - gate: npm test
+  - parity: all

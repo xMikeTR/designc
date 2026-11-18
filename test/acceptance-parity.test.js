@@ -54,3 +54,24 @@ test('Python and JS report the same acceptance clauses', { skip }, () => {
   const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'acceptance');
   assert.deepEqual(py, js.map(c => ({ kind: c.kind, text: c.text })));
 });
+
+test('Python and JS report the same holdout clauses', { skip }, () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-hold-'));
+  put(root, 'designc.json', '{}');
+  put(root, 'model/workspace.dsl', DSL);
+  put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Booking UI, Admin UI]\n');
+  const cs = (extra = {}) => ['ready', 'loading', 'empty', 'error', 'forbidden'].map(s => `  - { state: ${s}, given: a, then: b${extra[s] || ''} }\n`).join('');
+  const files = {
+    'AC-1': `id: AC-1\nrequirement: R-1\nelement: Bookings/Booking UI\nstates: [ready, loading, empty, error, forbidden]\ncases:\n${cs({ empty: ', holdout: true', ready: ', holdout: yes' })}`,
+    'AC-2': `id: AC-2\nrequirement: R-1\nelement: Admin UI\nstates: [ready, loading, empty, error]\ncases:\n${cs({ ready: ', holdout: true' })}  - { state: ready, given: c, then: d }\n`,
+  };
+  for (const [k, t] of Object.entries(files)) put(root, `acceptance/${k}.yaml`, t);
+  const model = Core.parse(DSL), diags = Core.check(model, {});
+  const requirements = [{ id: 'R-1', elements: ['Booking UI', 'Admin UI'] }];
+  const acceptance = Object.values(files).map(t => yaml.load(t));
+  const js = Core.gate({ model, diags, decisions: [], requirements, ledger: [], acceptance }).clauses.filter(c => c.kind === 'acceptance');
+  assert.ok(js.some(c => /only case for state empty is holdout/.test(c.text)) && js.some(c => /holdout must be true or false/.test(c.text)), js.map(c => c.text).join('; '));
+  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'acceptance');
+  assert.deepEqual(py, js.map(c => ({ kind: c.kind, text: c.text })));
+});

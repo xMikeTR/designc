@@ -396,7 +396,7 @@ h4.su-h{margin:14px 0 6px;font-size:12.5px;color:var(--fg2);font-weight:600}
 .rvwarn{color:var(--warn)}
 /* Study (step 0): a study registry shows its topics and hides what needs a model; elsewhere the Study button is hidden */
 #activity button[data-act="study"]{display:none}
-.shell.kind-domain #activity button:is([data-act="parity"],[data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
+.shell:is(.kind-domain,.kind-ui) #activity button:is([data-act="parity"],[data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
 .shell.kind-study #activity button[data-act="study"]{display:grid}
 .shell.kind-study #activity button:is([data-act="parity"],[data-act="design"],[data-act="canvas"],[data-act="deployment"],[data-act="topology"],[data-act="codemap"],[data-act="work"],[data-act="build"],[data-act="improve"]){display:none}
 .st{padding:16px 20px;max-width:980px}

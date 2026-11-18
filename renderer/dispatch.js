@@ -110,6 +110,17 @@ const Dispatch = (() => {
     return toolLine(script, ['--from', from, '--registry', registry, '--write'], platform);
   }
 
-  return { VARS, settings, command, references, legacy, parityRecord, parityImport };
+  // Render previews (docs/ui-contract.md): the Factory's preview command, typed into the Terminal and never run. `factory` is the
+  // person's path to it (designc.json factory.command), else the bare `factory-s2`.
+  function uiPreview({ factory, registry, screen, repo }, platform) {
+    if (typeof screen !== 'string' || !/^[a-z0-9-]+$/.test(screen)) return { error: 'The screen must be lowercase letters, digits and hyphens.' };
+    const quote = platform === 'win32' ? pwsh : posix;
+    const parts = [factory ? quote(String(factory)) : 'factory-s2', 'preview', '--registry', registry, '--screen', screen, '--repo', repo];
+    if (parts.some(p => p === null || p === undefined || p === '')) return { error: 'The command is missing a value. Set codebase in designc.json: the preview is rendered with the app\'s own library.' };
+    if (parts.some(p => /[\r\n]/.test(String(p)))) return { error: 'A value spans more than one line, so it cannot be typed as one command.' };
+    return parts.map((p, i) => (i === 0 || /^(preview|--[a-z-]+)$/.test(String(p)) ? String(p) : quote(String(p)))).join(' ');
+  }
+
+  return { VARS, settings, command, references, legacy, parityRecord, parityImport, uiPreview };
 })();
 if (typeof module !== 'undefined') module.exports = Dispatch;

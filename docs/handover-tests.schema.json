@@ -1,0 +1,69 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.tests/1",
+  "title": "Handover tests",
+  "description": "tests.json in a frozen handover (handovers/<id>/), written by Core.handoverTests at freeze for every handover that has an element with a code area (d.code), listed and hashed in handover.yaml (named there as `tests:`). It maps tests to elements statically (project references, co-location, imports) from the registry's asbuilt/facts.json; there is no coverage or call-graph data. designc does not know tasks, so it is keyed per element (the ids of elements.json): a consumer maps a task to its tests through the task's elements. facts.json is not copied, so its sha256 is in the handover id (a handover frozen against other facts is a different handover). An element with code and no pass_to_pass entry is listed in `unmapped`: coverage information, never a gate clause. designc owns this contract; consumers conform to it. docs/handover-tests.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "facts", "elements", "unmapped"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.tests/1" },
+    "facts": {
+      "description": "The as-built facts the map was derived from; null when the registry has no asbuilt/facts.json (every coded element is then unmapped).",
+      "oneOf": [
+        { "type": "null" },
+        {
+          "type": "object",
+          "required": ["path", "sha256", "extracted_at"],
+          "additionalProperties": false,
+          "properties": {
+            "path": { "const": "asbuilt/facts.json" },
+            "sha256": { "description": "sha256 of the facts file's bytes, as in the handover id.", "type": "string", "pattern": "^[0-9a-f]{64}$" },
+            "extracted_at": { "type": ["string", "null"] }
+          }
+        }
+      ]
+    },
+    "elements": {
+      "description": "Only elements with a code area (and, in an item handover, in scope), in elements.json order.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["element", "fail_to_pass", "pass_to_pass"],
+        "additionalProperties": false,
+        "properties": {
+          "element": { "description": "An id from elements.json.", "type": "string" },
+          "repo": { "description": "The element's d.repo, when split repos are declared.", "type": "string" },
+          "fail_to_pass": { "description": "Tests that must turn green: the element's generated acceptance specs, and the page test of a screen whose component is this element. Sorted by path.", "type": "array", "items": { "$ref": "#/$defs/test" } },
+          "pass_to_pass": { "description": "Existing tests that must stay green, found statically. Sorted by path.", "type": "array", "items": { "$ref": "#/$defs/test" } }
+        }
+      }
+    },
+    "unmapped": {
+      "description": "Elements with a code area and no pass_to_pass entry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["element", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "element": { "type": "string" },
+          "reason": { "enum": ["no existing test references its code", "no as-built facts: run Extract"] }
+        }
+      }
+    }
+  },
+  "$defs": {
+    "test": {
+      "type": "object",
+      "required": ["kind", "path", "command"],
+      "additionalProperties": false,
+      "properties": {
+        "kind": { "enum": ["acceptance", "ui-page", "dotnet", "vitest", "jest", "node"] },
+        "path": { "description": "Repo-relative (in split repos, prefixed with the repo key as extract writes it), or inside the handover for generated specs.", "type": "string" },
+        "command": { "description": "Run from the repo root; null for a test that is listed and not runnable (node).", "type": ["string", "null"] },
+        "via": { "description": "pass_to_pass only: how it was tied to the element.", "enum": ["project-ref", "co-located", "import"] }
+      }
+    }
+  }
+}

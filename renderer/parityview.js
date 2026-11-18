@@ -3,7 +3,7 @@
    parity_result, and the screenshots (parity/shots/<sha>.png, not in git) are shown only, never compared. The buttons
    type the recorder's line into the Terminal without Enter, like Dispatch; the app writes only a new scenario file and
    the two URLs in designc.json. Every HTML string passes file and ledger content through esc(). */
-const PV = { sel: null, reports: {}, baselines: {}, shots: {}, tools: null, qa: {} };
+const PV = { qaSent: new Set(), qaBusy: false, sel: null, reports: {}, baselines: {}, shots: {}, tools: null, qa: {} };
 const PARITY_DIR = 'parity/scenarios';
 const PARITY_QA_DIR = 'parity/qa';
 
@@ -212,12 +212,18 @@ function parityUi() {
 
 const JOIN_LABEL = { role: 'recorded', name: 'role from recording', ambiguous: 'several recorded', unnamed: 'no literal name', unrecorded: 'not recorded' };
 
+// The states of the screen's spec (ui/specs/<screen>.json), for ParityQa's triage rule; null when there is no spec.
+function specOf(screen) {
+  const f = ((A.ui && A.ui.specs) || []).find(x => x.path === `ui/specs/${screen}.json`);
+  try { const o = f && JSON.parse(f.text); return o && o.states && typeof o.states === 'object' ? { screen: o.screen || screen, states: Object.keys(o.states) } : null; } catch { return null; }
+}
+
 // From code: what the source of each side says about this scenario's screen, each control joined to what that side
 // recorded (ParityQa.fromCode). Conditions, state props and formats are source text, never evaluated. A row opens the file.
 function parityCodeHtml(s) {
   if (!s.screen) return '<div class="note">This scenario has no screen, so its code cannot be found. Add screen: to the scenario.</div>';
   const u = parityUi();
-  const qa = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines: Object.fromEntries(Object.entries(PV.baselines).filter(([, v]) => v)), reports: Object.fromEntries(Object.entries(PV.reports).filter(([, v]) => v)), ui: { legacy: u.legacy, next: u.next } });
+  const qa = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines: Object.fromEntries(Object.entries(PV.baselines).filter(([, v]) => v)), reports: Object.fromEntries(Object.entries(PV.reports).filter(([, v]) => v)), ui: { legacy: u.legacy, next: u.next }, spec: specOf(s.screen) });
   const code = qa.code || {};
   const side = (k, label, ref, missing) => {
     const g = code[k];
@@ -242,17 +248,38 @@ function parityCodeHtml(s) {
 
 const QA_LABEL = { caught: 'Caught', not_captured: 'Not captured by this layer', state_not_recorded: 'State not recorded', not_flagged: 'Captured but not flagged', triage: 'Needs triage' };
 
+// The QA report of one screen against what is recorded for it (null without a QA file).
+function qaReportFor(screen) {
+  const entry = screen ? PV.qa[screen] : null;
+  if (!entry) return null;
+  const reports = {}, baselines = {};
+  for (const id of Object.keys(PV.reports)) if (PV.reports[id]) reports[id] = PV.reports[id];
+  for (const id of Object.keys(PV.baselines)) if (PV.baselines[id]) baselines[id] = PV.baselines[id];
+  const u = parityUi();
+  return ParityQa.report({ screen, scenarios: A.parity, baselines, reports, qa: entry.qa, ui: { legacy: u.legacy, next: u.next }, spec: specOf(screen) });
+}
+
+// Record QA escapes (human only): one `escape` per bug QA logged that the recordings explain, through the one append
+// path. Ids are qa-<screen>-<key>, so a second press adds nothing. Needs-triage bugs are not recorded.
+async function recordQaEscapes(screen) {
+  const r = qaReportFor(screen);
+  if (!r) return;
+  if (PV.qaBusy) return;
+  PV.qaBusy = true;
+  // The ledger view refreshes from the file watcher, which can lag a press; ids sent this session count as present.
+  const existing = new Set([...(A.ledger || []).filter(e => e.kind === 'escape').map(e => e.id), ...PV.qaSent]);
+  const { rows, skipped, triage } = ParityQa.escapes(r, { hasSpec: specOf(screen) !== null, existing });
+  let done = 0;
+  try { for (const row of rows) { const res = await recordEvent('escape', row); if (res && res.ok) { done++; PV.qaSent.add(row.id); } } } finally { PV.qaBusy = false; }
+  toast(`Recorded ${done} QA escape${done === 1 ? '' : 's'} for ${screen}${skipped ? `; ${skipped} already recorded` : ''}${triage ? `; ${triage} need${triage === 1 ? 's' : ''} triage first` : ''}.`);
+}
+
 // The QA bugs on this scenario's screen against everything recorded for that screen: how many the recordings catch,
 // and for each one missed, why. Keys, where and reasons only, never QA's descriptions or screenshots.
 function parityQaHtml(s) {
   const entry = s.screen ? PV.qa[s.screen] : null;
   if (!entry) return `<div class="note">${s.screen ? `No QA bugs for screen ${esc(s.screen)}. Put them in ${PARITY_QA_DIR}/${esc(s.screen)}.yaml to see which the recordings catch.` : 'This scenario has no screen, so QA bugs cannot be matched to it. Add screen: to the scenario.'} See docs/parity-contract.md.</div>`;
-  const reports = {};
-  for (const id of Object.keys(PV.reports)) if (PV.reports[id]) reports[id] = PV.reports[id];
-  const baselines = {};
-  for (const id of Object.keys(PV.baselines)) if (PV.baselines[id]) baselines[id] = PV.baselines[id];
-  const u = parityUi();
-  const r = ParityQa.report({ screen: s.screen, scenarios: A.parity, baselines, reports, qa: entry.qa, ui: { legacy: u.legacy, next: u.next } });
+  const r = qaReportFor(s.screen);
   const counts = ParityQa.BUCKETS.map(k => `<span class="tag ${k === 'caught' ? 'pass' : k === 'triage' ? 'open' : 'fail'}">${esc(QA_LABEL[k])} ${r.counts[k]}</span>`).join(' ');
   const rows = r.bugs.map(b => {
     const bug = entry.qa.bugs.find(x => x.key === b.key) || {};
@@ -279,7 +306,7 @@ function renderParity() {
       <ol class="pvsteps">${(s.steps || []).map(st => `<li>${esc(stepText(st))}${st && typeof st.state === 'string' ? ` <span class="desc">state ${esc(st.state)}</span>` : ''}</li>`).join('')}</ol></div>
     <div class="block"><h3>Results in the ledger</h3>${results ? `<div class="tw2"><table class="t"><tr><th>Outcome</th><th>Commit</th><th>Item</th><th>When</th><th>Failures</th></tr>${results}</table></div>` : '<div class="note">No parity_result yet.</div>'}</div>
     <div class="block"><h3>Latest report</h3>${parityReportHtml(s)}</div>
-    <div class="block"><h3>QA bugs${s.screen && PV.qa[s.screen] ? `<span class="spacer"></span><button class="btn" data-file="${esc(PV.qa[s.screen].path)}">Open file</button>` : ''}</h3>${parityQaHtml(s)}</div>
+    <div class="block"><h3>QA bugs${s.screen && PV.qa[s.screen] ? `<span class="spacer"></span><button class="btn" data-pr="qaescapes" data-screen="${esc(s.screen)}" title="Appends one escape per bug the recordings explain, with its stage and origin. Needs-triage bugs are skipped. Pressing again adds nothing.">Record QA escapes</button><button class="btn" data-file="${esc(PV.qa[s.screen].path)}">Open file</button>` : ''}</h3>${parityQaHtml(s)}</div>
     <div class="block"><h3>From code</h3>${parityCodeHtml(s)}</div>
     <div class="block"><h3>Record</h3>${parityCommands(s)}</div></div>`;
   loadShots(el);
@@ -303,6 +330,7 @@ document.addEventListener('click', e => {
   else if (act === 'result') recordParityResult();
   else if (act === 'import') draftParityScenarios();
   else if (act === 'new') newParityScenario();
+  else if (act === 'qaescapes') recordQaEscapes(t.dataset.screen);
   else if (act === 'url') setParityUrl(t.dataset.side);
   else if (act === 'chromium') typeInTerminal(`node ${A.platform === 'win32' ? `'${PV.tools.install.replace(/'/g, "''")}'` : `'${PV.tools.install.replace(/'/g, "'\\''")}'`} install chromium`, 'the button');
   else if (act === 'recheck') { PV.tools = null; renderSpecial(); }

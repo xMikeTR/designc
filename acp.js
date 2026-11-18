@@ -5,6 +5,7 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const { confine, childEnv } = require('./paths');
+const Policy = require('./renderer/policy.js');
 const fsp = fs.promises;
 
 const PROTOCOL_VERSION = 1;
@@ -107,6 +108,8 @@ class AcpHub {
   async handle(key, method, p) {
     if (method === 'fs/read_text_file') {
       if (!path.isAbsolute(p.path) || !this.readable(p.path)) throw Object.assign(new Error(`designc only lets agents read the registry and the codebase, not ${p.path}`), { code: -32001 });
+      const rel = this.registryRel(p.path), denied = Policy.readVerdict(null, rel || p.path);
+      if (!denied.ok) throw Object.assign(new Error(denied.error), { code: -32001 });
       let text = await fsp.readFile(p.path, 'utf8');
       if (p.line || p.limit) { const lines = text.split('\n'); const s = Math.max(0, (p.line || 1) - 1); text = lines.slice(s, p.limit ? s + p.limit : undefined).join('\n'); }
       return { content: text };

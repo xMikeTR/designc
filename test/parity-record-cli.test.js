@@ -109,3 +109,39 @@ test('exit code: the worst outcome wins', () => {
   assert.strictEqual(CLI.exitCode([{ outcome: 'fail' }, { error: 'x' }]), 2);
   assert.strictEqual(CLI.exitCode([{ recorded: 'a' }]), 0);
 });
+
+// --har: the fixture adapter writes a HAR holding real values; only shapes reach legacy.json.
+test('--har records requests as shapes: values stay in the ignored HAR and never reach legacy.json', async () => {
+  const reg = scratch();
+  const fx = JSON.parse(fs.readFileSync(path.join(APPS, 'legacy.json'), 'utf8'));
+  fx.requests = [
+    { method: 'GET', path: '/api/bordereaux', response: [{ Cedant: 'Nordic Marine', Lines: 188, Premium: '$964,500' }, { Cedant: 'Iberia Property', Lines: 905, Premium: '$3,302,750' }] },
+    { method: 'GET', path: '/api/bordereaux/17', response: { Cedant: 'Nordic Marine', Exceptions: '7 lines missing location' } },
+    { method: 'POST', path: '/api/bordereaux/17/notes', status: 201, request: { text: 'Call Marit on 0207 946 0000' }, response: { id: 4411 } },
+  ];
+  const file = path.join(reg, 'legacy-with-requests.json');
+  fs.writeFileSync(file, JSON.stringify(fx));
+  const r = await run(['--registry', reg, '--scenario', 'tags-list', '--side', 'legacy', '--adapter', `fixture:${file}`, '--har', '--base-url', 'http://legacy.test']);
+  assert.strictEqual(r.code, 0, r.err);
+  const har = fs.readFileSync(path.join(reg, 'parity/har/tags-list-legacy.har'), 'utf8');
+  assert.ok(har.includes('Nordic Marine') && har.includes('0207 946 0000'), 'the HAR holds the data');
+  assert.strictEqual(fs.readFileSync(path.join(reg, 'parity/har/.gitignore'), 'utf8'), '*\n');
+  const text = fs.readFileSync(path.join(reg, 'parity/baselines/tags-list/legacy.json'), 'utf8');
+  for (const v of ['Nordic', 'Iberia', '964', '3,302', '0207', '4411', '/17', 'Marit', '7 lines']) assert.ok(!text.includes(v), `${v} leaked into legacy.json`);
+  assert.deepStrictEqual(JSON.parse(text).requests, [
+    { method: 'GET', path: '/api/bordereaux', status: 200, request: null, response: [{ Cedant: 'text:Aa', Lines: 'num:?0', Premium: 'num:$#,##0' }] },
+    { method: 'GET', path: '/api/bordereaux/:id', status: 200, request: null, response: { Cedant: 'text:Aa', Exceptions: 'text:aa' } },
+    { method: 'POST', path: '/api/bordereaux/:id/notes', status: 201, request: { text: 'text:Aa' }, response: { id: 'num:0' } },
+  ]);
+});
+
+test('without --har a baseline has no requests field; --har without a base URL is an error', async () => {
+  const reg = scratch();
+  await side(reg, 'legacy', ['--no-shots']);
+  assert.ok(!('requests' in JSON.parse(fs.readFileSync(path.join(reg, 'parity/baselines/tags-list/legacy.json'), 'utf8'))));
+  assert.ok(!fs.existsSync(path.join(reg, 'parity/har')));
+  fs.writeFileSync(path.join(reg, 'designc.json'), '{}');
+  const r = await side(reg, 'legacy', ['--har']);
+  assert.strictEqual(r.code, 2);
+  assert.match(r.out + r.err, /--har needs a base URL/);
+});

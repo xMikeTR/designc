@@ -2,7 +2,8 @@
    Pure and dual-loaded like parity.js, after it: a classic script in the renderer, require() from Node.
    It answers, for one screen, how many of the parity bugs QA logged the recorded behaviour catches, and why the rest
    were missed. Matching is by fixed rules over stored baselines and reports: never a model, never page data, and the
-   report copies no bug text (QA descriptions may hold real data). Nothing here is a gate input or a ledger row. */
+   report copies no bug text (QA descriptions may hold real data). Nothing here is a gate input. `escapes` maps a report to the
+   `escape` rows Record QA escapes appends (a person presses the button; the ledger append is the app's). */
 const ParityQa = (() => {
   const P = typeof Parity !== 'undefined' ? Parity : require('./parity.js');
 
@@ -148,7 +149,7 @@ const ParityQa = (() => {
   // not recorded, captured but not flagged) cites what the code of each side says about the control, and the result
   // carries code {legacy, next} from fromCode(). Without it the result is as before.
   // -> {screen, states, counts {bucket: n}, bugs [{key, bucket, reason, finding?, seen?, code?}], problems, code?}.
-  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] }, ui = null }) {
+  function report({ screen, scenarios = [], baselines = {}, reports = {}, qa = { bugs: [], problems: [] }, ui = null, spec = null }) {
     const problems = [...(qa.problems || [])];
     const mine = scenarios.filter(s => s && s.screen === screen);
     if (!mine.length) problems.push(`no scenario has screen: ${screen}, so nothing on it was recorded`);
@@ -171,6 +172,8 @@ const ParityQa = (() => {
 
     const judge = b => {
       if (needsTriage(b)) return { bucket: 'triage', reason: 'needs where (role and name) and kind from a person before it can be matched' };
+      // The screen's spec (ui/specs/<screen>.json), when there is one: its states are the spine, and a bug in a state it lacks is a person's to place.
+      if (b.state && spec && Array.isArray(spec.states) && !spec.states.includes(b.state)) return { bucket: 'triage', reason: `state '${b.state}' is not in spec ${spec.screen || screen}` };
       if (b.kind === 'look') return { bucket: 'not_captured', reason: 'how it looks is not recorded by this layer; evidence for the vision checklist' };
       if (b.state && !states.includes(b.state)) return { bucket: 'state_not_recorded', reason: `no step on screen ${screen} has state: ${b.state}; add one to a scenario` };
       const inState = x => !b.state || x.state === b.state;
@@ -219,7 +222,28 @@ const ParityQa = (() => {
     return { screen, states, counts, bugs, problems, ...(code ? { code } : {}) };
   }
 
-  return { KINDS, BUCKETS, GROUP_OF, FITS, WIDGET, behaviour, group, read, report, needsTriage, fromCode, codeText };
+  // D7 part 2: the escape rows for a report's bugs (docs/ui-contract.md "Feeding System 3"). Pure; the app appends them.
+  // opts: {hasSpec: the screen has a spec, existing: Set of escape ids already in the ledger}.
+  // -> {rows [{id, description, screen, bucket, caught_by, origin?}], skipped (ids already present), triage (not recorded)}.
+  // id is qa-<screen>-<key>; description is `<key>: <bucket reason>`, never QA's own text.
+  function escapes(rep, { hasSpec = false, existing = new Set() } = {}) {
+    const rows = [];
+    let skipped = 0, triage = 0;
+    for (const b of rep.bugs || []) {
+      if (b.bucket === 'triage') { triage++; continue; }
+      const id = `qa-${rep.screen}-${b.key}`;
+      if (existing.has(id)) { skipped++; continue; }
+      const row = { id, description: `${b.key}: ${b.reason}`, screen: rep.screen, bucket: b.bucket };
+      if (b.bucket === 'caught') row.caught_by = 'parity';
+      else if (b.bucket === 'state_not_recorded') Object.assign(row, { caught_by: 'parity', origin: 'spec_gap' });
+      else if (b.bucket === 'not_flagged') Object.assign(row, { caught_by: 'parity', origin: 'gate_gap' });
+      else row.caught_by = hasSpec ? 'ui-visual' : null;
+      rows.push(row);
+    }
+    return { rows, skipped, triage };
+  }
+
+  return { KINDS, BUCKETS, GROUP_OF, FITS, WIDGET, behaviour, group, read, report, escapes, needsTriage, fromCode, codeText };
 })();
 
 if (typeof module !== 'undefined') module.exports = ParityQa;

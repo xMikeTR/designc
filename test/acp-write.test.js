@@ -52,3 +52,16 @@ test('a declined write is not written', async () => {
   await assert.rejects(write(path.join(root, 'model', 'a.dsl')), /declined/);
   assert.equal(fs.existsSync(path.join(root, 'model', 'a.dsl')), false);
 });
+
+test('an ACP agent cannot read ui/holdout/, including through dot segments', async () => {
+  const { root } = setup();
+  fs.mkdirSync(path.join(root, 'ui', 'holdout'), { recursive: true });
+  fs.mkdirSync(path.join(root, 'ui', 'specs'), { recursive: true });
+  fs.writeFileSync(path.join(root, 'ui', 'holdout', 'home.json'), '{"secret":1}');
+  fs.writeFileSync(path.join(root, 'ui', 'specs', 'home.json'), '{"ok":1}');
+  const hub = new AcpHub({ getRoot: () => root, getCodebase: () => null, mcpServer: () => ({}), ui: async () => ({ ok: true }) });
+  const read = p => hub.handle('k', 'fs/read_text_file', { path: p });
+  await assert.rejects(read(path.join(root, 'ui', 'holdout', 'home.json')), /never shown to an agent stage/);
+  await assert.rejects(read(`${root}/ui/specs/../holdout/home.json`), /never shown to an agent stage/);
+  assert.equal((await read(path.join(root, 'ui', 'specs', 'home.json'))).content, '{"ok":1}');
+});

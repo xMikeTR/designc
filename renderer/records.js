@@ -4,7 +4,7 @@
    Mirrored in python/designc/records.py; test/records.test.js compares them. Schema: docs/records.schema.json.
 
    Envelope: id, status, scope[], supersedes[], evidence[], source. A decision adds statement, enforced_by[], rationale
-   and keeps every gate field (effect, kind, binds, resolves, relies_on, assumptions, work, removes, promoted_*,
+   and keeps every gate field (effect, kind, binds, resolves, relies_on, assumptions, work, removes, look, promoted_*,
    agreed_by, checks). minted and checked read as proposed; retired is new: a record nobody uses any more, never counted.
    Nothing here is a gate input: validate and lint feed Problems and the converter's dry run. */
 (function (root, factory) {
@@ -20,7 +20,7 @@
   const ALIASES = { minted: 'proposed', checked: 'proposed' };
   const VERDICTS = ['matched', 'diverged', 'accepted'];
   // enforced_by: a check id (chk-...), a gate clause kind (gate:<kind>) or an mlang rule id (mlang:<id>).
-  const GATE_KINDS = ['parse', 'registry', 'duplicate', 'finding', 'decision', 'evidence', 'check', 'promotion', 'assumption', 'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'contracts', 'unpinned_contract'];
+  const GATE_KINDS = ['parse', 'registry', 'duplicate', 'finding', 'decision', 'evidence', 'check', 'promotion', 'assumption', 'requirement', 'scenario', 'eval', 'needs', 'acceptance', 'tokens', 'domain', 'ui', 'contracts', 'unpinned_contract'];
 
   function fnv(str, seed) {
     let h = seed >>> 0;

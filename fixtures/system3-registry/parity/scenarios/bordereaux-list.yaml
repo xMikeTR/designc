@@ -1,0 +1,7 @@
+id: bordereaux-list
+title: The bordereaux list, sorted by inception
+screen: bordereaux
+steps:
+  - goto: { path: /tags }
+    state: list
+    expect: { sorted: Inception }

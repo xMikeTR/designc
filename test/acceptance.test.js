@@ -86,3 +86,18 @@ test('locators: every name a case uses is declared, with a role from the closed 
   assert.match(run({ x: { role: 'widget', name: 'X' } }, [])[0], /locator "x" has role "widget"/);
   assert.match(run({ x: { role: 'link' } }, [])[0], /locator "x" needs a role and an accessible name/);
 });
+
+test('holdout must be a boolean', () => {
+  const four = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+  const withCases = h => cases(four).map(c => c.state === 'ready' ? c : { ...c, holdout: h });
+  assert.deepEqual(texts(run({ acceptance: [ac({ cases: [...cases(four), { state: 'ready', given: 'g', then: 't', holdout: true }] })] })), []);
+  assert.deepEqual(texts(run({ acceptance: [ac({ cases: [...cases(four), { state: 'ready', given: 'g', then: 't', holdout: 'yes' }] })] })), ['AC-1: case for ready: holdout must be true or false']);
+  assert.equal(texts(run({ acceptance: [ac({ cases: withCases('true') })] })).length, 4);
+});
+
+test('a holdout case cannot be the only case for its state', () => {
+  const four = ['ready', 'loading', 'empty', 'error', 'forbidden'];
+  const cs = cases(four).map(c => c.state === 'empty' ? { ...c, holdout: true } : c);
+  assert.deepEqual(texts(run({ acceptance: [ac({ cases: cs })] })), ['AC-1: the only case for state empty is holdout; add a visible case']);
+  assert.deepEqual(texts(run({ acceptance: [ac({ cases: [...cs, { state: 'empty', given: 'g2', then: 't2' }] })] })), []);
+});
