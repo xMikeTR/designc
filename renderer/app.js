@@ -2216,6 +2216,7 @@ document.addEventListener('click', async e => {
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
+  if (d.rects) { e.stopPropagation(); return recordFromLegacy(d.rects); }
   if (d.draftts) { e.stopPropagation(); return draftTestScenarios(d.draftts); }
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }

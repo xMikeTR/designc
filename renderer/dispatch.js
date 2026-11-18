@@ -110,6 +110,19 @@ const Dispatch = (() => {
     return toolLine(script, ['--from', from, '--registry', registry, '--write'], platform);
   }
 
-  return { VARS, settings, command, references, legacy, parityRecord, parityImport };
+  // Slice 3: walk the legacy app in Playwright codegen, then draft the scenario from the recording, linked to a test scenario.
+  // One line, typed without Enter: codegen opens a browser, and the import runs when it is closed.
+  function parityCodegen({ script, registry, url, id, link }, platform) {
+    const quote = platform === 'win32' ? pwsh : posix;
+    if (![script, registry, url, id, link].every(v => v && !/[\r\n]/.test(v))) return { error: 'The command is missing a value.' };
+    const sep = platform === 'win32' ? '\\' : '/';
+    const dir = `${registry}${sep}.designc${sep}codegen${sep}${id}`;
+    const file = `${dir}${sep}recording.spec.js`;
+    const rec = ['npx', 'playwright', 'codegen', '--target', 'javascript', '-o', quote(file), quote(url)].join(' ');
+    const imp = toolLine(script, ['--from', dir, '--registry', registry, '--write', '--id', id, '--link', link], platform);
+    return imp.error ? imp : `${rec} ${platform === 'win32' ? ';' : '&&'} ${imp}`;
+  }
+
+  return { VARS, settings, command, references, legacy, parityRecord, parityImport, parityCodegen };
 })();
 if (typeof module !== 'undefined') module.exports = Dispatch;

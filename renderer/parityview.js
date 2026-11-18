@@ -164,6 +164,15 @@ async function recordParityResult() {
   return recordParity('next', 'all', { item: item.id, commit: full.commit });
 }
 
+// Slice 3: Playwright codegen on the legacy app, then a scenario drafted from the walk and linked to this test scenario.
+async function recordFromLegacy(tsId) {
+  if (!PV.tools) { try { PV.tools = await host.parityTools(); } catch { PV.tools = {}; } }
+  if (!PV.tools.import || !PV.tools.playwright) { toast('Recording needs Playwright and the parity scripts, which an installed build does not carry. Run designc from its source folder.', 'warning'); return; }
+  const url = parityUrl('legacy') || await setParityUrl('legacy');
+  if (!url) return;
+  return typeParity(Dispatch.parityCodegen({ script: PV.tools.import, registry: A.root.root, url, id: `walk-${tsId}`, link: tsId }, A.platform));
+}
+
 async function draftParityScenarios() {
   const refs = Dispatch.references(A.cfg.references);
   const lg = refs && !refs.error ? Dispatch.legacy(refs.refs) : null;
@@ -279,7 +288,7 @@ function stageHtml(reqId) {
 }
 function chainHtml(reqId) {
   const rows = chainRows(reqId);
-  return stageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : '<span class="desc">not automated yet</span>'}</div>`).join('');
+  return stageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : `<span class="desc">not automated yet</span> <button class="lnk" data-rects="${esc(r.id)}">Record from legacy</button>`}</div>`).join('');
 }
 function renderParity() {
   const el = $('#special');

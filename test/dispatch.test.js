@@ -124,3 +124,11 @@ test('command: {run} is filled when given and missing otherwise', () => {
   assert.equal(Dispatch.command('b --run-id {run}', { ...vars, run: '20261016-114233' }, 'linux'), "b --run-id '20261016-114233'");
   assert.equal(Dispatch.command('b --run-id {run}', vars, 'linux').error, 'There is no value for {run}.');
 });
+
+test('parityCodegen: records the legacy walk, then drafts the scenario linked to a test scenario, one line', () => {
+  const a = { script: '/app/scripts/parity-import.js', registry: '/reg', url: 'https://legacy.test/tags', id: 'walk-T-ts-01', link: 'T-ts-01' };
+  assert.equal(Dispatch.parityCodegen(a, 'linux'),
+    "npx playwright codegen --target javascript -o '/reg/.designc/codegen/walk-T-ts-01/recording.spec.js' 'https://legacy.test/tags' && node '/app/scripts/parity-import.js' --from '/reg/.designc/codegen/walk-T-ts-01' --registry '/reg' --write --id 'walk-T-ts-01' --link 'T-ts-01'");
+  assert.ok(Dispatch.parityCodegen({ ...a, url: '' }, 'linux').error);
+  assert.ok(!/allow-writes/.test(Dispatch.parityCodegen(a, 'linux')));
+});
