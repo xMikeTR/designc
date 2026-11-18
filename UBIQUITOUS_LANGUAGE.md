@@ -168,4 +168,5 @@ this marking is a reading of how the files are written and checked.
 | Lost | In unavailable mode, an element whose every instance sits under the failed deployment node |
 | Survivor | An element with an instance under the failed node and another elsewhere: reduced capacity, still up |
 | Scenario | A quality attribute scenario in `scenarios/*.yaml`: stimulus, artifact, response, measure |
+| Test scenario | One BDD case (given, when, then) in `test-scenarios/<id>.yaml` that proves part of a requirement, written by an agent from the requirement's page or by QA. Not the quality attribute scenario (`scenarios/*.yaml`) and not the parity scenario (`parity/scenarios/*.yaml`, the executable steps that may prove it through `test_scenarios`). Display only, never a gate input |
 | Fitness function | A shell command attached to a scenario; each run is a `fitness` ledger event |

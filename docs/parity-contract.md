@@ -42,7 +42,8 @@ A covered difference is reported as `covered` and does not fail.
 
 | Path | What | In git |
 | --- | --- | --- |
-| `parity/scenarios/<id>.yaml` | `id, title?, screen?, steps[], params {legacy, next}?, masks[]?` | yes |
+| `parity/scenarios/<id>.yaml` | `id, title?, screen?, steps[], params {legacy, next}?, masks[]?, test_scenarios[]?` | yes |
+| `test-scenarios/<id>.yaml` | one BDD case proving part of a requirement: `id, requirement, title, given[], when[], then[], by?` (see below) | yes |
 | `parity/baselines/<id>/legacy.json` | the normalised legacy snapshot | yes |
 | `parity/reports/<id>.json` | the latest comparison: the new app's snapshot and every finding | yes |
 | `parity/shots/<sha256>.png` | screenshots, by content hash | no (`parity/shots/.gitignore`) |
@@ -50,6 +51,8 @@ A covered difference is reported as `covered` and does not fail.
 | `parity/qa/shots/*` | screenshots QA attached; may show real data | no (`parity/qa/shots/.gitignore`) |
 
 A step has exactly one action: `goto {path}`, `click`, `fill` or `select` `{role, name, index?, value?}`. `index` picks the nth match (records by position, never by value). A value may be `{param: name}`, taken from the side's params, so each app gets its own test data. `state` is optional: a name for the screen state the step leaves the app in (`list`, `apply dialog`), so QA bugs can say where they happen; without one the state is `<scenario id> step <n>`. `expect` is optional: `sorted: <column>` or `filtered: {column, contains}`. A mask is `{column | role, name, mode}` with mode `ignore` (no shape kept), `shape` (treat as data) or `exact` (a vocabulary word: compare the text).
+
+`test_scenarios` is a list of `test-scenarios/` ids this parity scenario proves; one scenario may prove several cases. An unknown id is a registry problem shown in Problems, never a parity failure, and a test scenario with no parity scenario is shown as "not automated yet". Neither reaches the gate.
 
 ## The recorder CLI
 

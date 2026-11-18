@@ -55,6 +55,22 @@ test('kinds: requirement needs a title, verdict needs a verdict and a scope', ()
   assert.match(R.validate('thing', {}).join(), /kind: must be one of/);
 });
 
+const ts = (o = {}) => ({ id: 'DEMO-1-ts-01', requirement: 'DEMO-1', title: 'Edit kept', given: ['a booking'], when: ['status updates'], then: ['the edit stays'], by: 'qa', ...o });
+
+test('test_scenario: a requirement, a title and non-empty given, when and then', () => {
+  assert.deepEqual(R.validate('test_scenario', ts()), []);
+  assert.deepEqual(R.validate('test_scenario', ts({ by: undefined, given: ['x', 'y'] })), []);
+  const bad = R.validate('test_scenario', { id: 'a b', given: [], when: 'text', then: [1], by: '' }).join();
+  assert.match(bad, /id: must have no spaces/);
+  assert.match(bad, /requirement: required/);
+  assert.match(bad, /title: required/);
+  assert.match(bad, /given: a non-empty list of strings/);
+  assert.match(bad, /then: a non-empty list of strings/);
+  assert.match(bad, /by: must be a non-empty string/);
+  assert.doesNotMatch(bad, /when:/, 'a single string reads as a one-item list, as scope does');
+  assert.doesNotMatch(bad, /status/, 'a test scenario has no status');
+});
+
 const recs = () => [
   { kind: 'requirement', path: 'requirements/DEMO-1.yaml', rec: { id: 'DEMO-1', title: 'Bookings' } },
   { kind: 'requirement', path: 'requirements/DEMO-0.yaml', rec: { id: 'DEMO-0', title: 'Old', status: 'retired' } },
@@ -63,6 +79,10 @@ const recs = () => [
   { kind: 'decision', path: 'decisions/c.yaml', rec: dec({ id: 'c', relies_on: ['a', 'zz'], supersedes: 'gone', scope: ['req:DEMO-0', 'req:NOPE', 'el:Nowhere', 'b'], enforced_by: ['chk-deadbeef'] }) },
   { kind: 'decision', path: 'decisions/d.yaml', rec: dec({ id: 'd', status: 'superseded' }) },
   { kind: 'decision', path: 'decisions/b2.yaml', rec: dec({ id: 'b' }) },
+  { kind: 'test_scenario', path: 'test-scenarios/1.yaml', rec: ts() },
+  { kind: 'test_scenario', path: 'test-scenarios/2.yaml', rec: ts({ id: 'DEMO-0-ts-01', requirement: 'DEMO-0' }) },
+  { kind: 'test_scenario', path: 'test-scenarios/3.yaml', rec: ts({ id: 'NOPE-ts-01', requirement: 'NOPE' }) },
+  { kind: 'test_scenario', path: 'test-scenarios/4.yaml', rec: ts({ id: 'a-ts', requirement: 'a' }) },
 ];
 
 test('lint: unknown and superseded references, orphan supersede, repeated id, enforced_by', () => {
@@ -77,6 +97,9 @@ test('lint: unknown and superseded references, orphan supersede, repeated id, en
     'c error scope names el:Nowhere, which is not an element of the model',
     'c error enforced by chk-deadbeef, which is not one of its checks',
     'd warning d is superseded but no record supersedes it',
+    'DEMO-0-ts-01 warning requirement names DEMO-0, which is retired',
+    'NOPE-ts-01 error requirement names NOPE, which is not a requirement',
+    'a-ts error requirement names a, which is not a requirement',
   ]);
 });
 
@@ -95,6 +118,7 @@ test('python mirrors validate, checks and lint', { skip: skipPy }, () => {
     ['decision', { id: 'a b', status: null }], ['requirement', { id: 'R', source: 3 }], ['verdict', { id: 'v', status: 'bound', verdict: 'same', commit: 1 }],
     ['verdict', { id: 'v', status: 'retired', verdict: 'matched', scope: 'ui:a' }], ['thing', {}], ['decision', 'text'],
     ['procedure', { id: 'p', status: 'bound', title: 'T', version: 2, scope: ['el:A'], steps: ['a', 'b'] }],
+    ['test_scenario', ts()], ['test_scenario', { id: 'a b', given: [], when: 'text', then: [1], by: '' }], ['test_scenario', ts({ status: 'x' })],
     ['procedure', { id: 'p', status: 'bound', version: true, steps: [1] }], ['procedure', { id: 'prompt:p', status: 'bound', title: 'T', version: 1, scope: ['el:A'], steps: 'x' }], ['procedure', { id: 'p', status: 'proposed', title: 'T', version: '1.2', scope: 'el:A', steps: 'x' }],
   ];
   const script = `

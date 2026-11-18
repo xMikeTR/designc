@@ -21,6 +21,7 @@ done_when:
 
 async function loadWork() {
   A.work = []; A.workErrors = []; A.workWarnings = [];
+  await loadTestScenarios();
   await loadParityScenarios();
   let files = [];
   try { files = await host.list('work', ['.yaml', '.yml']); } catch { files = []; }
@@ -257,6 +258,29 @@ async function loadVerdicts() {
     } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
   }
   for (const v of A.verdicts) for (const m of Records.validate('verdict', v.rec)) A.workErrors.push({ path: v.path, line: 1, msg: `verdict not counted: ${m}` });
+}
+
+// test-scenarios/*.yaml (records of kind test_scenario): one BDD case proving part of a requirement. Read for display
+// and for the parity link; never a gate input. A file that does not parse, validate or name a known requirement goes to
+// Problems through A.workErrors. A requirement with none, or a case with no parity scenario, is not a problem.
+async function loadTestScenarios() {
+  A.testScenarios = [];
+  let files = [];
+  try { files = await host.list('test-scenarios', ['.yaml', '.yml']); } catch { files = []; }
+  for (const f of files.sort((a, b) => a.path.localeCompare(b.path))) {
+    try {
+      const o = jsyaml.load(textOf(f.path) ?? f.text) || {};
+      if (typeof o !== 'object' || Array.isArray(o)) throw new Error('expected a mapping at the top level');
+      A.testScenarios.push({ rec: o, path: f.path });
+    } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: e.reason || e.message }); }
+  }
+  const recs = [...(A.requirements || []).map(r => ({ kind: 'requirement', path: r._path, rec: r })), ...A.testScenarios.map(t => ({ kind: 'test_scenario', path: t.path, rec: t.rec }))];
+  const lint = Records.lint(recs).filter(x => A.testScenarios.some(t => t.path === x.path));
+  for (const t of A.testScenarios) {
+    for (const m of Records.validate('test_scenario', t.rec)) A.workErrors.push({ path: t.path, line: 1, msg: `test scenario not counted: ${m}` });
+    for (const x of lint.filter(l => l.path === t.path)) A.workErrors.push({ path: t.path, line: 1, msg: `${x.id}: ${x.msg}` });
+  }
+  A.testScenarioIds = A.testScenarios.map(t => String(t.rec.id));
 }
 
 // Element refs to hierarchical ids (System/Container) through the open model, as the headless core reads them.

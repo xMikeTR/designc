@@ -281,7 +281,7 @@ const Parity = (() => {
   }
 
   // parity/scenarios/<id>.yaml: {id, screen?, title?, steps[], params?: {legacy: {}, next: {}}, masks?[]}.
-  function scenarioProblems(s) {
+  function scenarioProblems(s, opts = {}) {
     if (!s || typeof s !== 'object' || Array.isArray(s)) return ['the scenario is not a mapping'];
     const out = [];
     if (typeof s.id !== 'string' || !/^[A-Za-z0-9._-]+$/.test(s.id)) out.push('the scenario needs an id of letters, digits, ".", "_" or "-"');
@@ -295,6 +295,12 @@ const Parity = (() => {
     // Tier 2 (pixels): CSS selectors painted over in both apps' screenshots, and the mismatch ratio the scenario tolerates.
     if (s.mask != null && (!Array.isArray(s.mask) || s.mask.some(m => typeof m !== 'string' || !m.trim()))) out.push('mask must be a list of CSS selectors');
     if (s.threshold != null && (typeof s.threshold !== 'number' || !(s.threshold >= 0 && s.threshold <= 1))) out.push('threshold must be a ratio from 0 to 1');
+    // test_scenarios: the test-scenarios/*.yaml ids this scenario proves. An unknown id is a registry problem, never a
+    // parity failure; `opts.testScenarios` (the known ids) is passed only where they have been read.
+    if (s.test_scenarios != null) {
+      if (!Array.isArray(s.test_scenarios) || s.test_scenarios.some(t => typeof t !== 'string' || !t.trim())) out.push('test_scenarios must be a list of test scenario ids');
+      else if (opts.testScenarios) for (const t of s.test_scenarios) if (!opts.testScenarios.includes(t)) out.push(`test_scenarios names ${t}, which is not in test-scenarios/`);
+    }
     return out;
   }
 

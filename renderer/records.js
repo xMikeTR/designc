@@ -12,7 +12,7 @@
   else root.Records = factory();
 })(typeof self !== 'undefined' ? self : this, function () {
   'use strict';
-  const KINDS = ['decision', 'requirement', 'verdict', 'procedure'];
+  const KINDS = ['decision', 'requirement', 'verdict', 'procedure', 'test_scenario'];
   // Prefixed ids for things a record points at outside itself (Mike's work records): a UI node, a requirement,
   // a design element, a test, a Jira key. A bare id is another record.
   const PREFIXES = ['ui', 'req', 'el', 'test', 'jira'];
@@ -52,7 +52,7 @@
     if (!isObj(rec)) return ['record: must be a mapping'];
     if (!str(rec.id)) errs.push('id: required');
     else if (/\s/.test(rec.id)) errs.push('id: must have no spaces');
-    if (rec.status == null && kind !== 'requirement') errs.push('status: required');
+    if (rec.status == null && kind !== 'requirement' && kind !== 'test_scenario') errs.push('status: required');
     else if (rec.status != null && !STATUSES.includes(status(rec.status))) errs.push(`status: must be one of ${STATUSES.join('|')} (minted and checked read as proposed)`);
     for (const f of ['scope', 'supersedes', 'evidence']) {
       if (rec[f] == null) continue;
@@ -86,6 +86,12 @@
       if (!VERDICTS.includes(rec.verdict)) errs.push(`verdict: must be one of ${VERDICTS.join('|')}`);
       if (!list(rec.scope).length) errs.push('scope: a verdict names what it judges');
       if (rec.commit != null && typeof rec.commit !== 'string') errs.push('commit: must be a string');
+    }
+    if (kind === 'test_scenario') {
+      if (!str(rec.requirement)) errs.push('requirement: required (the id of the requirement this case proves)');
+      if (!str(rec.title)) errs.push('title: required');
+      for (const f of ['given', 'when', 'then']) if (!list(rec[f]).length || !list(rec[f]).every(str)) errs.push(`${f}: a non-empty list of strings`);
+      if (rec.by != null && !str(rec.by)) errs.push('by: must be a non-empty string');
     }
     if (kind === 'procedure') {
       if (str(rec.id) && !/^[A-Za-z0-9._-]+$/.test(rec.id)) errs.push('id: letters, digits, ".", "_" or "-" (a trace row names it verbatim beside prefixed ids such as prompt:)');
@@ -130,6 +136,11 @@
           else if (dead(ref.key)) add('warning', `scope names ${s}, which is ${status(t.rec.status)}`);
         }
         if (ref.prefix === 'el' && elements && !elements.has(ref.key)) add('error', `scope names ${s}, which is not an element of the model`);
+      }
+      if (r.kind === 'test_scenario' && str(rec.requirement)) {
+        const t = byId.get(rec.requirement);
+        if (!t || t.kind !== 'requirement') add('error', `requirement names ${rec.requirement}, which is not a requirement`);
+        else if (dead(rec.requirement)) add('warning', `requirement names ${rec.requirement}, which is ${status(t.rec.status)}`);
       }
       if (r.kind === 'decision') {
         const ids = new Set(checks(rec).map(c => c.id));

@@ -18,7 +18,7 @@ async function loadParityScenarios() {
     let o;
     try { o = jsyaml.load(textOf(f.path) ?? f.text); } catch (e) { A.workErrors.push({ path: f.path, line: (e.mark && e.mark.line + 1) || 1, msg: `${f.path} does not parse: ${e.reason || e.message}` }); continue; }
     if (!o || typeof o !== 'object' || typeof o.id !== 'string' || !o.id.trim()) { A.workErrors.push({ path: f.path, line: 1, msg: `${f.path} has no id; a parity scenario is recorded and judged by its id.` }); continue; }
-    const problems = Parity.scenarioProblems(o);
+    const problems = Parity.scenarioProblems(o, { testScenarios: A.testScenarioIds || [] });
     for (const p of problems) A.workErrors.push({ path: f.path, line: 1, msg: `${o.id}: ${p}` });
     A.parity.push({ ...o, id: o.id.trim(), _path: f.path, problems });
     A.parityIds.push(o.id.trim());

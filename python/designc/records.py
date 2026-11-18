@@ -4,7 +4,7 @@ import re
 
 from .rules import hash16
 
-KINDS = ['decision', 'requirement', 'verdict', 'procedure']
+KINDS = ['decision', 'requirement', 'verdict', 'procedure', 'test_scenario']
 PREFIXES = ['ui', 'req', 'el', 'test', 'jira']
 STATUSES = ['proposed', 'bound', 'superseded', 'retired']
 ALIASES = {'minted': 'proposed', 'checked': 'proposed'}
@@ -71,7 +71,7 @@ def validate(kind, rec):
     if not _str(rec.get('id')): errs.append('id: required')
     elif re.search(r'\s', rec['id']): errs.append('id: must have no spaces')
     st = rec.get('status')
-    if st is None and kind != 'requirement': errs.append('status: required')
+    if st is None and kind not in ('requirement', 'test_scenario'): errs.append('status: required')
     elif st is not None and status(st) not in STATUSES:
         errs.append(f"status: must be one of {'|'.join(STATUSES)} (minted and checked read as proposed)")
     for f in ('scope', 'supersedes', 'evidence'):
@@ -105,6 +105,13 @@ def validate(kind, rec):
         if rec.get('verdict') not in VERDICTS: errs.append(f"verdict: must be one of {'|'.join(VERDICTS)}")
         if not _list(rec.get('scope')): errs.append('scope: a verdict names what it judges')
         if rec.get('commit') is not None and not isinstance(rec['commit'], str): errs.append('commit: must be a string')
+    if kind == 'test_scenario':
+        if not _str(rec.get('requirement')): errs.append('requirement: required (the id of the requirement this case proves)')
+        if not _str(rec.get('title')): errs.append('title: required')
+        for f in ('given', 'when', 'then'):
+            v = _list(rec.get(f))
+            if not v or not all(_str(x) for x in v): errs.append(f'{f}: a non-empty list of strings')
+        if rec.get('by') is not None and not _str(rec['by']): errs.append('by: must be a non-empty string')
     if kind == 'procedure':
         if _str(rec.get('id')) and not re.fullmatch(r'[A-Za-z0-9._-]+', rec['id']): errs.append('id: letters, digits, ".", "_" or "-" (a trace row names it verbatim beside prefixed ids such as prompt:)')
         if not _str(rec.get('title')): errs.append('title: required')
@@ -156,6 +163,10 @@ def lint(records, elements=None):
                 elif dead(ref['key']): add('warning', f"scope names {s}, which is {status(t['rec'].get('status'))}")
             if ref['prefix'] == 'el' and els is not None and ref['key'] not in els:
                 add('error', f'scope names {s}, which is not an element of the model')
+        if r.get('kind') == 'test_scenario' and _str(rec.get('requirement')):
+            t = by_id.get(rec['requirement'])
+            if not t or t.get('kind') != 'requirement': add('error', f"requirement names {rec['requirement']}, which is not a requirement")
+            elif dead(rec['requirement']): add('warning', f"requirement names {rec['requirement']}, which is {status(t['rec'].get('status'))}")
         if r.get('kind') == 'decision':
             ids = {c['id'] for c in checks(rec)}
             for e in _list(rec.get('enforced_by')):

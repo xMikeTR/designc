@@ -106,3 +106,12 @@ test('detect names the technology from files, and says unsupported or unknown ra
   assert.deepStrictEqual(Parity.detect([{ path: 'App/App.csproj', text: '<UseWPF>true</UseWPF>' }]), { tech: 'unsupported', evidence: ['App/App.csproj: UseWPF'] });
   assert.deepStrictEqual(Parity.detect([{ path: 'README.md', text: '' }]), { tech: 'unknown', evidence: [] });
 });
+
+test('test_scenarios on a parity scenario: a list of ids, and an unknown id is a problem only where the ids are known', () => {
+  const sc = (t) => ({ id: 'tags-sort', steps: [{ goto: { path: '/tags' } }], test_scenarios: t });
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-01', 'DEMO-1-ts-02'])), []);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-01']), { testScenarios: ['DEMO-1-ts-01'] }), []);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc(['DEMO-1-ts-09']), { testScenarios: ['DEMO-1-ts-01'] }), ['test_scenarios names DEMO-1-ts-09, which is not in test-scenarios/']);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc('DEMO-1-ts-01')), ['test_scenarios must be a list of test scenario ids']);
+  assert.deepStrictEqual(Parity.scenarioProblems(sc([''])), ['test_scenarios must be a list of test scenario ids']);
+});
