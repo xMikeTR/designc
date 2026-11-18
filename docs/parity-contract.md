@@ -73,8 +73,10 @@ node scripts/parity-record.js --registry <dir> --scenario <id|all> --side <legac
 ## Drafting scenarios from legacy tests
 
 ```
-node scripts/parity-import.js --from <legacy tests folder> --registry <dir> [--write] [--json]
+node scripts/parity-import.js --from <legacy tests folder> --registry <dir> [--write] [--id <name>] [--link <test scenario id>] [--json]
 ```
+
+`--id` names the scenario when the folder holds exactly one test (a `playwright codegen` recording); `--link` writes `test_scenarios: [<id>]` and refuses an id with no `test-scenarios/` file. The Record from legacy button on a test scenario types the codegen and import line for you (no Enter).
 
 Each `test(...)` in the folder's Playwright tests becomes one draft scenario. It translates `page.goto` with a written-out path (an absolute URL keeps only its path) and `getByRole` locators with `.first()` or `.nth(n)`, whether inline, held in a local `const`, or a page object's property. It follows a page object's method one level, taking parameters from the call. Values are copied as the legacy test wrote them; move any that differ between the apps to `params`. It flags everything else with its file and line in the draft's header comment and on the console, and never guesses. That includes `getByLabel`, `getByText`, CSS locators, `.last()`, values held in variables, and helpers. It counts assertions and skips them, because parity compares the whole screen. Without `--write` it only reports. With `--write` it creates `parity/scenarios/<id>.yaml` (the id is a slug of the test title) and never overwrites one that exists. Exit: `0` drafted, `1` something was not translated or a draft has a problem, `2` an error.
 
