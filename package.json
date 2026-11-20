@@ -8,6 +8,7 @@
   "scripts": {
     "start": "electron .",
     "postinstall": "electron-builder install-app-deps",
+    "lsp": "node lsp/server.js --stdio",
     "test": "node --test \"test/**/*.test.js\"",
     "e2e": "playwright test",
     "dist": "electron-builder",
@@ -21,7 +22,9 @@
     "js-yaml": "^4.1.0",
     "monaco-editor": "0.52.0",
     "node-pty": "^1.1.0",
-    "typescript": "~6.0.3"
+    "typescript": "~6.0.3",
+    "vscode-languageserver": "10.1.2",
+    "vscode-languageserver-textdocument": "1.0.16"
   },
   "devDependencies": {
     "@playwright/test": "^1.64.0",
