@@ -266,3 +266,14 @@ test('R1 repro and fixtures/agent-registry through the shim: exit 1, the AG find
   assert.equal(reg.status, 1);
   assert.deepEqual([...new Set(JSON.parse(reg.stdout).findings.map(f => f.code))], ['AG011']);
 });
+
+// B2: the scenario-registry fixture's popover is a hosted spec of its own (ui/specs/orders-tag.json).
+test('scenario-registry: the hosted popover spec gets no clause (no UI element in the model names it, so no approval clause either), and the orders clause set is unchanged', () => {
+  const r = spawnSync(process.execPath, [path.join(ROOT, 'scripts/designc-core.js'), 'check', path.join(ROOT, 'fixtures/scenario-registry'), '--json', '--no-record'], { encoding: 'utf8', env: CLEAN_ENV });
+  const ui = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'ui').map(c => c.text);
+  assert.ok(!ui.some(t => /orders-tag/.test(t)), ui.join('\n'));
+  assert.deepStrictEqual(ui, [
+    'ui/pack/ is not pinned: pin it from its kind: ui registry',
+    'ui/specs/orders.json: spec not bound. Check the previews, then press Approve and bind',
+  ]);
+});

@@ -30,6 +30,20 @@ const TestScenarios = (() => {
     }
     return { placements, transitions };
   }
+  // B2: a screen's locator set also holds those of every overlay (a spec whose host.screen is that screen).
+  function hostedSpecs(specs, screen) {
+    const out = [];
+    for (const f of specs || []) {
+      let s = f;
+      if (f && typeof f.text === 'string') { try { s = JSON.parse(f.text); } catch { continue; } if (isObj(s) && !s.screen && f.path) s.screen = f.path.split('/').pop().replace(/\.json$/, ''); }
+      if (isObj(s) && isObj(s.host) && s.host.screen === screen && s.screen !== screen) out.push(s);
+    }
+    return out;
+  }
+  const locatorsWithHosted = (specs, spec) => {
+    const all = [locators(spec), ...hostedSpecs(specs, spec.screen).map(locators)];
+    return { placements: all.flatMap(l => l.placements), transitions: all.flatMap(l => l.transitions) };
+  };
   const placeholders = v => {
     const out = [];
     const walk = x => { if (typeof x === 'string') for (const m of x.matchAll(/\{([A-Za-z_][\w-]*)\}/g)) out.push(m[1]); else if (Array.isArray(x)) x.forEach(walk); else if (isObj(x)) Object.values(x).forEach(walk); };
@@ -48,7 +62,7 @@ const TestScenarios = (() => {
 
     const spec = specFor(ctx.specs, rec.screen);
     if (!spec) add('unknown_screen', `screen: no ui spec for ${rec.screen}`);
-    const loc = spec ? locators(spec) : null;
+    const loc = spec ? locatorsWithHosted(ctx.specs, spec) : null;
     const steps = Array.isArray(rec.steps) ? rec.steps : [];
     const examples = Array.isArray(rec.examples) ? rec.examples : [];
     let commits = false;
@@ -56,7 +70,7 @@ const TestScenarios = (() => {
       const verb = verbOf(s); if (!verb) return;
       const l = s[verb];
       const t = loc.transitions.filter(x => same(x.locator, l));
-      if (!loc.placements.some(p => same(p, l)) && !t.length) add('locator_not_in_spec', `steps[${i}]: ${verb} ${locText(l)} is not a placement locator or transition locator of the ${rec.screen} spec`);
+      if (!loc.placements.some(p => same(p, l)) && !t.length) add('locator_not_in_spec', `steps[${i}]: ${verb} ${locText(l)} is not a placement locator or transition locator of the ${rec.screen} spec or of an overlay it hosts`);
       if (verb === 'click' && t.some(x => x.commits)) commits = true;
     });
     if (rec.effect && typeof rec.effect.operation === 'string') {

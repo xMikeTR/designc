@@ -134,3 +134,34 @@ test('Bind rewrites only the one top-level status line of a minted file, and the
   assert.deepStrictEqual(R.validate('test_scenario', rec), []);
   assert.strictEqual(TS.bindProblem(rec), null);
 });
+
+// B2: a scenario on a screen may use the locators of the overlays hosted by that screen.
+const popover = { screen: 'orders-tag', host: { screen: 'orders', state: 'tag-popover', anchor: 'tag' },
+  slots: { fields: [{ id: 'match', component: 'TextField', locator: { role: 'textbox', name: 'Match' } }] }, transitions: [{ from: 'editing', to: 'invalid', on: { event: 'x' } }] };
+const unrelated = { screen: 'other', slots: { main: [{ id: 'q', component: 'TextField', locator: { role: 'textbox', name: 'Query' } }] }, transitions: [] };
+const hostedSpecs = (...extra) => [{ path: 'ui/specs/orders.json', text: JSON.stringify({ ...spec, slots: { 'header.actions': spec.slots['header.actions'] } }) }, ...extra.map(s => ({ path: `ui/specs/${s.screen}.json`, text: JSON.stringify(s) }))];
+
+test('B2: a step on a hosted spec\'s locator passes under the host\'s screen, and under the overlay\'s own screen', () => {
+  assert.deepStrictEqual(reasons(rec(), ctx({ specs: hostedSpecs(popover) })), []);
+  assert.deepStrictEqual(reasons(rec({ screen: 'orders-tag' }), ctx({ specs: hostedSpecs(popover) })).filter(r => r === 'unknown_screen'), []);
+});
+test('B2: without the hosted spec the same step is locator_not_in_spec', () => {
+  const p = TS.mintProblems(rec(), ctx({ specs: hostedSpecs() }));
+  assert.deepStrictEqual(p.map(x => x.reason), ['locator_not_in_spec']);
+  assert.match(p[0].message, /textbox "Match"/);
+});
+test('B2: a locator that is only in an unrelated spec is still locator_not_in_spec', () => {
+  assert.deepStrictEqual(reasons(rec({ steps: [{ fill: { role: 'textbox', name: 'Query' }, value: '{match}' }, { click: { role: 'button', name: 'Apply' } }] }), ctx({ specs: hostedSpecs(popover, unrelated) })), ['locator_not_in_spec']);
+});
+test('B2: a hosted spec of another host does not lend its locators', () => {
+  const elsewhere = { ...popover, host: { ...popover.host, screen: 'other' } };
+  assert.deepStrictEqual(reasons(rec(), ctx({ specs: hostedSpecs(elsewhere, unrelated) })), ['locator_not_in_spec']);
+});
+test('B2: a commits transition in the host still needs examples when the steps also use an overlay locator', () => {
+  assert.deepStrictEqual(reasons(rec({ examples: [], steps: [{ fill: { role: 'textbox', name: 'Match' }, value: 'x' }, { click: { role: 'button', name: 'Apply' } }] }), ctx({ specs: hostedSpecs(popover) })), ['commit_without_examples']);
+});
+test('B2: a commits transition that lives in the hosted spec counts for the host screen', () => {
+  const withCommit = { ...popover, transitions: [{ from: 'editing', to: 'applied', on: { click: { role: 'button', name: 'Save' } }, commits: true }] };
+  const steps = [{ fill: { role: 'textbox', name: 'Match' }, value: 'x' }, { click: { role: 'button', name: 'Save' } }];
+  assert.deepStrictEqual(reasons(rec({ examples: [], steps, effect: { operation: 'tagOrders' } }), ctx({ specs: hostedSpecs(withCommit) })), ['commit_without_examples']);
+});

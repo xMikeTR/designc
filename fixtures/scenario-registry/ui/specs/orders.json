@@ -69,8 +69,8 @@
           "fields": "match"
         },
         "locator": {
-          "role": "textbox",
-          "name": "Match"
+          "role": "searchbox",
+          "name": "Search orders"
         }
       }
     ],
