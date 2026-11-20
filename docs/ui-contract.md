@@ -141,6 +141,26 @@ examples:
 - **Freeze.** When a bound scenario of a handover requirement has rows, `scenarios.json` is `designc.handover.scenarios/2` (`docs/handover-scenarios-2.schema.json`, example `docs/handover-scenarios-2.example.json`): `/1`'s `screens` and `skipped` plus `api` (qualified `pack/Name` keys, sorted) and `entities` (the aggregates used, with fields). It is written even with no UI part. Without rows the file is `/1`, byte for byte. The scenario file and each pack used are in the handover id.
 - The Factory does not read `/2` yet: X4 pins it, and until then it refuses a handover whose scenarios carry rows. designc generates no xUnit; the Factory generates API tests from `api` and the repo implements a seed/query adapter once.
 
+### API example requests (C4b)
+
+An example with rows may also carry `request`, the inputs of the call the API test makes. It is optional, and explicit: an example has a request only when it has the `request` key (`request: {}` is valid: no params, body from `effect.body`). Example keys are never matched to parameter names by guesswork.
+
+```yaml
+examples:
+  - title: prefix match
+    match: A-
+    tag: Priority
+    given: { Order: [{ id: 1, ref: A-100 }] }
+    then:  { Order: [{ id: 1, tag: Priority }] }
+    request: { query: { dryRun: false } }
+```
+
+- **Shape.** `request` is a mapping of `path` (parameter name to a string, number or boolean), `query` (same) and `body` (any JSON). Values are literal: a whole-string `{name}` is refused (`placeholder_in_request`), and `{request}` is a reserved placeholder name, like `{given}` and `{then}`. Array and object values in `path`/`query` are out of scope. A malformed shape is a `Records.validate` error (Bind shows it).
+- **One body source.** With `effect.body` the frozen body is that body with the example's values (the body the UI test asserts is sent), and `request.body` is refused (`request_body`). Without `effect.body`, `request.body` is the body. Neither means no body.
+- **Checks** (`TestScenarios.requestProblems`, against `Core.operationInputs`; at mint and, as `handover refused: scenario <id>: ...`, at freeze): `request_without_rows`, `request_incomplete` (all examples or none), `request_param` (a path or required query parameter without a value, or an unknown name), `request_body` (given twice, required but absent, given to an operation with no body, not a mapping, a missing required property, or an unknown property). Body checks are top level only, with no value types or nested schemas. A body schema is **closed** (unknown properties refused) when it lists `properties` and leaves `additionalProperties` absent or `false`; say `additionalProperties: true` to allow extras. A body under `allOf`/`oneOf`/`anyOf` is only checked for presence. Header and cookie parameters are ignored.
+- **Freeze.** When any api example has a request, `scenarios.json` is `designc.handover.scenarios/3` (`docs/handover-scenarios-3.schema.json`, example `docs/handover-scenarios-3.example.json`): `/2` plus `request: {path, query, body?}` on those examples (path and query values stay JSON scalars; `body` is omitted when there is none). A scenario without requests stays in `api` without one, and consumers skip it. Without any request the file is `/2` or `/1`, byte for byte, and no handover id moves.
+- **Factory (X4 slice 7).** Pins `/3`. Its `ApiRequest` needs `Query` beside `Body` and `Path`, and the call binds query arguments by name like path arguments. Values are scalars the Factory converts. Variance (C5) treats `request` as part of an example's input, never its outcome.
+
 ### Scenario gate clauses (B4)
 
 Two clauses of kind `scenario` (shown as "Test scenario"), from the gate input `testScenarios` (the parsed `test-scenarios/*.yaml`, each with `_path`; both `Core` assembly paths pass it, `renderer/gate-inputs.js` and the app's `recompile`). `TestScenarios.clauses` makes them. (1) A `commits: true` click transition has no **bound structured** scenario with at least one example that renders on the transition's screen (its host's, for an overlay) and clicks that locator: "`<screen>: committing "<locator>" (<from> -> <to>) has no bound test scenario with examples`", button "Draft test scenarios". (2) A structured scenario with `questions`: "`<id>: N open question(s) block binding`", buttons "Ask in Grill-me" and "Open scenario". Both carry `requirement` (the spec's `ticket`, the scenario's `requirement`), so an item's gate keeps only its own. Flat scenarios never count (D5). BR coverage (`TestScenarios.coverage(pageText, scenarios)`: covered/total sentences of the requirement page that a structured scenario's `source` quotes) shows on the requirement and is not a clause (D6).

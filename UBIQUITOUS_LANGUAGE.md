@@ -53,7 +53,8 @@ this marking is a reading of how the files are written and checked.
 | Code map | Aggregate (generated) | The as-built model and its evidence in `asbuilt/`, extracted from the codebase |
 | As-built | Qualifier | What the code actually is, as opposed to the design |
 | Facts | Value | The extractor's output: projects, elements, edges, components, component edges, unresolved |
-| Example rows | Value Object | `given` (seed) and `then` (expected) rows on a structured test scenario's example, keyed by domain pack aggregate (`Order` or `pack/Order`), literal values, matched on the listed fields only. Frozen in `scenarios.json` `/2` (`api`); the Factory generates API tests from them (C4) |
+| Example rows | Value Object | `given` (seed) and `then` (expected) rows on a structured test scenario's example, keyed by domain pack aggregate (`Order` or `pack/Order`), literal values, matched on the listed fields only. Frozen in `scenarios.json` `/2` (`api`); a `request` on the examples makes it `/3`; the Factory generates API tests from them (C4) |
+| Example request | Value Object | `request: {path, query, body}` on a structured scenario's example with rows: the inputs of the API call, as literal scalars (body only when there is no `effect.body`, which otherwise gives it). Checked against the operation's OpenAPI parameters and request body at mint and freeze; frozen in `scenarios.json` `/3`; the Factory's API tests send it (C4b) |
 | Evidence | Value Object | The file and line behind an extracted element or edge. (In the agreed business decisions, also the link behind a decision) |
 | Unresolved | Value Object | Something a scanner saw but could not resolve. Listed, never turned into an edge |
 | Deployable | Entity | A project or package that runs on its own; becomes a container in the code map |
