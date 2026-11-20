@@ -6,7 +6,7 @@ The machine contract is `python/designc/ledger_schema.json` (generated from `ren
 
 ## What the handover holds
 
-A frozen handover (`handovers/<id>/`, listed and hashed in `handover.yaml`) is everything the pipeline needs: `elements.json` (`docs/handover-elements.schema.json`), the model, requirements, bound decisions, `evals/*.yaml`, `behaviour/*.p`, `vocabulary/*.yaml`, and `scenarios/*.yaml` with their ids under `scenarios:`. A scenario's `fitness:` entries may be `TODO ...`: the architect has stated what done means but the fitness function is not written yet, so writing it is part of the build. Verify each file's hash before use; a file changed after the freeze is not the handover.
+A frozen handover (`handovers/<id>/`, listed and hashed in `handover.yaml`) is everything the pipeline needs: `elements.json` (`docs/handover-elements.schema.json`), the model, requirements, bound decisions, `evals/*.yaml`, `behaviour/*.p`, `vocabulary/*.yaml`, and `scenarios/*.yaml` with their ids under `scenarios:`. A scenario's `fitness:` entries may be `TODO ...`: the architect has stated what done means but the fitness function is not written yet, so writing it is part of the build. When the scenario tests carry example rows, `scenarios.json` is `designc.handover.scenarios/2` and its `api` lists, per example, the `given` rows to seed and the `then` rows to expect (`docs/handover-scenarios-2.schema.json`). Verify each file's hash before use; a file changed after the freeze is not the handover.
 
 ### Split repos (Api and Ui)
 
