@@ -522,6 +522,50 @@ test('the Compose stage mints a spec behind a card, and a spec that fails its ch
   await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/orders.json')) && JSON.parse(fs.readFileSync(path.join(reg, 'ui/specs/orders.json'), 'utf8')).status).toBe('minted');
 });
 
+test('user can mint a structured test scenario and see it blocked from binding by its open questions @critical', async () => {
+  test.setTimeout(90000);
+  const yaml = require('js-yaml');
+  const { reg } = copyRegistry('fixtures/scenario-registry');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'scenarios' } } } }, null, 2));
+  session = await launch(reg);
+  const { app, page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // The strict mint reads the requirement page, so the person chooses the folder of pages first (a native dialog; answer it, then leave the import review).
+  await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, path.join(reg, 'import'));
+  await page.locator('[data-a="importreq"]').click();
+  await page.locator('.askcard').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('grill');
+  await page.locator('#agInput').fill('Draft test scenarios for ORD-1');
+  await page.locator('#agSend').click();
+  // A quote the page does not contain is refused with its reason: no card, nothing written.
+  await expect(page.locator('#agent')).toContainText('source_not_in_page');
+  const file = path.join(reg, 'test-scenarios/ORD-1-ts-01.yaml');
+  expect(fs.existsSync(file)).toBe(false);
+  // The valid one shows its open question on the card and writes nothing until Approve.
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('1 open question');
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(file)).toBe(true);
+  const rec = yaml.load(fs.readFileSync(file, 'utf8'));
+  expect([rec.status, rec.by, rec.source, rec.effect.operation]).toEqual(['minted', 'grill', 'The tag is applied to all orders matching the string entered.', 'tagOrders']);
+  // Minted, not bound: the Bind button is disabled and the question is listed.
+  const row = page.locator('#sbBody .tsbind');
+  await expect(row).toContainText('minted');
+  await expect(row).toContainText('blocked: 1 open question');
+  await expect(row).toContainText('Is the match a prefix, or anywhere in the reference?');
+  await expect(row.getByRole('button', { name: 'Bind' })).toBeDisabled();
+  // Answering the question (editing the file) unblocks it; only the person's Bind button binds, and it rewrites the one status line.
+  delete rec.questions;
+  fs.writeFileSync(file, yaml.dump(rec, { lineWidth: -1 }));
+  await expect(row.getByRole('button', { name: 'Bind' })).toBeEnabled();
+  await row.getByRole('button', { name: 'Bind' }).click();
+  await expect.poll(() => yaml.load(fs.readFileSync(file, 'utf8')).status).toBe('bound');
+  await expect(row).toContainText('bound');
+});
+
 test('a legacy spec is drafted by the agent and copied as a new spec by the person @critical', async () => {
   test.setTimeout(90000);
   const { reg } = copyRegistry('fixtures/ui-project');

@@ -366,6 +366,24 @@ function knowledgeHtml() {
       ${row('Parity coverage', scen.length ? `${fmtN(pass)} of ${esc(plural(scen.length, 'scenario'))} pass on the latest result` : '<span style="color:var(--fg3)">no parity scenarios</span>')}
     </table></div></div>`;
 }
+// Human only, like Bind on a procedure: a structured test scenario goes from minted to bound by rewriting its one top-level
+// status line, after a confirmation, and only when it has no open question. Not a gate input yet (B4).
+async function bindTestScenario(path) {
+  const t = (A.testScenarios || []).find(x => x.path === path);
+  if (!t) return;
+  const b = A.buffers.get(path);
+  if (b && b.dirty) return toast(`${path} has unsaved edits. Save it first, so you bind the file you reviewed.`, 'warning');
+  const text = textOf(path) ?? await readText(path);
+  let rec; try { rec = jsyaml.load(text); } catch (e) { return toast(`${path}: ${e.reason || e.message}`, 'warning'); }
+  const why = TestScenarios.bindProblem(rec);
+  if (why) return toast(`${rec && rec.id || path} cannot be bound: ${why}.`, 'warning');
+  const next = ProcLoop.setStatus(text, 'bound');
+  if (next == null) return toast(`${path} has no single top-level status line to change. Edit it by hand.`, 'warning');
+  if (!confirm(`Bind test scenario ${rec.id}? You are saying it states the behaviour of "${rec.source || rec.title}" correctly, examples included.`)) return;
+  await host.write(path, next);
+  await loadTestScenarios(); renderAll({ keepEditor: true });
+  toast(`${rec.id} is bound.`, 'info');
+}
 // Human only: Bind or Retire changes the one top-level status line of the procedure file, after a confirmation.
 async function setProcedureStatus(path, status) {
   const p = (A.procedures || []).find(x => x.path === path);

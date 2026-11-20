@@ -1,0 +1,183 @@
+{
+  "screen": "orders",
+  "component": "OrdersList",
+  "intent": "Clerks browse orders, search them by reference, and tag the matching ones in bulk.",
+  "ticket": "ORD-1",
+  "template": "list-detail",
+  "data": {
+    "orders": {
+      "shape": "table",
+      "source": "GET /api/orders",
+      "sample": [
+        {
+          "Ref": "A-100",
+          "Customer": "Acme",
+          "Tag": ""
+        },
+        {
+          "Ref": "A-101",
+          "Customer": "Acme",
+          "Tag": ""
+        },
+        {
+          "Ref": "B-200",
+          "Customer": "Birch",
+          "Tag": ""
+        }
+      ]
+    },
+    "selected": {
+      "shape": "record",
+      "source": "GET /api/orders/:id",
+      "sample": {
+        "Ref": "A-100",
+        "Customer": "Acme",
+        "Tag": ""
+      }
+    }
+  },
+  "slots": {
+    "header": [
+      {
+        "id": "hdr",
+        "component": "PageHeader",
+        "props": {
+          "title": "Orders"
+        }
+      }
+    ],
+    "header.actions": [
+      {
+        "id": "tag",
+        "component": "Button",
+        "props": {
+          "label": "Tag orders",
+          "variant": "secondary",
+          "onClick": "openTagPopover"
+        },
+        "locator": {
+          "role": "button",
+          "name": "Tag orders"
+        }
+      }
+    ],
+    "filters": [
+      {
+        "id": "filters",
+        "component": "FilterBar",
+        "props": {
+          "fields": "match"
+        },
+        "locator": {
+          "role": "textbox",
+          "name": "Match"
+        }
+      }
+    ],
+    "main": [
+      {
+        "id": "table",
+        "component": "DataTable",
+        "props": {
+          "density": "compact",
+          "rowAction": "selectOrder"
+        },
+        "bind": {
+          "rows": "orders"
+        },
+        "why": "Many orders, compared by reference and customer"
+      }
+    ],
+    "aside": [
+      {
+        "id": "detail",
+        "component": "DetailPanel",
+        "props": {
+          "title": "Order"
+        },
+        "bind": {
+          "record": "selected"
+        }
+      }
+    ]
+  },
+  "states": {
+    "loading": {
+      "initial": true,
+      "pending": [
+        "orders",
+        "selected"
+      ]
+    },
+    "ready": {
+      "description": "Orders listed, one selected"
+    },
+    "tag-popover": {
+      "description": "The tag popover is open over the list"
+    },
+    "tagged": {
+      "description": "The matching orders carry the tag"
+    },
+    "empty": {
+      "description": "No orders",
+      "data": {
+        "orders": [],
+        "selected": null
+      }
+    },
+    "error": {
+      "failed": [
+        "orders"
+      ],
+      "error": "Orders could not be loaded",
+      "data": {
+        "selected": null
+      }
+    }
+  },
+  "transitions": [
+    {
+      "from": "loading",
+      "to": "ready",
+      "on": {
+        "event": "data arrives"
+      }
+    },
+    {
+      "from": "loading",
+      "to": "error",
+      "on": {
+        "event": "request fails"
+      }
+    },
+    {
+      "from": "ready",
+      "to": "empty",
+      "on": {
+        "event": "no orders"
+      }
+    },
+    {
+      "from": "ready",
+      "to": "tag-popover",
+      "on": {
+        "click": {
+          "role": "button",
+          "name": "Tag orders"
+        }
+      }
+    },
+    {
+      "from": "tag-popover",
+      "to": "tagged",
+      "on": {
+        "click": {
+          "role": "button",
+          "name": "Apply"
+        }
+      },
+      "commits": true
+    }
+  ],
+  "status": "minted"
+}

@@ -124,3 +124,13 @@ test('refusal: every scenario\'s reasons in one message, or null', () => {
   assert.match(msg, /Scenario 1 \(Tags matching\): source_not_in_page/);
   assert.match(msg, /Scenario 2 \(Tags matching\): unknown_operation/);
 });
+
+test('Bind rewrites only the one top-level status line of a minted file, and the file still validates', () => {
+  const f = TS.build(req, [proposal({ questions: undefined })], { by: 'grill', needQuote: true, dump: yaml.dump }).files[0];
+  const bound = require('../renderer/procloop.js').setStatus(f.text, 'bound');
+  assert.strictEqual(bound, f.text.replace('status: minted', 'status: bound'));
+  const rec = yaml.load(bound);
+  assert.strictEqual(rec.status, 'bound');
+  assert.deepStrictEqual(R.validate('test_scenario', rec), []);
+  assert.strictEqual(TS.bindProblem(rec), null);
+});

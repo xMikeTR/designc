@@ -835,7 +835,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
@@ -2427,6 +2427,7 @@ document.addEventListener('click', async e => {
   if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
+  if (d.tsbind) { e.stopPropagation(); return bindTestScenario(d.tsbind); }
   if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }

@@ -64,10 +64,30 @@ async function legacyTurn() {
   return 'end_turn';
 }
 
+// MOCK_SCRIPT=scenarios: Grill-me drafts a structured test scenario for ORD-1. The first try quotes a sentence the page does not
+// have (refused, no card); the second is valid and carries an open question, so it is minted but cannot be bound.
+async function scenariosTurn() {
+  const call = async (name, args) => { const r = await mcp.call('tools/call', { name, arguments: args }); if (r.isError) throw new Error(r.content[0].text); return r.content[0].text; };
+  await say('Reading the page of ORD-1. ');
+  await tool('s1', 'designc: read_import_page', 'read', () => call('read_import_page', { requirement_id: 'ORD-1' }));
+  const scenario = {
+    title: 'Applying a tag tags every matching order', screen: 'orders',
+    steps: [{ click: { role: 'button', name: 'Tag orders' } }, { fill: { role: 'textbox', name: 'Match' }, value: '{match}' }, { click: { role: 'button', name: 'Apply' } }],
+    effect: { operation: 'tagOrders', body: { match: '{match}', tag: 'vip' }, then_state: { screen: 'orders', state: 'tagged' } },
+    given: { orders: ['A-100', 'A-101', 'B-200'] },
+    examples: [{ match: 'A-', tagged: ['A-100', 'A-101'], untouched: ['B-200'] }],
+  };
+  await tool('s2', 'designc: mint_test_scenarios (invented quote)', 'other', () => call('mint_test_scenarios', { requirement: 'ORD-1', scenarios: [{ ...scenario, quote: 'Every order is tagged at once.' }] }));
+  await tool('s3', 'designc: mint_test_scenarios', 'other', () => call('mint_test_scenarios', { requirement: 'ORD-1', scenarios: [{ ...scenario, quote: 'The tag is applied to all orders matching the string entered.', questions: ['Is the match a prefix, or anywhere in the reference?'] }] }));
+  await say('I minted one scenario; it has an open question, so you cannot bind it until that is answered.');
+  return 'end_turn';
+}
+
 async function turn() {
   cancelled = false;
   if (process.env.MOCK_SCRIPT === 'compose') return composeTurn();
   if (process.env.MOCK_SCRIPT === 'legacy') return legacyTurn();
+  if (process.env.MOCK_SCRIPT === 'scenarios') return scenariosTurn();
   if (process.env.MOCK_SCRIPT === 'study') return studyTurn();
   const plan = s => update({ sessionUpdate: 'plan', entries: [
     { content: 'Read the lint findings through designc', priority: 'high', status: s[0] },
