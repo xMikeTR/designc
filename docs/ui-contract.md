@@ -96,6 +96,28 @@ The walkthrough's state diagram (`parity/states/<screen>.md`) becomes the spec's
 
 Extra states such as `filtered` or `apply-dialog` are spec and scenario states only. Acceptance keeps its five. A transition with `commits: true` is one parity cannot record read-only, matching the walkthrough's rule: it is listed as coverage (D2), and so is a state reachable only through such edges.
 
+### Hosted specs (overlays)
+
+An overlay such as a popover is a spec of its own, **hosted** by a state of the page it opens over. It adds one field, `host`, and uses the `popover-form` template (slots `fields`: 1 to 5 `form-field` components, `actions`: 1 to 2 `action` components; reference pack: `TextField` and `Select`).
+
+```json
+"host": { "screen": "orders", "state": "tag-popover", "anchor": "tag" }
+```
+
+`anchor` is a placement `id` in the host spec. `Select`'s `options` is a **data prop** (bound with `bind` to a `list`), not a scalar `props` entry. The commit (the transition with `commits: true`) and its outcome state stay on the **host**; the overlay's own states are what the form looks like (`editing`, `invalid`). A scenario's `screen` is the host, and its steps may use the locators of the host and of every overlay it hosts.
+
+The host checks run across specs (`hostRules` in `renderer/ui.js`), one clause each, at `ui/specs/<overlay>.json /host/...`:
+
+| Check | Clause says |
+| --- | --- |
+| `host.screen` is a spec in `ui/specs/`, not the overlay itself | `'x' is not a spec in ui/specs/` or `cannot host itself` |
+| the host is not itself hosted (one level only) | `'x' is itself hosted` |
+| `host.state` is a state of the host | `State 'x' is not in spec <host>` |
+| `anchor` is a placement id of the host with a locator | `'x' is not a placement id` or `has no locator` |
+| the host has a transition into `host.state` that is a click on the anchor's `{role, name}` | `has no transition into '<state>' that clicks <locator>`, listing the transitions that do lead there |
+
+Previews and handover for hosted specs are not built yet (B2b).
+
 ## Checks
 
 Gate clauses of a new kind, `ui`, only when a pack is pinned (`ui/pack/` exists) or a spec exists (opt-in, like domain packs). `GATE_INPUTS` gains `ui`.

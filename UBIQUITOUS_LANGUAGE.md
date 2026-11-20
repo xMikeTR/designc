@@ -149,6 +149,7 @@ this marking is a reading of how the files are written and checked.
 |------|-----------|
 | Acceptance criterion | What a person sees in each state of a UI element, written before the build: `acceptance/*.yaml`, one case per required state |
 | UI-facing | An element tagged `UI`; a requirement is UI-facing when any of its elements is |
+| Hosted spec | A screen spec with a `host {screen, state, anchor}` field: an overlay (such as a popover) that opens over a state of another screen's spec, by clicking the anchor placement. It uses a template such as `popover-form`; the commit and its outcome state stay on the host. `hostRules` in `renderer/ui.js` checks it across specs. Also called an overlay |
 | Design tokens | Value | `design-tokens/tokens.json`, a W3C token file copied into each handover; text size tokens have a minimum |
 | UX rule | Value | The `ux` block of an acceptance criterion: keyboard, focus order, focus return, breakpoints |
 | Required state | A state a criterion must have a case for: ready, loading, empty, error, and forbidden behind a sign-in |
