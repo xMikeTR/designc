@@ -2,33 +2,8 @@
 'use strict';
 
 // ---------------------------------------------------------------- reference data
-const PROPS = [
-  ['d.interaction', 'relationship', ['sync', 'async'], 'Call style. Undeclared counts as sync for DC003.'],
-  ['d.delivery', 'relationship', ['at-most-once', 'at-least-once', 'exactly-once'], 'Delivery guarantee of an async interaction (DC001).'],
-  ['d.idempotent', 'relationship', ['yes', 'no'], 'Whether the receiver handles this interaction idempotently (DC001, DC004).'],
-  ['d.retry', 'relationship', ['none', 'fixed', 'backoff'], 'Caller retry policy (DC004).'],
-  ['d.retry.max', 'relationship', null, 'Maximum retry attempts, a whole number.'],
-  ['d.timeout', 'relationship', null, 'Caller timeout in milliseconds. Must cover the callee\'s worst case (DC007).'],
-  ['d.encrypted', 'relationship', ['yes', 'no'], 'Encrypted in transit (DC006).'],
-  ['d.authenticated', 'relationship', ['yes', 'no'], 'Caller is authenticated (DC006).'],
-  ['d.writes', 'relationship', null, 'Comma-separated entities written to the destination store (DC002).'],
-  ['d.concurrency', 'relationship', ['none', 'optimistic', 'pessimistic'], 'Concurrency control on those writes (DC002).'],
-  ['d.latency.max', 'element', null, 'Worst-case own processing time in milliseconds, not counting its calls (DC007).'],
-  ['d.fanout', 'element', ['sequential', 'parallel'], 'Whether the element makes its outgoing sync calls one after another or together. Default sequential (DC007).'],
-  ['d.retry.budget', 'element', null, 'Retry amplification this receiver tolerates; overrides retryAmplification in designc.json (DC008).'],
-  ['d.instances', 'element', null, 'Running instances, a whole number (DC002, DC005).'],
-  ['d.critical', 'element', ['yes', 'no'], 'On a critical path (DC005).'],
-  ['d.zone', 'element', null, 'Trust zone name; children inherit it (DC006).'],
-  ['d.availability', 'element', null, 'Availability as a fraction, e.g. 0.999 (DC003).'],
-  ['d.owns', 'element', null, 'Comma-separated entities this element owns writes to (DC002).'],
-  ['d.store', 'element', ['yes', 'no'], 'Treat as a data store. Default: the Database tag.'],
-  ['d.aka', 'element', null, 'Other names, used to match code in the as-built diff.'],
-  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder (src/Api is one file; write src/Api/**). A coding agent keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
-  ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. A coding agent may use it to gate merges.'],
-  ['d.suppress', 'both', null, 'Accept findings here: "DCnnn: reason; DCnnn: reason". A reason is required.'],
-];
+const PROPS = DslAssist.props(typeof DesigncCanvas !== 'undefined' ? DesigncCanvas.vocabulary : null);
 if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
-  PROPS.push(...DesigncCanvas.vocabulary.propsList());
   // Register the canvas's extra properties and agentic rules up front, so linting and completion
   // see them even if the Canvas view is never opened. canvas.js does the same check before mounting.
   if (!Core.__dcvRegistered) {
@@ -37,7 +12,7 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
     Core.__dcvRegistered = true;
   }
 }
-const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
+const PROP = DslAssist.byKey(PROPS);
 const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap', catalogue_gap: 'Catalogue gap' };
 const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['scenario', 'Scenario tests'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
@@ -676,35 +651,17 @@ function setupMonaco(monaco) {
   monaco.languages.registerCompletionItemProvider('structurizr', {
     triggerCharacters: ['"', '.'],
     provideCompletionItems(model, pos) {
-      const line = model.getLineContent(pos.lineNumber).slice(0, pos.column - 1);
-      const val = /"(d\.[\w.]+)"\s+"([^"]*)$/.exec(line);
-      if (val) {
-        const p = PROP.get(val[1]); if (!p || !p.values) return { suggestions: [] };
-        const range = new monaco.Range(pos.lineNumber, pos.column - val[2].length, pos.lineNumber, pos.column);
-        return { suggestions: p.values.map(v => ({ label: v, kind: monaco.languages.CompletionItemKind.EnumMember, insertText: v, range, documentation: p.doc })) };
-      }
-      const key = /"(d\.?[\w.]*)$/.exec(line) || (/"$/.test(line) ? ['', ''] : null);
-      if (!key) return { suggestions: [] };
-      const range = new monaco.Range(pos.lineNumber, pos.column - key[1].length, pos.lineNumber, pos.column);
-      return { suggestions: PROPS.map(([k, target, values, doc]) => ({
-        label: k, kind: monaco.languages.CompletionItemKind.Property, detail: target === 'both' ? 'element or relationship' : target,
-        documentation: doc, range, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        insertText: values ? `${k}" "\${1|${values.join(',')}|}` : `${k}" "\${1}`,
-      })) };
+      const r = DslAssist.completeAt(model.getLineContent(pos.lineNumber), pos.column - 1, PROP, PROPS);
+      if (!r) return { suggestions: [] };
+      const range = new monaco.Range(pos.lineNumber, r.from + 1, pos.lineNumber, r.to + 1), K = monaco.languages.CompletionItemKind;
+      return { suggestions: r.items.map(i => ({ label: i.label, kind: i.kind === 'value' ? K.EnumMember : K.Property, ...(i.detail ? { detail: i.detail } : {}), documentation: i.documentation, range, insertText: i.insertText,
+        ...(i.snippet ? { insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet } : {}) })) };
     },
   });
   monaco.languages.registerHoverProvider('structurizr', {
     provideHover(model, pos) {
-      const line = model.getLineContent(pos.lineNumber); const re = /"(d\.[\w.]+)"/g; let m;
-      while ((m = re.exec(line))) {
-        if (pos.column > m.index && pos.column <= m.index + m[0].length + 1) {
-          const p = PROP.get(m[1]);
-          return { range: new monaco.Range(pos.lineNumber, m.index + 1, pos.lineNumber, m.index + m[0].length + 1),
-            contents: p ? [{ value: `**${p.key}** · ${p.target === 'both' ? 'element or relationship' : p.target}` }, { value: p.doc + (p.values ? `\n\nValues: \`${p.values.join('` | `')}\`` : '') }]
-              : [{ value: `**${m[1]}** is not a design property` }] };
-        }
-      }
-      return null;
+      const h = DslAssist.hoverAt(model.getLineContent(pos.lineNumber), pos.column - 1, PROP);
+      return h ? { range: new monaco.Range(pos.lineNumber, h.from + 1, pos.lineNumber, h.to + 1), contents: h.markdown.map(value => ({ value })) } : null;
     },
   });
   monaco.editor.registerCommand('designc.recordDecision', (_a, code, line) => {
