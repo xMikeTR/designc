@@ -99,3 +99,21 @@ test('resolveMessage: qualified exact, bare unique, bare ambiguous, unknown', ()
   assert.match(Core.resolveMessage(ev, 'Nope').error, /no pinned pack defines event Nope/);
   assert.match(Core.resolveMessage(ev, 'orders/Nope').error, /no pinned pack defines event orders\/Nope/);
 });
+
+const apack = (id, body, extra = '') => ({ key: id, load: yamlLoad, text: `id: ${id}\nversion: 2\naggregates:\n${body}\n${extra}` });
+const ORD = apack('orders', '  Order: { id: OrderId, fields: { ref: string, tag: string } }\n  Line: { id: LineId }');
+
+test('packAggregates lists aggregates (not refs) sorted by pack then name, skipping an unreadable pack', () => {
+  const aggs = Core.packAggregates([ORD, apack('billing', '  Invoice: { id: InvId, fields: { total: number } }', 'refs:\n  Order: orders/Order\n'), { key: 'bad', load: yamlLoad, text: '- nope' }]);
+  assert.deepEqual(aggs.map(a => `${a.pack}/${a.name}`), ['billing/Invoice', 'orders/Line', 'orders/Order']);
+  assert.deepEqual(aggs[2], { pack: 'orders', name: 'Order', fields: [{ name: 'ref', type: 'string' }, { name: 'tag', type: 'string' }], version: 2 });
+  assert.deepEqual(Core.packAggregates(null), []);
+});
+test('resolveEntity: qualified, bare unique, bare ambiguous, unknown', () => {
+  const aggs = Core.packAggregates([ORD, apack('billing', '  Order: { id: OId }')]);
+  assert.equal(Core.resolveEntity(aggs, 'orders/Order').entity.pack, 'orders');
+  assert.equal(Core.resolveEntity(aggs, 'Line').entity.name, 'Line');
+  assert.match(Core.resolveEntity(aggs, 'Order').error, /Order is defined by billing and orders: write billing\/Order/);
+  assert.match(Core.resolveEntity(aggs, 'Nope').error, /no pinned pack defines aggregate Nope/);
+  assert.match(Core.resolveEntity(aggs, 'orders/Nope').error, /no pinned pack defines aggregate orders\/Nope/);
+});

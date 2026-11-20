@@ -75,5 +75,32 @@
     return { error: `${t} is defined by ${ps.join(' and ')}: write ${ps[0]}/${t}` };
   }
 
-  Object.assign(Core, { operations, resolveOperation, packEvents, resolveMessage });
+  // Aggregates of every pinned pack (C4: the entities example rows name). Refs (another pack's aggregates) are not defined here.
+  function packAggregates(packs) {
+    const DM = typeof Domain !== 'undefined' ? Domain : require('./domain.js');
+    const out = [];
+    for (const p of packs || []) {
+      const r = DM.read(p.text, p.load, p.key);
+      if (r.error || !r.pack) continue;
+      const id = r.pack.id || p.key;
+      for (const a of r.pack.aggregates) out.push({ pack: id, name: a.name, fields: a.fields, version: r.pack.version });
+    }
+    return out.sort((a, b) => (a.pack < b.pack ? -1 : a.pack > b.pack ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  // ref: `pack/Aggregate` (exact) or a bare `Aggregate` that exactly one pack defines.
+  function resolveEntity(aggs, ref) {
+    const t = String(ref == null ? '' : ref).trim(), list = aggs || [];
+    if (t.includes('/')) {
+      const hit = list.find(e => `${e.pack}/${e.name}` === t);
+      return hit ? { entity: hit } : { error: `no pinned pack defines aggregate ${t}` };
+    }
+    const hits = list.filter(e => e.name === t);
+    if (hits.length === 1) return { entity: hits[0] };
+    if (!hits.length) return { error: `no pinned pack defines aggregate ${t}` };
+    const ps = [...new Set(hits.map(h => h.pack))].sort();
+    return { error: `${t} is defined by ${ps.join(' and ')}: write ${ps[0]}/${t}` };
+  }
+
+  Object.assign(Core, { operations, resolveOperation, packEvents, resolveMessage, packAggregates, resolveEntity });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

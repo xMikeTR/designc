@@ -66,6 +66,25 @@
       const t = rec.effect.then_state;
       if (t != null && !(isObj(t) && str(t.screen) && str(t.state))) errs.push('effect: then_state needs a screen and a state');
     }
+    (Array.isArray(rec.examples) ? rec.examples : []).forEach((ex, i) => {
+      if (!isObj(ex)) return;
+      for (const f of ['given', 'then']) {
+        if (ex[f] == null) continue;
+        if (!isObj(ex[f])) { errs.push(`examples[${i}].${f}: a mapping of entity name to a list of rows`); continue; }
+        for (const [ent, rows] of Object.entries(ex[f])) {
+          if (!Array.isArray(rows) || !rows.length) { errs.push(`examples[${i}].${f}.${ent}: a non-empty list of rows`); continue; }
+          rows.forEach((row, j) => { if (!isObj(row) || !Object.keys(row).length) errs.push(`examples[${i}].${f}.${ent}[${j}]: a row is a mapping of field to value with at least one field`); });
+        }
+      }
+    });
+    // {given} and {then} are reserved for an example's rows. Once per name.
+    for (const name of ['given', 'then']) {
+      const tok = `{${name}}`; let where = null;
+      const has = x => typeof x === 'string' ? x.includes(tok) : Array.isArray(x) ? x.some(has) : isObj(x) ? Object.values(x).some(has) : false;
+      if (Array.isArray(rec.steps)) rec.steps.forEach((s, k) => { if (!where && isObj(s) && has(s.value)) where = `steps[${k}]`; });
+      if (!where && isObj(rec.effect) && has(rec.effect.body)) where = 'effect.body';
+      if (where) errs.push(`${where} uses ${tok}: ${tok} is reserved for an example's rows: rename the placeholder`);
+    }
     if (rec.given != null && !isObj(rec.given) && !(list(rec.given).length && list(rec.given).every(str))) errs.push('given: a mapping of data, or a non-empty list of strings');
     for (const f of ['when', 'then']) if (rec[f] != null && !(list(rec[f]).length && list(rec[f]).every(str))) errs.push(`${f}: a non-empty list of strings`);
   }
