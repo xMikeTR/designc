@@ -884,7 +884,39 @@ const Core = (() => {
     return [...model.elements.values()].map(e => ({ id: e.id, name: e.name, owns: get(e, 'd.owns') || [] })).filter(o => o.owns.length);
   }
   function domainClauses({ model, ledger, listed = [], packs = [], sources = {}, behaviour = [] }) {
-    return DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
+    const out = DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
+    out.clauses.push(...producerClauses({ model, packs, behaviour }));
+    return out;
+  }
+  // Producer check (R4b): a rel naming a pack event (d.message) must come from an element that publishes it: the source, an
+  // ancestor or a descendant of it owns (d.owns) an aggregate of the same pack that publishes the event, or a P model
+  // announces e<Event>. An unresolved message is DC011's and the coverage clause's job. Consumers have no declared subscriptions.
+  function producerClauses({ model, packs = [], behaviour = [] }) {
+    const events = Core.packEvents(packs);
+    const read = packs.map(p => DM.read(p.text, p.load, p.key)).filter(r => r.pack && !r.error).map(r => ({ ...r.pack, id: r.pack.id || '' }));
+    const said = DM.announced(behaviour), out = [];
+    for (const r of model.rels) {
+      if (structural(model, r)) continue;
+      const es = model.elements.get(r.src), ed = model.elements.get(r.dst);
+      if (!es || !ed || es.kind === 'person' || ed.kind === 'person') continue;
+      const msg = get(r, 'd.message');
+      if (msg == null) continue;
+      const res = Core.resolveMessage(events, msg);
+      if (res.error) continue;
+      const { pack, name } = res.event;
+      const publishes = e => (get(e, 'd.owns') || []).some(o => {
+        const q = DM.qualify(o, read);
+        if (q.error) return false;
+        const i = q.id.indexOf('/');
+        if (q.id.slice(0, i) !== pack) return false;
+        const agg = read.find(p => p.id === pack).aggregates.find(a => a.name === q.id.slice(i + 1));
+        return !!agg && agg.publishes.includes(name);
+      });
+      const ok = [...model.elements.values()].some(e => (e.id === es.id || model.isAncestor(e.id, es.id) || model.isAncestor(es.id, e.id)) && publishes(e));
+      if (ok || said.has(`e${name}`)) continue;
+      out.push({ kind: 'domain', text: `${es.name} → ${ed.name} names d.message ${pack}/${name}, but ${es.name} owns no aggregate that publishes it: own one (d.owns) or announce e${name} in a P model`, about: [es.name, ed.name], rel: r.id });
+    }
+    return out;
   }
   // ---------- design tokens  ----------
   // design-tokens/tokens.json is a W3C design tokens file. A text size token (a token whose path has a font size
