@@ -10,9 +10,16 @@
   // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
   // d.code as normalised path patterns and d.risk where declared, relationships by id (one per pair), and the
   // events behaviour announces. A model that does not parse, or a code area that is not a pattern, is refused.
+  // A model text, or `{text, path, resolve}` (a model with `!include`): one private reader for every helper below.
+  const parseSrc = x => (typeof x === 'string' ? parse(x) : parse(x.text, { path: x.path, resolve: x.resolve }));
+  // The refusal for a model that does not parse; it names the file when the first error is not in the root.
+  const refuseParse = m => {
+    const e = m.errors[0], root = m.sources[0].path;
+    return new Error(`handover refused: the model does not parse (${e.file && e.file !== root ? `${e.file} ` : ''}line ${e.line}: ${e.msg})`);
+  };
   function handoverElements(modelText, behaviour = [], inScope = null, boundary = null) {
-    const m = parse(modelText);
-    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+    const m = parseSrc(modelText);
+    if (m.errors.length) throw refuseParse(m);
     const elements = [...m.elements.values()].map(e => {
       const out = { id: m.label(e.id), name: e.name, kind: e.kind };
       if (e.props['d.code'] != null) out.code = String(e.props['d.code']).split(',').map(s => s.trim()).filter(Boolean).map(s => {
@@ -106,8 +113,8 @@
   const AGENT_PROPS = ['autonomy', 'model', 'fallback', 'maxSteps', 'budget', 'memory', 'untrustedInput', 'privateData',
     'externalComms', 'codeExec', 'sandbox', 'identity', 'tracing', 'eval', 'pattern', 'patternWhy'];
   function handoverAgents(modelText) {
-    const m = parse(modelText);
-    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+    const m = parseSrc(modelText);
+    if (m.errors.length) throw refuseParse(m);
     const isAgent = e => e.tags.has('Agent') || get(e, 'd.agent.autonomy') != null;
     const agents = [...m.elements.values()].filter(isAgent).map(e => {
       const out = { id: m.label(e.id), name: e.name };
@@ -411,7 +418,7 @@ export { expect };
   // owners[].element is the elements.json id. null when no touched element owns anything a pack defines.
   function handoverDomain(modelText, packs, { item, focus }, elementsDoc) {
     if (!packs || !packs.length) return null;
-    const m = parse(modelText), read_ = packs.map(p => DM.read(p.text, p.load || undefined, p.key)).filter(r => r.pack).map(r => r.pack);
+    const m = parseSrc(modelText), read_ = packs.map(p => DM.read(p.text, p.load || undefined, p.key)).filter(r => r.pack).map(r => r.pack);
     const wanted = item ? new Set(item.elements || []) : (focus && focus.length ? new Set(focus) : null);
     const ids = new Map(elementsDoc.elements.map(e => [e.name, e.id]));
     const owners = [], keys = new Set();
@@ -529,25 +536,29 @@ export { expect };
     let acceptance = acceptanceIn;
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
     const refs = references.map(r => ({ key: r.key, kind: r.kind })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null, { apiContracts: apiIn || [], packs: domain || [] });
+    // `model.files` is {path: text} for the model folder; a model with `!include` freezes each included file at its own path.
+    const src = { text: model.text, path: model.path, resolve: p => (model.files || {})[p] ?? null };
+    const parsedModel = parseSrc(src);
+    const includes = parsedModel.sources.slice(1);
+    const elementsDoc = handoverElements(src, behaviour, item ? item.elements : null, { apiContracts: apiIn || [], packs: domain || [] });
     // Holdout cases leave the acceptance copies here, so no caller can ship one by mistake (D5).
     const acc = acceptanceCopies(acceptance, criteria, yamlDump);
     acceptance = acc.files;
-    const uiPart = handoverUi({ model: parse(model.text), ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
+    const uiPart = handoverUi({ model: parsedModel, ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
     const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [], packs: domain || [] });
-    const depsDoc = handoverDependencies(model.text, elementsDoc);
-    const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
+    const depsDoc = handoverDependencies(src, elementsDoc);
+    const dom = handoverDomain(src, domain, { item, focus }, elementsDoc);
     // The test map (D6) is derived from the as-built facts, which are not copied: their hash joins the id, so new facts are a new handover.
     const testsDoc = handoverTests(elementsDoc, facts, specs, uiPart ? uiPart.components : []);
     // Compiled agent contracts (Contracts.forFreeze): verbatim copies, so inside the id; a different policy is a different handover.
     const ctr = contracts ? [contracts.result, ...contracts.files] : [];
-    const content = [model, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : []), ...(scn ? scn.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const content = [{ path: model.path, text: model.text }, ...includes, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : []), ...(scn ? scn.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(scn ? scn.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const reqProfile = requirementProfile(requirements);
-    const agentsDoc = handoverAgents(model.text);
+    const agentsDoc = handoverAgents(src);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
     const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn, dependencies: !!depsDoc }) };
     const depsFile = depsDoc ? { path: 'dependencies.json', text: JSON.stringify(depsDoc, null, 2) + '\n' } : null;
@@ -555,13 +566,13 @@ export { expect };
     const frozen = [...content, elements, build, ...(depsFile ? [depsFile] : []), ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
-revision: ${modelRevision(model.text)}
+revision: ${modelRevision(model.text, includes)}
 created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 ${depsFile ? `dependencies: ${q(depsFile.path)}\n` : ''}build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text, includes)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
@@ -578,7 +589,7 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   function handoverDependencies(modelText, elementsDoc) {
     const coded = elementsDoc.elements.filter(e => e.code && e.code.length);
     if (!coded.length) return null;
-    const m = parse(modelText);
+    const m = parseSrc(modelText);
     const byId = new Map(coded.map(e => [e.id, e]));
     const owners = id => {
       const own = [];
