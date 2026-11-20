@@ -10,7 +10,7 @@
   // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
   // d.code as normalised path patterns and d.risk where declared, relationships by id (one per pair), and the
   // events behaviour announces. A model that does not parse, or a code area that is not a pattern, is refused.
-  function handoverElements(modelText, behaviour = [], inScope = null) {
+  function handoverElements(modelText, behaviour = [], inScope = null, boundary = null) {
     const m = parse(modelText);
     if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
     const elements = [...m.elements.values()].map(e => {
@@ -29,9 +29,73 @@
     for (const r of m.rels) { const from = m.label(r.src), to = m.label(r.dst); pairs.set(`${from}\0${to}`, { from, to }); }
     const events = [...new Set([...behaviour].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
       .flatMap(f => [...f.text.matchAll(/\bannounce\s+(\w+)/g)].map(x => x[1])))];
+    const attached = boundary ? attachInterfaces(m, elements, boundary) : false;
+    if (attached) return { schema: 'designc.handover.elements/3', elements, relationships: [...pairs.values()], events, ...(inScope ? { reserved: [RESERVED_TEST_PATH] } : {}) };
     return inScope
       ? { schema: 'designc.handover.elements/2', elements, relationships: [...pairs.values()], events, reserved: [RESERVED_TEST_PATH] }
       : { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+  }
+
+  // Interfaces (R4b): each typed relationship's resolved operation or event, attached to BOTH ends' entries so the two sides
+  // read the same schema and the same version. Unresolved names are skipped (the gate blocks them). Returns true when any was attached.
+  // The operation schema is the operation object with local '#/...' refs inlined; a ref already on the current path stays a $ref.
+  function inlineRefs(node, doc, stack) {
+    if (Array.isArray(node)) return node.map(x => inlineRefs(x, doc, stack));
+    if (!node || typeof node !== 'object') return node;
+    const ref = node.$ref;
+    if (typeof ref === 'string' && ref.startsWith('#/') && !stack.includes(ref)) {
+      let t = doc;
+      for (const seg of ref.slice(2).split('/').map(x => x.replace(/~1/g, '/').replace(/~0/g, '~'))) t = t != null && typeof t === 'object' ? t[seg] : undefined;
+      if (t !== undefined) {
+        const { $ref, ...rest } = node;
+        const inl = inlineRefs(t, doc, [...stack, ref]);
+        return inl && typeof inl === 'object' && !Array.isArray(inl) ? { ...inl, ...inlineRefs(rest, doc, stack) } : inl;
+      }
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(node)) out[k] = inlineRefs(v, doc, stack);
+    return out;
+  }
+  function attachInterfaces(m, elements, { apiContracts = [], packs = [] }) {
+    const load = typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load;
+    const files = {}; for (const f of apiContracts) files[f.path] = f.text;
+    const ops = Core.operations({ files, yamlLoad: load }), events = Core.packEvents(packs);
+    const reads = packs.map(p => DM.read(p.text, p.load, p.key)).filter(r => r.pack && !r.error).map(r => r.pack);
+    const docs = new Map(), byId = new Map(elements.map(e => [e.id, e]));
+    const docOf = file => { if (!docs.has(file)) docs.set(file, load(files[file])); return docs.get(file); };
+    const found = new Map();
+    for (const r of m.rels) {
+      if (structural(m, r)) continue;
+      const es = m.elements.get(r.src), ed = m.elements.get(r.dst);
+      if (!es || !ed || es.kind === 'person' || ed.kind === 'person') continue;
+      const op = get(r, 'd.operation'), msg = get(r, 'd.message');
+      let iface = null, roles;
+      const hits = op != null ? ops.operations.filter(o => o.operationId === String(op)) : [];
+      if (hits.length === 1 && get(r, 'd.interaction') !== 'async') {
+        const h = hits[0], item = docOf(h.file).paths[h.path][h.method.toLowerCase()];
+        const schema = inlineRefs(item, docOf(h.file), []);
+        iface = { kind: 'operation', id: h.operationId, method: h.method, path: h.path, file: h.file, schema, version: hash16(JSON.stringify(schema)) };
+        roles = ['calls', 'serves'];
+      } else if (msg != null) {
+        const res = Core.resolveMessage(events, msg);
+        if (!res.error) {
+          const { pack, name } = res.event;
+          const ev = reads.find(p => (p.id || '') === pack).events.find(e => e.name === name);
+          iface = { kind: 'event', id: `${pack}/${name}`, pack, name, fields: ev.fields, version: hash16(JSON.stringify(ev.fields)) };
+          roles = ['publishes', 'consumes'];
+        }
+      }
+      if (!iface) continue;
+      const rel = { from: m.label(r.src), to: m.label(r.dst) };
+      [[rel.from, roles[0]], [rel.to, roles[1]]].forEach(([id, role]) => {
+        const e = byId.get(id); if (!e) return;
+        const item = { role, rel, ...iface }, key = JSON.stringify(item);
+        if (!found.has(id)) found.set(id, new Map());
+        found.get(id).set(key, item);
+      });
+    }
+    for (const [id, items] of found) byId.get(id).interfaces = [...items.values()].sort((a, b) => (a.rel.from < b.rel.from ? -1 : a.rel.from > b.rel.from ? 1 : a.rel.to < b.rel.to ? -1 : a.rel.to > b.rel.to ? 1 : a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+    return found.size > 0;
   }
 
   // The agents of the model described neutrally, for whatever turns a design into an agent contract
@@ -426,7 +490,7 @@ export { expect };
     let acceptance = acceptanceIn;
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
     const refs = references.map(r => ({ key: r.key, kind: r.kind })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null);
+    const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null, { apiContracts: apiIn || [], packs: domain || [] });
     // Holdout cases leave the acceptance copies here, so no caller can ship one by mistake (D5).
     const acc = acceptanceCopies(acceptance, criteria, yamlDump);
     acceptance = acc.files;
