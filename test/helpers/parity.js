@@ -7,8 +7,6 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../../renderer/core.js');
 const Ledger = require('../../renderer/ledger.js');
-const V = require('../../renderer/canvas/vocabulary.js');
-Core.registerProperties(V.coreSpecs());
 
 const ROOT = path.join(__dirname, '..', '..');
 const PY = path.join(ROOT, 'python');
@@ -47,13 +45,22 @@ function nodeState(root) {
   const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: listDir(root, 'contracts/openapi', ['.yaml', '.yml']).map(f => f.path) });
   return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
 }
-function nodeReport(root) {
+// Core now carries the agentic rules (AG001-AG011) in every host; Python never had them. Until A2 retires the Python
+// front end, the Python-vs-Node comparisons remove the AG findings and the clauses they caused from the Node side
+// (ready is recomputed). AG findings are asserted on their own in test/core-registration.test.js and test/designc-core-check.test.js.
+const isAgClause = c => c.kind === 'finding' && /^AG\d{3} /.test(c.text);
+function withoutAg(report) {
+  const clauses = report.gate.clauses.filter(c => !isAgClause(c));
+  return { ...report, findings: report.findings.filter(f => !/^AG\d{3}$/.test(f.code)), gate: { ...report.gate, ready: clauses.length === 0, clauses } };
+}
+function nodeReport(root, { ag = false } = {}) {
   const { model, diags, gate } = nodeState(root);
-  return {
+  const r = {
     errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),
     findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
     gate: { ready: gate.ready, clauses: gate.clauses.map(c => ({ kind: c.kind, text: c.text })) },
   };
+  return ag ? r : withoutAg(r);
 }
 
 function pyReport(root) {
@@ -71,4 +78,4 @@ function tmpRegistry(files) {
   return root;
 }
 
-module.exports = { ROOT, PY, listDir, nodeState, nodeReport, pyReport, tmpRegistry };
+module.exports = { withoutAg, ROOT, PY, listDir, nodeState, nodeReport, pyReport, tmpRegistry };

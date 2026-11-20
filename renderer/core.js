@@ -1115,4 +1115,11 @@ if (typeof module !== 'undefined') {
   require('./core-forecast.js');
   require('./core-handover.js');
   require('./core-levels.js');
+  // One rule set in every host: loading core in Node always means the full set (canvas properties + AG rules), as in the IDE.
+  // The flag stops app.js and canvas.js registering them a second time.
+  if (!Object.prototype.hasOwnProperty.call(Core, '__dcvRegistered')) {
+    Core.registerProperties(require('./canvas/vocabulary.js').coreSpecs());
+    Core.registerRules(require('./canvas/agentic-rules.js').makeRules(Core));
+    Core.__dcvRegistered = true;
+  }
 }
