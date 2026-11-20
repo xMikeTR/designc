@@ -20,7 +20,7 @@ The governing principle, which every change must preserve: **probabilistic compo
 
 ## Stack and conventions
 
-The app is plain Electron 33 with vanilla JavaScript. There is no framework, no bundler and no TypeScript. Monaco (0.52, AMD build) is loaded from `node_modules/monaco-editor/min/vs`, and js-yaml from its UMD bundle. Keep it that way unless there is a strong reason: the renderer is loaded as classic scripts from `file://` under a strict CSP.
+The app is plain Electron 44 with vanilla JavaScript. There is no framework, no bundler and no TypeScript. Monaco (0.52, AMD build) is loaded from `node_modules/monaco-editor/min/vs`, and js-yaml from its UMD bundle. Keep it that way unless there is a strong reason: the renderer is loaded as classic scripts from `file://` under a strict CSP.
 
 Code style: 2-space indent, single bookings, semicolons, small pure functions, `const` over `let`. Renderer files share one global script scope: `app.js` declares the state object `A` and helpers (`$`, `esc`, `plural`, `trunc`, `hash`, `fmtN`, `when`, `nextId`, `debounce`, `toast`, `yamlList`, `yamlStr`, `readText`, `openFile`, `save`, `recompile`, `renderAll` and others) that `agent.js` uses directly. Do not introduce ES modules into the renderer without converting all three renderer scripts.
 

@@ -35,7 +35,7 @@ invariants). This file is the structural map and the blast radius reference.
 
 | Layer | Technology | Version |
 |-------|-----------|---------|
-| Shell | Electron (context isolation on, sandbox on, Node off in renderer) | 44.5.1 installed (`AGENTS.md` says 33) |
+| Shell | Electron (context isolation on, sandbox on, Node off in renderer) | 44.5.1 |
 | Language | Vanilla JavaScript, CommonJS in main, classic scripts in renderer. No bundler, no TypeScript | Node 20+ |
 | Editor | Monaco, AMD build | 0.52.0 |
 | YAML | js-yaml UMD | 4.x |
@@ -256,7 +256,7 @@ Used by structural-centrality-guard to determine escalation threshold.
 | Ledger clocks | Designc `ts` is the writing machine's `Date.now()`. "Latest check" across machines depends on their clocks agreeing | Medium |
 | Ledger line endings | `ledger-store.js` always ends a line with a newline. Pipeline writers are outside this repo; a file whose last line lacks one would fuse two events under a union merge and surface as an invalid line | Medium |
 | Codebase path | `codebaseDir()` has no containment check of its own; `codebase: ".."` makes the registry part of the extracted tree | Medium (extract not yet read) |
-| `AGENTS.md` drift | `agents.jsonl` "has no reader" was true until the Improve view got an Agent activity section (`Ledger.agentActivity`). Electron version, "no unit test runner", line counts, the `ledger:append` channel name (actual: `ledger:event`), and no mention of `renderer/canvas/`, `ledger-store.js` in the process table, or `test/` | High |
+| `AGENTS.md` drift | `agents.jsonl` "has no reader" was true until the Improve view got an Agent activity section (`Ledger.agentActivity`). "no unit test runner", line counts, the `ledger:append` channel name (actual: `ledger:event`), and no mention of `renderer/canvas/`, `ledger-store.js` in the process table, or `test/` | High |
 | Element and rel ids | `_e<n>` and `r<n>` are positions, not identities: inserting an element or rel above renumbers everything below. Anything that compares two revisions or stores an id must not use them | High (read in code) |
 | Silent block skipping | Elements declared inside `group { }` (or any unknown block) vanish from the model with no error, so they are never linted or gated | High |
 | Bindings by name | Renaming or removing a bound element makes an `accept` decision stop covering its finding (visible) but leaves a `fix` decision passing and a requirement traced by a decision untouched (invisible) | High |

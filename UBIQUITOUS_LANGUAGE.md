@@ -5,7 +5,8 @@
 >
 > Extracted from the code and `AGENTS.md` on 2026-10-02 during `/explore-codebase`.
 > Not yet reviewed term by term by Mike. The "Agreed, not yet built" section holds
-> terms settled in the grill of 2026-10-01/02 that no code uses yet.
+> terms settled in the grill of 2026-10-01/02 that no code uses yet
+> (`test/doc-lint.test.js` fails when one of them already exists in code).
 
 ## Core Concepts
 
@@ -32,7 +33,6 @@ this marking is a reading of how the files are written and checked.
 | Clause | Value Object | One condition of the gate, blocking or not |
 | Decision | Aggregate | A file in `decisions/`: id, status, effect, requirement, binds, resolves, statement, checks, rationale |
 | Business decision | Aggregate (a Decision with `kind: business`) | Binds a requirement, promoted against its version, needs evidence on an allowed host; a technical accept relies on one |
-| Fingerprint | Value object | Hash of an element's own definition and incident rels; what a bound decision is promoted against (`promoted_against`) |
 | Effect | Value Object | What a decision does about a finding: `fix` (the model changes) or `accept` (keep the risk) |
 | Check | Value Object | A shell command on a decision whose latest result must pass for the gate |
 | Requirement | Aggregate | A file in `requirements/`: id (the Jira id), title, source, version, elements; optionally `risk`, `data_class`, `repo` (mapped from Jira by `jira-mapping.yaml`) and the raw `jira:` block |
@@ -67,6 +67,13 @@ this marking is a reading of how the files are written and checked.
 | Stencil | Value Object | A canvas palette entry that creates an element with a kind and tags |
 | Trust zone | Value Object | `d.zone`, inherited from the nearest ancestor that declares it |
 | Design review | Value | The generated document of NFR questions per element and STRIDE per trust-zone crossing, saved under `reviews/` |
+| Fingerprint | Value | The hash and canonical content of one bound element (`Core.fingerprint` in `renderer/core.js`), recorded at promotion |
+| Slug id | Value | An opaque id derived from a decision's or proposal's statement at mint time (`Core.slugId`); editable while `minted`, frozen once `bound` |
+| Fingerprint | Value | The hash and canonical content of one bound element (`Core.fingerprint` in `renderer/core.js`), recorded at promotion |
+| Semantic diff | Value | The difference between two models by element identity: added, removed, renamed, moved, changed (`Core.diffModels` in `renderer/core.js`) |
+| Change impact | Value | What a change to the design touches: decisions, requirements, checks (`Core.changeImpact` in `renderer/core-blast.js`) |
+| Blast radius | Value | What an element's failure reaches, in mode `unavailable` or `misbehaves`: down, degraded, unknown (`Core.blastRadius` in `renderer/core-blast.js`) |
+| Deployment model | Value | `deploymentEnvironment`, deployment nodes and instances: where containers run (`renderer/core-deployment.js`) |
 | System 1 / 2 / 4 | Context | Design compiler / coding pipeline on the MAF harness / improvement loop |
 
 ## Processes
@@ -105,15 +112,9 @@ this marking is a reading of how the files are written and checked.
 
 | Term | Definition |
 |------|-----------|
-| Slug id | An opaque id derived from a decision's or proposal's statement at mint time; editable while `minted`, frozen once `bound` |
-| Fingerprint | The hash and canonical content of one bound element, recorded at promotion |
 | Promoted against | What a decision was promoted against: element fingerprints, or a requirement version |
 | Business decision / technical decision | `kind` of a decision: settles a rule in a requirement / constrains the design |
-| Semantic diff | The difference between two models by element identity: added, removed, renamed, moved, changed |
-| Change impact | What a change to the design touches: decisions, requirements, checks |
-| Blast radius | What an element's failure reaches, in mode `unavailable` or `misbehaves`: down, degraded, unknown |
 | Shared fate | Elements that fail together because of nesting or placement |
-| Deployment model | `deploymentEnvironment`, deployment nodes and instances: where containers run |
 | Acceptance criterion | A file in `acceptance/`: what one UI element must do, bound to a requirement and optionally a decision. |
 | Case | One given/when/then entry in an acceptance criterion, for one state. Not "scenario", which is a quality attribute scenario |
 | State | `ready`, `loading`, `empty`, `error` or `forbidden`: a condition of a UI element every criterion must cover |
