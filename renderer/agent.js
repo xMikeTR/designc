@@ -48,6 +48,7 @@ function roleCfg(role) {
 const verdict = (role, tool) => Policy.verdict(roleCfg(role), tool);
 
 // ---------------------------------------------------------------- tool definitions
+const LOCATOR = { type: 'object', properties: { role: { type: 'string' }, name: { type: 'string' } }, required: ['role', 'name'] };
 const obj = (props, req = []) => ({ type: 'object', properties: props, required: req, additionalProperties: false });
 const TOOLS = {
   read_model: { d: 'Read the design model (Structurizr DSL) with line numbers. Optional line range.', p: obj({ from: { type: 'integer' }, to: { type: 'integer' } }) },
@@ -78,7 +79,14 @@ const TOOLS = {
   read_parity: { d: 'Read the legacy parity recordings: each scenario\'s steps, whether a legacy baseline is recorded, its latest result and the differences the latest report found. Shapes and interface text only, never page data or screenshots. Read-only.', p: obj({ scenario: { type: 'string' } }, []) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
   propose_parity_cover: { d: 'For one parity finding you have judged from read_parity: kind "br" (a requirement removes the legacy element: writes a PROPOSED business decision with removes, for the business to evidence and a person to bind) or kind "tech" (a technical difference: writes a work item whose done_when is that parity scenario plus a TODO gate). Never for an unknown cause: ask the BA or QA in chat instead.', p: obj({ kind: { type: 'string', enum: ['br', 'tech'] }, scenario: { type: 'string' }, requirement: { type: 'string' }, reason: { type: 'string', description: 'why, citing the finding and the requirement or file:line' }, removes: { type: 'array', items: obj({ role: { type: 'string' }, name: { type: 'string' } }, ['role', 'name']), description: 'kind br: the legacy elements the requirement drops' }, elements: { type: 'array', items: { type: 'string' }, description: 'kind tech: design element names the work changes' }, title: { type: 'string', description: 'kind tech: short work title' } }, ['kind', 'scenario', 'requirement', 'reason']) },
-  mint_test_scenarios: { d: 'Propose BDD test scenarios for one requirement, written to test-scenarios/ in one batch the person approves or declines. One case per behaviour the requirement page states; quote the sentence each case comes from. Never invent behaviour: where the page is unclear, say so instead of writing a case.', p: obj({ requirement: { type: 'string' }, scenarios: { type: 'array', items: obj({ title: { type: 'string' }, quote: { type: 'string' }, given: { type: 'array', items: { type: 'string' } }, when: { type: 'array', items: { type: 'string' } }, then: { type: 'array', items: { type: 'string' } } }, ['title', 'quote', 'given', 'when', 'then']) } }, ['requirement', 'scenarios']) },
+  mint_test_scenarios: { d: 'Propose test scenarios for one requirement, written to test-scenarios/ in one batch the person approves or declines. One case per behaviour the requirement page states; quote the sentence each case comes from, verbatim. Never invent behaviour: where the page is unclear, list it in questions (each blocks binding) instead of guessing. A flat case has given, when and then as sentences. A structured case (screen, steps, effect) is checked before the card is shown and refused whole when its quote is not in the page, a step locator is not in the screen spec (read_ui_spec), effect.operation is not an operationId of contracts/openapi/*.yaml, a step clicks a transition that commits and there are no examples, or a {placeholder} lacks a value in an example. Use {name} in a step value or effect.body and give each example a value for it.', p: obj({ requirement: { type: 'string' }, scenarios: { type: 'array', items: { type: 'object', properties: {
+    title: { type: 'string' }, quote: { type: 'string', description: 'The sentence of the page, verbatim (written as source)' },
+    given: { anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'object', description: 'Data the case starts from' }] }, when: { type: 'array', items: { type: 'string' } }, then: { type: 'array', items: { type: 'string' } },
+    screen: { type: 'string', description: 'A screen with a ui spec' },
+    steps: { type: 'array', items: { type: 'object', description: 'One verb (fill, select, click or check) holding {role, name}, plus value for fill and select', properties: { fill: LOCATOR, select: LOCATOR, click: LOCATOR, check: LOCATOR, value: { type: 'string' } } } },
+    effect: { type: 'object', properties: { operation: { type: 'string', description: 'operationId in contracts/openapi/*.yaml' }, body: { type: 'object' }, then_state: { type: 'object', properties: { screen: { type: 'string' }, state: { type: 'string' } } } } },
+    examples: { type: 'array', items: { type: 'object' } },
+    questions: { type: 'array', items: { type: 'string' }, description: 'What the page does not settle; each blocks binding' } }, required: ['title', 'quote'] } } }, ['requirement', 'scenarios']) },
   map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
   list_reviews: { d: 'Error analysis: the failed reviews of pipeline task attempts (the latest per observation: task, note, failure_mode) and the failure modes of factory/taxonomy.yaml.', p: obj({}) },
   group_reviews: { d: 'Propose failure modes for failed reviews: each group names an existing mode id or a new_mode, the observations it covers (from list_reviews) and why. New modes are added to factory/taxonomy.yaml. The user sees the grouping and approves or declines.', p: obj({ groups: { type: 'array', items: obj({ mode: { type: 'string' }, new_mode: obj({ name: { type: 'string' }, description: { type: 'string' }, triage: { type: 'string', enum: ['spec', 'fix', 'grader'] } }, ['name']), observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['observations', 'why']) } }, ['groups']) },
@@ -94,6 +102,18 @@ const cap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length
 
 // ---------------------------------------------------------------- tool implementations (read)
 const numbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
+// The raw text of a requirement's page from the folder the person chose this session: {req, name, text} or {error}.
+async function importPage(id) {
+  if (!A.importDir) return { error: 'No import folder was chosen in this session. Ask the person to choose the folder again (Requirements ⇩ or Map to elements).' };
+  const req = A.requirements.find(r => r.id === id);
+  if (!req) return { error: `Requirement ${id} is not in the registry.` };
+  const r = await host.readImportFolder(A.importDir);
+  if (r.error) return { error: r.error };
+  const plan = RequirementImport.plan(r.pages, { existing: A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source })) });
+  const item = plan.items.find(i => String(i.id).toLowerCase() === String(req.id).toLowerCase() && i.status !== 'invalid');
+  const page = item && r.pages.find(f => f.name === item.file);
+  return page ? { req, name: page.name, text: page.text } : { error: `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.` };
+}
 const READERS = {
   read_study: a => {
     const ts = A.studies || [];
@@ -146,15 +166,8 @@ const READERS = {
     })));
   },
   read_import_page: async a => {
-    if (!A.importDir) return 'No import folder was chosen in this session. Ask the person to choose the folder again (Requirements ⇩ or Map to elements).';
-    const req = A.requirements.find(r => r.id === a.requirement_id);
-    if (!req) return `Requirement ${a.requirement_id} is not in the registry.`;
-    const r = await host.readImportFolder(A.importDir);
-    if (r.error) return r.error;
-    const plan = RequirementImport.plan(r.pages, { existing: A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source })) });
-    const item = plan.items.find(i => String(i.id).toLowerCase() === String(req.id).toLowerCase() && i.status !== 'invalid');
-    const page = item && r.pages.find(f => f.name === item.file);
-    return page ? cap(`Page ${page.name} for ${req.id} (${req.title}):\n\n${page.text}`) : `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.`;
+    const r = await importPage(a.requirement_id);
+    return r.error || cap(`Page ${r.name} for ${r.req.id} (${r.req.title}):\n\n${r.text}`);
   },
   read_registry_file: async a => { const d = Policy.readVerdict(AG.role, a.path); if (!d.ok) return d.error; const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
   get_code_map: () => {
@@ -450,19 +463,26 @@ done_when:
     return { title: `Propose work item ${id}`, detail: title, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`work/${id}.yaml`, Date.now()); await host.write(`work/${id}.yaml`, text); A.tree = await host.tree(); await loadWork(); renderAll(); return `Created work/${id}.yaml. Replace the TODO gate, then Start it from Work.`; } };
   },
-  mint_test_scenarios: a => {
+  mint_test_scenarios: async a => {
     const req = A.requirements.find(r => r.id === a.requirement);
     if (!req) return { error: `Requirement ${a.requirement} is not in the registry. Agents never create requirements; the person imports pages first.` };
     const list = Array.isArray(a.scenarios) ? a.scenarios : [];
     if (!list.length) return { error: 'scenarios is empty. Write one case per behaviour the page states, or say the page states none.' };
-    const built = testScenarioFiles(req, list, 'grill', true);
+    const built = TestScenarios.build(req, list, { by: 'grill', taken: A.testScenarioIds || [], needQuote: true, dump: jsyaml.dump });
     if (built.error) return { error: built.error };
     const files = built.files;
-    const preview = files.map(f => `<div class="diffhead">${esc(f.path)}</div><div class="note">From the page: “${esc(f.quote)}”</div><pre class="yamlprev">${esc(f.text)}</pre>`).join('');
+    // The strict part: the quote must be in the page, the locators in the spec, the operation in a pinned contract.
+    const page = await importPage(req.id);
+    if (page.error) return { error: `A scenario's quote is checked against the requirement page, so the page must be readable. ${page.error}` };
+    const contracts = {}; for (const f of await host.list('contracts/openapi', ['.yaml', '.yml'])) contracts[f.path] = f.text;
+    const reg = { files: contracts, yamlLoad: jsyaml.load };
+    const refused = TestScenarios.refusal(files, { pageText: page.text, specs: (A.ui && A.ui.specs) || [], resolveOperation: id => Core.resolveOperation(reg, id), operationErrors: Core.operations(reg).errors });
+    if (refused) return { error: refused };
+    const preview = files.map(f => `<div class="diffhead">${esc(f.path)}</div><div class="note">From the page: “${esc(f.quote)}”</div>${(f.rec.questions || []).length ? `<div class="note" style="color:var(--warn)">${plural(f.rec.questions.length, 'open question')}: it cannot be bound until they are answered.</div>` : ''}<pre class="yamlprev">${esc(f.text)}</pre>`).join('');
     return { title: `Add ${plural(files.length, 'test scenario')} to ${req.id}`, detail: files.map(f => f.rec.title).join('; '), preview,
       apply: async () => {
         await writeTestScenarioFiles(files);
-        return `Created ${files.map(f => f.path).join(', ')}. A person reviews them; they never block the gate.`;
+        return `Created ${files.map(f => f.path).join(', ')}. A person reviews them and binds them; they never block the gate.`;
       } };
   },
   map_requirement: a => {
@@ -556,7 +576,7 @@ async function runTool(role, name, args, c, { showReads = true } = {}) {
   if (v === 'deny' || (!READERS[name] && !WRITERS[name])) { out = `Denied by policy: the ${r.label} role may not use ${name}.`; chip.status = 'denied'; }
   else if (v === 'allow' && READERS[name]) { try { out = await READERS[name](args); chip.status = 'ok'; } catch (e) { out = `Error: ${e.message}`; chip.status = 'error'; } }
   else {
-    const w = WRITERS[name] ? WRITERS[name](args) : { error: `${name} is not available` };
+    const w = WRITERS[name] ? await WRITERS[name](args) : { error: `${name} is not available` };
     if (w.error) { out = `Rejected before asking the user: ${w.error}`; chip.status = 'invalid'; if (!show) { c.items.push(chip); } }
     else {
       chip.status = 'waiting'; chip.card = w; renderAgent();
@@ -1061,20 +1081,9 @@ function mapRequirement(id) {
   const text = `Map requirement ${id} ("${r.title || id}") to the design elements it concerns. Read its page with read_import_page, read the model, then propose the mapping with map_requirement. This requirement only.`;
   if (!grillInPanel(text)) toast('Map to elements needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
-// Shared by mint_test_scenarios (by grill, quote required) and the .feature import (by qa). Takes the next free nn per requirement.
+// Shared by mint_test_scenarios (by grill, quote required) and the .feature import (by qa); see TestScenarios.build.
 function testScenarioFiles(req, list, by, needQuote) {
-  const taken = new Set(A.testScenarioIds || []);
-  const files = [];
-  for (const [i, x] of list.entries()) {
-    let n = 1, id; do { id = `${req.id}-ts-${String(n++).padStart(2, '0')}`; } while (taken.has(id)); taken.add(id);
-    const rec = { id, requirement: req.id, title: x && x.title, given: x && x.given, when: x && x.when, then: x && x.then, by };
-    const errs = Records.validate('test_scenario', rec);
-    if (errs.length) return { error: `Scenario ${i + 1}: ${errs.join('; ')}.` };
-    if (needQuote && !(typeof x.quote === 'string' && x.quote.trim())) return { error: `Scenario ${i + 1}: quote the sentence of the page it comes from.` };
-    const block = k => `${k}:\n${rec[k].map(v => `  - ${yamlStr(v)}`).join('\n')}`;
-    files.push({ id, path: `test-scenarios/${id}.yaml`, quote: needQuote ? x.quote.trim() : '', rec, text: `id: ${id}\nrequirement: ${yamlStr(req.id)}\ntitle: ${yamlStr(rec.title)}\n${block('given')}\n${block('when')}\n${block('then')}\nby: ${by}\n` });
-  }
-  return { files };
+  return TestScenarios.build(req, list, { by, taken: A.testScenarioIds || [], needQuote, dump: jsyaml.dump });
 }
 async function writeTestScenarioFiles(files) {
   for (const f of files) if (await host.exists(f.path)) throw new Error(`${f.path} already exists; nothing was written.`);

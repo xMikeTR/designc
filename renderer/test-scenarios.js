@@ -80,6 +80,46 @@ const TestScenarios = (() => {
     return errs.length ? errs[0] : null;
   }
 
-  return { mintProblems, bindProblem, specFor, locators };
+  const STRUCTURED_KEYS = ['screen', 'steps', 'effect', 'given', 'examples', 'questions', 'when', 'then'];
+  const q = v => JSON.stringify(String(v == null ? '' : v));
+  // The file text of one record. Flat records keep the layout the .feature import has always written; a structured one is
+  // dumped by js-yaml in a fixed key order (so a person reads it top to bottom: where from, what is done, what is expected).
+  function fileText(rec, dump) {
+    if (Rec.isStructuredScenario(rec)) {
+      const order = ['id', 'requirement', 'title', 'source', 'screen', 'steps', 'effect', 'given', 'when', 'then', 'examples', 'questions', 'by', 'status'];
+      const o = {}; for (const k of order) if (rec[k] !== undefined) o[k] = rec[k];
+      return dump(o, { lineWidth: -1, noRefs: true });
+    }
+    const block = k => `${k}:\n${rec[k].map(v => `  - ${q(v)}`).join('\n')}`;
+    return `id: ${rec.id}\nrequirement: ${q(rec.requirement)}\ntitle: ${q(rec.title)}\n${rec.source != null ? `source: ${q(rec.source)}\n` : ''}${block('given')}\n${block('when')}\n${block('then')}\nby: ${rec.by}\n${rec.status ? `status: ${rec.status}\n` : ''}`;
+  }
+  // The records and files for a batch of proposed cases of one requirement (shared by the mint tool and the .feature import).
+  // opts: by, taken (ids in use), needQuote (mint: `quote` is the verbatim source, written as `source`, and the file is minted), dump.
+  // Returns {files: [{id, path, quote, rec, text}]} or {error}. Structural errors come from Records.validate; the mint
+  // refusals (page, spec, operation) are mintProblems, which the caller runs on each rec.
+  function build(req, list, { by, taken = [], needQuote = false, dump } = {}) {
+    const used = new Set(taken), files = [];
+    for (const [i, x] of list.entries()) {
+      let n = 1, id; do { id = `${req.id}-ts-${String(n++).padStart(2, '0')}`; } while (used.has(id)); used.add(id);
+      const rec = { id, requirement: req.id, title: x && x.title };
+      if (needQuote) rec.source = x && typeof x.quote === 'string' ? x.quote.trim() : '';
+      for (const k of STRUCTURED_KEYS) if (x && x[k] !== undefined) rec[k] = x[k];
+      rec.by = by;
+      if (needQuote) rec.status = 'minted';
+      const errs = Rec.validate('test_scenario', rec);
+      if (errs.length) return { error: `Scenario ${i + 1}: ${errs.join('; ')}.` };
+      if (needQuote && !rec.source) return { error: `Scenario ${i + 1}: quote the sentence of the page it comes from.` };
+      files.push({ id, path: `test-scenarios/${id}.yaml`, quote: needQuote ? rec.source : '', rec, text: fileText(rec, dump) });
+    }
+    return { files };
+  }
+  // The strict mint: every scenario's refusals at once, as one message the agent can act on. null when all may be minted.
+  function refusal(files, ctx) {
+    const lines = [];
+    files.forEach((f, i) => { for (const p of mintProblems(f.rec, ctx)) lines.push(`Scenario ${i + 1} (${f.rec.title}): ${p.reason}: ${p.message}`); });
+    return lines.length ? `Refused, nothing minted. Fix every point and call mint_test_scenarios again:\n${lines.join('\n')}` : null;
+  }
+
+  return { mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;

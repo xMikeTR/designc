@@ -245,3 +245,11 @@ test('D7 part 2: get_system3 is a read tool for the Analyst only; the Analyst st
   assert.equal(may('proposals/catalogue-gap.yaml'), true);
   assert.equal(Policy.readVerdict('analyst', 'ui/holdout/home.json').ok, false, 'holdout stays sealed');
 });
+
+test('writeVerdict: no role writes test-scenarios/ through the file API; only the mint card (a person approves it) and the person\'s Bind do (B1)', () => {
+  for (const role of [...Object.keys(Policy.WRITE_PATHS), 'tutor', 'researcher', 'builtin']) {
+    for (const rel of ['test-scenarios/ORD-1-ts-01.yaml', 'test-scenarios/new.yaml'])
+      assert.equal(Policy.writeVerdict(role, rel, 'id: x\nstatus: bound\n', yaml.load).ok, false, `${role} ${rel}`);
+  }
+  assert.ok(Policy.WRITE_TOOLS.includes('mint_test_scenarios'), 'the card is a write tool, so it asks the person');
+});
