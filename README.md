@@ -364,7 +364,7 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 }
 ```
 
-`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and one OpenAPI file in `contracts/openapi/` pins the contract between them for the handover.
+`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and each relationship between repos names what crosses it: `d.operation` (an `operationId` in an OpenAPI file in `contracts/openapi/`, sync) or `d.message` (an event of a pinned domain pack, async). The gate checks coverage per relationship (clause `unpinned_contract`), and the pinned files travel with the handover.
 
 To use your Claude subscription instead of an API key, set `"llm": { "provider": "claude-code" }` (model optional) and run `claude login` once. Designc runs the local `claude` CLI in print mode with tools off, and drops `ANTHROPIC_API_KEY` from its environment so it cannot bill the API. Designc's own tools (read_model and the rest) are offered to the model as text and it asks for them with a JSON reply, so the agent panel, its roles (Grill-me included) and the permission prompts work as they do with any provider. Each turn starts a fresh CLI process, so replies take a few seconds.
 
@@ -413,6 +413,8 @@ Declare how long calls may take and the app checks the numbers agree. Only synch
 | Property | On | Meaning |
 | --- | --- | --- |
 | `d.timeout` | relationship | Caller timeout in milliseconds |
+| `d.operation` | relationship | The OpenAPI `operationId` this call carries (sync, across repos or zones); must be in a pinned file in `contracts/openapi/` |
+| `d.message` | relationship | The pack event this call carries (async); `pack/Event`, or a bare `Event` that exactly one pinned pack defines |
 | `d.latency.max` | element | Worst-case own processing time in milliseconds, not counting its calls |
 | `d.fanout` | element | `sequential` (default) or `parallel`: whether its outgoing calls add up or only the slowest counts |
 | `d.retry.budget` | element | Retry amplification this receiver tolerates; overrides the project default |
@@ -442,6 +444,7 @@ With split repos (`repos` in `designc.json`) a pattern is relative to the repo t
 - **DC000 (error).** A pattern the contract rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
 - **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
+- **DC011 (warning, error).** A relationship that crosses a repo or a zone (both ends declare one, inherited from the container, and they differ) and names neither `d.operation` nor `d.message` is an unknown (warning). A `d.operation` that is not in exactly one pinned OpenAPI file, or a `d.message` that no pinned pack (or more than one) defines, is an error. Person ends and parent/child pairs are skipped; suppress with `d.suppress`.
 
 **A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
 

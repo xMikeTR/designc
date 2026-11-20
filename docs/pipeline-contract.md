@@ -16,7 +16,7 @@ The cross-repo seam is an OpenAPI 3.x YAML file under `contracts/openapi/` in th
 
 `handover.yaml` carries `requirement_risk` (`low|medium|high|critical`, the highest among the frozen requirements) and `requirement_data_class` (the first one declared) when a requirement file has `risk` / `data_class` (set by `jira-mapping.yaml`); absent when none does. A pipeline should prefer them over its own guess.
 
-The gate raises `unpinned_contract` (about the requirement's elements) for a requirement whose elements span more than one declared repo while `contracts/openapi/` holds no file. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
+The gate raises `unpinned_contract` (about the two ends of the rel) once per cross-repo relationship of a requirement that is not covered: the rel must name a `d.operation` found in exactly one pinned OpenAPI file (or, for an async rel, a `d.message` that a pinned domain pack defines). A requirement whose elements span more than one declared repo with no relationship crossing between them raises one clause naming the elements. An unrelated or empty contract file covers nothing. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
 
 ## Kinds a pipeline writes
 
