@@ -13,6 +13,9 @@ const Verdicts = require('../renderer/verdicts.js');
 const Memory = require('../renderer/memory.js');
 const ProcLoop = require('../renderer/procloop.js');
 const Knowledge = require('../renderer/knowledge.js');
+const GateInputs = require('../renderer/gate-inputs.js');
+const Work = require('../renderer/work.js');
+const Paths = require('../paths.js');
 
 const BUNDLE_SCHEMA = 'designc.context.bundle/1';
 const SAFE_ID = /^[A-Za-z0-9._-]+$/;
@@ -200,4 +203,97 @@ function holdoutSpec(reg, { criterion, case: index } = {}) {
   try { return Core.holdoutSpec({ model: reg.model, criteria: crit, criterion, index: n }); } catch (e) { return { error: e.message }; }
 }
 
-module.exports = { open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
+// ---------------------------------------------------------------- check (the compiler as a library)
+// The registry folder's text files, keyed as renderer/gate-inputs.js expects (the app's host.list, from disk).
+const GATE_EXTS = { yaml: ['.yaml', '.yml'], json: ['.json'], jsonl: ['.jsonl'], p: ['.p'] };
+function readFilesInto(files, dir, rel, exts) {
+  let names = []; try { names = fs.readdirSync(path.join(dir, rel)); } catch { return; }
+  for (const n of names.sort()) {
+    if (!exts.some(x => n.endsWith(x))) continue;
+    try { files[`${rel}/${n}`] = fs.readFileSync(path.join(dir, rel, n), 'utf8'); } catch { /* skipped, as host.list does */ }
+  }
+}
+function gateFiles(dir, cfg) {
+  const files = {};
+  const modelRel = cfg.model || 'model/workspace.dsl';
+  try { files[modelRel] = fs.readFileSync(path.join(dir, modelRel), 'utf8'); } catch { /* missing: the caller says so */ }
+  for (const d of GateInputs.REG_DIRS) readFilesInto(files, dir, d, GATE_EXTS.yaml);
+  const hv = path.join(dir, 'handovers');
+  if (fs.existsSync(hv)) for (const n of fs.readdirSync(hv).sort()) if (fs.statSync(path.join(hv, n)).isDirectory()) readFilesInto(files, dir, `handovers/${n}`, GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'ledger', GATE_EXTS.jsonl);
+  readFilesInto(files, dir, 'work', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'domain', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'behaviour', GATE_EXTS.p);
+  for (const d of ['ui/pack/components', 'ui/pack/templates', 'ui/specs', 'ui/holdout', 'ui/legacy']) readFilesInto(files, dir, d, GATE_EXTS.json);
+  readFilesInto(files, dir, 'parity/scenarios', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'contracts/openapi', GATE_EXTS.yaml);
+  for (const f of ['contracts/out/result.json', 'design-tokens/tokens.json']) { try { files[f] = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { /* optional */ } }
+  return files;
+}
+// Sibling registries (designc.json registries): only what a pin is read from, as the app's registryRead/registryList do.
+function siblingRegistries(dir, cfg) {
+  const out = {};
+  for (const key of Object.keys(cfg.registries && typeof cfg.registries === 'object' ? cfg.registries : {})) {
+    let base; try { base = Paths.registryDir(dir, cfg.registries, key); } catch { continue; }
+    const r = {};
+    readFilesInto(r, base, 'domain', GATE_EXTS.yaml); readFilesInto(r, base, 'ui/components', GATE_EXTS.json); readFilesInto(r, base, 'ui/templates', GATE_EXTS.json);
+    out[key] = r;
+  }
+  return out;
+}
+function uiHashes(dir, files) {
+  const hashes = { previews: {}, specHashes: {} };
+  for (const p of Object.keys(files)) {
+    const m = /^ui\/specs\/([^/]+)\.json$/.exec(p);
+    if (!m || !/^[a-z0-9-]+$/.test(m[1])) continue;
+    try { hashes.previews[m[1]] = Paths.previewHashes(dir, m[1]); hashes.specHashes[m[1]] = Paths.specHash(dir, m[1]); } catch { /* the gate then says the previews are not rendered */ }
+  }
+  return hashes;
+}
+function readSettings(dir) {
+  const sp = path.join(dir, 'designc.json');
+  if (!fs.existsSync(sp)) return { cfg: {} };
+  try { return { cfg: JSON.parse(fs.readFileSync(sp, 'utf8')) }; } catch (e) { return { error: `designc.json does not parse: ${e.message}` }; }
+}
+
+// Everything one check run computes for a registry folder on disk: {cfg, modelText, model, diags, gate, ledgerRaw, files, assembled} or {error}.
+// What `python -m designc check` did, on the one front end: the assembly is renderer/gate-inputs.js.
+function checkState(dir) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `designc: ${dir} is not a folder. Open a registry folder.` };
+  const s = readSettings(dir);
+  if (s.error) return { error: `designc: ${s.error}` };
+  const files = gateFiles(dir, { model: 'model/workspace.dsl', ...s.cfg });
+  const a = GateInputs.assemble({ cfg: s.cfg, files, registries: siblingRegistries(dir, { ...s.cfg }), hashes: uiHashes(dir, files), yamlLoad: yaml.load });
+  if (a.modelText == null) return { error: `designc: cannot read ${a.cfg.model || 'model/workspace.dsl'} in ${dir}. Open a registry folder, or set "model" in designc.json.` };
+  const { diags, gate } = GateInputs.run(a, Core);
+  return { cfg: a.cfg, modelText: a.modelText, model: a.model, diags, gate, assembled: a, files };
+}
+
+// The report `python -m designc check --json` printed (cli.py report_of), key order included.
+function reportOf(s) {
+  const g = s.gate;
+  return {
+    errors: s.model.errors.map(e => ({ line: e.line, msg: e.msg })),
+    findings: s.diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+    gate: { ready: g.ready, clauses: g.clauses.map(c => ({ kind: c.kind, text: c.text })), ...(g.notes && g.notes.length ? { notes: [...g.notes] } : {}), ...(g.coverage && g.coverage.length ? { coverage: [...g.coverage] } : {}) },
+  };
+}
+
+// check(dir): {report, state} or {error}. gate(dir, {item}): the same for one work item (clauses that touch its elements; no notes),
+// plus {item, outside, warnings}. Neither writes anything.
+function check(dir) {
+  const state = checkState(dir);
+  return state.error ? { error: state.error } : { state, report: reportOf(state) };
+}
+function gate(dir, { item } = {}) {
+  const state = checkState(dir);
+  if (state.error) return { error: state.error };
+  if (item == null) return { state, report: reportOf(state) };
+  const it = state.assembled.work.find(i => String(i.id) === String(item));
+  if (!it || !Work.isRepo(it)) return { error: `designc: no repo work item ${item} in work/. Check the id; an item with a target has no scope.` };
+  const scoped = Core.scopedGate(state.gate, { model: state.model, elements: it.elements || [], requirement: Work.reqs(it), decisions: state.assembled.gateInputs.decisions });
+  const scopedState = { ...state, gate: scoped };
+  return { state: scopedState, report: { ...reportOf(scopedState), item: String(item), outside: scoped.outside, warnings: scoped.warnings.map(c => c.text) } };
+}
+
+module.exports = { check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
