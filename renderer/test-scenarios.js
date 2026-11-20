@@ -84,6 +84,69 @@ const TestScenarios = (() => {
   }
   const WHOLE = /^\{([A-Za-z_][\w-]*)\}$/;
 
+  // C4b: the request checks of a structured scenario's examples against Core.operationInputs. Shared by mint and freeze.
+  // inputs: the operationInputs result, or null (the operation does not resolve: unknown_operation says so). [{reason, message}].
+  const hasReq = ex => isObj(ex) && ex.request !== undefined;
+  const SKIP = Symbol('unfilled');
+  const tryFill = (v, ex) => { const names = placeholders(v); return names.every(n => n in ex) ? fill(v, ex, '', '') : SKIP; };
+  function requestProblems(rec, inputs) {
+    const out = [];
+    const add = (reason, message) => out.push({ reason, message });
+    const examples = Array.isArray(rec && rec.examples) ? rec.examples : [];
+    if (!Rec.isStructuredScenario(rec) || !examples.some(hasReq)) return out;
+    const first = examples.findIndex(hasReq);
+    if (!examples.some(ex => isObj(ex) && isObj(ex.then) && Object.keys(ex.then).length)) {
+      examples.forEach((ex, i) => { if (hasReq(ex)) add('request_without_rows', `examples[${i}].request: a request is frozen for API tests, which need then rows: add rows or remove request`); });
+      return out;
+    }
+    examples.forEach((ex, i) => { if (!hasReq(ex) && isObj(ex)) add('request_incomplete', `examples[${i}]: has no request, but examples[${first}] does: every example of a scenario with a request gives one`); });
+    const opId = rec.effect && rec.effect.operation;
+    examples.forEach((ex, i) => {
+      if (!hasReq(ex) || !isObj(ex.request)) return;
+      const rq = ex.request, at = `examples[${i}].request`;
+      const lit = (v, where) => {
+        if (typeof v === 'string') { const w = WHOLE.exec(v); if (w) add('placeholder_in_request', `${where}: request values are literal: write this example's value, not {${w[1]}}`); }
+        else if (Array.isArray(v)) v.forEach((x, k) => lit(x, `${where}[${k}]`));
+        else if (isObj(v)) for (const [k, x] of Object.entries(v)) lit(x, `${where}.${k}`);
+      };
+      for (const k of ['path', 'query']) if (isObj(rq[k])) for (const [n, v] of Object.entries(rq[k])) lit(v, `${at}.${k}.${n}`);
+      if (rq.body !== undefined) lit(rq.body, `${at}.body`);
+      if (!inputs) return;
+      const list = a => a.length ? a.join(', ') : '(none)';
+      const pathGiven = isObj(rq.path) ? rq.path : {}, queryGiven = isObj(rq.query) ? rq.query : {};
+      for (const n of inputs.path) if (!(n in pathGiven)) add('request_param', `${at}.path: {${n}} of ${inputs.pathTemplate} has no value`);
+      for (const n of Object.keys(pathGiven)) if (!inputs.path.includes(n)) add('request_param', `${at}.path.${n}: ${opId} has no path parameter ${n} (path: ${list(inputs.path)})`);
+      for (const q of inputs.query) if (q.required && !(q.name in queryGiven)) add('request_param', `${at}.query: required query parameter ${q.name} has no value`);
+      for (const n of Object.keys(queryGiven)) if (!inputs.query.some(q => q.name === n)) add('request_param', `${at}.query.${n}: ${opId} has no query parameter ${n} (query: ${list(inputs.query.map(q => q.name))})`);
+      // the body
+      const bad = m => add('request_body', `${at}.body: ${m}`);
+      const hasEffBody = isObj(rec.effect) && rec.effect.body != null;
+      let body = SKIP, present = false;
+      if (hasEffBody && rq.body !== undefined) { bad("effect.body already gives this call's body (filled from the example's values): remove request.body"); return; }
+      if (hasEffBody) { body = tryFill(rec.effect.body, ex); present = true; }
+      else if (rq.body !== undefined) { body = rq.body; present = true; }
+      if (!present) { if (inputs.body && inputs.body.required) bad(`${opId} requires a request body: give request.body or effect.body`); return; }
+      if (!inputs.body) { bad(`${opId} takes no request body`); return; }
+      if (body === SKIP) return;
+      if (inputs.body.mapping) {
+        if (!isObj(body)) { bad('the body must be a mapping'); return; }
+        for (const n of inputs.body.requiredProps) if (!(n in body)) bad(`body has no ${n}, which ${opId} requires`);
+        if (inputs.body.closed) for (const n of Object.keys(body)) if (!inputs.body.properties.includes(n)) bad(`${opId} body has no property ${n} (properties: ${list(inputs.body.properties)})`);
+      }
+    });
+    return out;
+  }
+  // The frozen request of example i, or undefined when it has none. Call after requestProblems passed.
+  const sortObj = o => Object.fromEntries(Object.keys(o || {}).sort().map(k => [k, o[k]]));
+  function requestOf(rec, i) {
+    const ex = Array.isArray(rec && rec.examples) ? rec.examples[i] : null;
+    if (!hasReq(ex) || !isObj(ex.request)) return undefined;
+    const out = { path: sortObj(ex.request.path), query: sortObj(ex.request.query) };
+    if (isObj(rec.effect) && rec.effect.body != null) out.body = fill(rec.effect.body, ex, rec.id, `examples[${i}]`);
+    else if (ex.request.body !== undefined) out.body = ex.request.body;
+    return out;
+  }
+
   // rec: a test scenario record. ctx: {pageText, specs, resolveOperation(id) -> op|null, operationErrors?: Core.operations(...).errors}.
   // Returns [{reason, message}], empty when the scenario may be minted.
   function mintProblems(rec, ctx = {}) {
@@ -118,6 +181,7 @@ const TestScenarios = (() => {
     const used = [...new Set([...steps.flatMap(s => placeholders(isObj(s) ? s.value : null)), ...placeholders(rec.effect && rec.effect.body)])];
     for (const name of used) examples.forEach((ex, i) => { if (!isObj(ex) || !(name in ex)) add('unfilled_placeholder', `examples[${i}]: has no value for {${name}}, which a step or effect.body uses`); });
     for (const p of rowProblems(rec, ctx.entities)) add(p.reason, p.message);
+    if (rec.effect && typeof rec.effect.operation === 'string' && typeof ctx.operationInputs === 'function') for (const p of requestProblems(rec, ctx.operationInputs(rec.effect.operation))) add(p.reason, p.message);
     return out;
   }
 
@@ -366,9 +430,9 @@ ${tests.join('\n')}});
       const vals = {};
       names.forEach((n, i) => { if (n in ex) vals[i + 1] = String(ex[n]); });
       const extra = {};
-      for (const [k, v] of Object.entries(ex)) if (k !== 'title' && k !== 'given' && k !== 'then' && !names.includes(k)) extra[k] = leaf(v);
+      for (const [k, v] of Object.entries(ex)) if (k !== 'title' && k !== 'given' && k !== 'then' && k !== 'request' && !names.includes(k)) extra[k] = leaf(v);
       const given = rows(ex.given), then = rows(ex.then);
-      return { input: canon({ vals, given }), output: canon({ then, extra }), given: Object.keys(given), then: Object.keys(then) };
+      return { input: canon(ex.request === undefined ? { vals, given } : { vals, given, request: leaf(ex.request) }), output: canon({ then, extra }), given: Object.keys(given), then: Object.keys(then) };
     });
     return { screen: rec.screen, operation: rec.effect && rec.effect.operation, steps, examples };
   }
@@ -451,6 +515,6 @@ ${tests.join('\n')}});
     });
     return { updates, mint };
   }
-  return { clauses, coverage, diffRuns, earlierRun, varianceWrites, covers, testFile, compile, startState, renderScreen, mintProblems, rowProblems, bindProblem, specFor, locators, build, fileText, refusal };
+  return { clauses, coverage, diffRuns, earlierRun, varianceWrites, covers, testFile, compile, startState, renderScreen, mintProblems, rowProblems, requestProblems, requestOf, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;

@@ -183,3 +183,19 @@ test('varianceWrites: a sentence only b covers is minted with the question', () 
   assert.equal(w.mint[0].quote, S2);
   assert.deepEqual(w.mint[0].questions, [d[0].question]);
 });
+
+// ---- C4b: request is an input, never an outcome ----
+test('diffRuns: runs that differ only in request raise no different outcome; same request with a different then still does', () => {
+  const rows = A.scenarios.findIndex(s => (s.examples || []).some(e => e && e.then));
+  assert.ok(rows >= 0, 'the recorded run has an example with then rows');
+  const a = clone(A); a.scenarios[rows].examples.forEach(e => { e.request = { query: { dryRun: true } }; });
+  const b = side({ ...run('ORD-1.a') }); b.run = 'b';
+  const bReq = clone(b); bReq.scenarios[rows].examples.forEach(e => { e.request = { query: { dryRun: false } }; });
+  assert.deepEqual(diff(a, bReq), []);
+  const bThen = clone(a); bThen.run = 'b';
+  const ex = bThen.scenarios[rows].examples.find(e => e.then); const ent = Object.keys(ex.then)[0];
+  ex.then[ent] = ex.then[ent].map(r => ({ ...r, tag: 'Other' }));
+  const d = diff(a, bThen);
+  assert.equal(d.length, 1); assert.ok(d[0].question.includes('a different outcome for the same input'));
+  assert.deepEqual(diff(A, { run: 'b', scenarios: clone(A.scenarios) }), []);
+});

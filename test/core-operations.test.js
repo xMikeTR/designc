@@ -158,7 +158,7 @@ paths:
 `;
 test('operationInputs: path, merged and $ref query params, header ignored, $ref body closed', () => {
   const r = reg({ 'contracts/openapi/o.yaml': OPS });
-  assert.deepStrictEqual(Core.operationInputs(r, 'tagOne'), { path: ['orderId'], query: [{ name: 'page', required: false }, { name: 'size', required: true }],
+  assert.deepStrictEqual(Core.operationInputs(r, 'tagOne'), { path: ['orderId'], pathTemplate: '/orders/{orderId}/tags', query: [{ name: 'page', required: false }, { name: 'size', required: true }],
     body: { required: true, mapping: true, properties: ['tag', 'note'], requiredProps: ['tag'], closed: true } });
   assert.deepStrictEqual(Core.operationInputs(r, 'allOf').body, { required: false, mapping: false, properties: null, requiredProps: [], closed: false });
   assert.equal(Core.operationInputs(r, 'open').body.closed, false);
@@ -167,12 +167,12 @@ test('operationInputs: path, merged and $ref query params, header ignored, $ref 
 });
 test('operationInputs: no body, duplicate op is null; fixture tagOrders', () => {
   const r = reg({ 'contracts/openapi/o.yaml': OPS });
-  assert.deepStrictEqual(Core.operationInputs(r, 'plain'), { path: [], query: [], body: null });
+  assert.deepStrictEqual(Core.operationInputs(r, 'plain'), { path: [], pathTemplate: '/plain', query: [], body: null });
   assert.equal(Core.operationInputs(r, 'dd'), null);
-  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/b.yml': B }), 'putTag'), { path: [], query: [], body: null });
+  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/b.yml': B }), 'putTag'), { path: [], pathTemplate: '/tags', query: [], body: null });
   const fs = require('fs'), path = require('path');
   const fx = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'scenario-registry', 'contracts', 'openapi', 'orders.yaml'), 'utf8');
-  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/orders.yaml': fx }), 'tagOrders'), { path: [], query: [],
+  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/orders.yaml': fx }), 'tagOrders'), { path: [], pathTemplate: '/orders/tags', query: [],
     body: { required: true, mapping: true, properties: ['match', 'tag'], requiredProps: ['match', 'tag'], closed: true } });
   assert.deepStrictEqual(Core.operations(reg({ 'contracts/openapi/orders.yaml': fx })), { operations: [{ operationId: 'tagOrders', method: 'POST', path: '/orders/tags', file: 'contracts/openapi/orders.yaml' }], errors: [] });
 });

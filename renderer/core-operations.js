@@ -84,7 +84,7 @@
         body.closed = body.properties !== null && (sc.additionalProperties === undefined || sc.additionalProperties === false);
       }
     }
-    return { path, query, body };
+    return { path, pathTemplate: op.path, query, body };
   }
 
   // Events of every pinned pack. packs: [{key, text, load}]. A pack that does not read is skipped (the domain gate reports it).
