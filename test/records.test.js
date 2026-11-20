@@ -109,32 +109,6 @@ test('inverse: links stored on one side are indexed both ways', () => {
   assert.deepEqual(inv['req:DEMO-1'].scoped_by, ['b']);
 });
 
-const skipPy = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
-
-test('python mirrors validate, checks and lint', { skip: skipPy }, () => {
-  const cases = [
-    ['decision', dec()], ['decision', dec({ status: 'minted', checks: ['x', { id: 'k', run: 'y' }, { run: '' }, 3, { run: 'z', id: 'a b' }] })],
-    ['decision', dec({ status: 'done', scope: ['foo:bar', 'ui:x', ''], enforced_by: ['gate:nope', 'chk-1', 'mlang:r', 'what?'] })],
-    ['decision', { id: 'a b', status: null }], ['requirement', { id: 'R', source: 3 }], ['verdict', { id: 'v', status: 'bound', verdict: 'same', commit: 1 }],
-    ['verdict', { id: 'v', status: 'retired', verdict: 'matched', scope: 'ui:a' }], ['thing', {}], ['decision', 'text'],
-    ['procedure', { id: 'p', status: 'bound', title: 'T', version: 2, scope: ['el:A'], steps: ['a', 'b'] }],
-    ['test_scenario', ts()], ['test_scenario', { id: 'a b', given: [], when: 'text', then: [1], by: '' }], ['test_scenario', ts({ status: 'x' })],
-    ['procedure', { id: 'p', status: 'bound', version: true, steps: [1] }], ['procedure', { id: 'prompt:p', status: 'bound', title: 'T', version: 1, scope: ['el:A'], steps: 'x' }], ['procedure', { id: 'p', status: 'proposed', title: 'T', version: '1.2', scope: 'el:A', steps: 'x' }],
-  ];
-  const script = `
-import json, sys
-from designc import records as R
-c = json.loads(sys.argv[1])
-print(json.dumps({'validate': [R.validate(k, r) for k, r in c['cases']], 'checks': [R.checks(r) for k, r in c['cases'] if isinstance(r, dict)],
-  'lint': R.lint(c['recs'], c['elements']), 'inverse': R.inverse(c['recs'])}))`;
-  const r = spawnSync('python3', ['-c', script, JSON.stringify({ cases, recs: recs(), elements: ['Bookings DB'] })], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  const py = JSON.parse(r.stdout);
-  assert.deepEqual(py.validate, cases.map(([k, x]) => R.validate(k, x)));
-  assert.deepEqual(py.checks, cases.filter(([, x]) => x && typeof x === 'object').map(([, x]) => R.checks(x)));
-  assert.deepEqual(py.lint, R.lint(recs(), { elements: ['Bookings DB'] }));
-  assert.deepEqual(py.inverse, R.inverse(recs()));
-});
 
 // The gate reads checks through Records.runs, so {id, run} checks behave as their command does; retired never counts.
 const Core = require('../renderer/core.js');
@@ -164,15 +138,3 @@ test('policy judges the command of an {id, run} check', () => {
   assert.match(v.reason || v.error || JSON.stringify(v), /Model: it holds/);
 });
 
-test('python gate agrees on object checks and retired', { skip: skipPy }, () => {
-  const script = `
-import json, sys
-from designc.dsl import parse
-from designc.gate import gate
-c = json.loads(sys.argv[1])
-print(json.dumps([x['text'] for x in gate(parse('workspace { model { } }'), [], c['decs'], [], c['ledger'])['clauses']]))`;
-  const r = spawnSync('python3', ['-c', script, JSON.stringify({ decs: gateDecs(), ledger })], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  const js = Core.gate({ model: Core.parse('workspace { model { } }'), diags: [], decisions: gateDecs(), requirements: [], ledger }).clauses.map(c => c.text);
-  assert.deepEqual(JSON.parse(r.stdout), js);
-});

@@ -1,4 +1,4 @@
-// The Python gate keeps the same acceptance clauses as Core.gate (python/designc/gate.py acceptance_clauses).
+// The command line (designc-core check) keeps the same acceptance clauses as Core.gate on hand-built inputs.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -7,9 +7,8 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
-const PY = path.join(__dirname, '..', 'python');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
 
 const DSL = `workspace "Q" {
@@ -33,7 +32,7 @@ const DSL = `workspace "Q" {
 }
 `;
 
-test('Python and JS report the same acceptance clauses', { skip }, () => {
+test('the CLI and Core.gate report the same acceptance clauses', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-acc-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
@@ -50,12 +49,12 @@ test('Python and JS report the same acceptance clauses', { skip }, () => {
   const acceptance = Object.values(files).map(t => yaml.load(t));
   const js = Core.gate({ model, diags, decisions: [], requirements, ledger: [], acceptance }).clauses.filter(c => c.kind === 'acceptance');
   assert.ok(js.length >= 6, js.map(c => c.text).join('; '));
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'acceptance');
   assert.deepEqual(py, js.map(c => ({ kind: c.kind, text: c.text })));
 });
 
-test('Python and JS report the same holdout clauses', { skip }, () => {
+test('the CLI and Core.gate report the same holdout clauses', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-hold-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
@@ -71,7 +70,7 @@ test('Python and JS report the same holdout clauses', { skip }, () => {
   const acceptance = Object.values(files).map(t => yaml.load(t));
   const js = Core.gate({ model, diags, decisions: [], requirements, ledger: [], acceptance }).clauses.filter(c => c.kind === 'acceptance');
   assert.ok(js.some(c => /only case for state empty is holdout/.test(c.text)) && js.some(c => /holdout must be true or false/.test(c.text)), js.map(c => c.text).join('; '));
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'acceptance');
   assert.deepEqual(py, js.map(c => ({ kind: c.kind, text: c.text })));
 });

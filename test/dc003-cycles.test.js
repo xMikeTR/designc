@@ -6,6 +6,7 @@ const os = require('node:os');
 const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
 // Four elements call each other in a ring, and a caller sits above it: the ring is one finding, not one per way round.
 const DSL = `workspace {
@@ -40,7 +41,7 @@ test('the Python CLI reports the same DC003 findings', () => {
   fs.mkdirSync(path.join(dir, 'model'));
   fs.writeFileSync(path.join(dir, 'model', 'workspace.dsl'), DSL);
   fs.writeFileSync(path.join(dir, 'designc.json'), JSON.stringify({ model: 'model/workspace.dsl', chainHops: 3 }));
-  const r = spawnSync('python3', ['-m', 'designc', 'check', dir, '--json'], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', dir, '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout).findings.filter(f => f.code === 'DC003').map(f => f.msg || f.message).sort();
   const js = dc003(Core.check(Core.parse(DSL), { chainHops: 3 })).map(d => d.msg).sort();
   assert.deepEqual(py, js);
@@ -84,7 +85,7 @@ test('the Python CLI skips in-process calls the same way', () => {
   fs.mkdirSync(path.join(dir, 'model'));
   fs.writeFileSync(path.join(dir, 'model', 'workspace.dsl'), LAYERED);
   fs.writeFileSync(path.join(dir, 'designc.json'), JSON.stringify({ model: 'model/workspace.dsl', chainHops: 3 }));
-  const r = spawnSync('python3', ['-m', 'designc', 'check', dir, '--json'], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', dir, '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout).findings.filter(f => f.code === 'DC003').map(f => f.msg || f.message).sort();
   const js = dc003(Core.check(Core.parse(LAYERED), { chainHops: 3 })).map(d => d.msg).sort();
   assert.deepEqual(py, js);

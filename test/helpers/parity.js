@@ -1,4 +1,4 @@
-// Shared by the Python parity tests: the app's loadRegistry/loadLedger/gate for a folder on disk, and `designc check --json`.
+// Shared by the gate tests: the app's loadRegistry/loadLedger/gate for a folder on disk (nodeReport), and `designc-core check --json` (coreReport).
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -10,6 +10,7 @@ const Ledger = require('../../renderer/ledger.js');
 
 const ROOT = path.join(__dirname, '..', '..');
 const PY = path.join(ROOT, 'python');
+const CORE = path.join(ROOT, 'scripts', 'designc-core.js');
 
 function listDir(root, dir, exts) {
   let names = []; try { names = fs.readdirSync(path.join(root, dir)); } catch { return []; }
@@ -63,9 +64,10 @@ function nodeReport(root, { ag = true } = {}) {
   return ag ? r : withoutAg(r);
 }
 
-function pyReport(root) {
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json', '--no-record'], { cwd: PY, encoding: 'utf8' });
-  assert.ok(r.stdout, `designc printed nothing. stderr: ${r.stderr}`);
+// The command line the Factory and pipelines run: `designc-core check --json --no-record` (the Node core; `python -m designc check` shims it).
+function coreReport(root) {
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json', '--no-record'], { encoding: 'utf8' });
+  assert.ok(r.stdout, `designc-core check printed nothing. stderr: ${r.stderr}`);
   return JSON.parse(r.stdout);
 }
 
@@ -78,4 +80,4 @@ function tmpRegistry(files) {
   return root;
 }
 
-module.exports = { withoutAg, ROOT, PY, listDir, nodeState, nodeReport, pyReport, tmpRegistry };
+module.exports = { withoutAg, ROOT, PY, CORE, listDir, nodeState, nodeReport, coreReport, tmpRegistry };

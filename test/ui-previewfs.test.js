@@ -7,6 +7,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const P = require('../paths.js');
+const { CORE } = require('./helpers/parity.js');
 
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const PNG = Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==', 'base64');
@@ -53,7 +54,6 @@ test('previewImage returns a data URL for a page picture only, never a placement
 }));
 
 // The Python gate reads the same disk: previews and the spec's hash, and says the same as the JS rule.
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const APP = path.resolve(__dirname, '..');
 const STATES = ['ready', 'loading', 'empty', 'error', 'filtered'];
 function project(fn) {
@@ -74,17 +74,17 @@ function project(fn) {
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 const writeLedger = (reg, rows) => { fs.mkdirSync(path.join(reg, 'ledger'), { recursive: true }); fs.writeFileSync(path.join(reg, 'ledger/designc.jsonl'), rows.map((r, i) => JSON.stringify({ schema_version: 1, event_id: `e${i}`, ts: 100 + i, by: 'mike', ...r })).join('\n') + '\n'); };
-const py = reg => { const r = spawnSync('python3', ['-m', 'designc', 'check', reg, '--json', '--no-record'], { cwd: path.join(APP, 'python'), encoding: 'utf8' }); return JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'ui').map(c => c.text); };
+const py = reg => { const r = spawnSync(process.execPath, [CORE, 'check', reg, '--json', '--no-record'], { encoding: 'utf8' }); return JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'ui').map(c => c.text); };
 const approval = (reg, specFile) => ({ kind: 'ui_preview_approved', screen: 'bordereaux', spec: sha(fs.readFileSync(specFile)), files: P.previewHashes(reg, 'bordereaux') });
 const RENDER = { kind: 'ui_preview_rendered', screen: 'bordereaux', spec_hash: 'a'.repeat(64), files: { 'ready-chromium-linux.png': 'a'.repeat(64) }, image: 'ready-chromium-linux.png' };
 
-test('python gate: rendered and approved from the disk it reads clears check 4, an edited picture brings it back', { skip }, () => project((reg, rows, specFile) => {
+test('python gate: rendered and approved from the disk it reads clears check 4, an edited picture brings it back', () => project((reg, rows, specFile) => {
   writeLedger(reg, [...rows, RENDER, approval(reg, specFile)]);
   assert.deepEqual(py(reg), []);
   fs.writeFileSync(path.join(reg, 'ui/previews/bordereaux/ready-chromium-linux.png'), 'edited');
   assert.deepEqual(py(reg), ['ui/specs/bordereaux.json: approval is stale: files changed since. Render again, then approve']);
 }));
-test('python gate: a spec edited after approval, and a render after approval', { skip }, () => project((reg, rows, specFile) => {
+test('python gate: a spec edited after approval, and a render after approval', () => project((reg, rows, specFile) => {
   const a = approval(reg, specFile);
   writeLedger(reg, [...rows, RENDER, a, RENDER]);
   assert.deepEqual(py(reg), ['ui/specs/bordereaux.json: approval is stale: rendered again since. Look at the new previews, then approve again']);
@@ -92,7 +92,7 @@ test('python gate: a spec edited after approval, and a render after approval', {
   fs.writeFileSync(specFile, fs.readFileSync(specFile, 'utf8') + '\n');
   assert.deepEqual(py(reg), ['ui/specs/bordereaux.json: approval is stale: the spec changed since. Render again, then approve']);
 }));
-test('python gate: a UI element with no preview folder at all is not rendered', { skip }, () => project((reg, rows) => {
+test('python gate: a UI element with no preview folder at all is not rendered', () => project((reg, rows) => {
   writeLedger(reg, rows);
   assert.deepEqual(py(reg), ['ui/specs/bordereaux.json: previews not rendered. Run factory-s2 preview for bordereaux']);
 }));

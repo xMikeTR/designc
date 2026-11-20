@@ -207,11 +207,3 @@ def append_event(root, event, now=None, new_id=None):
     with open(path, 'a', encoding='utf-8') as f: f.write(json.dumps(stamped, ensure_ascii=False, separators=(',', ':')) + '\n')
     return {'ok': True, 'event': stamped}
 
-
-def gate_unchanged(events, ev):
-    """True when the latest gate event from the same source has the same revision, commit (absent equals
-    null) and verdict. `events` carry `_ts`. Mirrors Ledger.gateUnchanged."""
-    last = None
-    for e in events:
-        if e.get('kind') == 'gate' and e.get('source') == ev.get('source') and (last is None or (e.get('_ts') or 0) >= (last.get('_ts') or 0)): last = e
-    return last is not None and last.get('revision') == ev.get('revision') and last.get('commit') == ev.get('commit') and last.get('verdict') == ev.get('verdict')

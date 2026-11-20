@@ -1,5 +1,6 @@
-// Parity: the Python `designc check` (python/designc) must give the same findings and the same gate
-// clauses as renderer/core.js on the same registry. Both sides are run on real folders.
+// The command line (`designc-core check`, which `python -m designc check` shims) must give the same findings and the same
+// gate clauses as renderer/core.js assembled by hand on the same registry. Both sides are run on real folders. The Python
+// pieces that remain (ledger append and validation, the shim's exit codes) are checked at the end.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -10,15 +11,15 @@ const Core = require('../renderer/core.js');
 const Ledger = require('../renderer/ledger.js');
 
 const havePython = spawnSync('python3', ['-c', 'import yaml']).status === 0;
-const skip = havePython ? false : 'python3 with PyYAML is not installed';
+test('python3 with PyYAML is available (the shim and the Python ledger need them)', () => assert.ok(havePython, 'python3 with PyYAML needed'));
 
-const { ROOT, PY, nodeState, nodeReport, pyReport, tmpRegistry } = require('./helpers/parity.js');
+const { ROOT, PY, nodeState, nodeReport, coreReport, tmpRegistry } = require('./helpers/parity.js');
 
-const same = (root, label) => assert.deepEqual(pyReport(root), nodeReport(root), label);
+const same = (root, label) => assert.deepEqual(coreReport(root), nodeReport(root), label);
 
-test('the sample registry gives the documented result in both implementations', { skip }, () => {
+test('the sample registry gives the documented result from the command line and from the app assembly', () => {
   const root = path.join(ROOT, 'sample-registry');
-  const py = pyReport(root);
+  const py = coreReport(root);
   const errs = py.findings.filter(f => !f.suppressed && f.sev === 'error').map(f => f.code).sort();
   const warns = py.findings.filter(f => !f.suppressed && f.sev === 'warning').map(f => f.code).sort();
   assert.deepEqual(errs, ['DC002', 'DC004']);
@@ -27,7 +28,7 @@ test('the sample registry gives the documented result in both implementations', 
   same(root, 'sample-registry');
 });
 
-test('fixtures/fullstack agrees', { skip }, () => same(path.join(ROOT, 'fixtures', 'fullstack'), 'fullstack'));
+test('fixtures/fullstack agrees', () => same(path.join(ROOT, 'fixtures', 'fullstack'), 'fullstack'));
 
 const MODEL = `workspace "Shop" {
   model {
@@ -56,16 +57,16 @@ const MODEL = `workspace "Shop" {
 # e
 `;
 
-test('a synthetic model with every rule agrees', { skip }, () => {
+test('a synthetic model with every rule agrees', () => {
   same(tmpRegistry({ 'model/workspace.dsl': MODEL }), 'every rule');
 });
 
-test('parse errors, unknown keywords and unbalanced braces agree', { skip }, () => {
+test('parse errors, unknown keywords and unbalanced braces agree', () => {
   same(tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A"\n a -> zz "x"\n bogus "x"\n b = container }\n' }), 'errors');
   same(tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } } }\n properties { "k" }' }), 'errors 2');
 });
 
-test('deployment environments parse the same', { skip }, () => {
+test('deployment environments parse the same', () => {
   const dsl = `workspace { model {
     s = softwareSystem "S" { a = container "A" }
     deploymentEnvironment "Live" {
@@ -85,7 +86,7 @@ test('deployment environments parse the same', { skip }, () => {
   same(tmpRegistry({ 'model/workspace.dsl': dsl }), 'deployment');
 });
 
-test('decisions, fingerprints, business evidence, requirements, ledger and scenarios agree', { skip }, () => {
+test('decisions, fingerprints, business evidence, requirements, ledger and scenarios agree', () => {
   const root = tmpRegistry({
     'model/workspace.dsl': MODEL,
     'designc.json': JSON.stringify({ model: 'model/workspace.dsl', evidenceHosts: ['jira.example.com'], businessOwners: ['mike'] }),
@@ -120,7 +121,7 @@ test('decisions, fingerprints, business evidence, requirements, ledger and scena
   same(root, 'registry');
 });
 
-test('a bound decision with a current fingerprint matches Core.fingerprint', { skip }, () => {
+test('a bound decision with a current fingerprint matches Core.fingerprint', () => {
   const model = Core.parse(MODEL);
   const el = [...model.elements.values()].find(e => e.name === 'Orders DB');
   const hash = Core.fingerprint(model, el.id).hash;
@@ -129,12 +130,12 @@ test('a bound decision with a current fingerprint matches Core.fingerprint', { s
     'decisions/D-1.yaml': `id: D-1\nstatus: bound\neffect: accept\nbinds: [Orders DB]\nresolves: [DC002]\nchecks: [x]\nrelies_on: [D-0]\npromoted_against: [{element: db, name: Orders DB, hash: "${hash}"}]\n`,
     'ledger/c.jsonl': JSON.stringify({ kind: 'check', decision: 'D-1', outcome: 'pass', ts: 1 }) + '\n',
   });
-  const py = pyReport(root);
-  assert.ok(!py.gate.clauses.some(c => /D-1: Orders DB changed since promotion/.test(c.text)), 'python computed the same fingerprint');
+  const py = coreReport(root);
+  assert.ok(!py.gate.clauses.some(c => /D-1: Orders DB changed since promotion/.test(c.text)), 'the command line computed the same fingerprint');
   same(root, 'fingerprint');
 });
 
-test('unicode in names hashes the same (UTF-16 code units)', { skip }, () => {
+test('unicode in names hashes the same (UTF-16 code units)', () => {
   const dsl = 'workspace { model { a = container "Café 🚀" { properties { "d.zone" "zé" } } } }';
   const model = Core.parse(dsl);
   const id = [...model.elements.keys()][0];
@@ -143,10 +144,10 @@ test('unicode in names hashes the same (UTF-16 code units)', { skip }, () => {
     'model/workspace.dsl': dsl,
     'decisions/D-1.yaml': `id: D-1\nstatus: bound\nbinds: [Café 🚀]\nchecks: [x]\npromoted_against: [{element: a, name: "Café 🚀", hash: "${hash}"}]\n`,
   });
-  assert.ok(!pyReport(root).gate.clauses.some(c => /changed since promotion/.test(c.text)));
+  assert.ok(!coreReport(root).gate.clauses.some(c => /changed since promotion/.test(c.text)));
 });
 
-test('exit codes: 0 ready, 1 not ready, 2 unusable folder', { skip }, () => {
+test('exit codes: 0 ready, 1 not ready, 2 unusable folder', () => {
   const run = root => spawnSync('python3', ['-m', 'designc', 'check', root, '--no-record'], { cwd: PY, encoding: 'utf8' });
   const clean = tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } }' });
   assert.equal(run(clean).status, 0);
@@ -162,21 +163,11 @@ const py = (code, input) => {
   assert.equal(r.status, 0, r.stderr);
   return JSON.parse(r.stdout);
 };
-const pyGateRecord = root => py(`import json, sys
-from designc.cli import state
-from designc.record import gate_record
-s = state(sys.argv[1] if len(sys.argv) > 1 else ${JSON.stringify(root)})
-print(json.dumps(gate_record(s['model_text'], s['diags'], s['gate'], 'local', None), ensure_ascii=False))`);
+const Headless = require('../headless/index.js');
 const nodeGateRecord = root => { const s = nodeState(root); return Core.gateRecord({ modelText: s.modelText, diags: s.diags, gate: s.gate, source: 'local', git: null }); };
+const headlessGateRecord = root => { const s = Headless.checkState(root); return Core.gateRecord({ modelText: s.modelText, diags: s.diags, gate: s.gate, source: 'local', git: null }); };
 
-test('the gate record is identical in both implementations', { skip }, () => {
-  for (const root of [path.join(ROOT, 'sample-registry'), path.join(ROOT, 'fixtures', 'fullstack'), tmpRegistry({ 'model/workspace.dsl': MODEL }),
-    tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = container "Café 🚀" { properties { "d.zone" "zé" } }\n b = container "Ünïcode → x"\n a -> b "x" { properties { "d.interaction" "async" } } } }' })]) {
-    assert.deepEqual(pyGateRecord(root), nodeGateRecord(root), root);
-  }
-});
-
-test('the Python validator gives the same errors as Ledger.validate', { skip }, () => {
+test('the Python validator gives the same errors as Ledger.validate', () => {
   const gate = { kind: 'gate', by: 'u', source: 'local', revision: 'r-1', ready: false, verdict: 'v', clauses: [], findings: [] };
   const cases = [
     gate, { ...gate, commit: null, dirty: false }, { ...gate, ready: 'yes' }, { ...gate, source: 'ci' }, { ...gate, findings: {} }, { ...gate, extra: 1 },
@@ -194,7 +185,7 @@ print(json.dumps([validate(e) for e in json.load(sys.stdin)]))`, JSON.stringify(
   assert.deepEqual(got, cases.map(e => Ledger.validate(e)));
 });
 
-test('Python appends a stamped, valid gate event to ledger/checks.jsonl, and refuses an invalid one', { skip }, () => {
+test('Python appends a stamped, valid gate event to ledger/checks.jsonl, and refuses an invalid one', () => {
   const root = tmpRegistry({ 'model/workspace.dsl': 'workspace { model { a = person "A" } }' });
   const ev = { kind: 'gate', by: 'u', source: 'local', revision: 'r-1', ready: true, verdict: 'v', clauses: [], findings: [] };
   const ok = py(`import json, sys
@@ -218,18 +209,7 @@ print(json.dumps(append_event(${JSON.stringify(root)}, json.load(sys.stdin))))`,
   assert.equal(fs.readFileSync(path.join(root, 'ledger', 'checks.jsonl'), 'utf8').trim().split('\n').length, 1, 'nothing written');
 });
 
-test('Python gate_unchanged agrees with Ledger.gateUnchanged', { skip }, () => {
-  const g = o => ({ kind: 'gate', source: 'local', revision: 'r-1', commit: 'c1', verdict: 'v1', _ts: 1, ...o });
-  const noGit = g({}); delete noGit.commit;
-  const cases = [[[], g({})], [[g({})], g({})], [[g({}), g({ _ts: 2, verdict: 'v0' })], g({})], [[g({ source: 'pipeline' })], g({})],
-    [[g({ commit: 'c0' })], g({})], [[g({ commit: null })], noGit], [[{ kind: 'check', source: 'local', _ts: 9 }, g({})], g({})]];
-  const got = py(`import json, sys
-from designc.ledger import gate_unchanged
-print(json.dumps([gate_unchanged(evs, ev) for evs, ev in json.load(sys.stdin)]))`, JSON.stringify(cases));
-  assert.deepEqual(got, cases.map(([evs, ev]) => Ledger.gateUnchanged(evs, ev)));
-});
-
-test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree', { skip }, () => {
+test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree', () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**, ../x, src/[ab]" "d.risk" "low" } }
     b = container "B" { properties { "d.code" " , " "d.risk" "low" } }
@@ -242,7 +222,7 @@ test('d.code problems (rejected patterns, empty, blank entry, no d.risk) agree',
   same(root, 'd.code');
 });
 
-test('DC010 repos: JS and Python agree', { skip }, () => {
+test('DC010 repos: the command line and the app agree', () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.repo" "Api" "d.code" "src/A/**" "d.risk" "low" }
       h = component "H" { properties { "d.code" "src/A/H/**" "d.risk" "low" } }
@@ -255,7 +235,7 @@ test('DC010 repos: JS and Python agree', { skip }, () => {
   same(root, 'DC010');
 });
 
-test('unpinned_contract: JS and Python agree, and a pinned OpenAPI file clears it', { skip }, () => {
+test('unpinned_contract: the command line and the app agree, and a pinned OpenAPI file clears it', () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.repo" "Api" "d.code" "src/A/**" "d.risk" "low" } }
     b = container "B" { properties { "d.repo" "Ui" "d.code" "web/**" "d.risk" "low" } }
@@ -269,7 +249,7 @@ test('unpinned_contract: JS and Python agree, and a pinned OpenAPI file clears i
   same(pinned, 'pinned');
 });
 
-test('DC009 reserved acceptance path: JS and Python agree', { skip }, () => {
+test('DC009 reserved acceptance path: the command line and the app agree', () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" } }
     b = container "B" { properties { "d.code" "tests/**" "d.risk" "low" } }
@@ -282,7 +262,7 @@ test('DC009 reserved acceptance path: JS and Python agree', { skip }, () => {
   same(root, 'DC009');
 });
 
-test('DC009 overlapping and nested code areas agree', { skip }, () => {
+test('DC009 overlapping and nested code areas agree', () => {
   const dsl = `workspace { model { s = softwareSystem "S" {
     a = container "A" { properties { "d.code" "src/A/**" "d.risk" "low" }
       h = component "H" { properties { "d.code" "src/A/H/**" "d.risk" "low" } }
@@ -297,7 +277,7 @@ test('DC009 overlapping and nested code areas agree', { skip }, () => {
   same(root, 'DC009');
 });
 
-test('designc check on a study registry has nothing to check and exits 0', { skip }, () => {
+test('designc check on a study registry has nothing to check and exits 0', () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-study-'));
   try {
     fs.writeFileSync(path.join(dir, 'designc.json'), JSON.stringify({ kind: 'study' }));

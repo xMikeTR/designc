@@ -1,4 +1,4 @@
-// The Python gate and the app gate say the same words about domain packs.
+// The command line (designc-core check) and Core.gate on hand-assembled inputs say the same words about domain packs.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -8,6 +8,7 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
 const Domain = require('../renderer/domain.js');
+const { CORE } = require('./helpers/parity.js');
 
 const APP = path.resolve(__dirname, '..');
 const PACK = fs.readFileSync(path.join(APP, 'fixtures/domain-registry/domain/fares.yaml'), 'utf8');
@@ -30,7 +31,7 @@ function setup({ pin = true, copy = PACK, source = PACK, owns = 'Booking', p } =
 }
 
 function python(reg) {
-  const r = spawnSync('python3', ['-m', 'designc', 'check', reg, '--json', '--no-record'], { cwd: path.join(APP, 'python'), encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', reg, '--json', '--no-record'], { encoding: 'utf8' });
   const out = JSON.parse(r.stdout);
   return { clauses: out.gate.clauses.filter(c => c.kind === 'domain').map(c => c.text), notes: out.gate.notes || [] };
 }
@@ -81,7 +82,7 @@ test('domain parity: the pinned, current case says nothing; the others say somet
 });
 
 test('domain registry: designc check validates its packs and exits 0 or 1', () => {
-  const run = r => spawnSync('python3', ['-m', 'designc', 'check', r], { cwd: path.join(APP, 'python'), encoding: 'utf8' });
+  const run = r => spawnSync(process.execPath, [CORE, 'check', r], { encoding: 'utf8' });
   assert.equal(run(path.join(APP, 'fixtures/domain-registry')).status, 0);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-domain-'));
   try {

@@ -1,85 +1,15 @@
-"""designc check <registry>: compile the model, run the gate, print findings and clauses.
+"""designc, the commands that still run in Python.
 
-Exit codes: 0 ready, 1 not ready, 2 the folder cannot be read."""
+`check` and `eval` are shims: they run the Node core (scripts/designc-core.js) and pass stdout, stderr and the exit code
+through (0 ready/passing, 1 not ready/failing, 2 cannot run, which includes no Node). The language is compiled only in
+Node. What stays here does not compile the model: `record` (ledger append), `work` and `verify-ledger`."""
 import argparse
 import getpass
 import json
 import os
 import subprocess
 import sys
-import time
 from shutil import which
-
-from . import domain, factory, ledger, record, work
-from .dsl import parse
-from .evals import score_eval
-from .gate import eval_hash, eval_problems, eval_report, gate, scoped_gate
-from .registry import load_handover_evals, load_handover_ids, load_domains, load_ledger, load_ui, load_registry, load_settings, load_yaml_dir, read_source, yaml_load, _list
-from .rules import check, fingerprint
-from .verify import read_ledger_files, verify
-
-
-def state(root):
-    """Everything one check run computes: the parsed model, its text, diagnostics and the gate."""
-    cfg = load_settings(root)
-    path = os.path.join(root, cfg.get('model') or 'model/workspace.dsl')
-    try:
-        with open(path, encoding='utf-8') as f: src = f.read()
-    except OSError:
-        raise SystemExit(f'designc: cannot read {cfg.get("model") or "model/workspace.dsl"} in {root}. Open a registry folder, or set "model" in designc.json.') from None
-    model = parse(src)
-    diags = check(model, cfg.get('chainHops') or 4, cfg.get('retryAmplification') or 4, cfg.get('repos') or {})
-    reg = load_registry(root)
-    led = load_ledger(root)
-    domains = load_domains(root, cfg)
-    if domains:
-        pinned = domain.pins(led)
-        domains['sources'] = {p['key']: read_source(root, cfg, pinned[p['key']]['registry'], p['key']) for p in domains['packs'] if p['key'] in pinned}
-    ui = load_ui(root, cfg, led)
-    g = gate(model, diags, reg['decisions'], reg['requirements'], led, reg['errors'], cfg.get('evidenceHosts') or [], reg['scenarios'], reg['evals'], business_owners=cfg.get('businessOwners') or [], acceptance=reg['acceptance'], tokens=reg['tokens'], min_text_size=((cfg.get('ux') or {}).get('minTextSize') or 12), domains=domains, work_states=work.states(load_yaml_dir(root, 'work', []), led), repos=cfg.get('repos') or {}, api_contracts=api_contracts(root), ui=ui)
-    return {'cfg': cfg, 'model': model, 'model_text': src, 'diags': diags, 'gate': g}
-
-
-def domain_registry_cmd(root, as_json):
-    """A domain registry has packs and no model: check each domain/<key>.yaml, exit 0 clean, 1 with problems."""
-    problems = []
-    for path, text in _list(root, 'domain', ['.yaml', '.yml']):
-        key = path.split('/')[-1].rsplit('.', 1)[0]
-        r = domain.read(text, yaml_load, key)
-        if 'error' in r: problems.append(f"{path} {r['error']}")
-        else: problems.extend(f'{path}: {x}' for x in r['problems'])
-    if as_json: print(json.dumps({'ready': not problems, 'problems': problems}, ensure_ascii=False, indent=2))
-    else:
-        for x in problems: print(x)
-        print('Domain packs are valid.' if not problems else f'{len(problems)} problem{"" if len(problems) == 1 else "s"} in the domain packs.')
-    return 1 if problems else 0
-
-
-def report(root): return report_of(state(root))
-
-
-def report_of(s):
-    model, diags, g = s['model'], s['diags'], s['gate']
-    return {
-        'errors': model.errors,
-        'findings': [{'code': d['code'], 'sev': d['sev'], 'msg': d['msg'], 'label': d['loc']['label'], 'line': d['loc']['line'],
-                      'unknown': bool(d['unknown']), 'suppressed': d['suppressed'] or None} for d in diags],
-        'gate': {'ready': g['ready'], 'clauses': [{'kind': c['kind'], 'text': c['text']} for c in g['clauses']], **({'notes': list(g['notes'])} if g.get('notes') else {}), **({'coverage': list(g['coverage'])} if g.get('coverage') else {})},
-    }
-
-
-def render(r):
-    lines = []
-    for e in r['errors']: lines.append(f"model:{e['line']}  error  {e['msg']}")
-    for f in r['findings']:
-        tag = 'suppressed' if f['suppressed'] else f['sev'] + (' (unknown)' if f['unknown'] else '')
-        lines.append(f"{f['code']}  {tag:<18} {f['label']}: {f['msg']}")
-    n = len(r['gate']['clauses'])
-    lines.append('')
-    lines.append('Ready for handover.' if r['gate']['ready'] else f'Not ready: {n} clause{"" if n == 1 else "s"} block the gate.')
-    for c in r['gate']['clauses']: lines.append(f"  - {c['text']}")
-    for n in r['gate'].get('notes') or []: lines.append(f'  unknown: {n}')
-    return '\n'.join(lines)
 
 
 def node_cli(args):
@@ -126,47 +56,14 @@ def main(argv):
     args = ap.parse_args(argv)
     if args.cmd == 'work': return work_cmd(os.path.abspath(args.registry), args.json)
     if args.cmd == 'record': return record_cmd(os.path.abspath(args.registry), args.by, args.json)
-    if args.cmd == 'verify-ledger': return verify_ledger(os.path.abspath(args.registry), args.json)
-    if args.record and args.no_record: return usage('--record and --no-record cannot be used together.')
-    if args.source not in (None, 'local', 'pipeline'): return usage('--source must be local or pipeline.')
-    root = os.path.abspath(args.registry)
-    if os.path.isdir(root) and load_settings(root).get('kind') == 'study':
-        print('designc: study registry: nothing to check. Its topics are for learning; decisions are made in a project registry.')
-        return 0
-    if os.path.isdir(root) and load_settings(root).get('kind') == 'domain': return domain_registry_cmd(root, args.json)
-    try: s = state(root)
-    except SystemExit as e:
-        print(e, file=sys.stderr); return 2
-    if args.item is not None:
-        items = load_yaml_dir(root, 'work', [])
-        it = next((i for i in items if str(i.get('id')) == args.item), None)
-        if it is None or not work.is_repo(it):
-            print(f'designc: no repo work item {args.item} in work/. Check the id; an item with a target has no scope.', file=sys.stderr); return 2
-        reg = load_registry(root)
-        s = {**s, 'gate': scoped_gate(s['gate'], s['model'], [str(e) for e in (it.get('elements') or [])], work.reqs(it), reg['decisions'])}
-        r = report_of(s)
-        warned = [c['text'] for c in s['gate']['warnings']]
-        if args.json: print(json.dumps({**r, 'item': args.item, 'outside': s['gate']['outside'], 'warnings': warned}, ensure_ascii=False, indent=2))
-        else:
-            print(f"Gate for work item {args.item} ({s['gate']['outside']} clause{'' if s['gate']['outside'] == 1 else 's'} outside its elements not counted)")
-            print(render(r))
-            if warned: print(f"{len(warned)} warning{'' if len(warned) == 1 else 's'} on its elements to check, not blocking.")
-        return 0 if r['gate']['ready'] else 1
-    r = report_of(s)
-    note = sys.stderr if args.json else sys.stdout
-    print(json.dumps(r, ensure_ascii=False, indent=2) if args.json else render(r))
-    ci = in_ci()
-    source = args.source or ('pipeline' if ci else 'local')
-    if args.no_record: pass
-    elif ci and not args.record: print('CI detected: not recording a gate event. Pass --record to record one.', file=note)
-    else: record_gate(root, s, source, args.by, note)
-    return 0 if r['gate']['ready'] else 1
+    return verify_ledger(os.path.abspath(args.registry), args.json)
 
 
 def record_cmd(root, by, as_json):
     """Exit codes: 0 every line recorded, 1 a line was refused and nothing was written, 2 the folder cannot be read."""
     if not os.path.isdir(root):
         print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    from . import factory  # imported here so check and eval need nothing but the standard library
     r = factory.record(root, sys.stdin.read(), who(by))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     elif r['ok']: print(f"recorded {r['recorded']} event{'' if r['recorded'] == 1 else 's'} in ledger/")
@@ -179,6 +76,7 @@ def record_cmd(root, by, as_json):
 def parity_scenarios(root, errors):
     """The ids in parity/scenarios/ (renderer/parityview.js loadParityScenarios). A file with no id is a problem, not
     named after its file: a scenario is recorded and judged by its id."""
+    from .registry import yaml_load
     ids = []
     sdir = os.path.join(root, 'parity', 'scenarios')
     for n in sorted(os.listdir(sdir)) if os.path.isdir(sdir) else []:
@@ -203,6 +101,8 @@ def work_cmd(root, as_json):
     """Exit 0 when every work item file is sound, 1 when one has a problem, 2 when the folder cannot be read."""
     if not os.path.isdir(root):
         print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    from . import work
+    from .registry import load_ledger, load_registry, load_yaml_dir, yaml_load
     errors = []
     items = load_yaml_dir(root, 'work', errors)
     reg = load_registry(root)
@@ -223,6 +123,8 @@ def work_cmd(root, as_json):
 def verify_ledger(root, as_json):
     if not os.path.isdir(root):
         print(f'designc: {root} is not a folder. Open a registry folder.', file=sys.stderr); return 2
+    from .registry import load_handover_evals, load_handover_ids, load_registry
+    from .verify import read_ledger_files, verify
     reg = load_registry(root)
     r = verify(read_ledger_files(root), load_handover_ids(root), [{'id': d['id'], 'kind': d.get('kind'), 'effect': d.get('effect'), 'checks': d.get('checks')} for d in reg['decisions']], load_handover_evals(root))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
@@ -234,36 +136,11 @@ def verify_ledger(root, as_json):
     return 1 if r['errors'] else 0
 
 
-CI_VARS = ('CI', 'TF_BUILD', 'GITLAB_CI', 'GITHUB_ACTIONS')
-
-
-def in_ci(): return any(os.environ.get(v) for v in CI_VARS)
-
-
-def usage(msg):
-    print(f'designc: {msg}', file=sys.stderr); return 2
-
-
 def who(by):
     if by: return by
     if os.environ.get('DESIGNC_BY'): return os.environ['DESIGNC_BY']
     try: return getpass.getuser()
     except Exception: return 'unknown'
-
-
-def api_contracts(root):
-    d = os.path.join(root, 'contracts', 'openapi')
-    return sorted(n for n in os.listdir(d) if n.endswith(('.yaml', '.yml'))) if os.path.isdir(d) else []
-
-
-def record_gate(root, s, source, by, out):
-    """Append one gate event unless the latest one from this source already says the same."""
-    ev = record.gate_record(s['model_text'], s['diags'], s['gate'], source, record.git_state(root, s['cfg']))
-    if ledger.gate_unchanged(load_ledger(root), ev):
-        print('gate unchanged, not recorded', file=out); return
-    res = ledger.append_event(root, {**ev, 'by': who(by)})
-    if res['ok']: print('recorded gate event in ledger/', file=out)
-    else: print('designc: could not record the gate event: ' + '; '.join(res['errors']), file=sys.stderr)
 
 
 def main_entry():

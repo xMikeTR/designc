@@ -1,4 +1,4 @@
-// The Python gate and the app gate say the same words about UI packs, specs and holdouts.
+// The command line (designc-core check) and Core.gate on hand-assembled inputs say the same words about UI packs, specs and holdouts.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -9,9 +9,9 @@ const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
 const Ui = require('../renderer/ui.js');
 const { BROKEN, hash } = require('./helpers/ui.js');
+const { CORE } = require('./helpers/parity.js');
 
 const APP = path.resolve(__dirname, '..');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const read = f => fs.readFileSync(f, 'utf8');
 const spec0 = JSON.parse(read(path.join(APP, 'fixtures/ui-project/ui/specs/bordereaux.json')));
 
@@ -31,7 +31,7 @@ const ls = (root, d) => (fs.existsSync(path.join(root, d)) ? fs.readdirSync(path
 const loadPack = reg => ({ components: ls(reg, 'ui/pack/components'), templates: ls(reg, 'ui/pack/templates') });
 
 function python(reg) {
-  const r = spawnSync('python3', ['-m', 'designc', 'check', reg, '--json', '--no-record'], { cwd: path.join(APP, 'python'), encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', reg, '--json', '--no-record'], { encoding: 'utf8' });
   const out = JSON.parse(r.stdout);
   return { clauses: out.gate.clauses.filter(c => c.kind === 'ui').map(c => c.text), notes: out.gate.notes || [], coverage: out.gate.coverage || [] };
 }
@@ -85,20 +85,20 @@ const cases = {
   'spec file named other than its screen': { edit: reg => fs.renameSync(path.join(reg, 'ui/specs/bordereaux.json'), path.join(reg, 'ui/specs/other.json')) },
 };
 for (const [name, opts] of Object.entries(cases)) {
-  test(`ui parity: ${name}`, { skip }, () => {
+  test(`ui headless: ${name}`, () => {
     const reg = setup(opts);
     try { assert.deepEqual(python(reg), js(reg)); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
   });
 }
-test('ui parity: the pinned, current case says nothing at all', { skip }, () => {
+test('ui headless: the pinned, current case says nothing at all', () => {
   const reg = setup();
   try { assert.deepEqual(js(reg), { clauses: [], notes: [], coverage: [] }); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
 });
-test('ui parity: the cases say something, so the comparison is not vacuous', { skip }, () => {
+test('ui headless: the cases say something, so the comparison is not vacuous', () => {
   const reg = setup({ edit: r => fs.writeFileSync(path.join(r, 'ui/specs/broken.json'), BROKEN) });
   try { const a = js(reg); assert.ok(a.clauses.length >= 13); assert.ok(a.notes.length >= 4); assert.deepEqual(python(reg), a); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
 });
-test('ui parity: the state rules say something in both gates', { skip }, () => {
+test('ui headless: the state rules say something in both', () => {
   for (const [name, re, where] of [['criterion in a state the spec lacks (R1)', /acceptance\/AC-1\/states\/4: State 'forbidden' is not in spec bordereaux/, 'clauses'], ['scenario step in a state the spec lacks (R2)', /steps\/2\/state: State 'apply-dialog'/, 'clauses'], ['scenario that records some states (R4)', /State 'error' is recorded by no parity step/, 'coverage'], ['a transition that commits (R5)', /ready → filtered commits/, 'coverage']]) {
     const reg = setup(cases[name]);
     try { const a = js(reg); assert.ok(a[where].some(t => re.test(t)), name); assert.deepEqual(python(reg), a); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }

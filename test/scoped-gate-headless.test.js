@@ -1,4 +1,4 @@
-// `designc check --item` (python/designc/gate.py scoped_gate) keeps the same clauses as Core.scopedGate.
+// `designc check --item` (designc-core, and `python -m designc check --item` through the shim) keeps the same clauses as Core.scopedGate.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -8,9 +8,8 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../renderer/core.js');
 const Work = require('../renderer/work.js');
+const { CORE } = require('./helpers/parity.js');
 
-const PY = path.join(__dirname, '..', 'python');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const put = (root, rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
 
 const DSL = `workspace "Q" {
@@ -27,7 +26,7 @@ const DSL = `workspace "Q" {
 }
 `;
 
-test('the Python scoped gate keeps the clauses Core.scopedGate keeps', { skip }, () => {
+test('the command-line scoped gate keeps the clauses Core.scopedGate keeps', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
@@ -49,14 +48,14 @@ test('the Python scoped gate keeps the clauses Core.scopedGate keeps', { skip },
   const js = Core.scopedGate(g, { model, elements: ['Bookings API', 'Bookings DB'], requirement: 'R-1', decisions });
   assert.ok(js.outside > 0 && js.clauses.length > 0, 'the case must filter something and keep something');
 
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-api', '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--item', 'W-api', '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
   assert.equal(py.item, 'W-api');
   assert.equal(py.outside, js.outside);
   assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
 });
 
-test('an item with several requirements keeps each one\'s requirement clause, in Python too', { skip }, () => {
+test('an item with several requirements keeps each one\'s requirement clause', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
   put(root, 'designc.json', '{}');
   put(root, 'model/workspace.dsl', DSL);
@@ -70,21 +69,21 @@ test('an item with several requirements keeps each one\'s requirement clause, in
   const js = Core.scopedGate(g, { model, elements: ['Bookings API'], requirement: Work.reqs({ requirement: ['R-1', 'R-2'] }), decisions: [] });
   assert.deepEqual(js.clauses.filter(c => c.kind === 'requirement').map(c => c.requirement), ['R-2']);
   assert.ok(g.clauses.some(c => c.requirement === 'R-3'), 'R-3 blocks the whole gate but not this item');
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-both', '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--item', 'W-both', '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout);
   assert.equal(py.outside, js.outside);
   assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
 });
 
-test('check --item refuses an item that is not a repo item', { skip }, () => {
+test('check --item refuses an item that is not a repo item', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-scope-'));
   put(root, 'model/workspace.dsl', DSL);
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'nope', '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--item', 'nope', '--json'], { encoding: 'utf8' });
   assert.equal(r.status, 2);
   assert.match(r.stderr, /no repo work item nope/);
 });
 
-test('warnings on an item\'s elements do not block, in Python too; errors do', { skip }, () => {
+test('warnings on an item\'s elements do not block; errors do', () => {
   const withRel = rel => `workspace "Q" {\n  model {\n    s = softwareSystem "Bookings" {\n      api = container "Bookings API"\n      bus = container "Bus"\n    }\n    api -> bus "sends" { properties {\n      d.interaction async\n      d.delivery \"at-least-once\"${rel} } }\n  }\n}\n`;
   for (const [idem, ready] of [['\n      d.idempotent no', false], ['', true]]) {
     const dsl = withRel(idem);
@@ -96,7 +95,7 @@ test('warnings on an item\'s elements do not block, in Python too; errors do', {
     put(root, 'model/workspace.dsl', dsl);
     put(root, 'requirements/R-1.yaml', 'id: R-1\ntitle: t\nversion: 1\nelements: [Bookings API, Bus]\n');
     put(root, 'work/W-1.yaml', 'id: W-1\nrequirement: R-1\nelements: [Bookings API, Bus]\ndone_when:\n  - gate: x\n');
-    const py = JSON.parse(spawnSync('python3', ['-m', 'designc', 'check', root, '--item', 'W-1', '--json'], { cwd: PY, encoding: 'utf8' }).stdout);
+    const py = JSON.parse(spawnSync(process.execPath, [CORE, 'check', root, '--item', 'W-1', '--json'], { encoding: 'utf8' }).stdout);
     assert.equal(js.ready, ready, JSON.stringify(js.clauses.map(c => c.text)));
     assert.deepEqual(py.gate.clauses, js.clauses.map(c => ({ kind: c.kind, text: c.text })));
     assert.deepEqual(py.warnings, js.warnings.map(c => c.text));

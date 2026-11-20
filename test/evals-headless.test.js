@@ -1,13 +1,11 @@
-// The Python gate (designc check) and the app's gate must agree on every eval state.
+// The command line (designc-core check) and the app's gate assembly must agree on every eval state.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
-const { spawnSync } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const Core = require('../renderer/core.js');
-const { nodeReport, pyReport, tmpRegistry } = require('./helpers/parity.js');
+const { nodeReport, coreReport, tmpRegistry } = require('./helpers/parity.js');
 
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const DAY = 86400000;
 
 const agent = (id, name, autonomy, evalId, extra = '') =>
@@ -61,22 +59,22 @@ function build() {
   return tmpRegistry(files);
 }
 
-test('the Python gate and the app gate agree on every eval state', { skip }, () => {
+test('the command line and the app gate agree on every eval state', () => {
   const root = build();
-  const js = nodeReport(root), py = pyReport(root);
+  const js = nodeReport(root), py = coreReport(root);
   assert.deepEqual(py.gate, js.gate);
   const evalTexts = js.gate.clauses.filter(c => c.kind === 'eval' || c.text.startsWith('duplicate id e-')).map(c => c.text);
   assert.equal(evalTexts.length, 12, evalTexts.join('\n'));
   assert.ok(!evalTexts.some(t => t.startsWith('Passing agent') || t.startsWith('Suggesting agent')));
 });
 
-test('a passing registry with evals is ready in both', { skip }, () => {
+test('a passing registry with evals is ready from both', () => {
   const model = 'workspace { model { s = softwareSystem "S" { a = container "A" "" "MAF" "Agent" { properties { "d.agent.autonomy" "approve-writes" "d.agent.eval" "e1" } } } } }';
   const text = evalYaml('e1', 'A');
   const m = Core.parse(model);
   const fp = Core.fingerprint(m, [...m.elements.values()].find(e => e.name === 'A').id).hash;
   const line = JSON.stringify({ kind: 'eval', by: 'ci', schema_version: 1, event_id: 'x1', eval: 'e1', agent: 'A', outcome: 'pass', metrics: { task_success: 0.9 }, cases: 3, source: 'pipeline', fingerprint: fp, eval_hash: Core.evalHash({ _text: text }), ts: Date.now() - 1000 }) + '\n';
   const root = tmpRegistry({ 'model/workspace.dsl': model, 'evals/e1.yaml': text, 'ledger/checks.jsonl': line });
-  assert.deepEqual(pyReport(root).gate, nodeReport(root).gate);
+  assert.deepEqual(coreReport(root).gate, nodeReport(root).gate);
   assert.deepEqual(nodeReport(root).gate.clauses.filter(c => c.kind === 'eval'), []);
 });

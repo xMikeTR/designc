@@ -3,8 +3,7 @@ import json
 import os
 
 from .ledger import SCHEMA, validate
-from .gate import accept_without_check
-from .record import canonical
+from .util import accept_without_check, canonical
 
 
 def _is_num(v): return isinstance(v, (int, float)) and not isinstance(v, bool)

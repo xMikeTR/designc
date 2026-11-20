@@ -10,9 +10,9 @@ const yaml = require('js-yaml');
 const Ui = require('../renderer/ui.js');
 const P = require('../paths.js');
 const { hash, ls } = require('./helpers/ui.js');
+const { CORE } = require('./helpers/parity.js');
 
 const APP = path.resolve(__dirname, '..');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const sha = b => crypto.createHash('sha256').update(b).digest('hex');
 const read = f => fs.readFileSync(f, 'utf8');
 const clone = o => JSON.parse(JSON.stringify(o));
@@ -52,14 +52,14 @@ function run({ spec, decisions = [], rows = () => [] }) {
     const specHash = sha(fs.readFileSync(specFile));
     const js = Ui.clauses({ pack, specs: ls(reg, 'ui/specs'), legacy: ls(reg, 'ui/legacy'), holdouts: ls(reg, 'ui/holdout'), tokens: read(path.join(reg, 'design-tokens/tokens.json')), ledger, decisions,
       previews: { tags: P.previewHashes(reg, 'tags') }, specHashes: { tags: specHash }, hash }).clauses.filter(c => c.path === SPEC).map(c => c.text);
-    const r = spawnSync('python3', ['-m', 'designc', 'check', reg, '--json', '--no-record'], { cwd: path.join(APP, 'python'), encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [CORE, 'check', reg, '--json', '--no-record'], { encoding: 'utf8' });
     const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'ui' && c.text.startsWith(SPEC)).map(c => c.text);
     return { js, py };
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 }
 const REMOVED = `${SPEC}: button 'Clear' is removed from legacy with no bound decision that removes it`;
 const LOOK = `${SPEC}: the look of tags differs from legacy with no bound decision citing its approved previews`;
-const same = (name, inp, want) => test(`legacy clauses (${name}): JS and Python say ${want.length ? want.length : 'no'} clause${want.length === 1 ? '' : 's'}, the same words`, { skip }, () => {
+const same = (name, inp, want) => test(`legacy clauses (${name}): JS and Python say ${want.length ? want.length : 'no'} clause${want.length === 1 ? '' : 's'}, the same words`, () => {
   const r = run(inp);
   assert.deepEqual(r.js, want);
   assert.deepEqual(r.py, want);
