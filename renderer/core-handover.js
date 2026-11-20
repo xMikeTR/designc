@@ -495,6 +495,8 @@ export { expect };
       if (rp.length) throw bad(rp[0].message);
       const op = operations(rec.effect.operation);
       if (!op) throw bad(`operation ${rec.effect.operation} is not in a pinned OpenAPI file`);
+      const qp = TS.requestProblems(rec, Core.operationInputs(ops, rec.effect.operation));
+      if (qp.length) throw bad(qp[0].message);
       const qualify = rows => {
         const o = {};
         for (const [name, list] of Object.entries(rows || {})) {
@@ -504,7 +506,7 @@ export { expect };
         return Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]]));
       };
       api.push({ id: rec.id, path: f.path, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, method: op.method, path: op.path },
-        examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}`, given: qualify(e && e.given), then: qualify(e && e.then) })) });
+        examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}`, given: qualify(e && e.given), then: qualify(e && e.then), ...(TS.requestOf(rec, i) ? { request: TS.requestOf(rec, i) } : {}) })) });
     }
     api.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     if (!byScreen.size && !skipped.length && !api.length) return null;
@@ -524,7 +526,7 @@ export { expect };
       const texts = new Map();
       for (const p of packs || []) { const r = DM.read(p.text, p.load, p.key); if (!r.error && r.pack) texts.set(r.pack.id || p.key, p.text); }
       const entities = [...used.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([id, e]) => ({ id, pack: e.pack, name: e.name, version: e.version, fields: e.fields }));
-      doc = { ...doc, schema: 'designc.handover.scenarios/2', api, entities };
+      doc = { ...doc, schema: api.some(a => a.examples.some(e => e.request)) ? 'designc.handover.scenarios/3' : 'designc.handover.scenarios/2', api, entities };
       for (const a of api) idEntries.push(`scenario_api\0${a.path}\0${a.sha256}`);
       for (const pk of [...new Set(entities.map(e => e.pack))].sort()) idEntries.push(`scenario_entity\0${pk}\0${hash16(texts.get(pk))}`);
     }
