@@ -68,6 +68,14 @@
     }
     (Array.isArray(rec.examples) ? rec.examples : []).forEach((ex, i) => {
       if (!isObj(ex)) return;
+      if (ex.request !== undefined) {
+        const rq = ex.request;
+        if (!isObj(rq) || Object.keys(rq).some(k => !['path', 'query', 'body'].includes(k))) errs.push(`examples[${i}].request: a mapping with path, query and body only`);
+        else for (const k of ['path', 'query']) {
+          if (rq[k] === undefined) continue;
+          if (!isObj(rq[k]) || Object.values(rq[k]).some(v => !['string', 'number', 'boolean'].includes(typeof v))) errs.push(`examples[${i}].request.${k}: a mapping of parameter name to a string, number or boolean`);
+        }
+      }
       for (const f of ['given', 'then']) {
         if (ex[f] == null) continue;
         if (!isObj(ex[f])) { errs.push(`examples[${i}].${f}: a mapping of entity name to a list of rows`); continue; }
@@ -77,8 +85,8 @@
         }
       }
     });
-    // {given} and {then} are reserved for an example's rows. Once per name.
-    for (const name of ['given', 'then']) {
+    // {given}, {then} and {request} are reserved for an example's rows and request. Once per name.
+    for (const name of ['given', 'then', 'request']) {
       const tok = `{${name}}`; let where = null;
       const has = x => typeof x === 'string' ? x.includes(tok) : Array.isArray(x) ? x.some(has) : isObj(x) ? Object.values(x).some(has) : false;
       if (Array.isArray(rec.steps)) rec.steps.forEach((s, k) => { if (!where && isObj(s) && has(s.value)) where = `steps[${k}]`; });

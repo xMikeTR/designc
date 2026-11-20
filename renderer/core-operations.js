@@ -48,6 +48,45 @@
     return hits.length === 1 ? hits[0] : null;
   }
 
+  // C4b: what a call to the operation takes. null when the operation does not resolve uniquely. One local `#/components/...` $ref
+  // is followed per parameter, requestBody and body schema. Header and cookie parameters are ignored.
+  function operationInputs(reg, operationId) {
+    const op = resolveOperation(reg, operationId);
+    if (!op) return null;
+    const load = reg.yamlLoad || (typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load);
+    let doc; try { doc = load(reg.files[op.file]); } catch { return null; }
+    const isO = x => x && typeof x === 'object' && !Array.isArray(x);
+    const deref = n => {
+      if (!isO(n) || typeof n.$ref !== 'string' || !n.$ref.startsWith('#/')) return n;
+      let t = doc;
+      for (const seg of n.$ref.slice(2).split('/').map(x => x.replace(/~1/g, '/').replace(/~0/g, '~'))) t = isO(t) ? t[seg] : undefined;
+      return t === undefined ? n : t;
+    };
+    const item = doc.paths[op.path], operation = item[op.method.toLowerCase()];
+    const params = new Map();
+    for (const raw of [...(Array.isArray(item.parameters) ? item.parameters : []), ...(Array.isArray(operation.parameters) ? operation.parameters : [])]) {
+      const p = deref(raw);
+      if (isO(p) && typeof p.name === 'string' && typeof p.in === 'string') params.set(`${p.in}\0${p.name}`, p);
+    }
+    const query = [...params.values()].filter(p => p.in === 'query').map(p => ({ name: p.name, required: p.required === true }));
+    const path = [...op.path.matchAll(/\{([^}]+)\}/g)].map(m => m[1]);
+    let body = null;
+    const rb = deref(operation.requestBody);
+    if (isO(rb)) {
+      body = { required: rb.required === true, mapping: false, properties: null, requiredProps: [], closed: false };
+      const content = isO(rb.content) ? rb.content : {};
+      const key = 'application/json' in content ? 'application/json' : Object.keys(content).find(k => /^\*\/\*\+json$/.test(k) || /^[^/]+\/[^/]*\+json$/.test(k));
+      const sc = key ? deref(isO(content[key]) ? content[key].schema : null) : null;
+      if (isO(sc) && !sc.allOf && !sc.oneOf && !sc.anyOf && (sc.type === 'object' || isO(sc.properties))) {
+        body.mapping = true;
+        body.properties = isO(sc.properties) ? Object.keys(sc.properties) : null;
+        body.requiredProps = Array.isArray(sc.required) ? sc.required.filter(x => typeof x === 'string') : [];
+        body.closed = body.properties !== null && (sc.additionalProperties === undefined || sc.additionalProperties === false);
+      }
+    }
+    return { path, query, body };
+  }
+
   // Events of every pinned pack. packs: [{key, text, load}]. A pack that does not read is skipped (the domain gate reports it).
   function packEvents(packs) {
     const DM = typeof Domain !== 'undefined' ? Domain : require('./domain.js');
@@ -102,5 +141,5 @@
     return { error: `${t} is defined by ${ps.join(' and ')}: write ${ps[0]}/${t}` };
   }
 
-  Object.assign(Core, { operations, resolveOperation, packEvents, resolveMessage, packAggregates, resolveEntity });
+  Object.assign(Core, { operations, resolveOperation, operationInputs, packEvents, resolveMessage, packAggregates, resolveEntity });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

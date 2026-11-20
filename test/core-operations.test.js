@@ -117,3 +117,62 @@ test('resolveEntity: qualified, bare unique, bare ambiguous, unknown', () => {
   assert.match(Core.resolveEntity(aggs, 'Nope').error, /no pinned pack defines aggregate Nope/);
   assert.match(Core.resolveEntity(aggs, 'orders/Nope').error, /no pinned pack defines aggregate orders\/Nope/);
 });
+
+// C4b: operationInputs
+const OPS = `openapi: 3.0.3
+info: {title: t, version: '1'}
+components:
+  parameters:
+    Size: {name: size, in: query, required: true}
+  requestBodies:
+    TagBody:
+      required: true
+      content:
+        application/json:
+          schema: {$ref: '#/components/schemas/Tag'}
+  schemas:
+    Tag: {type: object, required: [tag], properties: {tag: {type: string}, note: {type: string}}}
+paths:
+  /orders/{orderId}/tags:
+    parameters:
+      - {name: page, in: query, required: true}
+      - {name: orderId, in: path, required: true}
+    post:
+      operationId: tagOne
+      parameters:
+        - {name: page, in: query}
+        - {$ref: '#/components/parameters/Size'}
+        - {name: X-Trace, in: header}
+      requestBody: {$ref: '#/components/requestBodies/TagBody'}
+  /plain: {get: {operationId: plain}}
+  /all:
+    post:
+      operationId: allOf
+      requestBody: {content: {application/json: {schema: {allOf: [{type: object}]}}}}
+  /open:
+    post:
+      operationId: open
+      requestBody: {content: {application/problem+json: {schema: {type: object, properties: {a: {}}, additionalProperties: true}}}}
+  /d1: {get: {operationId: dd}}
+  /d2: {get: {operationId: dd}}
+`;
+test('operationInputs: path, merged and $ref query params, header ignored, $ref body closed', () => {
+  const r = reg({ 'contracts/openapi/o.yaml': OPS });
+  assert.deepStrictEqual(Core.operationInputs(r, 'tagOne'), { path: ['orderId'], query: [{ name: 'page', required: false }, { name: 'size', required: true }],
+    body: { required: true, mapping: true, properties: ['tag', 'note'], requiredProps: ['tag'], closed: true } });
+  assert.deepStrictEqual(Core.operationInputs(r, 'allOf').body, { required: false, mapping: false, properties: null, requiredProps: [], closed: false });
+  assert.equal(Core.operationInputs(r, 'open').body.closed, false);
+  assert.equal(Core.operationInputs(r, 'open').body.mapping, true);
+  assert.equal(Core.operationInputs(r, 'nope'), null);
+});
+test('operationInputs: no body, duplicate op is null; fixture tagOrders', () => {
+  const r = reg({ 'contracts/openapi/o.yaml': OPS });
+  assert.deepStrictEqual(Core.operationInputs(r, 'plain'), { path: [], query: [], body: null });
+  assert.equal(Core.operationInputs(r, 'dd'), null);
+  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/b.yml': B }), 'putTag'), { path: [], query: [], body: null });
+  const fs = require('fs'), path = require('path');
+  const fx = fs.readFileSync(path.join(__dirname, '..', 'fixtures', 'scenario-registry', 'contracts', 'openapi', 'orders.yaml'), 'utf8');
+  assert.deepStrictEqual(Core.operationInputs(reg({ 'contracts/openapi/orders.yaml': fx }), 'tagOrders'), { path: [], query: [],
+    body: { required: true, mapping: true, properties: ['match', 'tag'], requiredProps: ['match', 'tag'], closed: true } });
+  assert.deepStrictEqual(Core.operations(reg({ 'contracts/openapi/orders.yaml': fx })), { operations: [{ operationId: 'tagOrders', method: 'POST', path: '/orders/tags', file: 'contracts/openapi/orders.yaml' }], errors: [] });
+});

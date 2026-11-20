@@ -71,7 +71,9 @@
         "questions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the page does not settle; any open question blocks binding" },
         "examples": { "type": "array", "items": { "type": "object", "properties": {
           "given": { "$ref": "#/$defs/rows", "description": "Seed rows (C4): entity (pack aggregate) -> rows, field -> literal value" },
-          "then": { "$ref": "#/$defs/rows", "description": "Expected rows after the call (C4), matched on the listed fields only" } } } },
+          "then": { "$ref": "#/$defs/rows", "description": "Expected rows after the call (C4), matched on the listed fields only" },
+          "request": { "type": "object", "additionalProperties": false, "description": "C4b: the call's inputs for the API test. path and query values are literal scalars; body only when effect.body is absent",
+            "properties": { "path": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }, "query": { "type": "object", "additionalProperties": { "type": ["string", "number", "boolean"] } }, "body": {} } } } } },
         "screen": { "type": "string", "minLength": 1 },
         "steps": { "type": "array", "minItems": 1, "items": { "type": "object", "description": "{fill|select|click|check: {role, name}, value?}" } },
         "effect": { "type": "object", "required": ["operation"], "properties": { "operation": { "type": "string" }, "body": { "type": "object" }, "then_state": { "type": "object", "required": ["screen", "state"] } } }
