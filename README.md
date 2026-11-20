@@ -236,6 +236,14 @@ What designc does for an ACP agent:
 - **Flags bypasses.** An external agent can still change files directly with its own tools. Anything that changes in the registry during an ACP turn without an approved write is flagged in the panel and recorded as `unapproved_change` in the ledger.
 - **Records** its tool calls, permission answers, writes and turns in `ledger/agents.jsonl`, tagged with the agent name, next to the built-in agent's.
 
+**With the app closed.** `designc-mcp.js` also runs on its own under plain `node`, no Electron and no `DESIGNC_MCP_URL`. Register it in Claude Code with:
+
+```
+claude mcp add designc -- node /path/to/designc-mcp.js --registry /path/to/registry
+```
+
+The registry is `--registry <dir>`, else `DESIGNC_REGISTRY`, else the current folder. Four read tools are available, served from the files on disk with the same names and answers as the app: `read_model`, `get_findings`, `get_gate`, `get_code_map` (from `asbuilt/facts.json`). Every other tool answers `designc app not running: <name> needs the designc app open on this registry`. If `DESIGNC_MCP_URL` points at an app that is not listening, the server falls back to this mode.
+
 The limit to be clear about: designc governs everything that flows through ACP and its own MCP tools. It does not sandbox the agent process. What an agent does with its own native tools depends on that agent's permission settings, so leave its auto-approve modes off, and run it inside the MAF harness under ACS where you need hard enforcement rather than detection.
 
 For offline demos, `dev/mock-acp-agent.js` is a scripted ACP agent that uses the MCP bridge, asks permission, writes through the client and tries a write the policy refuses:
@@ -643,7 +651,7 @@ Core logic, the extractors, the ledger, the CLI and the governance checks run in
 | `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. The one front end: the app, `designc-core` and the `python -m designc check` shim all run it |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
-| `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |
+| `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app, or four read tools headless |
 | `dev/mock-gateway.js` | Scripted OpenAI-compatible gateway for demos and tests |
 | `dev/mock-acp-agent.js` | Scripted ACP agent for demos and tests |
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
