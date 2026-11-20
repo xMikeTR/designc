@@ -42,8 +42,10 @@ function nodeState(root) {
   for (const f of listDir(root, 'ledger', ['.jsonl'])) raw.push(...Ledger.parse(f.text, f.path).events);
   const ledger = Ledger.derive(Ledger.order(raw));
   const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
-  const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos });
-  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: listDir(root, 'contracts/openapi', ['.yaml', '.yml']).map(f => f.path) });
+  const apiFiles = listDir(root, 'contracts/openapi', ['.yaml', '.yml']);
+  const operations = Core.operations({ files: Object.fromEntries(apiFiles.map(f => [f.path, f.text])), yamlLoad: require('js-yaml').load });
+  const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos, boundary: { operations, events: [] } });
+  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: apiFiles.map(f => f.path), operations });
   return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
 }
 // Core now carries the agentic rules (AG001-AG011) in every host; Python never had them. Until A2 retires the Python

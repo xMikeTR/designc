@@ -160,7 +160,8 @@ async function loadYamlDir(dir, keepText = false) {
 async function loadRegistry() {
   A.yamlErrors = [];
   [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
-  A.apiContractPaths = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => f.path);
+  A.apiContractFiles = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => ({ path: f.path, text: textOf(f.path) ?? f.text }));
+  A.apiContractPaths = A.apiContractFiles.map(f => f.path);
   A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
   A.contractsText = await readText(Contracts.PATHS.result);
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
@@ -184,6 +185,9 @@ async function loadDomains() {
     if (A.packSources[key] === undefined) A.packSources[key] = null;
   }
 }
+// R4: the pinned OpenAPI operations and pack events a rel's d.operation / d.message is checked against (as gate-inputs.js does).
+const operationsInput = () => Core.operations({ files: Object.fromEntries((A.apiContractFiles || []).map(f => [f.path, f.text])), yamlLoad: jsyaml.load });
+const boundaryInput = () => ({ operations: operationsInput(), events: Core.packEvents(A.packs || []) });
 const domainsInput = () => ((A.packs && A.packs.length) || (Array.isArray(A.cfg.domains) && A.cfg.domains.length)
   ? { listed: A.cfg.domains || [], packs: A.packs || [], sources: A.packSources || {}, behaviour: A.packBehaviour || [] } : null);
 // Pin or re-pin a pack: a person's copy of the pack as the source registry has it now, with its hash in the ledger.
@@ -544,8 +548,8 @@ function cmQualityBadge(e) {
 }
 function recompile() {
   A.model = Core.parse(A.modelText);
-  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), ui: A.ui, testScenarios: (A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), workStates: Work.states(A.work || [], A.ledger || []) });
+  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos, boundary: boundaryInput() }) : [];
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), operations: operationsInput(), domains: domainsInput(), ui: A.ui, testScenarios: (A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
@@ -1651,7 +1655,7 @@ function clauseHelp(c) {
   if (c.kind === 'assumption') return 'Each assumption needs text and a review_by date written as YYYY-MM-DD. Fix them in the decision file.';
   if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return 'Evidence is a link to where the business agreed this, starting with https://.';
   if (c.kind === 'scenario') return 'Open the scenario in scenarios/ and complete it: artifact (an element in the model), attribute and measure. For a failing fitness function, run it and read the output.';
-  if (c.kind === 'unpinned_contract') return 'This requirement spans several elements. Add the OpenAPI file that pins the contract between them under contracts/openapi/.';
+  if (c.kind === 'unpinned_contract') return 'A relationship of this requirement crosses repos without a pinned contract. Name the operation (d.operation) or event (d.message) the relationship carries, and pin it in an OpenAPI file under contracts/openapi/ or a domain pack.';
   if (c.kind === 'eval' && !(c.agent && c.evalId)) return 'Open the eval in evals/ and fix it, or add one for the agent named. It needs a command, a results path and thresholds.';
   if (c.kind === 'domain') return 'Open the domain pack in domain/ (or its source registry) and fix what the line names, then pin it again.';
   return '';

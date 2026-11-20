@@ -70,7 +70,8 @@ const GateInputs = (() => {
     // B4: test-scenarios/*.yaml, parsed with _path. A file that does not parse is the work view's problem (Problems), not a registry clause.
     const testScenarios = [];
     for (const f of list('test-scenarios', ['.yaml', '.yml'])) { try { const o = load(f.text); if (o && typeof o === 'object' && !Array.isArray(o)) testScenarios.push({ ...o, _path: f.path }); } catch { /* skipped */ } }
-    const apiContracts = list('contracts/openapi', ['.yaml', '.yml']).map(f => f.path);
+    const apiFiles = list('contracts/openapi', ['.yaml', '.yml']);
+    const apiContracts = apiFiles.map(f => f.path);
     const tokens = files[TOKENS] != null ? files[TOKENS] : null;
     const contractsText = files['contracts/out/result.json'] != null ? files['contracts/out/result.json'] : null;
     // app.js loadLedger
@@ -132,12 +133,15 @@ const GateInputs = (() => {
       let doc; try { doc = C.handoverAgents(modelText); } catch { return []; }
       return CT.gaps({ resultText: contractsText, agentsDoc: doc, agentsText: JSON.stringify(doc, null, 2) + '\n', hash: C._shared.hash16 });
     };
-    const checkOptions = { chainHops: cfg.chainHops || 4, retryAmplification: cfg.retryAmplification || 4, repos: cfg.repos };
+    // R4: what a rel's d.operation / d.message is checked against, computed once for the lint and the gate.
+    const operations = C.operations({ files: Object.fromEntries(apiFiles.map(f => [f.path, f.text])), yamlLoad: load });
+    const boundary = { operations, events: C.packEvents(packs) };
+    const checkOptions = { chainHops: cfg.chainHops || 4, retryAmplification: cfg.retryAmplification || 4, repos: cfg.repos, boundary };
     const gateInputs = {
       model, decisions, requirements, ledger, registryErrors: yamlErrors.map(e => ({ path: e.path, message: e.msg })),
       evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, acceptance, tokens,
       minTextSize: (cfg.ux && cfg.ux.minTextSize) || C.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: cfg.repos,
-      apiContracts, domains, ui, testScenarios, workStates: WK.states(work, ledger),
+      apiContracts, operations, domains, ui, testScenarios, workStates: WK.states(work, ledger),
     };
     return { cfg, modelText, model, checkOptions, gateInputs, yamlErrors, work, ledger, ledgerRaw };
   }

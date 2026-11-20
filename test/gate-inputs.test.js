@@ -9,7 +9,8 @@ const base = (extra = {}, cfg = {}) => GateInputs.assemble({ cfg, files: { 'mode
 
 test('defaults, check options and an empty registry', () => {
   const a = base();
-  assert.deepEqual(a.checkOptions, { chainHops: 4, retryAmplification: 4, repos: undefined });
+  assert.deepEqual({ ...a.checkOptions, boundary: undefined }, { chainHops: 4, retryAmplification: 4, repos: undefined, boundary: undefined });
+  assert.deepEqual(a.checkOptions.boundary, { operations: { operations: [], errors: [] }, events: [] });
   const g = a.gateInputs;
   assert.equal(g.minTextSize, Core.DEFAULT_MIN_TEXT);
   assert.deepEqual([g.decisions, g.requirements, g.scenarios, g.evals, g.acceptance, g.apiContracts, g.contractGaps, g.registryErrors], [[], [], [], [], [], [], [], []]);
