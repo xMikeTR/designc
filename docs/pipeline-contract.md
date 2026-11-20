@@ -18,6 +18,8 @@ The cross-repo seam is an OpenAPI 3.x YAML file under `contracts/openapi/` in th
 
 The gate raises `unpinned_contract` (about the two ends of the rel) once per cross-repo relationship of a requirement that is not covered: the rel must name a `d.operation` found in exactly one pinned OpenAPI file (or, for an async rel, a `d.message` that a pinned domain pack defines). A requirement whose elements span more than one declared repo with no relationship crossing between them raises one clause naming the elements. An unrelated or empty contract file covers nothing. A pipeline seeing no `contracts_api:` in a multi-repo handover must run the API side first.
 
+A model split with `!include` is frozen as the root plus each included `.dsl` at its registry-relative path (for example `model/fares.dsl`), all listed and hashed in `handover.yaml`; `model:` still names the root, and a handover with no includes is unchanged.
+
 ## Kinds a pipeline writes
 
 Append one JSON object per line to `ledger/pipeline.jsonl` (or, for `check` and `handover_closed`, their usual stream: `checks.jsonl`, `designc.jsonl`). Every line carries `schema_version`, `by` and `kind`; `event_id` and `ts` are stamped if missing.
