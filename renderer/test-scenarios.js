@@ -134,6 +134,120 @@ const TestScenarios = (() => {
     return lines.length ? `Refused, nothing minted. Fix every point and call mint_test_scenarios again:\n${lines.join('\n')}` : null;
   }
 
-  return { mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
+
+  // ---- B3: compile a bound structured scenario to request test cases (D9). Pure. ----
+  const refuse = msg => new Error(`handover refused: ${msg}`);
+  // The state a generated test opens the screen in: the initial one, unless it holds data back (pending or failed), else the first that doesn't.
+  function startState(spec) {
+    const names = Object.keys(isObj(spec.states) ? spec.states : {});
+    const ok = n => { const s = spec.states[n]; return !(isObj(s) && ((s.pending || []).length || (s.failed || []).length)); };
+    const initial = names.find(n => isObj(spec.states[n]) && spec.states[n].initial === true);
+    return (initial && ok(initial) ? initial : names.find(ok) || initial || names[0]) || 'ready';
+  }
+  // The screen a scenario is rendered on: its own, or its host's when it is an overlay. null when the scenario's spec is unknown.
+  function renderScreen(scenario, specs) {
+    const s = specFor(specs, scenario && scenario.screen);
+    return s ? (isObj(s.host) && s.host.screen ? s.host.screen : s.screen) : null;
+  }
+  const WHOLE = /^\{([A-Za-z_][\w-]*)\}$/;
+  function fill(v, ex, id, where) {
+    if (typeof v === 'string') {
+      const w = WHOLE.exec(v);
+      const val = name => { if (!(name in ex)) throw refuse(`scenario ${id}: ${where} has no value for {${name}}`); return ex[name]; };
+      if (w) return val(w[1]);
+      return v.replace(/\{([A-Za-z_][\w-]*)\}/g, (_, n) => String(val(n)));
+    }
+    if (Array.isArray(v)) return v.map(x => fill(x, ex, id, where));
+    if (isObj(v)) return Object.fromEntries(Object.entries(v).map(([k, x]) => [k, fill(x, ex, id, where)]));
+    return v;
+  }
+  const serverPath = url => { const m = /^(?:[a-z][a-z0-9+.-]*:)?\/\/[^/]*(\/.*)?$/i.exec(String(url || '')); const p = m ? m[1] || '' : String(url || ''); return p.replace(/\/+$/, ''); };
+  // scenario: a bound structured record; specs: as specFor; operations: id -> {method, path, server?} | null (server is the OpenAPI
+  // servers[0].url); path: where the record lives (for the file header). Throws "handover refused: ..." (no file, unknown screen or
+  // operation, unfilled placeholder).
+  function compile({ scenario, specs, operations, path }) {
+    const id = scenario.id;
+    const own = specFor(specs, scenario.screen);
+    if (!own) throw refuse(`scenario ${id}: no ui spec for ${scenario.screen}`);
+    const hosted = isObj(own.host) && own.host.screen;
+    const render = hosted ? specFor(specs, own.host.screen) : own;
+    if (!render) throw refuse(`scenario ${id}: host screen ${own.host.screen} of ${scenario.screen} has no ui spec`);
+    if (typeof render.file !== 'string' || !render.file) throw refuse(`scenario ${id}: ui spec ${render.screen} has no \`file\` (the page the test renders)`);
+    const op = typeof operations === 'function' ? operations(scenario.effect && scenario.effect.operation) : null;
+    if (!op) throw refuse(`scenario ${id}: operation ${scenario.effect && scenario.effect.operation} is not in a pinned OpenAPI file`);
+    let prefix = [];
+    if (hosted) {
+      const anchor = Object.values(isObj(render.slots) ? render.slots : {}).flat().find(p => isObj(p) && p.id === own.host.anchor);
+      if (!anchor || !isObj(anchor.locator)) throw refuse(`scenario ${id}: host anchor ${own.host.anchor} has no locator on ${render.screen}`);
+      prefix = [{ verb: 'click', role: anchor.locator.role, name: anchor.locator.name }];
+    }
+    const path_ = `${serverPath(op.server)}${op.path}`.replace(/\{([^}]+)\}/g, ':$1');
+    const examples = Array.isArray(scenario.examples) ? scenario.examples : [];
+    const cases = examples.map((ex, i) => {
+      const where = `examples[${i}]`;
+      const steps = [...prefix];
+      for (const s of Array.isArray(scenario.steps) ? scenario.steps : []) {
+        const verb = verbOf(s); if (!verb) continue;
+        const o = { verb, role: s[verb].role, name: s[verb].name };
+        if (s.value !== undefined) o.value = fill(s.value, ex, id, where);
+        steps.push(o);
+      }
+      const body = scenario.effect.body === undefined ? null : fill(scenario.effect.body, ex, id, where);
+      return { title: `${id} example ${i + 1}`, steps, request: { method: op.method, path: path_, body } };
+    });
+    return { id, path: path || null, screen: render.screen, component: render.component, file: render.file, state: startState(render), cases };
+  }
+
+  // The text of ui-contract/tests/<screen>.scenarios.page.test.tsx: one test per (scenario, example) of the compiled scenarios of one
+  // render screen (all share screen, component, file). Same input, same bytes. Vitest browser mode, like the Factory's page test.
+  function testFile(screen, compiled) {
+    const lit = JSON.stringify;
+    const list = [...compiled].sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const c0 = list[0];
+    const noExt = c0.file.replace(/\\/g, '/').replace(/\.[A-Za-z0-9]+$/, '');
+    const act = s => {
+      const loc = `page.getByRole(${lit(s.role)}, { name: ${lit(s.name)} })`;
+      if (s.verb === 'fill') return `await ${loc}.fill(${lit(String(s.value))});`;
+      if (s.verb === 'select') return `await ${loc}.selectOptions(${lit(String(s.value))});`;
+      return `await ${loc}.click();`;
+    };
+    const tests = [];
+    for (const c of list) for (const k of c.cases) {
+      const r = k.request;
+      tests.push(`  test(${lit(k.title)}, async () => {
+    let sent: unknown = undefined;
+    worker.use(
+      ...handlersFor(spec as any, ${lit(c.state)}),
+      http.${r.method.toLowerCase()}(${lit(r.path)}, async ({ request }) => {
+        const text = await request.clone().text();
+        sent = text ? JSON.parse(text) : null;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    await render(<div data-testid="ui-root"><Page /></div>);
+    await expect.element(page.getByTestId("ui-root")).toBeInTheDocument();
+${k.steps.map(x => `    ${act(x)}`).join('\n')}
+    await expect.poll(() => sent, { message: ${lit(`${k.title}: ${r.method} ${r.path} body`)} }).toEqual(${lit(r.body)});
+  });
+`);
+    }
+    return `// GENERATED by designc from ${list.map(c => c.path || c.id).join(', ')}. Do not edit.
+import React from "react";
+import { describe, test, expect } from "vitest";
+import { page } from "vitest/browser";
+import { render } from "vitest-browser-react";
+import { http, HttpResponse } from "msw";
+import spec from "../specs/${screen}.json";
+import { ${c0.component} as Page } from "../../${noExt}";
+import { handlersFor, useWorker } from "../preview/vitest-ui";
+
+describe(${lit(`${screen} scenarios`)}, () => {
+  const worker = useWorker();
+
+${tests.join('\n')}});
+`;
+  }
+
+  return { testFile, compile, startState, renderScreen, mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;
