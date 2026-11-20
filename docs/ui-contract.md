@@ -118,6 +118,10 @@ The host checks run across specs (`hostRules` in `renderer/ui.js`), one clause e
 
 Previews and handover for hosted specs are not built yet (B2b).
 
+### Scenario tests (B3)
+
+A bound structured test scenario (`test-scenarios/*.yaml`, `status: bound`, with `effect.operation` and at least one example) of a requirement in the handover is compiled when the handover is frozen. `TestScenarios.compile` turns each (scenario, example) into one test; `TestScenarios.testFile` writes them as `ui-contract/tests/<screen>.scenarios.page.test.tsx`, one file per render screen. A scenario of a hosted spec renders its host and starts by clicking the anchor placement. The files are Vitest browser-mode tests in the same `ui-page` project as the Factory's page test (`describe("<screen> scenarios")`, so the page report does not count them): the test mocks the operation's method and path (from `contracts/openapi`, `{p}` as `:p`, after the `servers[0].url` path), drives the steps with `page.getByRole(role, { name })` and expects the captured request body to equal `effect.body` with the example's values (`{x}` as a whole string keeps the example's JSON type). A bound scenario that cannot compile refuses the freeze (render spec without `file`, unknown operation, unfilled placeholder). A minted one, or one whose render screen is not a UI screen of the handover, is listed under `skipped` in `scenarios.json` with a reason. The test files are copies inside the handover id; `scenarios.json` (`docs/handover-scenarios.schema.json`, example beside it) lists them, and `handover.yaml` names it as `scenario_tests:`. designc does not run them: the Factory's UI runner does (F1). They are visible to agents; the agent must not edit them.
+
 ## Checks
 
 Gate clauses of a new kind, `ui`, only when a pack is pinned (`ui/pack/` exists) or a spec exists (opt-in, like domain packs). `GATE_INPUTS` gains `ui`.

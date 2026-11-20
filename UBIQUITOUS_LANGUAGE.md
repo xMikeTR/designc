@@ -150,6 +150,7 @@ this marking is a reading of how the files are written and checked.
 | Acceptance criterion | What a person sees in each state of a UI element, written before the build: `acceptance/*.yaml`, one case per required state |
 | UI-facing | An element tagged `UI`; a requirement is UI-facing when any of its elements is |
 | Hosted spec | A screen spec with a `host {screen, state, anchor}` field: an overlay (such as a popover) that opens over a state of another screen's spec, by clicking the anchor placement. It uses a template such as `popover-form`; the commit and its outcome state stay on the host. `hostRules` in `renderer/ui.js` checks it across specs. Also called an overlay |
+| Scenario test | The Vitest browser test designc generates from a bound structured test scenario and one of its examples, at freeze: it clicks through the steps and expects the request body the scenario's effect names. Frozen in the handover at `ui-contract/tests/<screen>.scenarios.page.test.tsx`, listed in `scenarios.json`; the agent never edits it, the Factory runs it |
 | Design tokens | Value | `design-tokens/tokens.json`, a W3C token file copied into each handover; text size tokens have a minimum |
 | UX rule | Value | The `ux` block of an acceptance criterion: keyboard, focus order, focus return, breakpoints |
 | Required state | A state a criterion must have a case for: ready, loading, empty, error, and forbidden behind a sign-in |
