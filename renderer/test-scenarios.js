@@ -318,12 +318,139 @@ ${tests.join('\n')}});
   }
   // D6: how much of a requirement page a structured scenario quotes. Shown, never a gate clause.
   function coverage(pageText, scenarios = []) {
-    const text = squash(String(pageText == null ? '' : pageText).replace(/<[^>]*>/g, ' '));
-    const sentences = (text.match(/[^.!?]+[.!?]*/g) || []).map(squash).filter(x => /[A-Za-z0-9]/.test(x));
+    const all = sentences(pageText);
     const sources = (scenarios || []).filter(r => Rec.isStructuredScenario(r) && typeof r.source === 'string' && squash(r.source)).map(r => squash(r.source));
-    const uncovered = sentences.filter(s => !sources.some(src => src.includes(s) || s.includes(src)));
-    return { covered: sentences.length - uncovered.length, total: sentences.length, uncovered };
+    const uncovered = all.filter(s => !sources.some(src => covers(src, s)));
+    return { covered: all.length - uncovered.length, total: all.length, uncovered };
   }
-  return { clauses, coverage, testFile, compile, startState, renderScreen, mintProblems, rowProblems, bindProblem, specFor, locators, build, fileText, refusal };
+
+  // ---- C5: variance between two extractions of one requirement page. Pure. ----
+  const canon = v => Array.isArray(v) ? `[${v.map(canon).join(',')}]` : isObj(v) ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canon(v[k])}`).join(',')}}` : JSON.stringify(v === undefined ? null : v);
+  const leaf = v => Array.isArray(v) ? v.map(leaf) : isObj(v) ? Object.fromEntries(Object.entries(v).map(([k, x]) => [k, leaf(x)])) : v === null || v === undefined ? null : String(v);
+  const RUN_TAG = /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/;
+  const validRun = s => typeof s === 'string' && RUN_TAG.test(s);
+  const minted = r => Rec.isStructuredScenario(r) && r.status !== 'bound';
+  // Which earlier run a new call compares with. recs: parsed records (any requirement, any status).
+  function earlierRun(recs, requirement, run) {
+    const tags = [...new Set((recs || []).filter(r => minted(r) && r.requirement === requirement && typeof r.run === 'string' && r.run).map(r => r.run))].sort();
+    if (!tags.length) return { tag: null };
+    if (tags.includes(run)) return { error: `run ${run} already has minted scenarios for ${requirement}: give the second extraction a different run tag` };
+    if (tags.length > 1) return { error: `${requirement} has minted scenarios from more than one earlier run (${tags.join(', ')}): variance compares two runs; bind or delete one set first` };
+    return { tag: tags[0] };
+  }
+  const covers = (src, sentence) => src.includes(sentence) || sentence.includes(src);
+
+  // The comparable form of one structured scenario. Placeholders are renamed {1}, {2}, ... by first appearance.
+  function normalise(rec, entities) {
+    const Core_ = typeof Core !== 'undefined' ? Core : require('./core.js');
+    const names = [];
+    const note = v => { for (const n of placeholders(v)) if (!names.includes(n)) names.push(n); };
+    const steps0 = Array.isArray(rec.steps) ? rec.steps : [];
+    steps0.forEach(s => note(isObj(s) ? s.value : null));
+    const sortedWalk = x => { if (typeof x === 'string') note(x); else if (Array.isArray(x)) x.forEach(sortedWalk); else if (isObj(x)) Object.keys(x).sort().forEach(k => sortedWalk(x[k])); };
+    sortedWalk(rec.effect && rec.effect.body);
+    const ren = s => typeof s === 'string' ? s.replace(/\{([A-Za-z_][\w-]*)\}/g, (m, n) => names.includes(n) ? `{${names.indexOf(n) + 1}}` : m) : s;
+    const steps = steps0.map(s => { const verb = verbOf(s); return verb ? { verb, role: s[verb].role, name: s[verb].name, value: s.value === undefined ? null : ren(s.value) } : null; }).filter(Boolean);
+    const rows = m => {
+      const out = {};
+      if (!isObj(m)) return out;
+      for (const [k, v] of Object.entries(m)) {
+        const r = Core_.resolveEntity(entities, k);
+        const key = r.error ? k : `${r.entity.pack}/${r.entity.name}`;
+        out[key] = (out[key] || []).concat((Array.isArray(v) ? v : []).map(leaf));
+      }
+      for (const k of Object.keys(out)) out[k] = out[k].map(r => canon(r)).sort();
+      return out;
+    };
+    const examples = (Array.isArray(rec.examples) ? rec.examples : []).filter(isObj).map(ex => {
+      const vals = {};
+      names.forEach((n, i) => { if (n in ex) vals[i + 1] = String(ex[n]); });
+      const extra = {};
+      for (const [k, v] of Object.entries(ex)) if (k !== 'title' && k !== 'given' && k !== 'then' && !names.includes(k)) extra[k] = leaf(v);
+      const given = rows(ex.given), then = rows(ex.then);
+      return { input: canon({ vals, given }), output: canon({ then, extra }), given: Object.keys(given), then: Object.keys(then) };
+    });
+    return { screen: rec.screen, operation: rec.effect && rec.effect.operation, steps, examples };
+  }
+  const sentences = pageText => {
+    const text = squash(String(pageText == null ? '' : pageText).replace(/<[^>]*>/g, ' '));
+    return (text.match(/[^.!?]+[.!?]*/g) || []).map(squash).filter(x => /[A-Za-z0-9]/.test(x));
+  };
+  // How the examples of two runs differ: a list of details, empty when they agree.
+  function exampleDetails(ea, eb) {
+    if (!ea.length && !eb.length) return [];
+    if (!ea.length || !eb.length) return ['one run has none'];
+    const ents = (xs, f) => [...new Set(xs.flatMap(x => x[f]))].sort().join(',');
+    const out = [];
+    if (ents(ea, 'given') !== ents(eb, 'given') || ents(ea, 'then') !== ents(eb, 'then')) out.push('rows on different entities');
+    const outs = xs => { const m = new Map(); for (const x of xs) m.set(x.input, (m.get(x.input) || new Set()).add(x.output)); return m; };
+    const ma = outs(ea), mb = outs(eb);
+    for (const [k, s] of ma) if (mb.has(k) && [...s].sort().join('|') !== [...mb.get(k)].sort().join('|')) { out.push('a different outcome for the same input'); break; }
+    return out;
+  }
+  const FIELD_ORDER = ['screen', 'steps', 'operation', 'examples'];
+  // a, b: {run, scenarios: [rec]} (a is the earlier run). opts: {pageText, entities}.
+  // Returns [{sentence, fields, question, targets: {a: [id], b: [index]}}], one per disagreeing key, in page order.
+  function diffRuns(a, b, { pageText, entities } = {}) {
+    const side = run => (run && Array.isArray(run.scenarios) ? run.scenarios : []).map((rec, index) => ({ rec, index, src: squash(rec && rec.source || '') })).filter(x => Rec.isStructuredScenario(x.rec) && x.src);
+    const SA = side(a), SB = side(b);
+    const sents = [...new Set(sentences(pageText))];
+    const loose = [...new Set([...SA, ...SB].filter(x => !sents.some(s => covers(x.src, s))).map(x => x.src))].sort();
+    const out = []; let compared = 0;
+    for (const key of [...sents, ...loose]) {
+      const isSent = sents.includes(key);
+      const inKey = x => isSent ? covers(x.src, key) : x.src === key;
+      const KA = SA.filter(inKey), KB = SB.filter(inKey);
+      if (!KA.length && !KB.length) continue;
+      compared++;
+      let fields = [], parts = [];
+      if (KA.length !== KB.length) { fields = ['cases']; parts = [`the number of cases (${KA.length} and ${KB.length})`]; }
+      else {
+        const norm = x => ({ ...x, n: normalise(x.rec, entities) });
+        const head = x => canon({ screen: x.n.screen, operation: x.n.operation, steps: x.n.steps });
+        const sort = xs => xs.map(norm).sort((p, q) => { const hp = head(p), hq = head(q); return hp < hq ? -1 : hp > hq ? 1 : 0; });
+        const pa = sort(KA), pb = sort(KB), used = new Set(), pairs = [], left = [];
+        for (const x of pa) { const j = pb.findIndex((y, i) => !used.has(i) && head(y) === head(x)); if (j >= 0) { used.add(j); pairs.push([x, pb[j]]); } else left.push(x); }
+        const rest = pb.filter((_, i) => !used.has(i));
+        left.forEach((x, i) => pairs.push([x, rest[i]]));
+        const found = {};
+        for (const [x, y] of pairs) {
+          if (x.n.screen !== y.n.screen) found.screen = found.screen || `screen (${x.n.screen} or ${y.n.screen})`;
+          if (canon(x.n.steps) !== canon(y.n.steps)) found.steps = found.steps || 'steps';
+          if (x.n.operation !== y.n.operation) found.operation = found.operation || `operation (${x.n.operation} or ${y.n.operation})`;
+          const d = exampleDetails(x.n.examples, y.n.examples);
+          if (d.length) found.examples = found.examples || `examples (${d.join('; ')})`;
+        }
+        fields = FIELD_ORDER.filter(f => found[f]); parts = fields.map(f => found[f]);
+      }
+      if (!fields.length) continue;
+      out.push({
+        sentence: key, fields,
+        question: `Variance: two extractions of "${key}" disagree on ${parts.join(', ')}. Which does the page mean?`,
+        targets: { a: KA.map(x => String(x.rec.id)).sort(), b: KA.length ? [] : KB.map(x => x.index).sort((p, q) => p - q) },
+      });
+    }
+    Object.defineProperty(out, 'compared', { value: compared, enumerable: false });
+    return out;
+  }
+  // Where each question goes. diffs: diffRuns output; earlier: [{path, rec}] of the earlier run; list: the raw `scenarios` arguments of the
+  // second call (index-aligned with b.scenarios). {updates: [{path, rec, added: [question]}], mint: [scenarioArgs]}.
+  function varianceWrites(diffs, earlier, list) {
+    const add = (qs, q) => (qs.some(x => String(x).trim() === q.trim()) ? null : [...qs, q]);
+    const updates = [];
+    for (const e of earlier || []) {
+      let qs = Array.isArray(e.rec.questions) ? [...e.rec.questions] : [], added = [];
+      for (const d of diffs) if (d.targets.a.includes(String(e.rec.id))) { const n = add(qs, d.question); if (n) { qs = n; added.push(d.question); } }
+      if (added.length) updates.push({ path: e.path, rec: { ...e.rec, questions: qs }, added });
+    }
+    const idx = [...new Set(diffs.flatMap(d => d.targets.b))].sort((x, y) => x - y);
+    const mint = idx.map(i => {
+      let qs = Array.isArray(list[i] && list[i].questions) ? [...list[i].questions] : [];
+      for (const d of diffs) if (d.targets.b.includes(i)) qs = add(qs, d.question) || qs;
+      return { ...list[i], questions: qs };
+    });
+    return { updates, mint };
+  }
+  return { clauses, coverage, diffRuns, earlierRun, varianceWrites, covers, testFile, compile, startState, renderScreen, mintProblems, rowProblems, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;

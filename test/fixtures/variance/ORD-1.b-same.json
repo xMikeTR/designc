@@ -1,0 +1,157 @@
+{
+  "requirement": "ORD-1",
+  "run": "b",
+  "scenarios": [
+    {
+      "title": "Orders that do not match stay as they are",
+      "quote": "An order that does not match is left untouched.",
+      "screen": "orders-tag",
+      "steps": [
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "Match"
+          },
+          "value": "{pattern}"
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "Tag"
+          },
+          "value": "{label}"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Apply"
+          }
+        }
+      ],
+      "effect": {
+        "operation": "tagOrders",
+        "body": {
+          "match": "{pattern}",
+          "tag": "{label}"
+        }
+      },
+      "examples": [
+        {
+          "title": "nothing matches",
+          "pattern": "Q-",
+          "label": "Rush",
+          "given": {
+            "orders/Order": [
+              {
+                "id": "1",
+                "ref": "A-100"
+              }
+            ]
+          },
+          "then": {
+            "orders/Order": [
+              {
+                "id": "1",
+                "tag": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Bulk tag by match string",
+      "quote": "The tag is applied to all orders matching the string entered.",
+      "screen": "orders-tag",
+      "steps": [
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "Match"
+          },
+          "value": "{pattern}"
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "Tag"
+          },
+          "value": "{label}"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Apply"
+          }
+        }
+      ],
+      "effect": {
+        "operation": "tagOrders",
+        "body": {
+          "match": "{pattern}",
+          "tag": "{label}"
+        }
+      },
+      "examples": [
+        {
+          "title": "extra input",
+          "pattern": "B-",
+          "label": "Hold",
+          "given": {
+            "orders/Order": [
+              {
+                "id": "2",
+                "ref": "B-200"
+              },
+              {
+                "id": "1",
+                "ref": "A-100"
+              }
+            ]
+          },
+          "then": {
+            "orders/Order": [
+              {
+                "id": "2",
+                "tag": "Hold"
+              }
+            ]
+          }
+        },
+        {
+          "title": "starts with A-",
+          "pattern": "A-",
+          "label": "Priority",
+          "given": {
+            "orders/Order": [
+              {
+                "id": 3,
+                "ref": "XA-1"
+              },
+              {
+                "id": "2",
+                "ref": "B-200"
+              },
+              {
+                "id": "1",
+                "ref": "A-100"
+              }
+            ]
+          },
+          "then": {
+            "orders/Order": [
+              {
+                "id": 3,
+                "tag": null
+              },
+              {
+                "id": "1",
+                "tag": "Priority"
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
