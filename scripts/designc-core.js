@@ -233,7 +233,7 @@ async function recordGate(dir, state, source, by, note, err) {
   let git = null;
   const s = await Git.status(dir);
   if (s && !s.error) git = { commit: s.head || null, dirty: Core.dirtyInputs(s.files || [], state.cfg).length > 0 };
-  const ev = Core.gateRecord({ modelText: state.modelText, diags: state.diags, gate: state.gate, source, git });
+  const ev = Core.gateRecord({ modelText: state.modelText, modelIncludes: state.model.sources.slice(1), diags: state.diags, gate: state.gate, source, git });
   if (Ledger.gateUnchanged(state.assembled.ledgerRaw, ev)) { note('gate unchanged, not recorded'); return; }
   const res = await LedgerStore.appendEvent(dir, { ...ev, by: who(by) });
   if (res.ok) note('recorded gate event in ledger/'); else err('designc: could not record the gate event: ' + res.errors.join('; '));

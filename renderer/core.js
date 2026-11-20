@@ -797,7 +797,7 @@ const Core = (() => {
   }
   function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, testScenarios = [], workStates = {}, repos = null, apiContracts = [], operations = null, now = Date.now() }) {
     const clauses = [];
-    if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
+    if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line, file: model.errors[0].file ?? null });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
       const seen = new Set(), said = new Set();
       for (const x of list) { if (seen.has(x.id) && !said.has(x.id)) { said.add(x.id); clauses.push({ kind: 'duplicate', text: `duplicate id ${x.id}`, [kind]: x.id }); } seen.add(x.id); }
@@ -811,7 +811,7 @@ const Core = (() => {
     for (const f of diags) {
       if (f.suppressed || f.sev === 'note') continue;
       if (bound.some(dec => covers(dec, f))) continue;
-      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, finding: f, about: [...f.loc.names, ...f.related.flatMap(r => r.names || [])] });
+      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, file: f.loc.file ?? null, finding: f, about: [...f.loc.names, ...f.related.flatMap(r => r.names || [])] });
     }
     const boundBusiness = new Set(decisions.filter(d => d.status === 'bound' && d.kind === 'business').map(d => d.id));
     for (const dec of decisions) {
@@ -849,7 +849,7 @@ const Core = (() => {
       }
       if (dec.effect === 'fix' || (dec.effect === 'build' && dec.work != null && workStates[dec.work] === 'done')) {
         const still = diags.filter(f => !f.suppressed && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b)));
-        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${(dec.resolves || []).join(', ')} is ${dec.effect === 'build' ? 'built' : 'fixed'}, but the model still raises it`, decision: dec.id, line: still[0].loc.line });
+        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${(dec.resolves || []).join(', ')} is ${dec.effect === 'build' ? 'built' : 'fixed'}, but the model still raises it`, decision: dec.id, line: still[0].loc.line, file: still[0].loc.file ?? null });
       }
     }
     for (const req of requirements) {
@@ -1151,7 +1151,8 @@ const Core = (() => {
 
   // ---------- gate record ----------
   // The model revision a handover and a gate event both carry: r- plus 8 hex of the model text.
-  const modelRevision = text => `r-${hash16(String(text)).slice(0, 8)}`;
+  // `includes` is `model.sources.slice(1)`: the included files, so a change in one is a new revision. Empty: the text alone.
+  const modelRevision = (text, includes = []) => `r-${hash16(String(text) + includes.map(f => '\0\0' + f.path + '\0' + f.text).join('')).slice(0, 8)}`;
   // Canonical JSON: keys sorted at every level, no whitespace. Mirrored in python/designc/record.py.
   const canonical = v => Array.isArray(v) ? `[${v.map(canonical).join(',')}]`
     : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`
@@ -1167,12 +1168,12 @@ const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'test-scenarios',
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
   // evals/ holds the definitions (.yaml) the gate reads and the results files it does not, so only the definitions count.
-  return files.map(f => f.path).filter(p => p === model || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')) && !(p.startsWith('evals/') && !/\.ya?ml$/.test(p)));
+  return files.map(f => f.path).filter(p => p === model || modelFiles([p], model).length || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')) && !(p.startsWith('evals/') && !/\.ya?ml$/.test(p)));
 }
-function gateRecord({ modelText, diags, gate, source, git }) {
+function gateRecord({ modelText, modelIncludes = [], diags, gate, source, git }) {
     const clauses = byCanonical(gate.clauses.map(c => ({ kind: c.kind, text: c.text })));
     const findings = byCanonical(diags.map(d => ({ code: d.code, sev: d.sev, on: d.loc.label, loc: d.loc.kind, unknown: !!d.unknown, suppressed: !!d.suppressed })));
-    const ev = { kind: 'gate', source, revision: modelRevision(modelText), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
+    const ev = { kind: 'gate', source, revision: modelRevision(modelText, modelIncludes), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
     if (git) { ev.commit = git.commit; ev.dirty = !!git.dirty; }
     return ev;
   }

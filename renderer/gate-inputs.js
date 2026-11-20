@@ -125,12 +125,12 @@ const GateInputs = (() => {
       ui = { pack, specs, legacy, holdouts, sources, scenarios: uiScenarios, previews, specHashes };
     }
     const modelText = files[cfg.model] != null ? files[cfg.model] : null;
-    const model = C.parse(modelText == null ? '' : modelText);
+    const model = C.parse(modelText == null ? '' : modelText, { path: cfg.model, resolve: p => (files[p] != null ? files[p] : null) });
     // contractsview.js contractGaps
     const contractGaps = () => {
       const c = cfg.contracts, s = CT.settings(c);
       if (!s || s.error || c.require !== true || !model || model.errors.length) return [];
-      let doc; try { doc = C.handoverAgents(modelText); } catch { return []; }
+      let doc; try { doc = C.handoverAgents({ text: modelText, path: cfg.model, resolve: p => (files[p] != null ? files[p] : null) }); } catch { return []; }
       return CT.gaps({ resultText: contractsText, agentsDoc: doc, agentsText: JSON.stringify(doc, null, 2) + '\n', hash: C._shared.hash16 });
     };
     // R4: what a rel's d.operation / d.message is checked against, computed once for the lint and the gate.

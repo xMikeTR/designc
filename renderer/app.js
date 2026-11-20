@@ -77,6 +77,8 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const plural = (n, w) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + 'ies' : w + 's'}`;
 const trunc = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
 const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(16).slice(0, 7); };
+// The status-bar revision: the model text, plus the included files when the model has `!include` (unchanged for a single file).
+const modelRev = () => 'r-' + hash((A.modelText || '') + (A.model && A.model.sources ? A.model.sources.slice(1).map(f => '\0\0' + f.path + '\0' + f.text).join('') : ''));
 const fmtN = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
 const when = ts => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
 const extOf = p => (p.match(/\.([^.\/]+)$/) || [, ''])[1].toLowerCase();
@@ -1284,7 +1286,7 @@ async function gateGit() {
 async function recordGate(source, git) {
   if (git === undefined) git = await gateGit();
   const modelText = (await host.read(A.cfg.model)) || '';
-  const ev = Core.gateRecord({ modelText, diags: A.diags, gate: A.gate, source, git });
+  const ev = Core.gateRecord({ modelText, modelIncludes: A.model ? A.model.sources.slice(1) : [], diags: A.diags, gate: A.gate, source, git });
   if (!Ledger.gateUnchanged(A.ledgerRaw, ev)) await recordEvent('gate', ev);
   return git;
 }
@@ -1590,7 +1592,7 @@ function renderStatus() {
     ${pos ? `<button>${pos}</button>` : ''}${lang ? `<button>${lang}</button>` : ''}
     <button data-s="tel" title="Langfuse telemetry (click to refresh)">${A.tel.loading ? 'Langfuse: loading…' : A.tel.error ? (A.tel.error.error === 'not_configured' ? 'Langfuse: off' : 'Langfuse: error') : A.tel.meta ? `Langfuse${A.tel.meta.source === 'sample' ? ' (sample)' : ''}: ${plural(A.tel.runs.length, 'run')}` : 'Langfuse: off'}</button>
     <button data-s="llm" title="Model gateway for grill-me and drafting">${esc(llm)}</button>
-    ${hasModel ? `<button>r-${hash(A.modelText)}</button><button data-s="gate" class="${g.ready ? '' : 'gate-no'}" title="Definition of ready">${g.ready ? 'Gate: ready to hand over' : `Gate: ${g.clauses.length} blocking`}</button>` : ''}`;
+    ${hasModel ? `<button>${modelRev()}</button><button data-s="gate" class="${g.ready ? '' : 'gate-no'}" title="Definition of ready">${g.ready ? 'Gate: ready to hand over' : `Gate: ${g.clauses.length} blocking`}</button>` : ''}`;
 }
 
 // ---------------------------------------------------------------- sidebar
@@ -2154,7 +2156,7 @@ function renderSheet() {
   });
   const live = A.diags.filter(d => !d.suppressed), last = A.handovers[A.handovers.length - 1];
   const tb = $('#titleblock'); tb.style.display = host_.clientWidth < 560 ? 'none' : '';
-  tb.innerHTML = `<table><tr><td colspan="2" class="t">${esc(m.name)}</td></tr><tr><td class="k">Revision</td><td>r-${hash(A.modelText)}</td></tr>
+  tb.innerHTML = `<table><tr><td colspan="2" class="t">${esc(m.name)}</td></tr><tr><td class="k">Revision</td><td>${modelRev()}</td></tr>
     <tr><td class="k">Findings</td><td>${plural(live.filter(d => d.sev === 'error').length, 'error')}, ${plural(live.filter(d => d.sev === 'warning').length, 'warning')}</td></tr>
     <tr><td class="k">Gate</td><td class="${A.gate.ready ? 'ok' : 'no'}">${A.gate.ready ? 'Ready to hand over' : `${A.gate.clauses.length} blocking`}</td></tr>
     <tr><td class="k">As built</td><td>${A.drift ? (A.drift.undeclared.length + A.drift.unknownEls.length ? `<span class="no">${plural(A.drift.undeclared.length + A.drift.unknownEls.length, 'difference')}</span>` : '<span class="ok">matches the design</span>') : 'not mapped'}</td></tr>

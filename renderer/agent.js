@@ -128,8 +128,8 @@ const READERS = {
     return cap(JSON.stringify({ modes: Ledger.taxonomyModes(A.taxonomy).modes.map(({ count, ...m }) => m), failed: fails.map(r => ({ observation: r.observation, task: r.task, run: r.run_id, attempt: r.attempt, note: r.note, failure_mode: r.failure_mode ?? null })) }));
   },
   read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) : `No model at ${A.cfg.model} yet.`,
-  get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
-  get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }),
+  get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
+  get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }),
   list_decisions: () => JSON.stringify({
     decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, assumptions: d.assumptions || [], latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
     requirements: A.requirements.map(r => ({ id: r.id, title: r.title, elements: r.elements })),
@@ -788,7 +788,7 @@ const uid = p => `${p}_${Date.now().toString(36)}${Math.random().toString(36).sl
 function designcState() {
   const live = A.diags.filter(f => !f.suppressed);
   return { designc: {
-    model: { path: A.cfg.model, revision: 'r-' + hash(A.modelText || ''), elements: A.model ? A.model.elements.size : 0 },
+    model: { path: A.cfg.model, revision: modelRev(), elements: A.model ? A.model.elements.size : 0 },
     findings: { errors: live.filter(f => f.sev === 'error').length, warnings: live.filter(f => f.sev === 'warning').length,
       top: live.slice(0, 25).map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line })) },
     gate: { ready: !!(A.gate && A.gate.ready), blocking: A.gate ? A.gate.clauses.slice(0, 25).map(c => c.text) : [] },

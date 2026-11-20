@@ -41,7 +41,7 @@ function nodeState(root) {
   let raw = [];
   for (const f of listDir(root, 'ledger', ['.jsonl'])) raw.push(...Ledger.parse(f.text, f.path).events);
   const ledger = Ledger.derive(Ledger.order(raw));
-  const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
+  const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'), { path: cfg.model, resolve: p => { try { return fs.readFileSync(path.join(root, p), 'utf8'); } catch { return null; } } });
   const apiFiles = listDir(root, 'contracts/openapi', ['.yaml', '.yml']);
   const operations = Core.operations({ files: Object.fromEntries(apiFiles.map(f => [f.path, f.text])), yamlLoad: require('js-yaml').load });
   const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos, boundary: { operations, events: [] } });
@@ -59,8 +59,8 @@ function withoutAg(report) {
 function nodeReport(root, { ag = true } = {}) {
   const { model, diags, gate } = nodeState(root);
   const r = {
-    errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),
-    findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+    errors: model.errors.map(e => ({ line: e.line, file: e.file, msg: e.msg })),
+    findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, file: d.loc.file, unknown: !!d.unknown, suppressed: d.suppressed || null })),
     gate: { ready: gate.ready, clauses: gate.clauses.map(c => ({ kind: c.kind, text: c.text })) },
   };
   return ag ? r : withoutAg(r);

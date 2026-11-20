@@ -65,7 +65,7 @@ function open(dir, { handover = null } = {}) {
   const modelRel = (frozen && frozen.model) || settings.model || 'model/workspace.dsl';
   const mp = path.join(base, modelRel);
   const modelText = fs.existsSync(mp) ? fs.readFileSync(mp, 'utf8') : null;
-  const model = modelText != null ? Core.parse(modelText) : null;
+  const model = modelText != null ? Core.parse(modelText, { path: modelRel, resolve: p => { try { return fs.readFileSync(path.join(base, p), 'utf8'); } catch { return null; } } }) : null;
   const decisions = readYamlDir(base, 'decisions');
   const requirements = readYamlDir(base, 'requirements');
   const verdicts = readYamlDir(dir, 'verdicts');
@@ -74,7 +74,7 @@ function open(dir, { handover = null } = {}) {
   const ledger = readLedger(dir);
   return {
     dir, settings, handover: frozen ? { id: handover, ...frozen } : null, modelText, model,
-    revision: modelText != null ? Core.modelRevision(modelText) : null,
+    revision: modelText != null ? Core.modelRevision(modelText, model.sources.slice(1)) : null,
     decisions: decisions.recs, requirements: requirements.recs, verdicts: verdicts.recs, procedures: procedures.recs, items: work.recs.map(r => r.rec),
     ledger: ledger.events,
     problems: [...decisions.errors, ...requirements.errors, ...verdicts.errors, ...procedures.errors, ...work.errors, ...ledger.errors],
@@ -217,6 +217,14 @@ function gateFiles(dir, cfg) {
   const files = {};
   const modelRel = cfg.model || 'model/workspace.dsl';
   try { files[modelRel] = fs.readFileSync(path.join(dir, modelRel), 'utf8'); } catch { /* missing: the caller says so */ }
+  // The model's folder: every .dsl under it, so `!include` resolves from the same map the app has.
+  const mdir = path.dirname(modelRel) === '.' ? '' : path.dirname(modelRel);
+  const walk = rel => {
+    let ents = []; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return []; }
+    const skip = e => e.name === 'node_modules' || e.name === '.git' || (!rel && (e.name === 'handovers' || e.name === 'asbuilt'));
+    return ents.flatMap(e => e.isDirectory() ? (skip(e) ? [] : walk(rel ? `${rel}/${e.name}` : e.name)) : [rel ? `${rel}/${e.name}` : e.name]);
+  };
+  for (const p of Core.modelFiles(walk(mdir), modelRel)) if (!(p in files)) { try { files[p] = fs.readFileSync(path.join(dir, p), 'utf8'); } catch { /* skipped */ } }
   for (const d of GateInputs.REG_DIRS) readFilesInto(files, dir, d, GATE_EXTS.yaml);
   const hv = path.join(dir, 'handovers');
   if (fs.existsSync(hv)) for (const n of fs.readdirSync(hv).sort()) if (fs.statSync(path.join(hv, n)).isDirectory()) readFilesInto(files, dir, `handovers/${n}`, GATE_EXTS.yaml);
@@ -274,8 +282,8 @@ function checkState(dir) {
 function reportOf(s) {
   const g = s.gate;
   return {
-    errors: s.model.errors.map(e => ({ line: e.line, msg: e.msg })),
-    findings: s.diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+    errors: s.model.errors.map(e => ({ line: e.line, file: e.file, msg: e.msg })),
+    findings: s.diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, file: d.loc.file, unknown: !!d.unknown, suppressed: d.suppressed || null })),
     gate: { ready: g.ready, clauses: g.clauses.map(c => ({ kind: c.kind, text: c.text })), ...(g.notes && g.notes.length ? { notes: [...g.notes] } : {}), ...(g.coverage && g.coverage.length ? { coverage: [...g.coverage] } : {}) },
   };
 }
@@ -340,8 +348,8 @@ function callTool(dir, name, args = {}) {
   const s = checkState(dir);
   if (s.error) return { isError: true, text: s.error };
   if (name === 'read_model') return { isError: false, text: s.modelText ? mcpCap(mcpNumbered(s.modelText, args.from || 1, args.to || Infinity)) : `No model at ${s.cfg.model} yet.` };
-  if (name === 'get_findings') return { isError: false, text: JSON.stringify(s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))) };
-  if (name === 'get_gate') return { isError: false, text: JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }) };
+  if (name === 'get_findings') return { isError: false, text: JSON.stringify(s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))) };
+  if (name === 'get_gate') return { isError: false, text: JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }) };
   return { isError: false, text: mcpCodeMap(dir, s) };
 }
 

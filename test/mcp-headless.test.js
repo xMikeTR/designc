@@ -28,7 +28,7 @@ test('headless tool definitions equal the app\'s TOOLS (names, descriptions, sch
 test('get_gate equals the app handler on the same state (sample-registry)', () => {
   const s = Headless.checkState(SAMPLE);
   const g = Core.gate; assert.equal(typeof g, 'function');
-  const appText = JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) });
+  const appText = JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) });
   const r = Headless.callTool(SAMPLE, 'get_gate');
   assert.equal(r.isError, false);
   assert.equal(r.text, appText);
@@ -40,7 +40,7 @@ test('get_gate equals the app handler on the same state (sample-registry)', () =
 
 test('get_findings has the app format', () => {
   const s = Headless.checkState(SAMPLE);
-  const expect = s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }));
+  const expect = s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }));
   const out = JSON.parse(Headless.callTool(SAMPLE, 'get_findings').text);
   assert.deepEqual(out, JSON.parse(JSON.stringify(expect)));
   assert.ok(out.length > 0 && 'severity' in out[0] && 'where' in out[0]);
