@@ -1355,7 +1355,7 @@ async function freezeOnce(item) {
   let plan;
   try {
     plan = Core.handoverPlan({
-      ui: uiIn, facts: factsIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
+      ui: uiIn, facts: factsIn, testScenarios: await read('test-scenarios', ['.yaml', '.yml']), criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.

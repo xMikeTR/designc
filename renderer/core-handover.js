@@ -282,7 +282,7 @@ export { expect };
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -315,6 +315,7 @@ export { expect };
     if (domain) out.push(`${++n}. ${code('domain.json')} says which element owns which aggregate; ${code('domain/')} holds the team's domain model. Honour its aggregates, invariants and event payloads, and do not edit it.`);
     if (references.length) out.push(`${++n}. Read-only references: ${references.map(r => `${code(r.key)} (${r.kind})`).join(', ')}. Whoever started this build gives you where each one lives. Read them to learn what correct behaviour is; never write them, and do not copy their code into the areas above where the requirements say otherwise.`);
     if (ui) out.push(`${++n}. ${code('ui.json')} lists the screens, each with its spec under ${code('ui/specs/')} and the approved previews under ${code('ui/previews/')}. Build each screen from its spec: one library component per placement, ${code('data-ui-id')} first, no inline styles or raw values. Do not edit the spec, the pack files or the previews.`);
+    if (scenarioTests && scenarioTests.copies.length) out.push(`${++n}. ${code('scenarios.json')} lists the scenario tests designc generated from the bound test scenarios. Never edit ${code('ui-contract/tests/*.scenarios.page.test.tsx')}: they are how the screen's requests are judged.`);
     out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
@@ -376,7 +377,51 @@ export { expect };
     return { risk, dataClass };
   }
 
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null }) {
+
+  // B3: the generated scenario tests (docs/handover-scenarios.schema.json, designc.handover.scenarios/1). Each bound structured test
+  // scenario of a requirement in the handover, with an operation and examples, on a screen the handover's UI part carries, compiles
+  // (TestScenarios.compile) to request tests in ui-contract/tests/<screen>.scenarios.page.test.tsx. Anything else is listed in `skipped`
+  // with its reason. A scenario that cannot compile is a refusal. Files are verbatim copies (inside the id); scenarios.json is derived.
+  // Pure. files: [{path, text}] of test-scenarios/*.yaml; null when there is nothing to say.
+  function handoverScenarioTests({ files, requirementIds, uiPart, specs, apiContracts }) {
+    const TS = typeof TestScenarios !== 'undefined' ? TestScenarios : require('./test-scenarios.js');
+    const Rec = typeof Records !== 'undefined' ? Records : require('./records.js');
+    const yamlLoad = typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load;
+    const ops = { files: Object.fromEntries((apiContracts || []).map(f => [f.path, f.text])), yamlLoad };
+    const serverOf = file => { try { const d = yamlLoad(ops.files[file]); const s = d && Array.isArray(d.servers) && d.servers[0]; return s && typeof s.url === 'string' ? s.url : undefined; } catch { return undefined; } };
+    const operations = id => { const o = Core.resolveOperation(ops, id); return o ? { method: o.method, path: o.path, server: serverOf(o.file) } : null; };
+    const uiScreens = new Set(uiPart ? uiPart.screens : []);
+    const byScreen = new Map(), skipped = [];
+    for (const f of [...(files || [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+      let rec; try { rec = yamlLoad(f.text); } catch { throw new Error(`handover refused: ${f.path} does not parse as YAML`); }
+      if (!rec || typeof rec !== 'object' || !Rec.isStructuredScenario(rec) || !requirementIds.includes(String(rec.requirement))) continue;
+      const skip = reason => skipped.push({ scenario: rec.id, reason });
+      if (rec.status !== 'bound') { skip(`${rec.status === 'minted' ? 'minted' : 'not bound'}: a person binds it before a test is generated`); continue; }
+      if (!rec.effect || typeof rec.effect.operation !== 'string') { skip('no operation: effect.operation names the request the test waits for'); continue; }
+      if (!Array.isArray(rec.examples) || !rec.examples.length) { skip('no examples: a test needs at least one'); continue; }
+      const screen = TS.renderScreen(rec, specs);
+      if (screen == null) { skip(`no ui spec for ${rec.screen}`); continue; }
+      if (!uiScreens.has(screen)) { skip(`screen ${screen} is not among the handover's UI screens`); continue; }
+      const c = TS.compile({ scenario: rec, specs, operations, path: f.path });
+      if (!byScreen.has(screen)) byScreen.set(screen, []);
+      byScreen.get(screen).push({ ...c, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, ...(({ method, path }) => ({ method, path }))(operations(rec.effect.operation)) }, examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}` })) });
+    }
+    if (!byScreen.size && !skipped.length) return null;
+    const copies = [], docScreens = [], idEntries = [];
+    for (const screen of [...byScreen.keys()].sort()) {
+      const list = byScreen.get(screen).sort((a, b) => (a.id < b.id ? -1 : 1));
+      const test = { path: `ui-contract/tests/${screen}.scenarios.page.test.tsx`, text: TS.testFile(screen, list) };
+      copies.push(test);
+      docScreens.push({ screen, component: list[0].component, test: { path: test.path, sha256: UI.sha256(test.text) },
+        scenarios: list.map(c => ({ id: c.id, path: c.path, sha256: c.sha256, operation: c.operation, examples: c.examples })) });
+      for (const c of list) idEntries.push(`scenario_test\0${c.path}\0${c.sha256}`);
+    }
+    skipped.sort((a, b) => (a.scenario < b.scenario ? -1 : a.scenario > b.scenario ? 1 : 0));
+    const doc = { schema: 'designc.handover.scenarios/1', screens: docScreens, skipped };
+    return { copies, json: { path: 'scenarios.json', text: JSON.stringify(doc, null, 2) + '\n' }, idEntries, paths: copies.map(c => c.path) };
+  }
+
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null, testScenarios = [] }) {
     const apiContracts = apiIn || [];
     let acceptance = acceptanceIn;
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
@@ -386,22 +431,23 @@ export { expect };
     const acc = acceptanceCopies(acceptance, criteria, yamlDump);
     acceptance = acc.files;
     const uiPart = handoverUi({ model: parse(model.text), ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
+    const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [] });
     const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
     // The test map (D6) is derived from the as-built facts, which are not copied: their hash joins the id, so new facts are a new handover.
     const testsDoc = handoverTests(elementsDoc, facts, specs, uiPart ? uiPart.components : []);
     // Compiled agent contracts (Contracts.forFreeze): verbatim copies, so inside the id; a different policy is a different handover.
     const ctr = contracts ? [contracts.result, ...contracts.files] : [];
-    const content = [model, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
+    const content = [model, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : []), ...(scn ? scn.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(scn ? scn.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const reqProfile = requirementProfile(requirements);
     const agentsDoc = handoverAgents(model.text);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc }) };
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn }) };
     const testsFile = testsDoc ? { path: 'tests.json', text: JSON.stringify(testsDoc, null, 2) + '\n' } : null;
-    const frozen = [...content, elements, build, ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const frozen = [...content, elements, build, ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
 revision: ${modelRevision(model.text)}
@@ -410,7 +456,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
@@ -487,5 +533,5 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
 
 
-  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
+  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverScenarioTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.scenarios/1",
+  "title": "Handover scenario tests",
+  "description": "scenarios.json in a frozen handover (handovers/<id>/), present only when the handover holds a bound structured test scenario (compiled to a test) or lists one it did not compile (`skipped`). Written by Core.handoverPlan at freeze and named in handover.yaml as `scenario_tests:`. The generated tests are verbatim copies at ui-contract/tests/<screen>.scenarios.page.test.tsx, inside the handover id; scenarios.json itself is derived. Each test is Vitest browser mode, in the same `ui-page` project as the page test (describe title \"<screen> scenarios\", so a page-test report that keeps only \"<screen> page\" does not count it). Test titles are \"<scenario id> example <n>\" (n is `examples[].index`). The test fails with the message \"<scenario id> example <n>: <METHOD> <path> body\" when the request body differs. The scenario files themselves (test-scenarios/*.yaml) are named by path and sha256 but not copied. designc owns this contract; consumers conform to it. docs/handover-scenarios.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "screens", "skipped"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.scenarios/1" },
+    "screens": {
+      "description": "One entry per render screen with at least one compiled scenario, ordered by screen. A scenario of an overlay (hosted) spec is on the host's entry.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["screen", "component", "test", "scenarios"],
+        "additionalProperties": false,
+        "properties": {
+          "screen": { "type": "string" },
+          "component": { "description": "The page component the test imports and renders (the spec's `component`).", "type": "string" },
+          "test": { "$ref": "#/$defs/file" },
+          "scenarios": {
+            "description": "Ordered by scenario id.",
+            "type": "array",
+            "minItems": 1,
+            "items": {
+              "type": "object",
+              "required": ["id", "path", "sha256", "operation", "examples"],
+              "additionalProperties": false,
+              "properties": {
+                "id": { "type": "string" },
+                "path": { "description": "Registry path of the scenario file.", "type": "string" },
+                "sha256": { "$ref": "#/$defs/sha256" },
+                "operation": {
+                  "description": "The request the test waits for, resolved from contracts/openapi at freeze; path is the OpenAPI path as written. The test mocks it with `{p}` as `:p`, after the path part of the file's servers[0].url if it has one.",
+                  "type": "object",
+                  "required": ["id", "method", "path"],
+                  "additionalProperties": false,
+                  "properties": { "id": { "type": "string" }, "method": { "type": "string" }, "path": { "type": "string" } }
+                },
+                "examples": {
+                  "type": "array",
+                  "minItems": 1,
+                  "items": {
+                    "type": "object",
+                    "required": ["index", "title"],
+                    "additionalProperties": false,
+                    "properties": { "index": { "description": "1-based; the n in the test title.", "type": "integer", "minimum": 1 }, "title": { "type": "string" } }
+                  }
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "skipped": {
+      "description": "Structured scenarios of a requirement in the handover that were not compiled, with the reason. Never dropped silently. Ordered by scenario id.",
+      "type": "array",
+      "items": { "type": "object", "required": ["scenario", "reason"], "additionalProperties": false, "properties": { "scenario": { "type": "string" }, "reason": { "type": "string" } } }
+    }
+  },
+  "$defs": {
+    "sha256": { "type": "string", "pattern": "^[0-9a-f]{64}$" },
+    "file": { "type": "object", "required": ["path", "sha256"], "additionalProperties": false, "properties": { "path": { "type": "string" }, "sha256": { "$ref": "#/$defs/sha256" } } }
+  }
+}
