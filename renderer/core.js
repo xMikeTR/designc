@@ -806,7 +806,7 @@ const Core = (() => {
       if (!traced) clauses.push({ kind: 'requirement', text: `${req.id} is not traced to any element or decision`, requirement: req.id });
     }
     // Split repos (R4a): coverage, not existence. Each cross-repo rel of a requirement must name a d.operation found in exactly one
-    // pinned OpenAPI file (or, async, a d.message a pinned pack defines). A rel is a requirement's when an end is one of its elements or inside one.
+    // pinned OpenAPI file (or, async, a d.message a pinned pack defines). A rel is a requirement's only when BOTH ends are its elements or inside one (C-D11).
     const declared = Object.keys(repos || {});
     if (declared.length) {
       const repoOf = e => { for (let c = e; c; c = c.parent ? model.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
@@ -822,7 +822,7 @@ const Core = (() => {
           const es = model.elements.get(r.src), ed = model.elements.get(r.dst);
           if (es.kind === 'person' || ed.kind === 'person') continue;
           const rs = repoOf(es), rd = repoOf(ed);
-          if (!rs || !rd || rs === rd || !(touches(r.src) || touches(r.dst))) continue;
+          if (!rs || !rd || rs === rd || !(touches(r.src) && touches(r.dst))) continue;
           crossing++;
           const head = `${req.id}: ${es.name} → ${ed.name} crosses ${rs} → ${rd}`;
           let why = null;

@@ -1,5 +1,5 @@
 // Gate clause unpinned_contract (R4a): coverage, not existence. Each cross-repo rel of a requirement must name a
-// d.operation found in a pinned OpenAPI file (or, async, a d.message from a pinned pack). With no repos declared nothing changes.
+// d.operation found in a pinned OpenAPI file (or, async, a d.message from a pinned pack). A rel is a requirement's only when BOTH ends are its elements or inside one (C-D11). With no repos declared nothing changes.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const Core = require('../renderer/core.js');
@@ -21,7 +21,7 @@ const REPOS = { Api: '../api', Ui: '../ui' };
 const spec = ids => `openapi: 3.0.3\ninfo: {title: t, version: '1'}\npaths:\n${ids.map((id, i) => `  /p${i}:\n    get: {operationId: ${id}}\n`).join('')}`;
 const opsOf = ids => Core.operations({ files: { 'contracts/openapi/a.yaml': spec(ids) }, yamlLoad });
 const pack = events => ({ key: 'orders', path: 'domain/orders.yaml', load: yamlLoad, text: `id: orders\nevents:\n${events.map(e => `  ${e}: {a: string}`).join('\n')}\n` });
-const REQ1 = { id: 'REQ-1', elements: ['Web'] }, REQ2 = { id: 'REQ-2', elements: ['Admin'] };
+const REQ1 = { id: 'REQ-1', elements: ['Web', 'Api'] }, REQ2 = { id: 'REQ-2', elements: ['Admin', 'Api'] };
 const gate = (text, requirements, extra = {}) =>
   Core.gate({ model: Core.parse(text), diags: [], decisions: [], requirements, ledger: [], repos: REPOS, operations: opsOf(['listOrders']), ...extra });
 const kinds = g => g.clauses.filter(c => c.kind === 'unpinned_contract');
@@ -88,6 +88,20 @@ test('a rel from a component inside the requirement element counts', () => {
   const cs = kinds(gate(t, [REQ1]));
   assert.equal(cs.length, 1);
   assert.deepEqual(cs[0].about, ['Page', 'Api']);
+});
+
+test('hub: Admin -> Api untyped is not REQ-1\'s, it is REQ-2\'s', () => {
+  const t = dsl('"d.operation" "listOrders"', '"d.interaction" "sync"');
+  const cs = kinds(gate(t, [REQ1, REQ2]));
+  assert.equal(cs.length, 1);
+  assert.equal(cs[0].requirement, 'REQ-2');
+  assert.deepEqual(kinds(gate(t, [REQ1])), []);
+});
+
+test('a rel with only one end in the requirement is not the requirement\'s', () => {
+  const t = dsl('"d.interaction" "sync"');
+  assert.deepEqual(kinds(gate(t, [{ id: 'REQ-1', elements: ['Web'] }])), []);
+  assert.deepEqual(kinds(gate(t, [{ id: 'REQ-1', elements: ['Api'] }])), []);
 });
 
 test('a requirement inside one repo is not raised', () => {
