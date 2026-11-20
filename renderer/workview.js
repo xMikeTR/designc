@@ -162,7 +162,7 @@ async function refreshRecheck() {
       const key = recheckKey(it, frozen);
       const h = A.handovers.find(x => x.id === frozen[it.id].handover);
       if (!h || !h.model || !Array.isArray(h.in_scope)) { WK.recheck[it.id] = { unknown: true, key }; continue; }
-      if (!WK.models[h.id]) { const t = await host.read(`handovers/${h.id}/${h.model}`); WK.models[h.id] = t ? Core.parse(t) : null; }
+      if (!WK.models[h.id]) WK.models[h.id] = await readFrozenModel(h);
       if (!WK.models[h.id]) { WK.recheck[it.id] = { unknown: true, key }; continue; }
       const r = Core.workRecheck({ item: it, frozen: { model: WK.models[h.id], inScope: h.in_scope, requirements: h.requirements || [] },
         model: A.model, decisions: A.decisions, requirements: A.requirements });

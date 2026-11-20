@@ -65,6 +65,8 @@ const Core = (() => {
     const parts = (dir ? dir.split('/') : []).concat(raw.split('/')).filter(x => x && x !== '.');
     return { path: parts.join('/') };
   }
+  // The file a model row (error, finding, clause) belongs to: its own, else the model root (a model read without a path).
+  const locFile = (x, modelPath) => (x && x.file) || modelPath;
   // Registry paths of the `.dsl` files in the model's folder (the unit that is read, frozen and dirty-checked).
   function modelFiles(paths, modelPath) {
     const dir = modelPath && modelPath.includes('/') ? modelPath.slice(0, modelPath.lastIndexOf('/') + 1) : '';
@@ -1254,7 +1256,7 @@ function gateRecord({ modelText, modelIncludes = [], diags, gate, source, git })
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { includePath, modelFiles, _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;

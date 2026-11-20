@@ -347,7 +347,7 @@ function callTool(dir, name, args = {}) {
   if (!Object.prototype.hasOwnProperty.call(MCP_TOOLS, name)) return { isError: true, text: `designc app not running: ${name} needs the designc app open on this registry` };
   const s = checkState(dir);
   if (s.error) return { isError: true, text: s.error };
-  if (name === 'read_model') return { isError: false, text: s.modelText ? mcpCap(mcpNumbered(s.modelText, args.from || 1, args.to || Infinity)) : `No model at ${s.cfg.model} yet.` };
+  if (name === 'read_model') return { isError: false, text: s.modelText ? mcpCap(mcpNumbered(s.modelText, args.from || 1, args.to || Infinity)) + (s.model.sources.length > 1 ? `\n(this model also includes: ${s.model.sources.slice(1).map(f => f.path).join(', ')}; read them as files)` : '') : `No model at ${s.cfg.model} yet.` };
   if (name === 'get_findings') return { isError: false, text: JSON.stringify(s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))) };
   if (name === 'get_gate') return { isError: false, text: JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }) };
   return { isError: false, text: mcpCodeMap(dir, s) };

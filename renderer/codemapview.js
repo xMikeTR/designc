@@ -65,12 +65,14 @@ async function extractCodebase() {
   toast(`Mapped ${plural(r.stats.deployables, 'deployable')}, ${plural(r.stats.edges, 'dependency', )} from ${plural(r.stats.projects, 'project')}${r.stats.unresolved ? `; ${r.stats.unresolved} could not be resolved` : ''}.`);
 }
 async function adoptAsDesign() {
+  if (modelSpans()) return toast(spansRefusal(), 'error');
   if (A.model.elements.size && !confirm(`Replace ${A.cfg.model} with the as-built map? Your current design is overwritten.`)) return;
   const dsl = Core.containerLevelText(await readText('asbuilt/workspace.dsl')).replace(/^\/\/.*\n/gm, '').replace(/\(as built\)/, '');
   await host.write(A.cfg.model, dsl); await loadModel(); recompile(); await openFile(A.cfg.model); renderAll();
   toast('The design now starts from the code as it is. Add d.* properties where they matter.');
 }
 async function adoptComponents(builtId, designId) {
+  if (modelSpans()) return toast(spansRefusal(), 'error');
   const b = A.buffers.get(A.cfg.model);
   if (b && b.dirty) return toast(`Save ${A.cfg.model} first. Adopting writes to the file and would overwrite your unsaved edits.`, 'error');
   const built = A.asbuiltFull.elements.get(builtId), want = A.model.elements.get(designId);
@@ -128,7 +130,7 @@ function codeAreasSection() {
   const row = (label, desc, attrs) => `<div class="row" style="--indent:20px;height:auto;min-height:22px;white-space:normal;padding-top:3px;padding-bottom:3px" ${attrs}><span class="lbl">${label}</span>${desc ? `<span class="desc">${desc}</span>` : ''}</div>`;
   const empty = ar.areas.filter(a => !a.matched).length, MAX = 50;
   const body = `<div class="hint">Code areas cover ${ar.files - ar.unclaimed.length} of the ${plural(ar.files, 'file')} in the codebase.</div>`
-    + ar.areas.map(a => row(`${esc(a.name)}: <code>${esc(a.pattern)}</code>`, a.matched ? plural(a.matched, 'file') : esc(a.hint || 'matches no file in the codebase'), `data-open="${esc(A.cfg.model)}" data-line="${A.model.elements.get(a.id).line}"`)).join('')
+    + ar.areas.map(a => row(`${esc(a.name)}: <code>${esc(a.pattern)}</code>`, a.matched ? plural(a.matched, 'file') : esc(a.hint || 'matches no file in the codebase'), `data-open="${esc(Core.locFile(A.model.elements.get(a.id), A.cfg.model))}" data-line="${A.model.elements.get(a.id).line}"`)).join('')
     + (ar.unclaimed.length ? `<div class="hint" style="padding-bottom:2px"><b>In no code area</b></div>` + ar.unclaimed.slice(0, MAX).map(x => row(esc(x), '', `data-code="${esc(x)}" data-line="1"`)).join('')
       + (ar.unclaimed.length > MAX ? `<div class="hint">and ${ar.unclaimed.length - MAX} more</div>` : '') : '');
   return section('areas', `Code areas (${empty + ar.unclaimed.length})`, body);

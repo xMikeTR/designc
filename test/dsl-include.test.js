@@ -118,3 +118,17 @@ test('the include-model fixture flattens to the sample-registry model', () => {
   assert.deepEqual(flat(m), flat(single));
   assert.deepEqual(m.sources.map(s => s.path), ['model/workspace.dsl', 'model/fares.dsl', 'model/fares/workers.dsl', 'model/relationships.dsl']);
 });
+
+test('locFile groups a model row under its file, falling back to the root', () => {
+  assert.equal(Core.locFile({ file: 'model/a.dsl' }, 'model/workspace.dsl'), 'model/a.dsl');
+  assert.equal(Core.locFile({ file: null }, 'model/workspace.dsl'), 'model/workspace.dsl');
+  assert.equal(Core.locFile({}, 'model/workspace.dsl'), 'model/workspace.dsl');
+});
+
+test('the handover helpers take a text or a source object', () => {
+  const root = 'model {\n  !include a.dsl\n}\n', a = 'x = softwareSystem "X" {\n properties {\n  "d.agent.autonomy" "supervised"\n }\n}\n';
+  const flatDoc = Core.handoverAgents(root.replace('  !include a.dsl\n', a));
+  const doc = Core.handoverAgents({ text: root, path: 'w.dsl', resolve: p => (p === 'a.dsl' ? a : null) });
+  assert.deepEqual(doc, flatDoc);
+  assert.throws(() => Core.handoverAgents({ text: root, path: 'w.dsl', resolve: () => 'bogus "x"\n' }), /does not parse \(a\.dsl line 1: /);
+});

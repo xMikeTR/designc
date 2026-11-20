@@ -127,7 +127,7 @@ const READERS = {
     const fails = [...Ledger.traceReviews(A.ledger).values()].filter(r => r.verdict === 'fail');
     return cap(JSON.stringify({ modes: Ledger.taxonomyModes(A.taxonomy).modes.map(({ count, ...m }) => m), failed: fails.map(r => ({ observation: r.observation, task: r.task, run: r.run_id, attempt: r.attempt, note: r.note, failure_mode: r.failure_mode ?? null })) }));
   },
-  read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) : `No model at ${A.cfg.model} yet.`,
+  read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) + (modelSpans() ? '\n' + spansNote() : '') : `No model at ${A.cfg.model} yet.`,
   get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
   get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }),
   list_decisions: () => JSON.stringify({
@@ -254,6 +254,7 @@ const WRITERS = {
   add_finding: a => studyWriter(a.topic, t => Study.addFinding(t, a), (r, t) => `Add finding ${r.index} to ${t.id}`, `${a.good_or_bad}: ${a.pattern}`),
   answer_question: a => studyWriter(a.topic, t => Study.answerQuestion(t, a), (r, t) => `Link findings to question ${a.question} of ${t.id}`, ((A.studies || []).find(t => t.id === a.topic)?.questions[a.question - 1] || {}).text || ''),
   propose_model_edit: a => {
+    if (modelSpans()) return { error: spansRefusal() };
     const count = A.modelText.split(a.find).length - 1;
     if (!a.find) return { error: 'find is empty.' };
     if (count === 0) return { error: 'find does not match the model text. Call read_model and copy the exact text without line numbers.' };

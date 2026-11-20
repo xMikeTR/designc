@@ -78,6 +78,20 @@ const plural = (n, w) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? w.slice(0,
 const trunc = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
 const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(16).slice(0, 7); };
 // The status-bar revision: the model text, plus the included files when the model has `!include` (unchanged for a single file).
+// A model of several files (`!include`): the root text, the model folder's other .dsl files, and the helpers that read them.
+const treePaths = ns => (ns || []).flatMap(n => (n.dir ? treePaths(n.children) : [n.path]));
+const modelSpans = () => !!(A.model && A.model.sources && A.model.sources.length > 1);
+const modelSrc = () => ({ text: A.modelText, path: A.cfg.model, resolve: p => (p === A.cfg.model ? A.modelText : (A.modelFiles || {})[p] ?? null) });
+const spansRefusal = () => `${A.cfg.model} includes other files; this action rewrites a single file. Edit the DSL text instead.`;
+const spansNote = () => `(this model also includes: ${A.model.sources.slice(1).map(s => s.path).join(', ')}; read them as files)`;
+// A handover's frozen model: the root plus every .dsl in its files: list, resolved under handovers/<id>/.
+async function readFrozenModel(h) {
+  if (!h || !h.model) return null;
+  const base = `handovers/${h.id}/`, files = {};
+  for (const f of h.files || []) if (f.path && /\.dsl$/.test(f.path) && f.path !== h.model) files[f.path] = (await host.read(base + f.path)) || '';
+  const t = await host.read(base + h.model);
+  return t ? Core.parse(t, { path: h.model, resolve: p => files[p] ?? null }) : null;
+}
 const modelRev = () => 'r-' + hash((A.modelText || '') + (A.model && A.model.sources ? A.model.sources.slice(1).map(f => '\0\0' + f.path + '\0' + f.text).join('') : ''));
 const fmtN = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
 const when = ts => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
@@ -513,7 +527,12 @@ async function recordSessionEvent(kind, { session_id, payload, parent_session_id
 const layoutPathFor = p => p.replace(/\.dsl$/, '') + '.layout.json';
 // health.json: evidence for the health overlay. Optional and read-only; absent or unreadable means the map renders as before.
 async function loadHealth() { try { const t = await readText('health.json'); A.health = t == null ? null : JSON.parse(t); } catch { A.health = null; } }
-async function loadModel() { A.modelText = (await readText(A.cfg.model)) ?? ''; await loadCanvasLayout(); }
+async function loadModel() {
+  A.modelText = (await readText(A.cfg.model)) ?? '';
+  A.modelFiles = {};
+  for (const p of Core.modelFiles(treePaths(A.tree), A.cfg.model)) if (p !== A.cfg.model) A.modelFiles[p] = (await readText(p)) ?? '';
+  await loadCanvasLayout();
+}
 async function loadCanvasLayout() {
   const t = await readText(layoutPathFor(A.cfg.model));
   try { A.canvasLayout = t ? JSON.parse(t) : null; } catch { A.canvasLayout = null; }
@@ -549,7 +568,7 @@ function cmQualityBadge(e) {
   return hit && hit.breaches ? { badge: hit.breaches, badgeColor: 'var(--warn)' } : {};
 }
 function recompile() {
-  A.model = Core.parse(A.modelText);
+  A.model = Core.parse(A.modelText, { path: A.cfg.model, resolve: modelSrc().resolve });
   A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos, boundary: boundaryInput() }) : [];
   A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), operations: operationsInput(), domains: domainsInput(), ui: A.ui, testScenarios: (A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
@@ -726,10 +745,10 @@ function setMarkers() {
   const S = monacoRef.MarkerSeverity;
   for (const [path, b] of A.buffers) {
     const markers = [];
-    if (path === A.cfg.model) {
-      for (const e of A.model.errors) markers.push({ severity: S.Error, message: e.msg, startLineNumber: e.line, endLineNumber: e.line, startColumn: 1, endColumn: b.model.getLineMaxColumn(Math.min(e.line, b.model.getLineCount())), source: 'designc' });
+    if (path === A.cfg.model || Core.modelFiles([path], A.cfg.model).length) {
+      for (const e of A.model.errors) if (Core.locFile(e, A.cfg.model) === path) markers.push({ severity: S.Error, message: e.msg, startLineNumber: e.line, endLineNumber: e.line, startColumn: 1, endColumn: b.model.getLineMaxColumn(Math.min(e.line, b.model.getLineCount())), source: 'designc' });
       for (const f of A.diags) {
-        if (f.suppressed || !f.loc.line || f.loc.line > b.model.getLineCount()) continue;
+        if (f.suppressed || !f.loc.line || Core.locFile(f.loc, A.cfg.model) !== path || f.loc.line > b.model.getLineCount()) continue;
         const ln = f.loc.line, text = b.model.getLineContent(ln), first = text.search(/\S/) + 1 || 1;
         markers.push({ severity: f.sev === 'error' ? S.Error : f.sev === 'warning' ? S.Warning : S.Info, code: f.code, source: 'designc',
           message: `${f.loc.label}: ${f.msg}${f.hint ? `\n${f.hint}` : ''}`, startLineNumber: ln, endLineNumber: ln, startColumn: first, endColumn: b.model.getLineMaxColumn(ln) });
@@ -779,7 +798,8 @@ function writeCheckFor(id) {
   toggleAgent(true);
   send(`Decision ${id} has a check that is still a TODO. Read the decision and the model, then use write_check to draft the script it describes. Keep it read-only and make it fail with a clear reason.`);
 }
-function revealInCanvas(line) {
+function revealInCanvas(line, file) {
+  if (modelSpans()) return openFile(file || A.cfg.model, line || undefined);
   if (!line || typeof DesigncCanvas === 'undefined' || !DesigncCanvas.canvas) return openFile(A.cfg.model, line || undefined);
   openSpecial('special:canvas');
   setTimeout(() => { if (A.canvasApi) A.canvasApi.selectLine(line); else openFile(A.cfg.model, line); }, 0);
@@ -828,6 +848,7 @@ function onBufferChange(path) {
   const dirty = b.model.getValue() !== b.disk;
   if (dirty !== b.dirty) { b.dirty = dirty; renderTabs(); }
   if (path === A.cfg.model) { A.modelText = b.model.getValue(); recompileSoon(); }
+  else if (Core.modelFiles([path], A.cfg.model).length) { (A.modelFiles = A.modelFiles || {})[path] = b.model.getValue(); recompileSoon(); }
   else if (isRegPath(path)) registrySoon();
   else if (path === 'designc.json') settingsSoon();
 }
@@ -840,7 +861,7 @@ async function onDiskChanged(paths) {
   if (paths.length) A.tree = await host.tree();
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
-  if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
+  if (paths.some(p => (p === A.cfg.model || Core.modelFiles([p], A.cfg.model).length) && !(A.buffers.get(p) || {}).dirty)) await loadModel();
   if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
@@ -1294,8 +1315,8 @@ async function recordGate(source, git) {
 // Settings: designc.json `currency` (default GBP) and `forecast: { minSamples, window }`.
 async function computeForecast(modelText) {
   const base = Core.latestHandoverModel(A.handovers), fc = A.cfg.forecast || {};
-  const prev = base ? Core.parse((await host.read(base.path)) || '') : null;
-  const forecast = Core.forecast({ before: prev, after: Core.parse(modelText),
+  const prev = base ? await readFrozenModel(A.handovers.find(h => h.id === base.id)) || Core.parse('') : null;
+  const forecast = Core.forecast({ before: prev, after: Core.parse(modelText, { path: A.cfg.model, resolve: p => (A.modelFiles || {})[p] ?? null }),
     history: Ledger.elementHistory(A.ledgerRaw, { window: fc.window || 10 }), minSamples: fc.minSamples || 3 });
   return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
 }
@@ -1327,6 +1348,8 @@ async function freezeOnce(item) {
   const decisions = [];
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
   const modelText = (await host.read(A.cfg.model)) || '';
+  const modelFilesOnDisk = {};
+  for (const p of Core.modelFiles(treePaths(A.tree), A.cfg.model)) if (p !== A.cfg.model) modelFilesOnDisk[p] = (await host.read(p)) || '';
   const { frozen } = item ? { frozen: null } : await computeForecast(modelText);
   const reqs = await read('requirements', ['.yaml', '.yml']), evs = await read('evals', ['.yaml', '.yml']), scs = await read('scenarios', ['.yaml', '.yml']), acs = await read('acceptance', ['.yaml', '.yml']);
   const refs = Dispatch.references(A.cfg.references);
@@ -1334,7 +1357,7 @@ async function freezeOnce(item) {
   // Compiled agent contracts travel with a whole-model handover when a contracts command is configured.
   let contracts = null;
   if (!item && Contracts.settings(A.cfg.contracts) && !Contracts.settings(A.cfg.contracts).error) {
-    const agentsDoc = Core.handoverAgents(modelText), agentsText = JSON.stringify(agentsDoc, null, 2) + '\n', cache = new Map();
+    const agentsDoc = Core.handoverAgents({ text: modelText, path: A.cfg.model, resolve: p => modelFilesOnDisk[p] ?? null }), agentsText = JSON.stringify(agentsDoc, null, 2) + '\n', cache = new Map();
     const resultText = await readText(Contracts.PATHS.result);
     for (const rel of agentsDoc.agents.length && resultText ? contractFiles(resultText) : []) cache.set(rel, await readText(rel));
     const c = Contracts.forFreeze({ resultText, agentsDoc, agentsText, hash: Core._shared.hash16, read: rel => cache.has(rel) ? cache.get(rel) : null });
@@ -1367,7 +1390,7 @@ async function freezeOnce(item) {
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
       apiContracts: await read('contracts/openapi', ['.yaml', '.yml']),
       item: item ? { id: item.id, requirement: Work.reqs(item), elements: item.elements || [] } : null,
-      model: { path: A.cfg.model, text: modelText },
+      model: { path: A.cfg.model, text: modelText, files: modelFilesOnDisk },
       requirements: item ? only(reqs, A.requirements, r => Work.reqs(item).includes(r.id)) : reqs,
       decisions,
       behaviour: await read('behaviour', ['.p']),
@@ -1627,7 +1650,7 @@ function treeHTML(nodes, depth) {
       return `<div class="row" ${pad} data-dir="${esc(n.path)}"><span class="tw">${open ? '▾' : '▸'}</span><span class="lbl">${esc(n.name)}</span></div>${open ? treeHTML(n.children, depth + 1) : ''}`;
     }
     const [, ch] = iconFor(n.path); const b = A.buffers.get(n.path);
-    const errs = n.path === A.cfg.model ? A.diags.filter(d => !d.suppressed && d.sev === 'error').length + A.model.errors.length : [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === n.path).length;
+    const errs = n.path === A.cfg.model || (A.model.sources || []).some(s => s.path === n.path) ? A.diags.filter(d => !d.suppressed && d.sev === 'error' && Core.locFile(d.loc, A.cfg.model) === n.path).length + A.model.errors.filter(e => Core.locFile(e, A.cfg.model) === n.path).length : [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === n.path).length;
     return `<div class="row ${A.active === n.path ? 'active' : ''}" ${pad} data-file="${esc(n.path)}"><span class="tw"></span><span class="fi">${esc(ch)}</span><span class="lbl" style="${errs ? 'color:var(--err)' : ''}">${esc(n.name)}${b && b.dirty ? ' ●' : ''}</span>${errs ? `<span class="desc" style="color:var(--err)">${errs}</span>` : ''}${/^(ledger|handovers)\//.test(n.path) ? '' : `<button class="rowdel" data-delfile="${esc(n.path)}" title="Delete ${esc(n.name)}">×</button>`}</div>`;
   }).join('');
 }
@@ -1697,7 +1720,7 @@ function clauseActions(c) {
   if (c.kind === 'domain' && c.pack) return b('data-file', `domain/${c.pack}.yaml`, 'Open domain pack');
   if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this');
   if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x && x._path) return b('data-file', x._path, 'Open decision'); }
-  if (c.kind === 'parse') return b('data-file', A.cfg.model, 'Open model');
+  if (c.kind === 'parse') return b('data-file', Core.locFile(c, A.cfg.model), 'Open model');
   return '';
 }
 // Human only: evidence is what a person agreed, so no agent tool writes it.
@@ -1795,6 +1818,7 @@ function codeAreasButton() {
     <button class="btn block" data-a="suggestcode" title="Suggests one folder per container; you see them before anything is written">Suggest code areas</button>`;
 }
 async function suggestCodeAreas() {
+  if (modelSpans()) return toast(spansRefusal(), 'error');
   const b = A.buffers.get(A.cfg.model);
   if (b && b.dirty) return toast(`Save ${A.cfg.model} first. Suggesting code areas writes to the file and would overwrite your unsaved edits.`, 'error');
   const r = Core.suggestCodeAreas(A.modelText);
@@ -1939,9 +1963,12 @@ function renderPanel() {
   if (A.panel === 'output') { body.innerHTML = `<pre class="out">${esc(A.output || 'Check runs appear here. Run > Run All Decision Checks (Ctrl+Shift+B).')}</pre>`; body.scrollTop = 1e9; return; }
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
-  const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line })),
-    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
-  if (mrows.length) groups.push([A.cfg.model, mrows]);
+  const spans = modelSpans();
+  const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line, file: Core.locFile(e, A.cfg.model) })),
+    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, file: Core.locFile(f.loc, A.cfg.model), fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
+  const mby = new Map();
+  for (const r of mrows) { if (!mby.has(r.file)) mby.set(r.file, []); mby.get(r.file).push(r); }
+  groups.push(...mby);
   const byPath = new Map();
   for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
   for (const w of A.workWarnings) { if (!byPath.has(w.path)) byPath.set(w.path, []); byPath.get(w.path).push({ sev: 'warning', msg: w.msg, code: 'work', line: 1 }); }
@@ -1955,7 +1982,7 @@ function renderPanel() {
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : r.fi != null ? 'data-cvline' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : r.fi != null && !spans ? 'data-cvline' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
       ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button><button class="lnk fix" data-open="${esc(path)}" data-line="${r.line || ''}" title="Show the line in the DSL text">Show in DSL</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
@@ -2413,7 +2440,7 @@ document.addEventListener('click', async e => {
   if (d.accfi) { e.stopPropagation(); return acceptRisk(A.diags[+d.accfi]); }
   if (d.bldfi) { e.stopPropagation(); return buildIt(A.diags[+d.bldfi]); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
-  if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
+  if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(Core.locFile(e, A.cfg.model), e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
@@ -2457,11 +2484,11 @@ document.addEventListener('click', async e => {
   if (d.wcheck) return writeCheckFor(d.wcheck);
   if (d.draftcheck) return draftCheck(d.draftcheck);
   if (d.whyfail) return explainCheckFail(d.whyfail);
-  if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0);
+  if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0, d.cvline);
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
     const c = A.gate.clauses[+d.clause];
-    if (c.line) return c.kind === 'finding' ? revealInCanvas(c.line) : openFile(A.cfg.model, c.line);
+    if (c.line) return c.kind === 'finding' ? revealInCanvas(c.line, Core.locFile(c, A.cfg.model)) : openFile(Core.locFile(c, A.cfg.model), c.line);
     if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x) return openFile(x._path); }
     if (c.requirement) { const x = A.requirements.find(y => y.id === c.requirement); if (x) return openFile(x._path); }
     if (c.kind === 'needs') return setActivity('build');
@@ -2472,7 +2499,7 @@ document.addEventListener('click', async e => {
   if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
-  if (t.classList.contains('node')) { A.selected = t.dataset.el; const el = A.model.elements.get(A.selected); renderSheet(); if (el) openFile(A.cfg.model, el.line); return; }
+  if (t.classList.contains('node')) { A.selected = t.dataset.el; const el = A.model.elements.get(A.selected); renderSheet(); if (el) openFile(Core.locFile(el, A.cfg.model), el.line); return; }
   if (d.recent) { const i = await host.openPath(d.recent); return onFolder(i); }
   if (d.s) {
     if (d.s === 'open') return host.openFolder();
