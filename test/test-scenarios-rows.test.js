@@ -46,3 +46,51 @@ test('records: bindProblem returns the first row error', () => {
   assert.equal(TS.bindProblem(withEx({ then: { Order: [] } })), 'examples[0].then.Order: a non-empty list of rows');
   assert.equal(TS.bindProblem(WITH), null);
 });
+
+// ---- mint part ----
+const yamlLoad = yaml.load;
+const pack = (id, body) => ({ key: id, load: yamlLoad, text: `id: ${id}\nversion: 1\naggregates:\n${body}\n` });
+const ORDERS = pack('orders', '  Order: { id: OrderId, fields: { ref: string, tag: string } }');
+const ctx = (o = {}) => ({
+  pageText: BOUND.source, specs: [], entities: Core.packAggregates([ORDERS]), resolveOperation: () => ({}), ...o,
+});
+// Only the row reasons: the spec is absent, so screen/locator problems are filtered out here.
+const ROW_REASONS = ['no_domain_pack', 'unknown_entity', 'unknown_field', 'rows_incomplete', 'placeholder_in_rows'];
+const probs = (rec, c) => TS.mintProblems(rec, c).filter(p => ROW_REASONS.includes(p.reason));
+
+test('mint: valid rows give no row problem', () => assert.deepEqual(probs(WITH, ctx()), []));
+test('mint: no_domain_pack once per scenario when no pack is pinned', () => {
+  const p = probs(WITH, ctx({ entities: [] }));
+  assert.deepEqual(p.map(x => x.reason), ['no_domain_pack']);
+  assert.match(p[0].message, /none is pinned \(domain\/\*\.yaml\)/);
+});
+test('mint: unknown_entity names the example and the section', () => {
+  const p = probs(withEx({ given: { Ordr: [{ id: 1 }] } }), ctx());
+  assert.equal(p[0].reason, 'unknown_entity');
+  assert.match(p[0].message, /^examples\[0\]\.given\.Ordr: no pinned pack defines aggregate Ordr/);
+});
+test('mint: an ambiguous bare name is unknown_entity with the qualified hint', () => {
+  const p = probs(WITH, ctx({ entities: Core.packAggregates([ORDERS, pack('billing', '  Order: { id: OId }')]) }));
+  assert.equal(p[0].reason, 'unknown_entity');
+  assert.match(p[0].message, /Order is defined by billing and orders: write billing\/Order/);
+});
+test('mint: unknown_field lists the declared fields', () => {
+  const p = probs(withEx({ then: { Order: [{ id: 1, tagz: 'x' }] } }), ctx());
+  assert.equal(p[0].reason, 'unknown_field');
+  assert.match(p[0].message, /^examples\[0\]\.then\.Order\[0\]\.tagz: Order has no field tagz \(fields: id, ref, tag\)/);
+});
+test('mint: rows_incomplete when some example has rows and another has no then', () => {
+  const rec = { ...BOUND, examples: [ROWS[0], { title: 'bare', match: 'x', tag: 'y' }] };
+  const p = probs(rec, ctx());
+  assert.deepEqual(p.map(x => x.reason), ['rows_incomplete']);
+  assert.match(p[0].message, /^examples\[1\]: has no then rows, but examples\[0\] does/);
+});
+test('mint: placeholder_in_rows', () => {
+  const p = probs(withEx({ then: { Order: [{ id: 1, tag: '{tag}' }] } }), ctx());
+  assert.equal(p[0].reason, 'placeholder_in_rows');
+  assert.match(p[0].message, /^examples\[0\]\.then\.Order\[0\]\.tag: rows are literal: write this example's value, not \{tag\}/);
+});
+test('mint: no rows and no packs adds no problem; flat records only source_not_in_page', () => {
+  assert.deepEqual(probs(BOUND, ctx({ entities: [] })), []);
+  assert.deepEqual(TS.mintProblems({ id: 'x', requirement: 'r', title: 't', source: 'nope', given: ['a'], when: ['b'], then: ['c'] }, ctx({ entities: [] })).map(x => x.reason), ['source_not_in_page']);
+});

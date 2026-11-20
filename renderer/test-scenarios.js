@@ -50,6 +50,40 @@ const TestScenarios = (() => {
     walk(v); return out;
   };
 
+  // C4: the row checks of a structured scenario's examples (given/then) against the pinned packs' aggregates (Core.packAggregates).
+  // Shared by the mint refusals and the freeze. [{reason, message}]; empty when no example has rows.
+  const rowsOf = ex => isObj(ex) && (ex.given != null || ex.then != null);
+  function rowProblems(rec, entities) {
+    const out = [];
+    const add = (reason, message) => out.push({ reason, message });
+    const examples = Array.isArray(rec && rec.examples) ? rec.examples : [];
+    if (!Rec.isStructuredScenario(rec) || !examples.some(rowsOf)) return out;
+    const Core_ = typeof Core !== 'undefined' ? Core : require('./core.js');
+    if (!(entities || []).length) { add('no_domain_pack', 'examples: given/then rows name aggregates of a pinned domain pack, and none is pinned (domain/*.yaml): pin the pack that defines them first'); return out; }
+    const first = examples.findIndex(rowsOf);
+    examples.forEach((ex, i) => {
+      if (!isObj(ex)) return;
+      if (!(isObj(ex.then) && Object.keys(ex.then).length)) add('rows_incomplete', `examples[${i}]: has no then rows, but examples[${first}] does: every example of a scenario with rows says what it expects`);
+      for (const sect of ['given', 'then']) {
+        if (!isObj(ex[sect])) continue;
+        for (const [name, rows] of Object.entries(ex[sect])) {
+          const r = Core_.resolveEntity(entities, name);
+          if (r.error) { add('unknown_entity', `examples[${i}].${sect}.${name}: ${r.error}`); continue; }
+          const known = ['id', ...r.entity.fields.map(f => f.name)];
+          (Array.isArray(rows) ? rows : []).forEach((row, j) => {
+            if (!isObj(row)) return;
+            for (const [f, v] of Object.entries(row)) {
+              if (!known.includes(f)) add('unknown_field', `examples[${i}].${sect}.${name}[${j}].${f}: ${r.entity.name} has no field ${f} (fields: ${known.join(', ')})`);
+              if (typeof v === 'string') { const w = WHOLE.exec(v); if (w) add('placeholder_in_rows', `examples[${i}].${sect}.${name}[${j}].${f}: rows are literal: write this example's value, not {${w[1]}}`); }
+            }
+          });
+        }
+      }
+    });
+    return out;
+  }
+  const WHOLE = /^\{([A-Za-z_][\w-]*)\}$/;
+
   // rec: a test scenario record. ctx: {pageText, specs, resolveOperation(id) -> op|null, operationErrors?: Core.operations(...).errors}.
   // Returns [{reason, message}], empty when the scenario may be minted.
   function mintProblems(rec, ctx = {}) {
@@ -83,6 +117,7 @@ const TestScenarios = (() => {
     if (commits && !examples.length) add('commit_without_examples', `examples: a step clicks a transition that commits a change on ${rec.screen}; give at least one example`);
     const used = [...new Set([...steps.flatMap(s => placeholders(isObj(s) ? s.value : null)), ...placeholders(rec.effect && rec.effect.body)])];
     for (const name of used) examples.forEach((ex, i) => { if (!isObj(ex) || !(name in ex)) add('unfilled_placeholder', `examples[${i}]: has no value for {${name}}, which a step or effect.body uses`); });
+    for (const p of rowProblems(rec, ctx.entities)) add(p.reason, p.message);
     return out;
   }
 
@@ -149,7 +184,6 @@ const TestScenarios = (() => {
     const s = specFor(specs, scenario && scenario.screen);
     return s ? (isObj(s.host) && s.host.screen ? s.host.screen : s.screen) : null;
   }
-  const WHOLE = /^\{([A-Za-z_][\w-]*)\}$/;
   function fill(v, ex, id, where) {
     if (typeof v === 'string') {
       const w = WHOLE.exec(v);
@@ -289,6 +323,6 @@ ${tests.join('\n')}});
     const uncovered = sentences.filter(s => !sources.some(src => src.includes(s) || s.includes(src)));
     return { covered: sentences.length - uncovered.length, total: sentences.length, uncovered };
   }
-  return { clauses, coverage, testFile, compile, startState, renderScreen, mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
+  return { clauses, coverage, testFile, compile, startState, renderScreen, mintProblems, rowProblems, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;
