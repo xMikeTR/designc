@@ -71,6 +71,33 @@ test('test_scenario: a requirement, a title and non-empty given, when and then',
   assert.doesNotMatch(bad, /status/, 'a test scenario has no status');
 });
 
+const sts = (o = {}) => ({ id: 'ORD-1-ts-01', requirement: 'ORD-1', title: 'Tagging matches', source: 'Tag matching orders.', screen: 'orders', status: 'minted',
+  steps: [{ fill: { role: 'textbox', name: 'Match' }, value: '{match}' }, { click: { role: 'button', name: 'Apply' } }],
+  effect: { operation: 'tagOrders', body: { match: '{match}' }, then_state: { screen: 'orders', state: 'tagged' } },
+  given: { orders: ['A-1', 'B-2'] }, examples: [{ match: 'A' }], questions: ['Prefix or contains?'], by: 'grill', ...o });
+
+test('structured test_scenario: screen, steps and effect.operation; given may be data; when and then are optional', () => {
+  assert.deepEqual(R.validate('test_scenario', sts()), []);
+  assert.deepEqual(R.validate('test_scenario', sts({ given: undefined, examples: undefined, questions: undefined, source: undefined, status: undefined })), []);
+  assert.deepEqual(R.validate('test_scenario', sts({ given: ['orders exist'], when: ['Apply'], then: ['tagged'] })), []);
+  assert.strictEqual(R.isStructuredScenario(ts()), false);
+  assert.strictEqual(R.isStructuredScenario({ effect: {} }), true);
+  const bad = R.validate('test_scenario', { id: 'x', requirement: 'R', title: 't', steps: [], examples: ['a'], questions: [1], status: 'proposed' }).join();
+  assert.match(bad, /screen: required/);
+  assert.match(bad, /steps: a non-empty list/);
+  assert.match(bad, /effect: required, with an operation/);
+  assert.match(bad, /examples: a list of mappings/);
+  assert.match(bad, /questions: a list of strings/);
+  assert.match(bad, /status: a test scenario is minted or bound/);
+  assert.match(R.validate('test_scenario', sts({ steps: [{ tap: { role: 'button', name: 'x' } }, { click: { role: 'button' } }, { fill: { role: 'textbox', name: 'a' }, value: 3, extra: 1 }] })).join(), /steps\[0\]: exactly one verb.*steps\[0\]: unknown field tap.*steps\[1\]: click needs a locator.*steps\[2\]: unknown field extra.*steps\[2\]: value must be a string/);
+  assert.match(R.validate('test_scenario', sts({ effect: { operation: 'x', then_state: { screen: 's' } } })).join(), /then_state needs a screen and a state/);
+});
+
+test('flat test scenarios stay valid, and may carry status, source and questions (D5)', () => {
+  assert.deepEqual(R.validate('test_scenario', ts({ status: 'bound', source: 'A sentence.', questions: ['Why?'] })), []);
+  assert.match(R.validate('test_scenario', ts({ given: { a: 1 } })).join(), /given: a non-empty list of strings/);
+});
+
 const recs = () => [
   { kind: 'requirement', path: 'requirements/DEMO-1.yaml', rec: { id: 'DEMO-1', title: 'Bookings' } },
   { kind: 'requirement', path: 'requirements/DEMO-0.yaml', rec: { id: 'DEMO-0', title: 'Old', status: 'retired' } },

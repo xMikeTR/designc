@@ -54,16 +54,23 @@
     },
     {
       "title": "test_scenario",
-      "description": "test-scenarios/<id>.yaml: one BDD case that proves part of a requirement, written by an agent from the requirement's page or by QA. No status. The requirement must be a requirement record (Records.lint). Display only, never a gate input.",
+      "description": "test-scenarios/<id>.yaml: one case that proves part of a requirement, written by an agent from the requirement's page or by QA. The requirement must be a requirement record (Records.lint). Flat: given, when and then are lists of sentences. Structured (any of screen, steps, effect): screen, steps and effect.operation are required, given may be a mapping of data, when and then are optional. status is minted or bound; a person binds. Display only, never a gate input until B4.",
       "allOf": [ { "$ref": "#/$defs/envelope" } ],
-      "required": ["requirement", "title", "given", "when", "then"],
+      "required": ["requirement", "title"],
       "properties": {
         "requirement": { "type": "string", "minLength": 1 },
         "title": { "type": "string", "minLength": 1 },
-        "given": { "$ref": "#/$defs/steps" },
+        "given": { "oneOf": [ { "$ref": "#/$defs/steps" }, { "type": "object" } ] },
         "when": { "$ref": "#/$defs/steps" },
         "then": { "$ref": "#/$defs/steps" },
-        "by": { "type": "string", "minLength": 1, "description": "grill, qa or a person" }
+        "by": { "type": "string", "minLength": 1, "description": "grill, qa or a person" },
+        "status": { "enum": ["minted", "bound"] },
+        "source": { "type": "string", "description": "The sentence of the requirement page this case comes from, verbatim" },
+        "questions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the page does not settle; any open question blocks binding" },
+        "examples": { "type": "array", "items": { "type": "object" } },
+        "screen": { "type": "string", "minLength": 1 },
+        "steps": { "type": "array", "minItems": 1, "items": { "type": "object", "description": "{fill|select|click|check: {role, name}, value?}" } },
+        "effect": { "type": "object", "required": ["operation"], "properties": { "operation": { "type": "string" }, "body": { "type": "object" }, "then_state": { "type": "object", "required": ["screen", "state"] } } }
       }
     },
     {
