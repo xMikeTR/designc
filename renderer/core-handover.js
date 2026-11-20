@@ -346,7 +346,7 @@ export { expect };
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null, dependencies = false }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -380,6 +380,7 @@ export { expect };
     if (references.length) out.push(`${++n}. Read-only references: ${references.map(r => `${code(r.key)} (${r.kind})`).join(', ')}. Whoever started this build gives you where each one lives. Read them to learn what correct behaviour is; never write them, and do not copy their code into the areas above where the requirements say otherwise.`);
     if (ui) out.push(`${++n}. ${code('ui.json')} lists the screens, each with its spec under ${code('ui/specs/')} and the approved previews under ${code('ui/previews/')}. Build each screen from its spec: one library component per placement, ${code('data-ui-id')} first, no inline styles or raw values. Do not edit the spec, the pack files or the previews.`);
     if (scenarioTests && scenarioTests.copies.length) out.push(`${++n}. ${code('scenarios.json')} lists the scenario tests designc generated from the bound test scenarios. Never edit ${code('ui-contract/tests/*.scenarios.page.test.tsx')}: they are how the screen's requests are judged.`);
+    if (dependencies) out.push(`${++n}. ${code('dependencies.json')} lists, per element, the other elements its code may depend on (from the design's relationships). Do not add a project reference, namespace use or import between two elements it does not allow: that needs a relationship in the design, which is a new handover.`);
     out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
@@ -496,6 +497,7 @@ export { expect };
     acceptance = acc.files;
     const uiPart = handoverUi({ model: parse(model.text), ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
     const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [] });
+    const depsDoc = handoverDependencies(model.text, elementsDoc);
     const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
     // The test map (D6) is derived from the as-built facts, which are not copied: their hash joins the id, so new facts are a new handover.
     const testsDoc = handoverTests(elementsDoc, facts, specs, uiPart ? uiPart.components : []);
@@ -509,9 +511,10 @@ export { expect };
     const reqProfile = requirementProfile(requirements);
     const agentsDoc = handoverAgents(model.text);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn }) };
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn, dependencies: !!depsDoc }) };
+    const depsFile = depsDoc ? { path: 'dependencies.json', text: JSON.stringify(depsDoc, null, 2) + '\n' } : null;
     const testsFile = testsDoc ? { path: 'tests.json', text: JSON.stringify(testsDoc, null, 2) + '\n' } : null;
-    const frozen = [...content, elements, build, ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const frozen = [...content, elements, build, ...(depsFile ? [depsFile] : []), ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
 revision: ${modelRevision(model.text)}
@@ -519,7 +522,7 @@ created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
-build: ${q(build.path)}
+${depsFile ? `dependencies: ${q(depsFile.path)}\n` : ''}build: ${q(build.path)}
 ${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
