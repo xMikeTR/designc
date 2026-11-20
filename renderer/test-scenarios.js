@@ -135,18 +135,18 @@ const TestScenarios = (() => {
   // dumped by js-yaml in a fixed key order (so a person reads it top to bottom: where from, what is done, what is expected).
   function fileText(rec, dump) {
     if (Rec.isStructuredScenario(rec)) {
-      const order = ['id', 'requirement', 'title', 'source', 'screen', 'steps', 'effect', 'given', 'when', 'then', 'examples', 'questions', 'by', 'status'];
+      const order = ['id', 'requirement', 'title', 'source', 'screen', 'steps', 'effect', 'given', 'when', 'then', 'examples', 'questions', 'by', 'run', 'status'];
       const o = {}; for (const k of order) if (rec[k] !== undefined) o[k] = rec[k];
       return dump(o, { lineWidth: -1, noRefs: true });
     }
     const block = k => `${k}:\n${rec[k].map(v => `  - ${q(v)}`).join('\n')}`;
-    return `id: ${rec.id}\nrequirement: ${q(rec.requirement)}\ntitle: ${q(rec.title)}\n${rec.source != null ? `source: ${q(rec.source)}\n` : ''}${block('given')}\n${block('when')}\n${block('then')}\nby: ${rec.by}\n${rec.status ? `status: ${rec.status}\n` : ''}`;
+    return `id: ${rec.id}\nrequirement: ${q(rec.requirement)}\ntitle: ${q(rec.title)}\n${rec.source != null ? `source: ${q(rec.source)}\n` : ''}${block('given')}\n${block('when')}\n${block('then')}\nby: ${rec.by}\n${rec.run != null ? `run: ${rec.run}\n` : ''}${rec.status ? `status: ${rec.status}\n` : ''}`;
   }
   // The records and files for a batch of proposed cases of one requirement (shared by the mint tool and the .feature import).
-  // opts: by, taken (ids in use), needQuote (mint: `quote` is the verbatim source, written as `source`, and the file is minted), dump.
+  // opts: by, run (C5 run tag), taken (ids in use), needQuote (mint: `quote` is the verbatim source, written as `source`, and the file is minted), dump.
   // Returns {files: [{id, path, quote, rec, text}]} or {error}. Structural errors come from Records.validate; the mint
   // refusals (page, spec, operation) are mintProblems, which the caller runs on each rec.
-  function build(req, list, { by, taken = [], needQuote = false, dump } = {}) {
+  function build(req, list, { by, taken = [], needQuote = false, dump, run } = {}) {
     const used = new Set(taken), files = [];
     for (const [i, x] of list.entries()) {
       let n = 1, id; do { id = `${req.id}-ts-${String(n++).padStart(2, '0')}`; } while (used.has(id)); used.add(id);
@@ -154,6 +154,7 @@ const TestScenarios = (() => {
       if (needQuote) rec.source = x && typeof x.quote === 'string' ? x.quote.trim() : '';
       for (const k of STRUCTURED_KEYS) if (x && x[k] !== undefined) rec[k] = x[k];
       rec.by = by;
+      if (run != null) rec.run = run;
       if (needQuote) rec.status = 'minted';
       const errs = Rec.validate('test_scenario', rec);
       if (errs.length) return { error: `Scenario ${i + 1}: ${errs.join('; ')}.` };

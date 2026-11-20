@@ -66,6 +66,7 @@
         "then": { "$ref": "#/$defs/steps" },
         "by": { "type": "string", "minLength": 1, "description": "grill, qa or a person" },
         "status": { "enum": ["minted", "bound"] },
+        "run": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$", "description": "C5: the extraction run that minted this case (for example a or b); variance compares two runs per page sentence" },
         "source": { "type": "string", "description": "The sentence of the requirement page this case comes from, verbatim" },
         "questions": { "type": "array", "items": { "type": "string", "minLength": 1 }, "description": "What the page does not settle; any open question blocks binding" },
         "examples": { "type": "array", "items": { "type": "object", "properties": {

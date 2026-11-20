@@ -137,6 +137,7 @@
       else for (const f of ['given', 'when', 'then']) if (!list(rec[f]).length || !list(rec[f]).every(str)) errs.push(`${f}: a non-empty list of strings`);
       if (rec.by != null && !str(rec.by)) errs.push('by: must be a non-empty string');
       if (rec.status != null && !['minted', 'bound'].includes(rec.status)) errs.push('status: a test scenario is minted or bound');
+      if (rec.run != null && !(typeof rec.run === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(rec.run))) errs.push('run: a run tag is letters, digits, ".", "_" or "-", at most 32');
       if (rec.questions != null && !(Array.isArray(rec.questions) && rec.questions.every(str))) errs.push('questions: a list of strings');
       if (rec.examples != null && !(Array.isArray(rec.examples) && rec.examples.every(isObj))) errs.push('examples: a list of mappings');
     }
