@@ -40,6 +40,7 @@ this marking is a reading of how the files are written and checked.
 | Inbox item | Aggregate | A file in `inbox/<KEY>.yaml` written by `scripts/sweep-jira.py`: a Jira issue assigned to you that is new or changed (id, title, `jira:`, `target: {jira: KEY}`, swept date). A suggestion only: the Work view's Accept makes the work item, Dismiss moves it to `inbox/dismissed/` |
 | Proposal | Aggregate | A file in `proposals/`: a suggested change to the rules, from the improvement loop |
 | Handover | Aggregate | The frozen package any coding agent consumes, in `handovers/`: the model, its resolved `elements.json`, requirements, bound decisions and behaviour. Immutable once written |
+| Allow list | Value object | Per coded element, the elements its code may depend on, derived from the relationships; `dependencies.json` in the handover |
 | Ledger | Aggregate (append-only streams) | `ledger/*.jsonl`. One event per line. Never rewritten; state changes are later events |
 | Event | Entity | One ledger line, identified by `event_id`, with a `kind` |
 | Envelope | Value Object | The common fields of an event. Two exist: `designc_v1` (snake_case kinds) and `harness_v1` (PascalCase kinds, `sessions.jsonl`) |

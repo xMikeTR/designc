@@ -448,6 +448,8 @@ With split repos (`repos` in `designc.json`) a pattern is relative to the repo t
 
 **A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
 
+Each handover also carries `dependencies.json`, an allow list derived from the relationships: per element with `d.code`, the other coded elements its code may depend on (a relationship between containers applies to the code areas inside them). Add a relationship to allow a new dependency; it is a new handover.
+
 The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
 ## Agent contracts
