@@ -17,7 +17,7 @@ this marking is a reading of how the files are written and checked.
 |------|------|-----------|
 | Registry | Aggregate root (folder) | The folder designc opens. Plain files; git provides review and history. Everything below lives in it |
 | Repo | Value (name) | A code repository an element's code lives in, named by `d.repo` on the element or its container and declared in `designc.json` `repos` (`Api`, `Ui`). Not the Registry: the registry holds the design, a repo holds code built from it. A requirement that reaches more than one repo needs a pinned API contract (gate clause `unpinned_contract`) |
-| API contract | Value (file) | An OpenAPI 3.x YAML file in `contracts/openapi/` that the Api and Ui repos share. Frozen into the handover under `contracts_api:`. Distinct from an agent contract (`contracts:`), which is a compiled agent policy |
+| API contract | Value (file) | An OpenAPI 3.x YAML file in `contracts/openapi/` that the Api and Ui repos share. Frozen into the handover under `contracts_api:`. Pinned = directly in `contracts/openapi/` (`.yaml`/`.yml`, no subfolders); `Core.operations` lists their operations and `Core.resolveOperation` looks one up by operationId. Distinct from an agent contract (`contracts:`), which is a compiled agent policy |
 | Design | Aggregate | The model in `model/workspace.dsl`: the source of truth. Code is a build output of it |
 | Model | Value | The parsed form of a design or as-built DSL text: elements, rels, errors |
 | Element | Entity (inside a model) | A `person`, `softwareSystem`, `container` or `component`. Has a name, optionally an identifier, a parent, tags and properties |
