@@ -530,6 +530,33 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))], binaryCopies: uiPart ? uiPart.binary.map(b => ({ from: b.from, to: dir + b.rel, sha256: b.sha256 })) : [], testsUnmapped: testsDoc ? testsDoc.unmapped : [] };
   }
 
+  // The allow list (R3a, designc.handover.dependencies/1, docs/handover-dependencies.schema.json): for every element with a code area,
+  // the elements its code may depend on, derived from the relationships. An endpoint's owners are itself when coded, else its nearest
+  // coded ancestor, else its coded descendants (d.code never nests, DC009). Direction is the rel's; structural and person rels add
+  // nothing. Pure and deterministic. Returns null when no element has a code area.
+  function handoverDependencies(modelText, elementsDoc) {
+    const coded = elementsDoc.elements.filter(e => e.code && e.code.length);
+    if (!coded.length) return null;
+    const m = parse(modelText);
+    const byId = new Map(coded.map(e => [e.id, e]));
+    const owners = id => {
+      const own = [];
+      if (byId.has(m.label(id))) return [m.label(id)];
+      for (let p = m.elements.get(id).parent; p; p = m.elements.get(p).parent) if (byId.has(m.label(p))) return [m.label(p)];
+      for (const e of m.elements.values()) if (byId.has(m.label(e.id)) && m.isAncestor(id, e.id)) own.push(m.label(e.id));
+      return own;
+    };
+    const allow = new Map(coded.map(e => [e.id, new Set()]));
+    for (const r of m.rels) {
+      if (structural(m, r) || m.elements.get(r.src).kind === 'person' || m.elements.get(r.dst).kind === 'person') continue;
+      const to = owners(r.dst);
+      for (const s of owners(r.src)) for (const t of to) if (s !== t) allow.get(s).add(t);
+    }
+    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const out = coded.map(e => ({ element: e.id, code: e.code, ...(e.repo ? { repo: e.repo } : {}), allows: [...allow.get(e.id)].sort(cmp) })).sort((a, b) => cmp(a.element, b.element));
+    return { schema: 'designc.handover.dependencies/1', elements: out };
+  }
+
   // The test map (D6, designc.handover.tests/1, docs/handover-tests.schema.json): for each element with a code area, the tests that
   // must turn green (fail_to_pass: its generated acceptance specs, and the page test of a screen it is the component of) and the
   // existing tests that must stay green (pass_to_pass: found statically in the as-built facts). designc does not know tasks: this is
@@ -597,5 +624,5 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
 
 
-  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverScenarioTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
+  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverDependencies, handoverScenarioTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);
