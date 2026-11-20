@@ -1679,6 +1679,8 @@ function clauseActions(c) {
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
   if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
+  if (c.kind === 'scenario' && c.scenario) return b('data-grillscen', c.scenario, 'Ask in Grill-me', 'Grill-me takes the open questions; business questions go to the BA') + (c.path ? b('data-file', c.path, 'Open scenario') : '');
+  if (c.kind === 'scenario' && c.screen && c.requirement) return b('data-draftscen', c.requirement, 'Draft test scenarios', 'Grill-me drafts structured scenarios with examples through mint_test_scenarios; you bind them');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
   if (c.kind === 'contracts') return b('data-a', 'compilecontracts', 'Compile contracts', 'Writes the design\'s agents and runs your contracts command');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
@@ -1806,7 +1808,7 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` + (g.ready ? '' : itemFreezeHint()) +
-    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${c.kind === 'scenario' && (c.scenario || c.screen) ? 'Test scenario' : CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
@@ -2434,6 +2436,8 @@ document.addEventListener('click', async e => {
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
   if (d.rects) { e.stopPropagation(); return recordFromLegacy(d.rects); }
+  if (d.draftscen) { e.stopPropagation(); return draftTestScenarios(d.draftscen, true); }
+  if (d.grillscen) { e.stopPropagation(); return askScenarioQuestions(d.grillscen); }
   if (d.draftts) { e.stopPropagation(); return draftTestScenarios(d.draftts); }
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }

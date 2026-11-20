@@ -281,6 +281,7 @@ async function loadTestScenarios() {
     for (const x of lint.filter(l => l.path === t.path)) A.workErrors.push({ path: t.path, line: 1, msg: `${x.id}: ${x.msg}` });
   }
   A.testScenarioIds = A.testScenarios.map(t => String(t.rec.id));
+  refreshCoverage();
 }
 
 // Element refs to hierarchical ids (System/Container) through the open model, as the headless core reads them.
@@ -381,7 +382,7 @@ async function bindTestScenario(path) {
   if (next == null) return toast(`${path} has no single top-level status line to change. Edit it by hand.`, 'warning');
   if (!confirm(`Bind test scenario ${rec.id}? You are saying it states the behaviour of "${rec.source || rec.title}" correctly, examples included.`)) return;
   await host.write(path, next);
-  await loadTestScenarios(); renderAll({ keepEditor: true });
+  await loadTestScenarios(); recompile(); renderAll({ keepEditor: true });
   toast(`${rec.id} is bound.`, 'info');
 }
 // Human only: Bind or Retire changes the one top-level status line of the procedure file, after a confirmation.

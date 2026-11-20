@@ -1091,11 +1091,18 @@ async function writeTestScenarioFiles(files) {
   A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
 }
 // Grill-me on one imported requirement: reads its page and proposes test scenarios in one batch card.
-function draftTestScenarios(id) {
+function draftTestScenarios(id, commit = false) {
   if (!A.importDir) { toast('Choose the folder the pages came from first (the ⇩ button in Requirements); designc does not keep that folder between sessions.', 'warning'); return; }
   const r = A.requirements.find(x => x.id === id); if (!r) return;
-  const text = `Draft test scenarios for requirement ${id} ("${r.title || id}"). Read its page with read_import_page, then call mint_test_scenarios once: one case per behaviour the page states, each quoting its sentence. Do not invent behaviour; say where the page is unclear. This requirement only.`;
+  const text = `Draft test scenarios for requirement ${id} ("${r.title || id}"). Read its page with read_import_page, then call mint_test_scenarios once: one case per behaviour the page states, each quoting its sentence. Do not invent behaviour; say where the page is unclear. This requirement only.${commit ? ' A transition that commits a change has no bound scenario: include at least one with examples that clicks it.' : ''}`;
   if (!grillInPanel(text)) toast('Draft test scenarios needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
+// Grill-me takes the open questions of one structured test scenario. Business questions go to the BA; it writes nothing, a person edits the file and binds.
+function askScenarioQuestions(id) {
+  const t = (A.testScenarios || []).find(x => String(x.rec.id) === String(id)); if (!t) return;
+  const qs = (Array.isArray(t.rec.questions) ? t.rec.questions : []).filter(q => typeof q === 'string' && q.trim());
+  const text = `Test scenario ${id} ("${t.rec.title || id}", requirement ${t.rec.requirement}) cannot be bound: it has ${qs.length} open question(s):\n${qs.map((q, i) => `${i + 1}. ${q}`).join('\n')}\nGo through them one at a time. Say which ones the requirement page already answers, and route business questions to the BA instead of guessing. Do not edit the file; the person answers in ${t.path} and removes each question, then binds.`;
+  if (!grillInPanel(text)) toast('Ask in Grill-me needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
 function draftCheck(id) {
   const d = A.decisions.find(x => x.id === id); if (!d) return;

@@ -322,9 +322,24 @@ function bindHtml(r) {
     + (bound ? '' : `${why ? `<span class="tag warning">blocked: ${esc(why.replace(/: answer them first$/, ''))}</span> ` : ''}<button class="lnk" data-tsbind="${esc(r.path)}" ${why ? `disabled title="${esc(why)}"` : 'title="You bind a scenario after reading it; nothing else does"'}>Bind</button>`)
     + (qs.length ? `<ul class="tsq">${qs.map(q => `<li>${esc(q)}</li>`).join('')}</ul>` : '') + '</div>';
 }
+// D6: BR sentence coverage per requirement (display only, never a gate clause). Needs the import folder, so it exists only once one was chosen.
+async function refreshCoverage() {
+  if (!A.importDir || typeof importPage !== 'function') return;
+  const next = {};
+  for (const r of A.requirements || []) {
+    const mine = (A.testScenarios || []).map(t => t.rec).filter(x => x.requirement === r.id && Records.isStructuredScenario(x));
+    if (!mine.length) continue;
+    try { const p = await importPage(r.id); if (!p.error) next[r.id] = TestScenarios.coverage(p.text, mine); } catch { /* no coverage shown */ }
+  }
+  if (JSON.stringify(next) !== JSON.stringify(A.brCoverage || {})) { A.brCoverage = next; renderAll({ keepEditor: true }); }
+}
+function coverageHtml(reqId) {
+  const c = (A.brCoverage || {})[reqId];
+  return c ? `<div class="l2 brcov" data-brcov="${esc(reqId)}" title="${esc(c.uncovered.length ? 'Not covered: ' + c.uncovered.join(' | ') : 'Every sentence is quoted by a scenario')}">BR coverage: ${c.covered}/${c.total} sentences</div>` : '';
+}
 function chainHtml(reqId) {
   const rows = chainRows(reqId);
-  return stageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : `<span class="desc">not automated yet</span> <button class="lnk" data-rects="${esc(r.id)}">Record from legacy</button>`}</div>${bindHtml(r)}`).join('');
+  return stageHtml(reqId) + coverageHtml(reqId) + rows.map(r => `<div class="l2" data-open="${esc(r.path)}">${esc(r.id)} ${esc(trunc(r.title, 60))} → ${r.proving.length ? r.proving.map(p => `<span data-pv="open" data-id="${esc(p.id)}">${esc(p.id)}</span> ${p.last ? esc(p.last.outcome.replace(/_/g, ' ')) : 'no result'}`).join(', ') : `<span class="desc">not automated yet</span> <button class="lnk" data-rects="${esc(r.id)}">Record from legacy</button>`}</div>${bindHtml(r)}`).join('');
 }
 function renderParity() {
   const el = $('#special');

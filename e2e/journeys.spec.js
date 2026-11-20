@@ -557,6 +557,13 @@ test('user can mint a structured test scenario and see it blocked from binding b
   await expect(row).toContainText('blocked: 1 open question');
   await expect(row).toContainText('Is the match a prefix, or anywhere in the reference?');
   await expect(row.getByRole('button', { name: 'Bind' })).toBeDisabled();
+  // B4: the gate says so. The open question is a clause routed to Grill-me, the committing Apply has no bound scenario, and BR coverage shows without gating.
+  const questionClause = page.locator('.clause').filter({ hasText: 'ORD-1-ts-01: 1 open question(s) block binding' });
+  await expect(questionClause.getByRole('button', { name: 'Ask in Grill-me' })).toBeVisible();
+  await expect(questionClause.getByRole('button', { name: 'Open scenario' })).toBeVisible();
+  const commitClause = page.locator('.clause').filter({ hasText: 'committing "Apply"' });
+  await expect(commitClause.getByRole('button', { name: 'Draft test scenarios' })).toBeVisible();
+  await expect(page.locator('#sbBody .brcov')).toContainText(/BR coverage: \d+\/\d+ sentences/);
   // Answering the question (editing the file) unblocks it; only the person's Bind button binds, and it rewrites the one status line.
   delete rec.questions;
   fs.writeFileSync(file, yaml.dump(rec, { lineWidth: -1 }));
@@ -564,6 +571,7 @@ test('user can mint a structured test scenario and see it blocked from binding b
   await row.getByRole('button', { name: 'Bind' }).click();
   await expect.poll(() => yaml.load(fs.readFileSync(file, 'utf8')).status).toBe('bound');
   await expect(row).toContainText('bound');
+  await expect(page.locator('.clause').filter({ hasText: /open question\(s\) block binding|committing "Apply"/ })).toHaveCount(0);
 });
 
 test('a legacy spec is drafted by the agent and copied as a new spec by the person @critical', async () => {
