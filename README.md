@@ -437,7 +437,7 @@ With split repos (`repos` in `designc.json`) a pattern is relative to the repo t
 
 **A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
 
-The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
+The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
 ## Agent contracts
 
@@ -483,15 +483,15 @@ The results file is `{"metrics": {"task_success": 0.9}, "cases": 40}` (schema in
 
 ## Command line (CI)
 
-The same compiler and gate run without the app, for CI. It needs Python 3.9 or later and PyYAML:
+The same compiler and gate run without the app, for CI. `check` and `eval` run the Node core (`scripts/designc-core.js`), so the app, `designc-core` and `python3 -m designc check` give the same `ready` and findings; the Python command is a thin shim over it. They need Node on the PATH (no Node: exit 2). `record`, `work` and `verify-ledger` are Python and need Python 3.9 or later and PyYAML:
 
 ```
-cd python
-python3 -m designc check /path/to/registry          # findings and gate clauses
-python3 -m designc check /path/to/registry --json   # the same as JSON
+node scripts/designc-core.js check /path/to/registry          # findings and gate clauses
+node scripts/designc-core.js check /path/to/registry --json   # the same as JSON
+cd python && python3 -m designc check /path/to/registry        # the shim: same output, same exit code
 ```
 
-`python3 -m designc check <registry> --item <id>` prints the gate scoped to one work item. `python3 -m designc work <registry>` lists work items with their state and clashes, `verify-ledger` checks the ledger trail, and `eval` runs agent evals.
+`check <registry> --item <id>` prints the gate scoped to one work item. `python3 -m designc work <registry>` lists work items with their state and clashes, `verify-ledger` checks the ledger trail, and `eval` runs agent evals (also in the Node core).
 
 Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the folder could not be read. It does not do drift, diff, blast radius or code extraction; those stay in the app.
 
@@ -628,7 +628,7 @@ npm run e2e                       # @critical journeys; the app stays hidden on 
 
 The end-to-end journeys (`e2e/journeys.spec.js`) drive the real app on a scratch copy of the registry. `scripts/agent-gate.sh` runs them as a Claude Code Stop hook. They are never skipped or loosened.
 
-Core logic, the extractors, the ledger, the Python CLI parity and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
+Core logic, the extractors, the ledger, the CLI and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
 
 ## Layout of the code
 
@@ -640,7 +640,7 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. Same rules and results as the Python CLI in `python/designc` |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. The one front end: the app, `designc-core` and the `python -m designc check` shim all run it |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
 | `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |
