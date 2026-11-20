@@ -244,6 +244,37 @@ claude mcp add designc -- node /path/to/designc-mcp.js --registry /path/to/regis
 
 The registry is `--registry <dir>`, else `DESIGNC_REGISTRY`, else the current folder. Four read tools are available, served from the files on disk with the same names and answers as the app: `read_model`, `get_findings`, `get_gate`, `get_code_map` (from `asbuilt/facts.json`). Every other tool answers `designc app not running: <name> needs the designc app open on this registry`. If `DESIGNC_MCP_URL` points at an app that is not listening, the server falls back to this mode.
 
+### Language server (LSP)
+
+`lsp/server.js` is a stdio language server over the headless core, so an editor or Claude Code shows designc's findings with the app closed. Run it with `node lsp/server.js --stdio` (`npm run lsp`).
+
+What it gives:
+
+- Live findings: the same rows as the app's Problems view (model parse errors, DC and AG findings, suppressed ones left out), on the file each lives in, including `!include`d `.dsl` files.
+- YAML errors in `decisions/`, `requirements/`, `proposals/`, `acceptance/` and the other registry folders, ledger (`ledger/*.jsonl`) parse errors, and duplicate proposal ids.
+- Hover and completion for `d.*` properties and their values in `.dsl` files.
+- Unsaved edits are checked: the open buffers overlay the files on disk. The server is read-only and never writes the registry.
+
+What it does not give yet: `work/` and code-quality problems, go to definition, references and rename (L2).
+
+The registry is the nearest folder above the document that holds `designc.json`, else `--registry <dir>`, else `DESIGNC_REGISTRY`, else `initializationOptions.registry`, else the first workspace folder with a `designc.json` or `model/workspace.dsl`. Open the registry folder (or set `--registry`); the app need not run.
+
+**Claude Code.** A local plugin with a `.lsp.json` at its root (the `lspServers` fields are `command`, `args`, `extensionToLanguage`, and more; checked against the plugin reference, code.claude.com/docs/en/plugins-reference):
+
+```json
+{
+  "designc": {
+    "command": "node",
+    "args": ["/path/to/Designc/app/lsp/server.js", "--stdio"],
+    "extensionToLanguage": { ".dsl": "structurizr", ".yaml": "yaml", ".yml": "yaml", ".jsonl": "jsonl" }
+  }
+}
+```
+
+Unverified: whether a standalone `.lsp.json` is a bare name-to-config map (as above) or wrapped in `"lspServers"`; the reference documents the inline `lspServers` form in `plugin.json`. Run `claude plugin validate <plugin dir>` and adjust. Not run in the session that wrote this.
+
+**VS Code.** VS Code needs an extension to talk to any server. Use a generic LSP client extension pointed at `node /path/to/Designc/app/lsp/server.js --stdio`, with a document selector for `**/*.dsl`, `**/*.yaml` and `**/ledger/*.jsonl`. A designc VS Code extension is not shipped.
+
 The limit to be clear about: designc governs everything that flows through ACP and its own MCP tools. It does not sandbox the agent process. What an agent does with its own native tools depends on that agent's permission settings, so leave its auto-approve modes off, and run it inside the MAF harness under ACS where you need hard enforcement rather than detection.
 
 For offline demos, `dev/mock-acp-agent.js` is a scripted ACP agent that uses the MCP bridge, asks permission, writes through the client and tries a write the policy refuses:
