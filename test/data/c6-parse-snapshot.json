@@ -1,0 +1,174 @@
+{
+ "sample": {
+  "elements": [
+   [
+    "traveller",
+    "traveller",
+    "Traveller",
+    "person",
+    null,
+    3
+   ],
+   [
+    "catVendor",
+    "catVendor",
+    "Weather Feed Vendor",
+    "softwareSystem",
+    null,
+    8
+   ],
+   [
+    "fares",
+    "fares",
+    "Fares Platform",
+    "softwareSystem",
+    null,
+    16
+   ],
+   [
+    "portal",
+    "portal",
+    "Fares Portal",
+    "container",
+    "fares",
+    20
+   ],
+   [
+    "api",
+    "api",
+    "Fares API",
+    "container",
+    "fares",
+    26
+   ],
+   [
+    "surcharge",
+    "surcharge",
+    "Surcharge Engine",
+    "container",
+    "fares",
+    33
+   ],
+   [
+    "catAdapter",
+    "catAdapter",
+    "Weather Feed Adapter",
+    "container",
+    "fares",
+    40
+   ],
+   [
+    "escalations",
+    "escalations",
+    "Escalation Worker",
+    "container",
+    "fares",
+    48
+   ],
+   [
+    "bookings",
+    "bookings",
+    "Bookings DB",
+    "container",
+    "fares",
+    53
+   ]
+  ],
+  "rels": [
+   [
+    "r1",
+    "traveller",
+    "portal",
+    56
+   ],
+   [
+    "r2",
+    "portal",
+    "api",
+    63
+   ],
+   [
+    "r3",
+    "api",
+    "surcharge",
+    68
+   ],
+   [
+    "r4",
+    "api",
+    "bookings",
+    76
+   ],
+   [
+    "r5",
+    "api",
+    "escalations",
+    82
+   ],
+   [
+    "r6",
+    "surcharge",
+    "catAdapter",
+    88
+   ],
+   [
+    "r7",
+    "catAdapter",
+    "catVendor",
+    94
+   ],
+   [
+    "r8",
+    "escalations",
+    "bookings",
+    103
+   ]
+  ],
+  "errors": [],
+  "deployment": {
+   "environments": [],
+   "views": []
+  }
+ },
+ "split": {
+  "elements": [
+   [
+    "shop",
+    "shop",
+    "Shop",
+    "softwareSystem",
+    null,
+    3
+   ],
+   [
+    "api",
+    "api",
+    "Shop.Api",
+    "container",
+    "shop",
+    4
+   ],
+   [
+    "ui",
+    "ui",
+    "ui",
+    "container",
+    "shop",
+    7
+   ]
+  ],
+  "rels": [
+   [
+    "r1",
+    "ui",
+    "api",
+    10
+   ]
+  ],
+  "errors": [],
+  "deployment": {
+   "environments": [],
+   "views": []
+  }
+ }
+}

@@ -6,7 +6,7 @@ const Core = (() => {
   const UI = typeof require === 'function' && typeof module === 'object' ? require('./ui.js') : Ui;
   const TS = () => (typeof require === 'function' && typeof module === 'object' ? require('./test-scenarios.js') : TestScenarios); // lazy: the renderer loads test-scenarios.js after core.js
   // ---------- tokenizer ----------
-  function tokenize(src) {
+  function tokenize(src, file = null) {
     const toks = []; let i = 0, line = 1; const n = src.length;
     while (i < n) {
       const c = src[i];
@@ -33,23 +33,73 @@ const Core = (() => {
       const num = /^\d+(?![\w.])/.exec(src.slice(i, i + 20));
       if (num) { toks.push({ t: 'id', v: num[0], line }); i += num[0].length; continue; }
       const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, i + 200));
+      if (m && m[0] === '!include') {
+        // `!include <path>`: the rest of the line is the path, so a `/` in it is not lexed as `?`.
+        i += m[0].length;
+        while (i < n && (src[i] === ' ' || src[i] === '\t')) i++;
+        let raw = '';
+        if (src[i] === '"') { i++; while (i < n && src[i] !== '"' && src[i] !== '\n') raw += src[i++]; if (src[i] === '"') i++; }
+        else while (i < n && !/\s/.test(src[i])) raw += src[i++];
+        toks.push({ t: 'include', v: raw, line });
+        continue;
+      }
       if (m) { toks.push({ t: 'id', v: m[0], line }); i += m[0].length; continue; }
       toks.push({ t: '?', v: c, line }); i++;
     }
+    toks.forEach(t => { t.file = file; });
     return toks;
   }
 
   const KINDS = { person: 'person', softwareSystem: 'softwareSystem', softwaresystem: 'softwareSystem', container: 'container', component: 'component' };
   const SKIP = new Set(['views', 'styles', 'configuration', 'deploymentEnvironment', '!docs', '!adrs', '!identifiers', '!impliedRelationships', 'branding', 'terminology']);
 
+  // ---------- includes ----------
+  const MAX_INCLUDE_DEPTH = 8;
+  // `!include` path rules: relative to the including file, same folder or below, one .dsl file per line.
+  function includePath(fromFile, raw) {
+    if (/^https?:/i.test(raw)) return { error: 'designc does not fetch included URLs: copy the file into the model folder' };
+    if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw) || raw.includes('\\')) return { error: `include path "${raw}" must be relative, with forward slashes` };
+    if (raw.split('/').includes('..')) return { error: `include path "${raw}" must stay in the including file's folder or below` };
+    if (!/\.dsl$/.test(raw)) return { error: 'include a .dsl file; directories and URLs are not included' };
+    const dir = fromFile && fromFile.includes('/') ? fromFile.slice(0, fromFile.lastIndexOf('/')) : '';
+    const parts = (dir ? dir.split('/') : []).concat(raw.split('/')).filter(x => x && x !== '.');
+    return { path: parts.join('/') };
+  }
+  // Registry paths of the `.dsl` files in the model's folder (the unit that is read, frozen and dirty-checked).
+  function modelFiles(paths, modelPath) {
+    const dir = modelPath && modelPath.includes('/') ? modelPath.slice(0, modelPath.lastIndexOf('/') + 1) : '';
+    return paths.filter(p => /\.dsl$/.test(p) && p.startsWith(dir) && !/^(handovers|asbuilt)\//.test(p) && !/(^|\/)node_modules\//.test(p)).slice().sort();
+  }
+
   // ---------- parser ----------
-  function parse(src) {
-    const toks = tokenize(src); let p = 0; const errors = [];
+  function parse(src, { path = null, resolve: resolveInc = null } = {}) {
+    const errors = [], sources = [{ path, text: src }];
+    const errAt = (tok, msg) => errors.push({ line: tok.line, msg, file: tok.file ?? null });
+    // Expand `!include` tokens in place (textual inclusion at token level), recursively.
+    function expand(list, stack) {
+      if (!list.some(t => t.t === 'include')) return list;
+      const out = [];
+      for (const t of list) {
+        if (t.t !== 'include') { out.push(t); continue; }
+        if (!t.v) { errAt(t, '!include needs a path'); continue; }
+        const r = includePath(t.file, t.v);
+        if (r.error) { errAt(t, r.error); continue; }
+        if (!resolveInc) { errAt(t, '!include is not available here: the model was read without its folder'); continue; }
+        if (stack.includes(r.path)) { errAt(t, `include cycle: ${stack.concat(r.path).join(' → ')}`); continue; }
+        if (stack.length - (path == null ? 0 : 1) >= MAX_INCLUDE_DEPTH) { errAt(t, `includes nest deeper than ${MAX_INCLUDE_DEPTH} files`); continue; }
+        const text = resolveInc(r.path);
+        if (text == null) { errAt(t, `cannot read included file "${t.v}" (${r.path})`); continue; }
+        if (!sources.some(s => s.path === r.path)) sources.push({ path: r.path, text });
+        out.push(...expand(tokenize(text, r.path), stack.concat(r.path)));
+      }
+      return out;
+    }
+    const toks = expand(tokenize(src, path), path == null ? [] : [path]); let p = 0;
     let curEnv = null; const envScopes = [];
     const els = new Map(), idents = new Map(), pending = [], envs = [], instRefs = [], depViews = []; let name = 'Untitled workspace', auto = 0;
     const peek = (k = 0) => toks[p + k];
     const next = () => toks[p++];
-    const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg });
+    const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg, file: tok ? tok.file : (toks.length ? toks[toks.length - 1].file : path) });
     const addTags = (set, s) => s.split(',').map(x => x.trim()).filter(Boolean).forEach(x => set.add(x));
 
     function strings() { const out = []; while (peek() && peek().t === 'str') out.push(next().v); return out; }
@@ -71,7 +121,7 @@ const Core = (() => {
     function element(kindTok, ident, parent) {
       const kind = KINDS[kindTok.v]; const s = strings();
       const el = { id: ident || ('_e' + (++auto)), ident, name: s[0] || '(unnamed)', kind, tags: new Set(['Element']),
-        technology: null, description: s[1] || null, parent, props: {}, line: kindTok.line };
+        technology: null, description: s[1] || null, parent, props: {}, line: kindTok.line, file: kindTok.file };
       if (kind === 'person' || kind === 'softwareSystem') { if (s[2]) addTags(el.tags, s[2]); }
       else { el.technology = s[2] || null; if (s[3]) addTags(el.tags, s[3]); }
       if (!s[0]) err(kindTok, `${kindTok.v} needs a name`);
@@ -83,7 +133,7 @@ const Core = (() => {
       const dst = next();
       if (!dst || dst.t !== 'id') { err(arrow, 'expected a destination after ->'); return; }
       const s = strings();
-      const r = { srcRef, dstRef: dst.v, description: s[0] || '', technology: s[1] || null, props: {}, line: arrow.line };
+      const r = { srcRef, dstRef: dst.v, description: s[0] || '', technology: s[1] || null, props: {}, line: arrow.line, file: arrow.file };
       if (peek() && peek().t === '{') {
         const open = next();
         while (peek() && peek().t !== '}') {
@@ -114,7 +164,7 @@ const Core = (() => {
         if (peek(1) && peek(1).t === '->' && !ident) { next(); const arrow = next(); deployRel(v, arrow); continue; }
         if (!DEPLOY[v]) { next(); strings(); if (peek() && peek().t === '{') skipBlock(); else err(kw, `unknown keyword "${v}"`); continue; }
         next();
-        const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line };
+        const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line, file: kw.file };
         if (v === 'containerInstance' || v === 'softwareSystemInstance') {
           const ref = peek();
           if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; instRefs.push(node); }
@@ -139,11 +189,11 @@ const Core = (() => {
     function deployRel(src, arrow) {
       const dst = peek() && peek().t === 'id' ? next().v : null, s = strings();
       if (peek() && peek().t === '{') skipBlock();
-      curEnv.pending.push({ src, dst, description: s[0] || null, technology: s[1] || null, line: arrow.line });
+      curEnv.pending.push({ src, dst, description: s[0] || null, technology: s[1] || null, line: arrow.line, file: arrow.file });
     }
     function environment(ident) {
       const kw = next(); const s = strings();
-      const env = { ident, name: s[0] || '(unnamed)', nodes: [], rels: [], line: kw.line };
+      const env = { ident, name: s[0] || '(unnamed)', nodes: [], rels: [], line: kw.line, file: kw.file };
       curEnv = { env, idents: new Map(), pending: [] };
       if (!s[0]) err(kw, 'deploymentEnvironment needs a name');
       if (peek() && peek().t === '{') { const open = next(); if (!deployBody(env.nodes, null)) err(open, `block for "${env.name}" is missing }`); }
@@ -161,7 +211,7 @@ const Core = (() => {
         if (t.t !== 'id' || t.v !== 'deployment') continue;
         const head = []; while (peek() && peek().t !== '{' && peek().t !== '}' && head.length < 6) head.push(next());
         if (head.length < 2) { err(t, 'deployment view needs a scope and an environment'); continue; }
-        depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line });
+        depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line, file: t.file });
       }
     }
     // returns true when it stopped on a closing brace
@@ -204,13 +254,13 @@ const Core = (() => {
     const rels = [];
     pending.forEach((r, i) => {
       const src = resolve(r.srcRef), dst = resolve(r.dstRef);
-      if (!src) { errors.push({ line: r.line, msg: `unknown element "${r.srcRef}"` }); return; }
-      if (!dst) { errors.push({ line: r.line, msg: `unknown element "${r.dstRef}"` }); return; }
-      rels.push({ id: 'r' + (i + 1), src, dst, description: r.description, technology: r.technology, props: r.props, line: r.line });
+      if (!src) { errors.push({ line: r.line, file: r.file, msg: `unknown element "${r.srcRef}"` }); return; }
+      if (!dst) { errors.push({ line: r.line, file: r.file, msg: `unknown element "${r.dstRef}"` }); return; }
+      rels.push({ id: 'r' + (i + 1), src, dst, description: r.description, technology: r.technology, props: r.props, line: r.line, file: r.file });
     });
     instRefs.forEach(n => {
       const id = resolve(n.refName), el = id && els.get(id);
-      if (!el) { errors.push({ line: n.line, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
+      if (!el) { errors.push({ line: n.line, file: n.file, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
       n.ref = el.id; n.name = el.name;
     });
     envScopes.forEach(({ env, idents: ids, pending: rs }) => {
@@ -218,25 +268,26 @@ const Core = (() => {
       const pathOf = ref => { const n = typeof ref === 'string' ? ids.get(ref) : ref; return n ? paths.get(n) : null; };
       rs.forEach(r => {
         const src = pathOf(r.src), dst = r.dst == null ? null : pathOf(r.dst);
-        if (!src) { errors.push({ line: r.line, msg: `unknown deployment element "${r.src}"` }); return; }
-        if (!dst) { errors.push({ line: r.line, msg: `unknown deployment element "${r.dst}"` }); return; }
-        env.rels.push({ src, dst, description: r.description, technology: r.technology, line: r.line });
+        if (!src) { errors.push({ line: r.line, file: r.file, msg: `unknown deployment element "${r.src}"` }); return; }
+        if (!dst) { errors.push({ line: r.line, file: r.file, msg: `unknown deployment element "${r.dst}"` }); return; }
+        env.rels.push({ src, dst, description: r.description, technology: r.technology, line: r.line, file: r.file });
       });
     });
     const views = [];
     depViews.forEach(v => {
       const env = envs.find(e => e.name === v.environment || (e.ident && e.ident === v.environment));
-      if (!env) { errors.push({ line: v.line, msg: `deployment view names unknown environment "${v.environment}"` }); return; }
+      if (!env) { errors.push({ line: v.line, file: v.file, msg: `deployment view names unknown environment "${v.environment}"` }); return; }
       let system = null;
       if (v.scope !== '*') {
         const id = idents.get(v.scope), el = id && els.get(id);
-        if (!el) { errors.push({ line: v.line, msg: `deployment view names unknown software system "${v.scope}"` }); return; }
-        if (el.kind !== 'softwareSystem') { errors.push({ line: v.line, msg: 'deployment view scope must be a software system' }); return; }
+        if (!el) { errors.push({ line: v.line, file: v.file, msg: `deployment view names unknown software system "${v.scope}"` }); return; }
+        if (el.kind !== 'softwareSystem') { errors.push({ line: v.line, file: v.file, msg: 'deployment view scope must be a software system' }); return; }
         system = el.id;
       }
-      views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line, system });
+      views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line, file: v.file, system });
     });
     const m = makeModel(name, els, rels, errors);
+    m.sources = sources;
     m.deployment = { environments: envs, views };
     return m;
   }
@@ -245,8 +296,8 @@ const Core = (() => {
     const m = { name, elements: els, rels, errors, relById: new Map(rels.map(r => [r.id, r])) };
     m.label = id => { const parts = []; let c = els.get(id); while (c) { parts.push(c.name); c = c.parent ? els.get(c.parent) : null; } return parts.reverse().join('/'); };
     m.isAncestor = (a, child) => { let c = els.get(child); while (c && c.parent) { if (c.parent === a) return true; c = els.get(c.parent); } return false; };
-    m.locEl = e => ({ kind: 'element', id: e.id, label: e.name, names: [e.name], line: e.line });
-    m.locRel = r => ({ kind: 'relationship', id: r.id, label: `${els.get(r.src).name} → ${els.get(r.dst).name}`, names: [els.get(r.src).name, els.get(r.dst).name], line: r.line });
+    m.locEl = e => ({ kind: 'element', id: e.id, label: e.name, names: [e.name], line: e.line, file: e.file ?? null });
+    m.locRel = r => ({ kind: 'relationship', id: r.id, label: `${els.get(r.src).name} → ${els.get(r.dst).name}`, names: [els.get(r.src).name, els.get(r.dst).name], line: r.line, file: r.file ?? null });
     return m;
   }
 
@@ -1202,7 +1253,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { includePath, modelFiles, _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
