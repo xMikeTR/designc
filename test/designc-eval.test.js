@@ -10,8 +10,8 @@ const run = (root, ...args) => spawnSync('python3', ['-m', 'designc', 'eval', ro
 const gate = root => spawnSync('python3', ['-m', 'designc', 'check', root, '--no-record'], { cwd: PY, encoding: 'utf8' });
 const MOCK = path.join(ROOT, 'dev', 'mock-eval.js');
 const DSL = `workspace { model { s = softwareSystem "S" {
-  a = container "Agent" "" "MAF" { properties { "d.agent.autonomy" "approve-writes" "d.agent.eval" "e1" } }
-  q = container "Advisor" "" "MAF" { properties { "d.agent.autonomy" "suggest" } }
+  a = container "Agent" "" "MAF" { properties { "d.agent.pattern" "single-call" "d.agent.autonomy" "approve-writes" "d.agent.eval" "e1" } }
+  q = container "Advisor" "" "MAF" { properties { "d.agent.pattern" "single-call" "d.agent.autonomy" "suggest" } }
 } } }
 `;
 const reg = (command = `node ${MOCK} evals/r.json`) => tmpRegistry({

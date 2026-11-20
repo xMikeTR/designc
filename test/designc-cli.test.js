@@ -153,7 +153,7 @@ test('exit codes: 0 ready, 1 not ready, 2 unusable folder', { skip }, () => {
   assert.equal(run(path.join(ROOT, 'sample-registry')).status, 1);
   const none = run(path.join(os.tmpdir(), 'designc-does-not-exist'));
   assert.equal(none.status, 2);
-  assert.match(none.stderr, /model\/workspace\.dsl/);
+  assert.match(none.stderr, /not a folder|model\/workspace\.dsl/);
 });
 
 // ---- slice 13a: gate events and the Python ledger append path

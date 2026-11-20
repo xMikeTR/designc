@@ -53,7 +53,7 @@ function withoutAg(report) {
   const clauses = report.gate.clauses.filter(c => !isAgClause(c));
   return { ...report, findings: report.findings.filter(f => !/^AG\d{3}$/.test(f.code)), gate: { ...report.gate, ready: clauses.length === 0, clauses } };
 }
-function nodeReport(root, { ag = false } = {}) {
+function nodeReport(root, { ag = true } = {}) {
   const { model, diags, gate } = nodeState(root);
   const r = {
     errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),

@@ -8,6 +8,7 @@ import os
 import subprocess
 import sys
 import time
+from shutil import which
 
 from . import domain, factory, ledger, record, work
 from .dsl import parse
@@ -81,7 +82,22 @@ def render(r):
     return '\n'.join(lines)
 
 
+def node_cli(args):
+    """Run `designc-core <args>` and pass stdout, stderr and the exit code through. No Node, or no script: exit 2 (could not run)."""
+    script = os.path.normpath(os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', '..', 'scripts', 'designc-core.js'))
+    node = os.environ.get('DESIGNC_NODE') or which('node')
+    if not node:
+        print('designc: could not run: Node is not installed or not on PATH. designc check runs on the Node core (scripts/designc-core.js).', file=sys.stderr); return 2
+    if not os.path.isfile(script):
+        print(f'designc: could not run: {script} is missing. designc check runs on the Node core.', file=sys.stderr); return 2
+    sys.stdout.flush(); sys.stderr.flush()
+    try: return subprocess.run([node, script, *args]).returncode
+    except OSError as e:
+        print(f'designc: could not run {node}: {e}', file=sys.stderr); return 2
+
+
 def main(argv):
+    if argv and argv[0] == 'check': return node_cli(argv)  # a shim: the Node core compiles the model
     ap = argparse.ArgumentParser(prog='designc', description='designc: design compiler and definition-of-ready gate for a registry folder.')
     sub = ap.add_subparsers(dest='cmd', required=True)
     c = sub.add_parser('check', help='lint the model and run the gate')

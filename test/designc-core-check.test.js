@@ -1,5 +1,5 @@
-// A1: `designc-core check` (the compiler on the Node core) against the Python front end it replaces, and on its own.
-// Python needs python3 with PyYAML until A2 turns `python -m designc check` into a shim; without it these tests FAIL, they never skip.
+// `designc-core check` (the compiler on the Node core) and `python -m designc check`, which is a shim that runs it: the same
+// stdout, stderr and exit code, AG findings included. Without python3 these tests FAIL, they never skip.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -12,12 +12,12 @@ const Domain = require('../renderer/domain.js');
 const Headless = require('../headless/index.js');
 const { main } = require('../scripts/designc-core.js');
 const { BROKEN, hash } = require('./helpers/ui.js');
-const { ROOT, PY, withoutAg, tmpRegistry } = require('./helpers/parity.js');
+const { ROOT, PY, tmpRegistry } = require('./helpers/parity.js');
 
 const read = f => fs.readFileSync(f, 'utf8');
 const wr = (p, f) => fs.writeFileSync(p, f(read(p)));
-const hasPython = spawnSync('python3', ['-c', 'import yaml']).status === 0;
-test('python3 with PyYAML is available (needed until A2)', () => assert.ok(hasPython, 'python3 with PyYAML needed until A2'));
+const hasPython = spawnSync('python3', ['--version']).status === 0;
+test('python3 is available (the shim needs it)', () => assert.ok(hasPython, 'python3 needed for the python -m designc check shim'));
 
 const CLEAN_ENV = Object.fromEntries(Object.entries(process.env).filter(([k]) => !['CI', 'TF_BUILD', 'GITLAB_CI', 'GITHUB_ACTIONS'].includes(k)));
 function js(root, args = []) {
@@ -28,24 +28,24 @@ function py(root, args = []) {
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json', '--no-record', ...args], { cwd: PY, encoding: 'utf8', env: CLEAN_ENV });
   return { status: r.status, stdout: r.stdout, stderr: r.stderr };
 }
-// Node and Python must print the same JSON and exit the same way once the AG findings (Python never had them) are taken from the Node side.
+// The shim must print what the Node command prints and exit the same way.
 function equal(root, label) {
   const a = js(root), b = py(root);
   assert.equal(a.status === 0 || a.status === 1, true, `${label}: node ${a.stderr}`);
-  const na = withoutAg(JSON.parse(a.stdout));
-  assert.equal(JSON.stringify(na, null, 2), JSON.stringify(JSON.parse(b.stdout), null, 2), label);
-  assert.equal(na.gate.ready ? 0 : 1, b.status, `${label}: exit code`);
+  assert.equal(b.stdout, a.stdout, label);
+  assert.equal(b.stderr, a.stderr, `${label}: stderr`);
+  assert.equal(b.status, a.status, `${label}: exit code`);
   return JSON.parse(a.stdout);
 }
 
 // ---- every registry parity-of-rules would check, plus sample-registry
-test('sample-registry: byte for byte the Python JSON', () => {
+test('sample-registry: the shim prints the same JSON, byte for byte', () => {
   const root = path.join(ROOT, 'sample-registry');
   const a = js(root), b = py(root);
   assert.equal(a.stdout, b.stdout);
   assert.equal(a.status, b.status);
 });
-test('fixtures/fullstack: byte for byte the Python JSON', () => {
+test('fixtures/fullstack: the shim prints the same JSON, byte for byte', () => {
   const root = path.join(ROOT, 'fixtures/fullstack');
   const a = js(root), b = py(root);
   assert.equal(a.stdout, b.stdout);
@@ -56,9 +56,9 @@ for (const name of fs.readdirSync(path.join(ROOT, 'fixtures')).sort()) {
   if (!fs.existsSync(cfgPath)) continue;
   const cfg = JSON.parse(read(cfgPath));
   if (cfg.kind === 'study' || cfg.kind === 'domain' || cfg.domains || fs.existsSync(path.join(root, 'ui')) || !fs.existsSync(path.join(root, cfg.model || 'model/workspace.dsl'))) continue;
-  test(`fixtures/${name} agrees with Python (AG aside)`, () => { equal(root, name); });
+  test(`fixtures/${name} shim equals the core`, () => { equal(root, name); });
 }
-test('synthetic model with every rule agrees', () => {
+test('synthetic model with every rule: shim equals the core', () => {
   equal(tmpRegistry({ 'model/workspace.dsl': read(path.join(ROOT, 'fixtures/fullstack/model/workspace.dsl')) }), 'model only');
 });
 
@@ -111,7 +111,7 @@ const domainCases = {
   'pack with DDD problems': (() => { const bad = PACK.replace('    id: PartnerId\n', '').replace('partner: { ref: Partner }', 'partner: Partner'); return { copy: bad, source: bad }; })(),
 };
 for (const [name, opts] of Object.entries(domainCases)) {
-  test(`domain registry setup agrees with Python: ${name}`, () => {
+  test(`domain registry setup, shim equals the core: ${name}`, () => {
     const reg = domainSetup(opts);
     try { equal(reg, name); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
   });
@@ -149,7 +149,7 @@ const uiCases = {
   'a transition that commits': { edit: reg => wr(path.join(reg, 'ui/specs/bordereaux.json'), t => { const s = JSON.parse(t); s.transitions[2].commits = true; return JSON.stringify(s, null, 2); }) },
 };
 for (const [name, opts] of Object.entries(uiCases)) {
-  test(`ui registry setup agrees with Python: ${name}`, () => {
+  test(`ui registry setup, shim equals the core: ${name}`, () => {
     const reg = uiSetup(opts);
     try { equal(reg, name); } finally { fs.rmSync(path.dirname(reg), { recursive: true, force: true }); }
   });
@@ -166,7 +166,7 @@ const run = async (argv, env = {}) => {
 const CLEAN = 'workspace { model { s = softwareSystem "S" { a = container "A" } } }';
 const ledgerOf = root => (fs.existsSync(path.join(root, 'ledger')) ? fs.readdirSync(path.join(root, 'ledger')).flatMap(f => read(path.join(root, 'ledger', f)).split('\n').filter(Boolean).map(JSON.parse)) : []);
 
-test('exit 0 ready, 1 not ready, 2 cannot run; the text report matches the Python one', async () => {
+test('exit 0 ready, 1 not ready, 2 cannot run; the text report is the same through the shim', async () => {
   const ok = tmpRegistry({ 'model/workspace.dsl': CLEAN });
   const r0 = await run(['check', ok, '--no-record']);
   assert.equal(r0.code, 0); assert.match(r0.out, /Ready for handover\./);
@@ -181,7 +181,7 @@ test('exit 0 ready, 1 not ready, 2 cannot run; the text report matches the Pytho
   assert.equal((await run(['check', ok, '--source', 'x'])).code, 2);
   assert.equal((await run(['check', ok, '--bogus'])).code, 2);
 });
-test('text output equals the Python text output on the sample registry', async () => {
+test('text output through the shim equals the core text output on the sample registry', async () => {
   const root = path.join(ROOT, 'sample-registry');
   const r = await run(['check', root, '--no-record']);
   const p = spawnSync('python3', ['-m', 'designc', 'check', root, '--no-record'], { cwd: PY, encoding: 'utf8', env: CLEAN_ENV });
@@ -215,7 +215,7 @@ test('--json keeps the notes on stderr so stdout stays JSON', async () => {
   const r = await run(['check', root, '--json']);
   assert.doesNotThrow(() => JSON.parse(r.out)); assert.match(r.err, /recorded gate event/);
 });
-test('--item: the gate for one work item, same JSON as Python, records nothing', () => {
+test('--item: the gate for one work item, through the shim too, records nothing', () => {
   const files = {
     'model/workspace.dsl': 'workspace { model { s = softwareSystem "S" { a = container "A" { properties { "d.instances" "1" "d.critical" "yes" } }\n b = container "B" } } }',
     'work/W-1.yaml': 'id: W-1\nrequirement: R-1\nelements: [B]\ndone_when:\n  - gate: "true"\n',
@@ -235,7 +235,7 @@ test('a study registry is nothing to check; a domain registry is checked and exi
   assert.equal(s.code, 0); assert.match(s.out, /study registry: nothing to check/);
   const good = path.join(ROOT, 'fixtures/domain-registry');
   const g = js(good), gp = py(good);
-  assert.equal(g.stdout, gp.stdout); assert.equal(g.status, 0);
+  assert.equal(g.stdout, gp.stdout); assert.equal(g.status, 0); assert.equal(gp.status, 0);
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-core-domreg-'));
   fs.cpSync(good, dir, { recursive: true });
   fs.writeFileSync(path.join(dir, 'domain/fares.yaml'), PACK.replace('    id: PartnerId\n', ''));
@@ -243,4 +243,26 @@ test('a study registry is nothing to check; a domain registry is checked and exi
   assert.equal(b.status, 1); assert.equal(b.stdout, bp.stdout); assert.equal(b.status, bp.status);
   const t = await run(['check', dir]);
   assert.match(t.out, /aggregate Partner needs an id/);
+});
+
+// ---- could not run: no Node, or no script, is exit 2 and never a pass
+const PYBIN = spawnSync('which', ['python3'], { encoding: 'utf8' }).stdout.trim();
+test('the shim without Node on PATH reports could not run (exit 2), not a pass', () => {
+  const empty = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-nonode-'));
+  const r = spawnSync(PYBIN, ['-m', 'designc', 'check', path.join(ROOT, 'sample-registry'), '--json', '--no-record'], { cwd: PY, encoding: 'utf8', env: { PATH: empty } });
+  assert.equal(r.status, 2); assert.equal(r.stdout, ''); assert.match(r.stderr, /could not run: Node is not installed/);
+});
+test('the shim with DESIGNC_NODE pointing nowhere reports could not run (exit 2)', () => {
+  const r = spawnSync(PYBIN, ['-m', 'designc', 'check', path.join(ROOT, 'sample-registry'), '--no-record'], { cwd: PY, encoding: 'utf8', env: { ...CLEAN_ENV, DESIGNC_NODE: '/nonexistent/node' } });
+  assert.equal(r.status, 2); assert.match(r.stderr, /could not run/);
+});
+
+// ---- the agent fixtures through the shim
+test('R1 repro and fixtures/agent-registry through the shim: exit 1, the AG findings', () => {
+  const repro = py(tmpRegistry({ 'model/workspace.dsl': REPRO }));
+  assert.equal(repro.status, 1);
+  assert.deepEqual(JSON.parse(repro.stdout).gate.clauses.map(c => c.text), ['AG001', 'AG003', 'AG005', 'AG011'].map(c => `${c} on Triage agent is neither fixed nor accepted`));
+  const reg = py(path.join(ROOT, 'fixtures/agent-registry'));
+  assert.equal(reg.status, 1);
+  assert.deepEqual([...new Set(JSON.parse(reg.stdout).findings.map(f => f.code))], ['AG011']);
 });
