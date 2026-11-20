@@ -297,4 +297,52 @@ function gate(dir, { item } = {}) {
   return { state: scopedState, report: { ...reportOf(scopedState), item: String(item), outside: scoped.outside, warnings: scoped.warnings.map(c => c.text) } };
 }
 
-module.exports = { check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
+// ---------------------------------------------------------------- MCP tools without the app (designc-mcp.js headless mode)
+// The four read tools the app serves from its own state, served from the registry on disk, fresh on every call. Names,
+// descriptions and schemas are copies of renderer/agent.js TOOLS (test/mcp-headless.test.js asserts they are equal), and the
+// text shapes are the app handlers' (READERS in agent.js).
+const mcpObj = (props, req = []) => ({ type: 'object', properties: props, required: req, additionalProperties: false });
+const MCP_TOOLS = {
+  read_model: { d: 'Read the design model (Structurizr DSL) with line numbers. Optional line range.', p: mcpObj({ from: { type: 'integer' }, to: { type: 'integer' } }) },
+  get_findings: { d: 'Current lint findings on the model (code, severity, location, line, message, hint, suppressed).', p: mcpObj({}) },
+  get_gate: { d: 'Definition-of-ready verdict and every blocking clause.', p: mcpObj({}) },
+  get_code_map: { d: 'The as-built map extracted from the codebase: elements, dependencies with evidence, drift against the design, d.code areas against the files in the codebase, unresolved items.', p: mcpObj({}) },
+};
+const mcpCap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length - n} more characters)` : s);
+const mcpNumbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
+const mcpRead = (dir, rel) => { try { return fs.readFileSync(path.join(dir, rel), 'utf8'); } catch { return null; } };
+function mcpTools() {
+  return Object.entries(MCP_TOOLS).map(([name, t]) => ({ name, description: t.d, inputSchema: t.p }));
+}
+function mcpCodeMap(dir, s) {
+  const dsl = mcpRead(dir, 'asbuilt/workspace.dsl'), factsRaw = mcpRead(dir, 'asbuilt/facts.json');
+  let facts = null; try { facts = factsRaw ? JSON.parse(factsRaw) : null; } catch { facts = null; }
+  if (!facts) return s.cfg.codebase ? 'The codebase has not been extracted yet. Ask the user to run Extract Code Map.' : 'No codebase is configured.';
+  const asbuiltFull = dsl ? Core.parse(dsl) : null;
+  const asbuilt = asbuiltFull ? Core.atLevel(asbuiltFull, 'container') : null;
+  const hasModel = s.model && s.model.elements.size;
+  const d = asbuilt && hasModel ? Core.driftModels(Core.atLevel(s.model, 'container'), asbuilt) : null;
+  const areas = Core.codeAreaDrift(s.model, facts.files), intent = Core.intentDrift(s.model, facts.intent);
+  const designNameFor = name => { if (!name || !s.model) return null; const e = Core.resolveElement(s.model, name); return e ? e.name : null; };
+  return mcpCap(JSON.stringify({
+    repo: facts.repo, extractedAt: facts.extractedAt,
+    elements: facts.elements.map(e => ({ name: e.name, kind: e.kind, tech: e.tech, inDesign: d ? d.toDesign.has('e_' + e.key) || !!designNameFor(e.name) : null })),
+    dependencies: facts.edges.map(e => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, evidence: e.evidence.slice(0, 2).map(v => `${v.file}:${v.line}`) })),
+    drift: d ? { inCodeNotDesign: d.undeclared.map(u => `${u.from} -> ${u.to}`), elementsInCodeOnly: d.unknownEls, designedNotInCode: d.unrealised.map(u => `${u.from} -> ${u.to}`), designElementsNotFound: d.missingEls } : 'no design to compare',
+    declaredIntent: intent ? (intent.error ? `${intent.file}: ${intent.error}` : { file: intent.file, declared: intent.declared, missingFromDesign: intent.missing }) : 'none configured (designc.json extract.intent)',
+    codeAreas: areas ? { areas: areas.areas.map(a => ({ element: a.name, pattern: a.pattern, files: a.matched, ...(a.hint ? { hint: a.hint } : {}) })), filesInCodebase: areas.files, inNoArea: areas.unclaimed.length, inNoAreaFirst: areas.unclaimed.slice(0, 50), ...(areas.areas.length ? {} : { note: 'no areas defined, drift is container-level only' }) } : 're-extract to see code areas',
+    unresolved: facts.unresolved.map(u => `${u.where}: ${u.what} (${u.file}:${u.line})`),
+  }));
+}
+// callTool(dir, name, args): {text, isError}. Reads the registry fresh; no state between calls.
+function callTool(dir, name, args = {}) {
+  if (!Object.prototype.hasOwnProperty.call(MCP_TOOLS, name)) return { isError: true, text: `designc app not running: ${name} needs the designc app open on this registry` };
+  const s = checkState(dir);
+  if (s.error) return { isError: true, text: s.error };
+  if (name === 'read_model') return { isError: false, text: s.modelText ? mcpCap(mcpNumbered(s.modelText, args.from || 1, args.to || Infinity)) : `No model at ${s.cfg.model} yet.` };
+  if (name === 'get_findings') return { isError: false, text: JSON.stringify(s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))) };
+  if (name === 'get_gate') return { isError: false, text: JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }) };
+  return { isError: false, text: mcpCodeMap(dir, s) };
+}
+
+module.exports = { mcpTools, callTool, MCP_TOOLS, check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
