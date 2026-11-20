@@ -226,6 +226,7 @@ function gateFiles(dir, cfg) {
   readFilesInto(files, dir, 'behaviour', GATE_EXTS.p);
   for (const d of ['ui/pack/components', 'ui/pack/templates', 'ui/specs', 'ui/holdout', 'ui/legacy']) readFilesInto(files, dir, d, GATE_EXTS.json);
   readFilesInto(files, dir, 'parity/scenarios', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'test-scenarios', GATE_EXTS.yaml);
   readFilesInto(files, dir, 'contracts/openapi', GATE_EXTS.yaml);
   for (const f of ['contracts/out/result.json', 'design-tokens/tokens.json']) { try { files[f] = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { /* optional */ } }
   return files;

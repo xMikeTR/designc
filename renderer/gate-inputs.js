@@ -67,6 +67,9 @@ const GateInputs = (() => {
     const [decisions, requirements, , , scenarios, evals, acceptance] = REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance'));
     for (const n of subdirs(files, 'handovers')) loadYamlDir(`handovers/${n}`);
     decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
+    // B4: test-scenarios/*.yaml, parsed with _path. A file that does not parse is the work view's problem (Problems), not a registry clause.
+    const testScenarios = [];
+    for (const f of list('test-scenarios', ['.yaml', '.yml'])) { try { const o = load(f.text); if (o && typeof o === 'object' && !Array.isArray(o)) testScenarios.push({ ...o, _path: f.path }); } catch { /* skipped */ } }
     const apiContracts = list('contracts/openapi', ['.yaml', '.yml']).map(f => f.path);
     const tokens = files[TOKENS] != null ? files[TOKENS] : null;
     const contractsText = files['contracts/out/result.json'] != null ? files['contracts/out/result.json'] : null;
@@ -134,7 +137,7 @@ const GateInputs = (() => {
       model, decisions, requirements, ledger, registryErrors: yamlErrors.map(e => ({ path: e.path, message: e.msg })),
       evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, acceptance, tokens,
       minTextSize: (cfg.ux && cfg.ux.minTextSize) || C.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: cfg.repos,
-      apiContracts, domains, ui, workStates: WK.states(work, ledger),
+      apiContracts, domains, ui, testScenarios, workStates: WK.states(work, ledger),
     };
     return { cfg, modelText, model, checkOptions, gateInputs, yamlErrors, work, ledger, ledgerRaw };
   }

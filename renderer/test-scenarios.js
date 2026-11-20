@@ -248,6 +248,47 @@ ${tests.join('\n')}});
 `;
   }
 
-  return { testFile, compile, startState, renderScreen, mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
+
+  // ---- B4: gate clauses and BR coverage. Pure. ----
+  const parsedSpecs = specs => {
+    const out = [];
+    for (const f of specs || []) {
+      let s = f;
+      if (f && typeof f.text === 'string') { try { s = JSON.parse(f.text); } catch { continue; } if (isObj(s) && !s.screen && f.path) s.screen = f.path.split('/').pop().replace(/\.json$/, ''); }
+      if (isObj(s) && typeof s.screen === 'string') out.push(s);
+    }
+    return out;
+  };
+  // specs: [{path, text}] (the ui/specs files), testScenarios: parsed records with `_path`. Returns gate clauses of kind `scenario`:
+  //  - a `commits: true` click transition needs a bound structured scenario with examples, rendered on the same screen (its host's when
+  //    the spec is an overlay), with a step clicking that locator: {screen, requirement: the spec's ticket}
+  //  - a structured scenario with open questions blocks: {scenario, requirement, path}
+  function clauses({ specs = [], testScenarios = [] } = {}) {
+    const out = [];
+    const all = (testScenarios || []).filter(r => Rec.isStructuredScenario(r));
+    for (const spec of parsedSpecs(specs).sort((a, b) => (a.screen < b.screen ? -1 : a.screen > b.screen ? 1 : 0))) {
+      const render = isObj(spec.host) && spec.host.screen ? spec.host.screen : spec.screen;
+      for (const t of Array.isArray(spec.transitions) ? spec.transitions : []) {
+        if (!isObj(t) || t.commits !== true || !isObj(t.on) || !isObj(t.on.click)) continue;
+        const covered = all.some(r => r.status === 'bound' && Array.isArray(r.examples) && r.examples.length > 0 && renderScreen(r, specs) === render
+          && (Array.isArray(r.steps) ? r.steps : []).some(st => isObj(st) && same(st.click, t.on.click)));
+        if (!covered) out.push({ kind: 'scenario', text: `${spec.screen}: committing "${t.on.click.name}" (${t.from} \u2192 ${t.to}) has no bound test scenario with examples`, screen: spec.screen, ...(spec.ticket != null ? { requirement: String(spec.ticket) } : {}) });
+      }
+    }
+    for (const r of all) {
+      const n = (Array.isArray(r.questions) ? r.questions : []).filter(x => typeof x === 'string' && x.trim()).length;
+      if (n) out.push({ kind: 'scenario', text: `${r.id}: ${n} open question(s) block binding`, scenario: String(r.id), ...(r.requirement != null ? { requirement: String(r.requirement) } : {}), ...(r._path ? { path: r._path } : {}) });
+    }
+    return out;
+  }
+  // D6: how much of a requirement page a structured scenario quotes. Shown, never a gate clause.
+  function coverage(pageText, scenarios = []) {
+    const text = squash(String(pageText == null ? '' : pageText).replace(/<[^>]*>/g, ' '));
+    const sentences = (text.match(/[^.!?]+[.!?]*/g) || []).map(squash).filter(x => /[A-Za-z0-9]/.test(x));
+    const sources = (scenarios || []).filter(r => Rec.isStructuredScenario(r) && typeof r.source === 'string' && squash(r.source)).map(r => squash(r.source));
+    const uncovered = sentences.filter(s => !sources.some(src => src.includes(s) || s.includes(src)));
+    return { covered: sentences.length - uncovered.length, total: sentences.length, uncovered };
+  }
+  return { clauses, coverage, testFile, compile, startState, renderScreen, mintProblems, bindProblem, specFor, locators, build, fileText, refusal };
 })();
 if (typeof module === 'object' && module.exports) module.exports = TestScenarios;

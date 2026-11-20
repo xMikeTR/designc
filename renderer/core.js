@@ -4,6 +4,7 @@ const Core = (() => {
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
   const UI = typeof require === 'function' && typeof module === 'object' ? require('./ui.js') : Ui;
+  const TS = () => (typeof require === 'function' && typeof module === 'object' ? require('./test-scenarios.js') : TestScenarios); // lazy: the renderer loads test-scenarios.js after core.js
   // ---------- tokenizer ----------
   function tokenize(src) {
     const toks = []; let i = 0, line = 1; const n = src.length;
@@ -709,7 +710,7 @@ const Core = (() => {
     if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
     return out;
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, testScenarios = [], workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
     const clauses = [];
     if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
@@ -798,6 +799,8 @@ const Core = (() => {
     clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
     clauses.push(...tokenClauses(tokens, minTextSize));
     clauses.push(...contractGaps.map(g => ({ kind: 'contracts', text: g.text, about: [g.name] })));
+    // B4: structured test scenarios (ui specs name the commits transitions, testScenarios are the parsed test-scenarios/*.yaml with _path).
+    clauses.push(...TS().clauses({ specs: ui ? ui.specs : [], testScenarios }));
     if (!domains && !ui) return { ready: clauses.length === 0, clauses };
     const notes = [];
     if (domains) { const dc = domainClauses({ model, ledger, ...domains }); clauses.push(...dc.clauses); notes.push(...dc.notes); }
@@ -946,6 +949,7 @@ const Core = (() => {
     const kept = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
       if (c.kind === 'requirement') return wanted.includes(c.requirement);
+      if (c.kind === 'scenario' && c.requirement != null) return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });
@@ -1013,7 +1017,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'test-scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
