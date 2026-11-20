@@ -82,3 +82,20 @@ test('malformed YAML and non-OpenAPI-3 files report errors, others still resolve
   assert.strictEqual(Core.resolveOperation(r, 'putTag'), null);
   assert.strictEqual(Core.resolveOperation(r, 'listOrders').file, 'contracts/openapi/a.yaml');
 });
+
+const pack = (id, events) => ({ key: id, load: yamlLoad, text: `id: ${id}\nevents:\n${events.map(e => `  ${e}: {a: string}`).join('\n')}\n` });
+
+test('packEvents lists every event of every readable pack, sorted by pack then name', () => {
+  const ev = Core.packEvents([pack('orders', ['OrderPlaced', 'Cancelled']), pack('billing', ['Paid']), { key: 'bad', load: yamlLoad, text: '- nope' }]);
+  assert.deepEqual(ev, [{ pack: 'billing', name: 'Paid' }, { pack: 'orders', name: 'Cancelled' }, { pack: 'orders', name: 'OrderPlaced' }]);
+  assert.deepEqual(Core.packEvents(null), []);
+});
+
+test('resolveMessage: qualified exact, bare unique, bare ambiguous, unknown', () => {
+  const ev = Core.packEvents([pack('orders', ['Placed', 'Shared']), pack('billing', ['Shared'])]);
+  assert.deepEqual(Core.resolveMessage(ev, 'Placed'), { event: { pack: 'orders', name: 'Placed' } });
+  assert.deepEqual(Core.resolveMessage(ev, 'billing/Shared'), { event: { pack: 'billing', name: 'Shared' } });
+  assert.match(Core.resolveMessage(ev, 'Shared').error, /Shared is defined by billing and orders: write billing\/Shared/);
+  assert.match(Core.resolveMessage(ev, 'Nope').error, /no pinned pack defines event Nope/);
+  assert.match(Core.resolveMessage(ev, 'orders/Nope').error, /no pinned pack defines event orders\/Nope/);
+});

@@ -260,6 +260,7 @@ const Core = (() => {
       'd.retry.max': { k: 'int' }, 'd.encrypted': { k: 'enum', v: YN }, 'd.authenticated': { k: 'enum', v: YN },
       'd.writes': { k: 'list' }, 'd.concurrency': { k: 'enum', v: ['none', 'optimistic', 'pessimistic'] },
       'd.timeout': { k: 'int' }, 'd.suppress': { k: 'suppress' },
+      'd.operation': { k: 'str' }, 'd.message': { k: 'str' }, // R4: the OpenAPI operationId (sync) or pack event (async) this rel carries
     },
     element: {
       'd.instances': { k: 'int' }, 'd.critical': { k: 'enum', v: YN }, 'd.zone': { k: 'str' },
@@ -639,6 +640,39 @@ const Core = (() => {
           const r = repoOf(e);
           if (!r) out.push(D('DC010', 'error', `"${e.name}" has d.code but no d.repo`, m.locEl(e), { hint: `set d.repo on it or its container: ${repos.join(', ')}` }));
           else if (!repos.includes(r)) out.push(D('DC010', 'error', `"${e.name}": d.repo "${r}" is not a declared repo`, m.locEl(e), { hint: `declared repos: ${repos.join(', ')} (designc.json repos)` }));
+        }
+        return out;
+      } },
+    { code: 'DC011', title: 'Untyped boundary', source: 'designc-compiler-recommendations R4',
+      doc: 'A relationship that crosses a repo or a zone must name what crosses: d.operation (an OpenAPI operationId, sync) or d.message (a pack event, async). A name that is not in a pinned file is an error.',
+      fn(m, o) {
+        const out = [];
+        const repoOf = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+        const b = o && o.boundary;
+        for (const r of m.rels) {
+          if (structural(m, r)) continue;
+          const es = m.elements.get(r.src), ed = m.elements.get(r.dst);
+          if (es.kind === 'person' || ed.kind === 'person') continue;
+          const op = get(r, 'd.operation'), msg = get(r, 'd.message');
+          if (op == null && msg == null) {
+            const rs = repoOf(es), rd = repoOf(ed), zs = zone(m, r.src), zd = zone(m, r.dst), what = [];
+            if (rs && rd && rs !== rd) what.push(`repo ${rs} → ${rd}`);
+            if (zs && zd && zs !== zd) what.push(`zone ${zs} → ${zd}`);
+            if (what.length) out.push(D('DC011', 'warning', `crosses ${what.join(' and ')} and names no d.operation or d.message`, m.locRel(r), { hint: 'set d.operation: <operationId> (sync) or d.message: <event> (async)', unknown: true }));
+          }
+          if (!b) continue;
+          if (op != null) {
+            const hits = ((b.operations && b.operations.operations) || []).filter(x => x.operationId === String(op));
+            if (!hits.length) out.push(D('DC011', 'error', `operationId "${op}" is not in a pinned OpenAPI file (contracts/openapi/*.yaml)`, m.locRel(r)));
+            else {
+              const dup = ((b.operations && b.operations.errors) || []).find(e => e.code === 'duplicate_operation' && e.operationId === String(op));
+              if (dup) out.push(D('DC011', 'error', dup.message, m.locRel(r)));
+            }
+          }
+          if (msg != null) {
+            const res = Core.resolveMessage(b.events || [], msg);
+            if (res.error) out.push(D('DC011', 'error', res.error, m.locRel(r)));
+          }
         }
         return out;
       } },

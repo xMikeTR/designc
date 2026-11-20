@@ -48,5 +48,32 @@
     return hits.length === 1 ? hits[0] : null;
   }
 
-  Object.assign(Core, { operations, resolveOperation });
+  // Events of every pinned pack. packs: [{key, text, load}]. A pack that does not read is skipped (the domain gate reports it).
+  function packEvents(packs) {
+    const DM = typeof Domain !== 'undefined' ? Domain : require('./domain.js');
+    const out = [];
+    for (const p of packs || []) {
+      const r = DM.read(p.text, p.load, p.key);
+      if (r.error || !r.pack) continue;
+      const id = r.pack.id || p.key;
+      for (const e of r.pack.events) out.push({ pack: id, name: e.name });
+    }
+    return out.sort((a, b) => (a.pack < b.pack ? -1 : a.pack > b.pack ? 1 : a.name < b.name ? -1 : a.name > b.name ? 1 : 0));
+  }
+
+  // ref: `pack/Event` (exact) or a bare `Event` that exactly one pack defines.
+  function resolveMessage(events, ref) {
+    const t = String(ref == null ? '' : ref).trim(), list = events || [];
+    if (t.includes('/')) {
+      const hit = list.find(e => `${e.pack}/${e.name}` === t);
+      return hit ? { event: { pack: hit.pack, name: hit.name } } : { error: `no pinned pack defines event ${t}` };
+    }
+    const hits = list.filter(e => e.name === t);
+    if (hits.length === 1) return { event: { pack: hits[0].pack, name: hits[0].name } };
+    if (!hits.length) return { error: `no pinned pack defines event ${t}` };
+    const ps = [...new Set(hits.map(h => h.pack))].sort();
+    return { error: `${t} is defined by ${ps.join(' and ')}: write ${ps[0]}/${t}` };
+  }
+
+  Object.assign(Core, { operations, resolveOperation, packEvents, resolveMessage });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

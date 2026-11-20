@@ -28,9 +28,9 @@ test('user sees the model findings @critical', async () => {
   const { page } = session;
   await page.getByRole('button', { name: /^Problems/ }).click();
   const panel = page.locator('#panelBody');
-  // Same findings as the Python CLI on sample-registry (AGENTS.md): 2 errors, 5 warnings.
+  // Same findings as the Python CLI on sample-registry (AGENTS.md): 2 errors, 6 warnings.
   await expect(panel.getByText('⊗')).toHaveCount(2);
-  await expect(panel.getByText('⚠')).toHaveCount(5);
+  await expect(panel.getByText('⚠')).toHaveCount(6);
   await expect(panel.getByText('designc(DC002)')).toBeVisible();
   await expect(panel.getByText('designc(DC004)')).toBeVisible();
 });

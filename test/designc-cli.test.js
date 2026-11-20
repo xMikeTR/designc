@@ -23,7 +23,7 @@ test('the sample registry gives the documented result from the command line and 
   const errs = py.findings.filter(f => !f.suppressed && f.sev === 'error').map(f => f.code).sort();
   const warns = py.findings.filter(f => !f.suppressed && f.sev === 'warning').map(f => f.code).sort();
   assert.deepEqual(errs, ['DC002', 'DC004']);
-  assert.deepEqual(warns, ['DC001', 'DC003', 'DC005', 'DC006', 'DC008']);
+  assert.deepEqual(warns, ['DC001', 'DC003', 'DC005', 'DC006', 'DC008', 'DC011']);
   assert.equal(py.findings.filter(f => f.suppressed).length, 1);
   same(root, 'sample-registry');
 });
