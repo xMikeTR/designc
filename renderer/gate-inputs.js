@@ -64,7 +64,7 @@ const GateInputs = (() => {
       return out.sort((a, b) => String(a.id).localeCompare(String(b.id)));
     };
     // app.js loadRegistry
-    const [decisions, requirements, , , scenarios, evals, acceptance] = REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance'));
+    const [decisions, requirements, proposals, , scenarios, evals, acceptance] = REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance'));
     for (const n of subdirs(files, 'handovers')) loadYamlDir(`handovers/${n}`);
     decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
     // B4: test-scenarios/*.yaml, parsed with _path. A file that does not parse is the work view's problem (Problems), not a registry clause.
@@ -75,8 +75,8 @@ const GateInputs = (() => {
     const tokens = files[TOKENS] != null ? files[TOKENS] : null;
     const contractsText = files['contracts/out/result.json'] != null ? files['contracts/out/result.json'] : null;
     // app.js loadLedger
-    const raw_ = [];
-    for (const f of list('ledger', ['.jsonl'])) raw_.push(...LG.parse(f.text, f.path).events);
+    const raw_ = [], ledgerErrors = [];
+    for (const f of list('ledger', ['.jsonl'])) { const r = LG.parse(f.text, f.path); raw_.push(...r.events); ledgerErrors.push(...r.errors); }
     const ledgerRaw = LG.order(raw_), ledger = LG.derive(ledgerRaw);
     // workview.js loadWork: the items, for Work.states
     const work = [];
@@ -143,7 +143,7 @@ const GateInputs = (() => {
       minTextSize: (cfg.ux && cfg.ux.minTextSize) || C.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: cfg.repos,
       apiContracts, operations, domains, ui, testScenarios, workStates: WK.states(work, ledger),
     };
-    return { cfg, modelText, model, checkOptions, gateInputs, yamlErrors, work, ledger, ledgerRaw };
+    return { cfg, modelText, model, checkOptions, gateInputs, yamlErrors, ledgerErrors, proposals, work, ledger, ledgerRaw };
   }
 
   // app.js recompile: check only a model that has something in it, then the gate.

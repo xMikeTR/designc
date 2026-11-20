@@ -1964,17 +1964,7 @@ function renderPanel() {
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
   const spans = modelSpans();
-  const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line, file: Core.locFile(e, A.cfg.model) })),
-    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, file: Core.locFile(f.loc, A.cfg.model), fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
-  const mby = new Map();
-  for (const r of mrows) { if (!mby.has(r.file)) mby.set(r.file, []); mby.get(r.file).push(r); }
-  groups.push(...mby);
-  const byPath = new Map();
-  for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
-  for (const w of A.workWarnings) { if (!byPath.has(w.path)) byPath.set(w.path, []); byPath.get(w.path).push({ sev: 'warning', msg: w.msg, code: 'work', line: 1 }); }
-  const seenP = new Set();
-  for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
-  groups.push(...byPath);
+  groups.push(...Problems.rows({ model: A.model, diags: A.diags, cfgModel: A.cfg.model, decisions: A.decisions, yamlErrors: A.yamlErrors, ledgerErrors: A.ledgerErrors, workErrors: A.workErrors, workWarnings: A.workWarnings, proposals: A.proposals }));
   const qrows = new Map();
   for (const f of qual.findings) { if (!qrows.has(f.file)) qrows.set(f.file, []); qrows.get(f.file).push({ sev: 'warning', msg: f.msg, code: f.code, line: f.line, codeFile: true }); }
   for (const [file, rows] of qrows) groups.push([file, rows]);

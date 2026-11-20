@@ -267,11 +267,21 @@ function readSettings(dir) {
 
 // Everything one check run computes for a registry folder on disk: {cfg, modelText, model, diags, gate, ledgerRaw, files, assembled} or {error}.
 // What `python -m designc check` did, on the one front end: the assembly is renderer/gate-inputs.js.
-function checkState(dir) {
+// L1: unsaved buffers. `overlay` is {registryRelPath: text}. A key gateFiles read is replaced; a model-folder .dsl is added (a new unsaved
+// include resolves); any other key is ignored (a brand-new unsaved YAML file counts once it is saved). Returns a new map.
+function applyOverlay(files, overlay, modelRel) {
+  const out = { ...files };
+  for (const [p, text] of Object.entries(overlay || {})) {
+    if (typeof text !== 'string') continue;
+    if (p in out || Core.modelFiles([p], modelRel).length) out[p] = text;
+  }
+  return out;
+}
+function checkState(dir, { overlay = {} } = {}) {
   if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `designc: ${dir} is not a folder. Open a registry folder.` };
   const s = readSettings(dir);
   if (s.error) return { error: `designc: ${s.error}` };
-  const files = gateFiles(dir, { model: 'model/workspace.dsl', ...s.cfg });
+  const files = applyOverlay(gateFiles(dir, { model: 'model/workspace.dsl', ...s.cfg }), overlay, s.cfg.model || 'model/workspace.dsl');
   const a = GateInputs.assemble({ cfg: s.cfg, files, registries: siblingRegistries(dir, { ...s.cfg }), hashes: uiHashes(dir, files), yamlLoad: yaml.load });
   if (a.modelText == null) return { error: `designc: cannot read ${a.cfg.model || 'model/workspace.dsl'} in ${dir}. Open a registry folder, or set "model" in designc.json.` };
   const { diags, gate } = GateInputs.run(a, Core);
@@ -353,4 +363,4 @@ function callTool(dir, name, args = {}) {
   return { isError: false, text: mcpCodeMap(dir, s) };
 }
 
-module.exports = { mcpTools, callTool, MCP_TOOLS, check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
+module.exports = { applyOverlay, mcpTools, callTool, MCP_TOOLS, check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
