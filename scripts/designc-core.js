@@ -15,10 +15,14 @@
 //   check    [<dir> | --registry <dir>] [--json] [--item <id>] [--record | --no-record] [--by <who>] [--source local|pipeline]
 //            lint the model and run the gate, the same JSON and exit codes as `python -m designc check` did: 0 ready, 1 not ready,
 //            2 cannot run. Records a gate event in ledger/ unless CI is detected (then pass --record), --no-record is given or --item is.
+//   eval     [<dir> | --registry <dir>] [--id <eval>] [--source local|pipeline] [--by <who>]
+//            run the evals that agents name, score the results against their thresholds and record pass/fail in ledger/checks.jsonl.
+//            Exit 0 all passing, 1 any failing, 2 the registry cannot be read (the same as `python -m designc eval` did).
 // Add --json for machine output. Exit 0 done, 2 an error (nothing written). Read-only on the registry except the index.
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { spawnSync } = require('child_process');
 const Core = require('../renderer/core.js');
 const Ledger = require('../renderer/ledger.js');
 const Domain = require('../renderer/domain.js');
@@ -28,8 +32,9 @@ const Git = require('../git.js');
 const Headless = require('../headless/index.js');
 const Store = require('../headless/store.js');
 
-const USAGE = `usage: designc-core <check|verdicts|bundle|episodes|procedures|health|conflicts|index|search|inbound|holdout-spec> --registry <dir> [options] [--json]
+const USAGE = `usage: designc-core <check|eval|verdicts|bundle|episodes|procedures|health|conflicts|index|search|inbound|holdout-spec> --registry <dir> [options] [--json]
   check     [<dir>] [--item <id>] [--record | --no-record] [--by <who>] [--source local|pipeline]
+  eval      [<dir>] [--id <eval>] [--source local|pipeline] [--by <who>]
   verdicts  (--item <id> | --element <name>...) [--commit <sha>]
   bundle    --role <role> [--handover <id>] [--item <id>] [--task <id>] [--element <name>...] [--jira <key>...] [--commit <sha>] [--out <file>]
   episodes  (--item <id> | --element <name>...) [--limit N]
@@ -40,14 +45,14 @@ const USAGE = `usage: designc-core <check|verdicts|bundle|episodes|procedures|he
   search    <words...> [--limit N]
   inbound   <id>
   holdout-spec --criterion <id> --case <n>`;
-const VALUE = new Set(['--by', '--source', '--requirement', '--registry', '--item', '--commit', '--handover', '--task', '--role', '--out', '--limit', '--criterion', '--case']);
+const VALUE = new Set(['--by', '--source', '--requirement', '--registry', '--item', '--commit', '--handover', '--task', '--role', '--out', '--limit', '--criterion', '--case', '--id']);
 const MANY = new Set(['--element', '--jira', '--code']);
 
 function parseArgs(argv) {
   const o = { words: [], element: [], jira: [], code: [] };
   const [cmd, ...rest] = argv;
   if (cmd === '--help' || cmd === '-h' || !cmd) return { help: true };
-  if (!['check', 'verdicts', 'bundle', 'episodes', 'procedures', 'health', 'conflicts', 'index', 'search', 'inbound', 'holdout-spec'].includes(cmd)) throw new Error(`unknown command ${cmd}`);
+  if (!['check', 'eval', 'verdicts', 'bundle', 'episodes', 'procedures', 'health', 'conflicts', 'index', 'search', 'inbound', 'holdout-spec'].includes(cmd)) throw new Error(`unknown command ${cmd}`);
   o.cmd = cmd;
   for (let i = 0; i < rest.length; i++) {
     const a = rest[i];
@@ -61,8 +66,8 @@ function parseArgs(argv) {
     else if (a.startsWith('--')) throw new Error(`unknown argument ${a}`);
     else o.words.push(a);
   }
-  if (o.cmd === 'check') {
-    if (o.words.length > 1) throw new Error('check takes one registry folder');
+  if (o.cmd === 'check' || o.cmd === 'eval') {
+    if (o.words.length > 1) throw new Error(`${o.cmd} takes one registry folder`);
     if (o.words.length && o.registry) throw new Error('give the registry as an argument or with --registry, not both');
     o.registry = o.registry || o.words[0] || '.';
     return o;
@@ -133,6 +138,49 @@ function renderCheck(r) {
   for (const x of r.gate.notes || []) lines.push(`  unknown: ${x}`);
   return lines.join('\n');
 }
+// Run each eval an agent names, record a pass or fail (cli.py eval_cmd). Exit 0 all passing, 1 any failing, 2 the registry cannot be read.
+async function evalCommand(o, { log, err }) {
+  if (o.source !== undefined && !['local', 'pipeline'].includes(o.source)) { err('designc: --source must be local or pipeline.'); return 2; }
+  const dir = path.resolve(o.registry);
+  const st = Headless.checkState(dir);
+  if (st.error) { err(st.error); return 2; }
+  const source = o.source || (inCi() ? 'pipeline' : 'local');
+  const evals = st.assembled.gateInputs.evals || [];
+  const byId = new Map(evals.map(e => [String(e.id), e]));
+  if (o.id !== undefined && !byId.has(o.id)) { err(`designc: no eval ${o.id} in evals/. Check the id, or add evals/${o.id}.yaml.`); return 2; }
+  let failed = 0;
+  const named = new Set();
+  for (const r of Core.evalReport({ model: st.model, evals, ledger: [] })) {
+    if (r.autonomy === 'suggest' && !r.evalId) { log(`warning  ${r.agent} (suggest) has no eval; it is not blocked, but consider one.`); continue; }
+    const eid = r.evalId ? String(r.evalId) : null;
+    if (eid === null || named.has(eid) || (o.id !== undefined && eid !== o.id)) continue;
+    named.add(eid);
+    const d = byId.get(eid);
+    if (!d) { log(`fail  ${eid}: not in evals/`); failed++; continue; }
+    const problems = Core.evalProblems(d);
+    if (problems.length || d.agent !== r.agent) { log(`fail  ${eid}: ` + (problems.join('; ') || `eval is for "${d.agent}", not ${r.agent}`)); failed++; continue; }
+    const t0 = Date.now();
+    const p = spawnSync(d.command, { shell: true, cwd: dir, stdio: 'inherit' });
+    const ms = Date.now() - t0, exit = p.status === null ? -1 : p.status;
+    let scored;
+    try { scored = Core.scoreEval(d, JSON.parse(fs.readFileSync(path.join(dir, d.results), 'utf8'))); }
+    catch (ex) { scored = { error: `${d.results} could not be read as JSON: ${ex.message}` }; }
+    const base = { kind: 'eval', eval: eid, agent: r.agent, source, ms, exit_code: exit, fingerprint: Core.fingerprint(st.model, r.agentId).hash, eval_hash: Core.evalHash(d), by: who(o.by) };
+    let ev;
+    if (scored.error) ev = { ...base, outcome: 'fail', metrics: {}, cases: 0, reason: scored.error };
+    else {
+      ev = { ...base, outcome: scored.outcome === 'pass' && exit === 0 ? 'pass' : 'fail', metrics: scored.metrics, cases: scored.cases };
+      if (ev.outcome === 'fail') ev.reason = scored.reason || `the command exited with ${exit}`;
+    }
+    const res = await LedgerStore.appendEvent(dir, ev);
+    if (!res.ok) { err('designc: could not record the eval event: ' + res.errors.join('; ')); return 2; }
+    log(`${ev.outcome}  ${eid} (${r.agent})${ev.outcome === 'pass' ? '' : ': ' + ev.reason}`);
+    if (ev.outcome !== 'pass') failed++;
+  }
+  if (!named.size && o.id === undefined) log('No agent names an eval.');
+  return failed ? 1 : 0;
+}
+
 const plural = (n, w) => `${n} ${w}${n === 1 ? '' : 's'}`;
 
 // A domain registry has packs and no model: check each domain/<key>.yaml, exit 0 clean, 1 with problems (cli.py domain_registry_cmd).
@@ -196,6 +244,7 @@ async function main(argv, { log = s => process.stdout.write(s + '\n'), err = s =
   try { o = parseArgs(argv); } catch (e) { err(`${e.message}\n${USAGE}`); return 2; }
   if (o.help) { log(USAGE); return 0; }
   if (o.cmd === 'check') return checkCommand(o, { log, err });
+  if (o.cmd === 'eval') return evalCommand(o, { log, err });
   let r;
   if (o.cmd === 'search') r = Store.search(o.registry, o.words.join(' '), { limit: o.limit });
   else if (o.cmd === 'inbound') r = Store.inbound(o.registry, o.words[0]);

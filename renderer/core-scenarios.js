@@ -171,5 +171,5 @@
     return clauses;
   }
 
-  Object.assign(Core, { scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalReport, evalClauses });
+  Object.assign(Core, { scenarioReport, utilityTree, agentTopology, latestFitness, parseThreshold, scoreEval, evalHash, evalProblems, evalReport, evalClauses });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);
