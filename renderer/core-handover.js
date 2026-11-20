@@ -381,6 +381,7 @@ export { expect };
     if (ui) out.push(`${++n}. ${code('ui.json')} lists the screens, each with its spec under ${code('ui/specs/')} and the approved previews under ${code('ui/previews/')}. Build each screen from its spec: one library component per placement, ${code('data-ui-id')} first, no inline styles or raw values. Do not edit the spec, the pack files or the previews.`);
     if (scenarioTests && scenarioTests.copies.length) out.push(`${++n}. ${code('scenarios.json')} lists the scenario tests designc generated from the bound test scenarios. Never edit ${code('ui-contract/tests/*.scenarios.page.test.tsx')}: they are how the screen's requests are judged.`);
     if (dependencies) out.push(`${++n}. ${code('dependencies.json')} lists, per element, the other elements its code may depend on (from the design's relationships). Do not add a project reference, namespace use or import between two elements it does not allow: that needs a relationship in the design, which is a new handover.`);
+    if (scenarioTests && scenarioTests.hasApi) out.push(`${++n}. ${code('scenarios.json')} ${code('api')} lists example rows: ${code('given')} rows are seeded, the operation is called, ${code('then')} rows are expected after it (only the listed fields). The Factory generates API tests from them. Never edit those tests; implement the repo's seed/query adapter once.`);
     out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
@@ -448,7 +449,7 @@ export { expect };
   // (TestScenarios.compile) to request tests in ui-contract/tests/<screen>.scenarios.page.test.tsx. Anything else is listed in `skipped`
   // with its reason. A scenario that cannot compile is a refusal. Files are verbatim copies (inside the id); scenarios.json is derived.
   // Pure. files: [{path, text}] of test-scenarios/*.yaml; null when there is nothing to say.
-  function handoverScenarioTests({ files, requirementIds, uiPart, specs, apiContracts }) {
+  function handoverScenarioTests({ files, requirementIds, uiPart, specs, apiContracts, packs = [] }) {
     const TS = typeof TestScenarios !== 'undefined' ? TestScenarios : require('./test-scenarios.js');
     const Rec = typeof Records !== 'undefined' ? Records : require('./records.js');
     const yamlLoad = typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load;
@@ -471,7 +472,35 @@ export { expect };
       if (!byScreen.has(screen)) byScreen.set(screen, []);
       byScreen.get(screen).push({ ...c, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, ...(({ method, path }) => ({ method, path }))(operations(rec.effect.operation)) }, examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}` })) });
     }
-    if (!byScreen.size && !skipped.length) return null;
+    // C4: example rows. A separate pass over the same records; the B3 loop above and its skips are untouched.
+    const api = [], used = new Map();
+    const sortedFiles = [...(files || [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const hasRows = ex => ex && typeof ex === 'object' && (ex.given != null || ex.then != null);
+    for (const f of sortedFiles) {
+      let rec; try { rec = yamlLoad(f.text); } catch { continue; }
+      if (!rec || typeof rec !== 'object' || !Rec.isStructuredScenario(rec) || !requirementIds.includes(String(rec.requirement))) continue;
+      if (rec.status !== 'bound' || !Array.isArray(rec.examples) || !rec.examples.some(hasRows)) continue;
+      const bad = m => new Error(`handover refused: scenario ${rec.id}: ${m}`);
+      const errs = Rec.validate('test_scenario', rec);
+      if (errs.length) throw bad(errs[0]);
+      const entities = Core.packAggregates(packs);
+      const rp = TS.rowProblems(rec, entities);
+      if (rp.length) throw bad(rp[0].message);
+      const op = operations(rec.effect.operation);
+      if (!op) throw bad(`operation ${rec.effect.operation} is not in a pinned OpenAPI file`);
+      const qualify = rows => {
+        const o = {};
+        for (const [name, list] of Object.entries(rows || {})) {
+          const e = Core.resolveEntity(entities, name).entity, k = `${e.pack}/${e.name}`;
+          used.set(k, e); o[k] = [...(o[k] || []), ...list];
+        }
+        return Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]]));
+      };
+      api.push({ id: rec.id, path: f.path, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, method: op.method, path: op.path },
+        examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}`, given: qualify(e && e.given), then: qualify(e && e.then) })) });
+    }
+    api.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (!byScreen.size && !skipped.length && !api.length) return null;
     const copies = [], docScreens = [], idEntries = [];
     for (const screen of [...byScreen.keys()].sort()) {
       const list = byScreen.get(screen).sort((a, b) => (a.id < b.id ? -1 : 1));
@@ -482,8 +511,17 @@ export { expect };
       for (const c of list) idEntries.push(`scenario_test\0${c.path}\0${c.sha256}`);
     }
     skipped.sort((a, b) => (a.scenario < b.scenario ? -1 : a.scenario > b.scenario ? 1 : 0));
-    const doc = { schema: 'designc.handover.scenarios/1', screens: docScreens, skipped };
-    return { copies, json: { path: 'scenarios.json', text: JSON.stringify(doc, null, 2) + '\n' }, idEntries, paths: copies.map(c => c.path) };
+    let doc = { schema: 'designc.handover.scenarios/1', screens: docScreens, skipped };
+    if (api.length) {
+      const DM = typeof Domain !== 'undefined' ? Domain : require('./domain.js');
+      const texts = new Map();
+      for (const p of packs || []) { const r = DM.read(p.text, p.load, p.key); if (!r.error && r.pack) texts.set(r.pack.id || p.key, p.text); }
+      const entities = [...used.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([id, e]) => ({ id, pack: e.pack, name: e.name, version: e.version, fields: e.fields }));
+      doc = { ...doc, schema: 'designc.handover.scenarios/2', api, entities };
+      for (const a of api) idEntries.push(`scenario_api\0${a.path}\0${a.sha256}`);
+      for (const pk of [...new Set(entities.map(e => e.pack))].sort()) idEntries.push(`scenario_entity\0${pk}\0${hash16(texts.get(pk))}`);
+    }
+    return { copies, json: { path: 'scenarios.json', text: JSON.stringify(doc, null, 2) + '\n' }, idEntries, paths: copies.map(c => c.path), hasApi: api.length > 0 };
   }
 
   function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null, testScenarios = [] }) {
@@ -496,7 +534,7 @@ export { expect };
     const acc = acceptanceCopies(acceptance, criteria, yamlDump);
     acceptance = acc.files;
     const uiPart = handoverUi({ model: parse(model.text), ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
-    const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [] });
+    const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [], packs: domain || [] });
     const depsDoc = handoverDependencies(model.text, elementsDoc);
     const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
     // The test map (D6) is derived from the as-built facts, which are not copied: their hash joins the id, so new facts are a new handover.
