@@ -28,9 +28,9 @@ test('user sees the model findings @critical', async () => {
   const { page } = session;
   await page.getByRole('button', { name: /^Problems/ }).click();
   const panel = page.locator('#panelBody');
-  // Same findings as the Python CLI on sample-registry (AGENTS.md): 2 errors, 5 warnings.
+  // Same findings as the Python CLI on sample-registry (AGENTS.md): 2 errors, 6 warnings.
   await expect(panel.getByText('⊗')).toHaveCount(2);
-  await expect(panel.getByText('⚠')).toHaveCount(5);
+  await expect(panel.getByText('⚠')).toHaveCount(6);
   await expect(panel.getByText('designc(DC002)')).toBeVisible();
   await expect(panel.getByText('designc(DC004)')).toBeVisible();
 });
@@ -522,6 +522,58 @@ test('the Compose stage mints a spec behind a card, and a spec that fails its ch
   await expect.poll(() => fs.existsSync(path.join(reg, 'ui/specs/orders.json')) && JSON.parse(fs.readFileSync(path.join(reg, 'ui/specs/orders.json'), 'utf8')).status).toBe('minted');
 });
 
+test('user can mint a structured test scenario and see it blocked from binding by its open questions @critical', async () => {
+  test.setTimeout(90000);
+  const yaml = require('js-yaml');
+  const { reg } = copyRegistry('fixtures/scenario-registry');
+  const cfgFile = path.join(reg, 'designc.json');
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), codebase: '../app', acpAgents: { mock: { label: 'Mock agent', command: 'node', args: [path.join(__dirname, '..', 'dev/mock-acp-agent.js')], env: { MOCK_SCRIPT: 'scenarios' } } } }, null, 2));
+  session = await launch(reg);
+  const { app, page } = session;
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  // The strict mint reads the requirement page, so the person chooses the folder of pages first (a native dialog; answer it, then leave the import review).
+  await app.evaluate(({ dialog }, p) => { dialog.showOpenDialog = async () => ({ canceled: false, filePaths: [p] }); }, path.join(reg, 'import'));
+  await page.locator('[data-a="importreq"]').click();
+  await page.locator('.askcard').getByRole('button', { name: 'Cancel' }).click();
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await page.locator('#agRole').selectOption('grill');
+  await page.locator('#agInput').fill('Draft test scenarios for ORD-1');
+  await page.locator('#agSend').click();
+  // A quote the page does not contain is refused with its reason: no card, nothing written.
+  await expect(page.locator('#agent')).toContainText('source_not_in_page');
+  const file = path.join(reg, 'test-scenarios/ORD-1-ts-01.yaml');
+  expect(fs.existsSync(file)).toBe(false);
+  // The valid one shows its open question on the card and writes nothing until Approve.
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('1 open question');
+  await card.getByRole('button', { name: 'Approve' }).click();
+  await expect.poll(() => fs.existsSync(file)).toBe(true);
+  const rec = yaml.load(fs.readFileSync(file, 'utf8'));
+  expect([rec.status, rec.by, rec.source, rec.effect.operation]).toEqual(['minted', 'grill', 'The tag is applied to all orders matching the string entered.', 'tagOrders']);
+  // Minted, not bound: the Bind button is disabled and the question is listed.
+  const row = page.locator('#sbBody .tsbind');
+  await expect(row).toContainText('minted');
+  await expect(row).toContainText('blocked: 1 open question');
+  await expect(row).toContainText('Is the match a prefix, or anywhere in the reference?');
+  await expect(row.getByRole('button', { name: 'Bind' })).toBeDisabled();
+  // B4: the gate says so. The open question is a clause routed to Grill-me, the committing Apply has no bound scenario, and BR coverage shows without gating.
+  const questionClause = page.locator('.clause').filter({ hasText: 'ORD-1-ts-01: 1 open question(s) block binding' });
+  await expect(questionClause.getByRole('button', { name: 'Ask in Grill-me' })).toBeVisible();
+  await expect(questionClause.getByRole('button', { name: 'Open scenario' })).toBeVisible();
+  const commitClause = page.locator('.clause').filter({ hasText: 'committing "Apply"' });
+  await expect(commitClause.getByRole('button', { name: 'Draft test scenarios' })).toBeVisible();
+  await expect(page.locator('#sbBody .brcov')).toContainText(/BR coverage: \d+\/\d+ sentences/);
+  // Answering the question (editing the file) unblocks it; only the person's Bind button binds, and it rewrites the one status line.
+  delete rec.questions;
+  fs.writeFileSync(file, yaml.dump(rec, { lineWidth: -1 }));
+  await expect(row.getByRole('button', { name: 'Bind' })).toBeEnabled();
+  await row.getByRole('button', { name: 'Bind' }).click();
+  await expect.poll(() => yaml.load(fs.readFileSync(file, 'utf8')).status).toBe('bound');
+  await expect(row).toContainText('bound');
+  await expect(page.locator('.clause').filter({ hasText: /open question\(s\) block binding|committing "Apply"/ })).toHaveCount(0);
+});
+
 test('a legacy spec is drafted by the agent and copied as a new spec by the person @critical', async () => {
   test.setTimeout(90000);
   const { reg } = copyRegistry('fixtures/ui-project');
@@ -713,4 +765,96 @@ test('user can see health on the C4 sheet @critical', async () => {
   await expect(block).toContainText('3 findings');
   await api.click();
   await expect(block).toContainText('8 smell, 3 duplication, 2 dead-code, 1 security (2 new)');
+});
+
+// L3: the editor's markers, hover, completion and definition are the language server's (one implementation).
+const LSP_TRIPLES = [[53, 8, 'DC002'], [94, 8, 'DC004'], [82, 4, 'DC001'], [63, 4, 'DC003'], [33, 4, 'DC005'], [94, 4, 'DC006'], [94, 4, 'DC008'], [94, 4, 'DC011']];
+const lspMarkers = (page, owner, rel) => page.evaluate(([o, r]) => monaco.editor.getModelMarkers({ owner: o }).filter(m => m.resource.path === '/' + r)
+  .map(m => [m.startLineNumber, m.severity, String(m.code && m.code.value !== undefined ? m.code.value : m.code)]), [owner, rel]);
+
+test('editor markers, hover and completion come from the language server @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const W = 'model/workspace.dsl', onDisk = fs.readFileSync(path.join(reg, W), 'utf8');
+  await expect.poll(() => lspMarkers(page, 'designc-lsp', W), { timeout: 20000 }).toEqual(LSP_TRIPLES);
+  expect(await lspMarkers(page, 'designc', W)).toEqual([]);
+
+  // an unsaved edit: line 100 "no" -> "yes" drops DC004 at :94; the file on disk stays as it was
+  await page.evaluate(() => {
+    const m = monaco.editor.getModels().find(x => x.uri.path === '/model/workspace.dsl'), l = m.getLineContent(100), c = l.indexOf('"no"');
+    editor.executeEdits('e2e', [{ range: new monaco.Range(100, c + 1, 100, c + 5), text: '"yes"' }]);
+  });
+  await expect.poll(async () => (await lspMarkers(page, 'designc-lsp', W)).some(m => m[2] === 'DC004' && m[0] === 94), { timeout: 20000 }).toBe(false);
+  expect(fs.readFileSync(path.join(reg, W), 'utf8')).toBe(onDisk);
+
+  // hover inside "d.idempotent" on line 91
+  await page.evaluate(() => {
+    const m = editor.getModel(), c = m.getLineContent(91).indexOf('d.idempotent') + 3;
+    editor.focus(); editor.setPosition({ lineNumber: 91, column: c }); editor.trigger('e2e', 'editor.action.showHover', {});
+  });
+  await expect(page.locator('.monaco-hover').filter({ hasText: 'd.idempotent' }).first()).toBeVisible({ timeout: 15000 });
+
+  // completion after a typed "d. on a new line
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = 100;
+    editor.executeEdits('e2e', [{ range: new monaco.Range(l, 1, l, m.getLineMaxColumn(l)), text: '        "d.' }]);
+    editor.setPosition({ lineNumber: l, column: m.getLineMaxColumn(l) });
+    editor.focus(); editor.trigger('e2e', 'editor.action.triggerSuggest', {});
+  });
+  const widget = page.locator('.suggest-widget.visible');
+  await expect(widget).toBeVisible({ timeout: 15000 });
+  await page.keyboard.type('retry'); // the list is virtualised: narrow it to the key under test
+  await expect(widget.getByText('d.retry', { exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await page.keyboard.press('Escape');
+
+  // F12 from a requirement's element list goes to its definition in the DSL
+  await page.locator('#sbBody').getByText('DEMO-1234.yaml', { exact: true }).click();
+  await expect(page.locator('#tabs').getByText('DEMO-1234.yaml')).toBeVisible();
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = m.getLineContent(5);
+    editor.focus(); editor.setPosition({ lineNumber: 5, column: l.indexOf('Escalation Worker') + 4 });
+  });
+  await page.keyboard.press('F12');
+  await expect(page.locator('#tabs .tab.active')).toContainText('workspace.dsl', { timeout: 15000 });
+  expect(await page.evaluate(() => editor.getPosition().lineNumber)).toBe(48);
+});
+
+test('user can rename an element in the editor and every reference follows @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const W = 'model/workspace.dsl';
+  await expect.poll(() => lspMarkers(page, 'designc-lsp', W), { timeout: 20000 }).toHaveLength(8);
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = m.getLineContent(53);
+    editor.focus(); editor.setPosition({ lineNumber: 53, column: l.indexOf('"Bookings DB"') + 4 });
+  });
+  await page.keyboard.press('F2');
+  const input = page.locator('.rename-input');
+  await expect(input).toBeVisible({ timeout: 15000 });
+  await input.fill('Booking Store');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/^Edited 1 open file\(s\)/)).toBeVisible({ timeout: 15000 });
+  expect(await page.evaluate(() => editor.getModel().getLineContent(53))).toContain('"Booking Store"');
+  await expect(page.locator('#tabs [data-tab="model/workspace.dsl"]')).toHaveClass(/dirty/);
+  const read = rel => fs.readFileSync(path.join(reg, rel), 'utf8');
+  expect(read('decisions/D-0001.yaml')).toMatch(/binds: \[Booking Store\]/);
+  expect(read('decisions/D-0001.yaml')).not.toContain('Bookings DB');
+  expect(read('requirements/DEMO-1234.yaml')).toMatch(/elements: \[Booking Store, Escalation Worker\]/);
+  expect(read('requirements/DEMO-1234.yaml')).not.toContain('Bookings DB');
+
+  await page.keyboard.press('Control+S');
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  const panel = page.locator('#panelBody');
+  await expect(panel.getByText('⊗')).toHaveCount(2);
+  await expect(panel.getByText('⚠')).toHaveCount(6);
+
+  // a property key is not renamable
+  await page.evaluate(() => {
+    const m = editor.getModel(); let n = 1; while (!m.getLineContent(n).includes('"d.interaction"')) n++;
+    editor.focus(); editor.setPosition({ lineNumber: n, column: m.getLineContent(n).indexOf('d.interaction') + 3 });
+  });
+  await page.keyboard.press('F2');
+  await expect(page.getByText('nothing to rename here').first()).toBeVisible({ timeout: 15000 });
 });

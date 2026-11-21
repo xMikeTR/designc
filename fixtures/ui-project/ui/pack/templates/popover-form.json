@@ -1,0 +1,30 @@
+{
+  "name": "popover-form",
+  "description": "Small form anchored to the button that opened it; applies to the page's data.",
+  "useWhen": [
+    "A short action (5 fields or fewer) on the current list, without leaving the page"
+  ],
+  "avoidWhen": [
+    "More than 5 fields or multiple steps: use form-wizard"
+  ],
+  "slots": {
+    "fields": {
+      "accepts": [
+        "form-field"
+      ],
+      "min": 1,
+      "max": 5
+    },
+    "actions": {
+      "accepts": [
+        "action"
+      ],
+      "min": 1,
+      "max": 2
+    }
+  },
+  "status": "bound",
+  "reference": {
+    "screen": "src/components/popovers/TagPopover.tsx"
+  }
+}

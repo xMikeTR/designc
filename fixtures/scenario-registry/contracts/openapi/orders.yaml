@@ -1,0 +1,19 @@
+openapi: 3.0.3
+info: { title: Orders API, version: '1' }
+paths:
+  /orders/tags:
+    post:
+      operationId: tagOrders
+      summary: Tag every order whose reference matches the string
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              required: [match, tag]
+              properties:
+                match: { type: string }
+                tag: { type: string }
+      responses:
+        '200': { description: The ids of the orders that were tagged }

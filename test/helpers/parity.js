@@ -1,4 +1,4 @@
-// Shared by the Python parity tests: the app's loadRegistry/loadLedger/gate for a folder on disk, and `designc check --json`.
+// Shared by the gate tests: the app's loadRegistry/loadLedger/gate for a folder on disk (nodeReport), and `designc-core check --json` (coreReport).
 const assert = require('node:assert/strict');
 const fs = require('fs');
 const os = require('os');
@@ -7,11 +7,10 @@ const { spawnSync } = require('child_process');
 const yaml = require('js-yaml');
 const Core = require('../../renderer/core.js');
 const Ledger = require('../../renderer/ledger.js');
-const V = require('../../renderer/canvas/vocabulary.js');
-Core.registerProperties(V.coreSpecs());
 
 const ROOT = path.join(__dirname, '..', '..');
 const PY = path.join(ROOT, 'python');
+const CORE = path.join(ROOT, 'scripts', 'designc-core.js');
 
 function listDir(root, dir, exts) {
   let names = []; try { names = fs.readdirSync(path.join(root, dir)); } catch { return []; }
@@ -42,23 +41,35 @@ function nodeState(root) {
   let raw = [];
   for (const f of listDir(root, 'ledger', ['.jsonl'])) raw.push(...Ledger.parse(f.text, f.path).events);
   const ledger = Ledger.derive(Ledger.order(raw));
-  const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'));
-  const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos });
-  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: listDir(root, 'contracts/openapi', ['.yaml', '.yml']).map(f => f.path) });
+  const model = Core.parse(fs.readFileSync(path.join(root, cfg.model), 'utf8'), { path: cfg.model, resolve: p => { try { return fs.readFileSync(path.join(root, p), 'utf8'); } catch { return null; } } });
+  const apiFiles = listDir(root, 'contracts/openapi', ['.yaml', '.yml']);
+  const operations = Core.operations({ files: Object.fromEntries(apiFiles.map(f => [f.path, f.text])), yamlLoad: require('js-yaml').load });
+  const diags = Core.check(model, { chainHops: cfg.chainHops || 4, repos: cfg.repos, boundary: { operations, events: [] } });
+  const gate = Core.gate({ model, diags, decisions, requirements, ledger, registryErrors: yamlErrors, evidenceHosts: cfg.evidenceHosts || [], businessOwners: cfg.businessOwners || [], scenarios, evals, repos: cfg.repos, apiContracts: apiFiles.map(f => f.path), operations });
   return { model, diags, gate, modelText: fs.readFileSync(path.join(root, cfg.model), 'utf8') };
 }
-function nodeReport(root) {
+// Core now carries the agentic rules (AG001-AG011) in every host; Python never had them. Until A2 retires the Python
+// front end, the Python-vs-Node comparisons remove the AG findings and the clauses they caused from the Node side
+// (ready is recomputed). AG findings are asserted on their own in test/core-registration.test.js and test/designc-core-check.test.js.
+const isAgClause = c => c.kind === 'finding' && /^AG\d{3} /.test(c.text);
+function withoutAg(report) {
+  const clauses = report.gate.clauses.filter(c => !isAgClause(c));
+  return { ...report, findings: report.findings.filter(f => !/^AG\d{3}$/.test(f.code)), gate: { ...report.gate, ready: clauses.length === 0, clauses } };
+}
+function nodeReport(root, { ag = true } = {}) {
   const { model, diags, gate } = nodeState(root);
-  return {
-    errors: model.errors.map(e => ({ line: e.line, msg: e.msg })),
-    findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+  const r = {
+    errors: model.errors.map(e => ({ line: e.line, file: e.file, msg: e.msg })),
+    findings: diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, file: d.loc.file, unknown: !!d.unknown, suppressed: d.suppressed || null })),
     gate: { ready: gate.ready, clauses: gate.clauses.map(c => ({ kind: c.kind, text: c.text })) },
   };
+  return ag ? r : withoutAg(r);
 }
 
-function pyReport(root) {
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json', '--no-record'], { cwd: PY, encoding: 'utf8' });
-  assert.ok(r.stdout, `designc printed nothing. stderr: ${r.stderr}`);
+// The command line the Factory and pipelines run: `designc-core check --json --no-record` (the Node core; `python -m designc check` shims it).
+function coreReport(root) {
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json', '--no-record'], { encoding: 'utf8' });
+  assert.ok(r.stdout, `designc-core check printed nothing. stderr: ${r.stderr}`);
   return JSON.parse(r.stdout);
 }
 
@@ -71,4 +82,4 @@ function tmpRegistry(files) {
   return root;
 }
 
-module.exports = { ROOT, PY, listDir, nodeState, nodeReport, pyReport, tmpRegistry };
+module.exports = { withoutAg, ROOT, PY, CORE, listDir, nodeState, nodeReport, coreReport, tmpRegistry };

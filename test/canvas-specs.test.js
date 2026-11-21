@@ -1,5 +1,5 @@
-// The Python CLI must know the same d.* properties as the app: the canvas vocabulary is the source,
-// python/designc/canvas_specs.json is generated from it.
+// The CLI (the Node core, and `python -m designc check` as a shim over it) knows the same d.* properties as the app:
+// the canvas vocabulary is the one source.
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const fs = require('fs');
@@ -8,15 +8,9 @@ const path = require('path');
 const { spawnSync } = require('child_process');
 const Core = require('../renderer/core.js');
 const V = require('../renderer/canvas/vocabulary.js');
-const { build, FILE } = require('./helpers/canvas-specs.js');
 
 const PY = path.join(__dirname, '..', 'python');
-const havePython = spawnSync('python3', ['-c', 'import yaml']).status === 0;
-const skip = havePython ? false : 'python3 with PyYAML is not installed';
-
-test('canvas_specs.json is in sync with the vocabulary', () => {
-  assert.equal(fs.readFileSync(FILE, 'utf8'), build(), 'run: node test/helpers/canvas-specs.js --write');
-});
+const skip = false;
 
 function registry(dsl) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-specs-'));
@@ -40,8 +34,7 @@ const DSL = `workspace {
 }
 `;
 
-test('designc check reports the same DC000 findings as the app for d.agent properties', { skip }, () => {
-  Core.registerProperties(V.coreSpecs());
+test('designc check (shim) reports the same DC000 findings as the app for d.agent properties', { skip }, () => {
   const js = Core.check(Core.parse(DSL), { chainHops: 4 }).filter(d => d.code === 'DC000').map(d => d.msg + '|' + (d.hint || '')).sort();
   const root = registry(DSL);
   const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });

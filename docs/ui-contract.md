@@ -96,6 +96,75 @@ The walkthrough's state diagram (`parity/states/<screen>.md`) becomes the spec's
 
 Extra states such as `filtered` or `apply-dialog` are spec and scenario states only. Acceptance keeps its five. A transition with `commits: true` is one parity cannot record read-only, matching the walkthrough's rule: it is listed as coverage (D2), and so is a state reachable only through such edges.
 
+### Hosted specs (overlays)
+
+An overlay such as a popover is a spec of its own, **hosted** by a state of the page it opens over. It adds one field, `host`, and uses the `popover-form` template (slots `fields`: 1 to 5 `form-field` components, `actions`: 1 to 2 `action` components; reference pack: `TextField` and `Select`).
+
+```json
+"host": { "screen": "orders", "state": "tag-popover", "anchor": "tag" }
+```
+
+`anchor` is a placement `id` in the host spec. `Select`'s `options` is a **data prop** (bound with `bind` to a `list`), not a scalar `props` entry. The commit (the transition with `commits: true`) and its outcome state stay on the **host**; the overlay's own states are what the form looks like (`editing`, `invalid`). A scenario's `screen` is the host, and its steps may use the locators of the host and of every overlay it hosts.
+
+The host checks run across specs (`hostRules` in `renderer/ui.js`), one clause each, at `ui/specs/<overlay>.json /host/...`:
+
+| Check | Clause says |
+| --- | --- |
+| `host.screen` is a spec in `ui/specs/`, not the overlay itself | `'x' is not a spec in ui/specs/` or `cannot host itself` |
+| the host is not itself hosted (one level only) | `'x' is itself hosted` |
+| `host.state` is a state of the host | `State 'x' is not in spec <host>` |
+| `anchor` is a placement id of the host with a locator | `'x' is not a placement id` or `has no locator` |
+| the host has a transition into `host.state` that is a click on the anchor's `{role, name}` | `has no transition into '<state>' that clicks <locator>`, listing the transitions that do lead there |
+
+Previews and handover for hosted specs are not built yet (B2b).
+
+### Scenario tests (B3)
+
+A bound structured test scenario (`test-scenarios/*.yaml`, `status: bound`, with `effect.operation` and at least one example) of a requirement in the handover is compiled when the handover is frozen. `TestScenarios.compile` turns each (scenario, example) into one test; `TestScenarios.testFile` writes them as `ui-contract/tests/<screen>.scenarios.page.test.tsx`, one file per render screen. A scenario of a hosted spec renders its host and starts by clicking the anchor placement. The files are Vitest browser-mode tests in the same `ui-page` project as the Factory's page test (`describe("<screen> scenarios")`, so the page report does not count them): the test mocks the operation's method and path (from `contracts/openapi`, `{p}` as `:p`, after the `servers[0].url` path), drives the steps with `page.getByRole(role, { name })` and expects the captured request body to equal `effect.body` with the example's values (`{x}` as a whole string keeps the example's JSON type). A bound scenario that cannot compile refuses the freeze (render spec without `file`, unknown operation, unfilled placeholder). A minted one, or one whose render screen is not a UI screen of the handover, is listed under `skipped` in `scenarios.json` with a reason. The test files are copies inside the handover id; `scenarios.json` (`docs/handover-scenarios.schema.json`, example beside it) lists them, and `handover.yaml` names it as `scenario_tests:`. designc does not run them: the Factory's UI runner does (F1). They are visible to agents; the agent must not edit them.
+
+### API example rows (C4)
+
+A structured scenario's examples may carry rows: `given` (seed rows) and `then` (expected rows after the call), per example. Each is a mapping of **entity** to a non-empty list of rows; a row is a non-empty mapping of field to a literal JSON value.
+
+```yaml
+examples:
+  - title: prefix match
+    match: A-
+    tag: Priority
+    given: { Order: [{ id: 1, ref: A-100 }, { id: 2, ref: B-200 }] }
+    then:  { Order: [{ id: 1, tag: Priority }, { id: 2, tag: null }] }
+```
+
+- **Entities** are aggregates of a pinned domain pack (`domain/*.yaml`): `Order` when one pack defines it, else `pack/Order`. Fields are `id` (the identity) plus the aggregate's declared fields. Values are literal, with no placeholders. `given` and `then` are reserved example keys, so `{given}` and `{then}` are not valid placeholders. Nothing here changes a generated UI test: the B3 test file is byte-identical with or without rows.
+- **Refusals** (`mint_test_scenarios` and, with `handover refused: scenario <id>: ...`, the freeze): `no_domain_pack` (rows, and no pack pinned), `unknown_entity`, `unknown_field`, `rows_incomplete` (some example has rows, another has no `then`), `placeholder_in_rows`. A malformed shape is a `Records.validate` error, so the Bind button shows it. Not checked: that the operation can affect the fields (OpenAPI does not say), value types, absence of a row.
+- **Matching semantics** (the contract for the Factory's generated API tests): seed the `given` rows, call the operation with the example's body, then query. A `then` row with `id`: the stored row with that id exists and each listed field deep-equals the expected value. A `then` row without `id`: at least one stored row of that entity matches on every listed field. Unlisted fields and rows are not checked.
+- **Freeze.** When a bound scenario of a handover requirement has rows, `scenarios.json` is `designc.handover.scenarios/2` (`docs/handover-scenarios-2.schema.json`, example `docs/handover-scenarios-2.example.json`): `/1`'s `screens` and `skipped` plus `api` (qualified `pack/Name` keys, sorted) and `entities` (the aggregates used, with fields). It is written even with no UI part. Without rows the file is `/1`, byte for byte. The scenario file and each pack used are in the handover id.
+- The Factory does not read `/2` yet: X4 pins it, and until then it refuses a handover whose scenarios carry rows. designc generates no xUnit; the Factory generates API tests from `api` and the repo implements a seed/query adapter once.
+
+### API example requests (C4b)
+
+An example with rows may also carry `request`, the inputs of the call the API test makes. It is optional, and explicit: an example has a request only when it has the `request` key (`request: {}` is valid: no params, body from `effect.body`). Example keys are never matched to parameter names by guesswork.
+
+```yaml
+examples:
+  - title: prefix match
+    match: A-
+    tag: Priority
+    given: { Order: [{ id: 1, ref: A-100 }] }
+    then:  { Order: [{ id: 1, tag: Priority }] }
+    request: { query: { dryRun: false } }
+```
+
+- **Shape.** `request` is a mapping of `path` (parameter name to a string, number or boolean), `query` (same) and `body` (any JSON). Values are literal: a whole-string `{name}` is refused (`placeholder_in_request`), and `{request}` is a reserved placeholder name, like `{given}` and `{then}`. Array and object values in `path`/`query` are out of scope. A malformed shape is a `Records.validate` error (Bind shows it).
+- **One body source.** With `effect.body` the frozen body is that body with the example's values (the body the UI test asserts is sent), and `request.body` is refused (`request_body`). Without `effect.body`, `request.body` is the body. Neither means no body.
+- **Checks** (`TestScenarios.requestProblems`, against `Core.operationInputs`; at mint and, as `handover refused: scenario <id>: ...`, at freeze): `request_without_rows`, `request_incomplete` (all examples or none), `request_param` (a path or required query parameter without a value, or an unknown name), `request_body` (given twice, required but absent, given to an operation with no body, not a mapping, a missing required property, or an unknown property). Body checks are top level only, with no value types or nested schemas. A body schema is **closed** (unknown properties refused) when it lists `properties` and leaves `additionalProperties` absent or `false`; say `additionalProperties: true` to allow extras. A body under `allOf`/`oneOf`/`anyOf` is only checked for presence. Header and cookie parameters are ignored.
+- **Freeze.** When any api example has a request, `scenarios.json` is `designc.handover.scenarios/3` (`docs/handover-scenarios-3.schema.json`, example `docs/handover-scenarios-3.example.json`): `/2` plus `request: {path, query, body?}` on those examples (path and query values stay JSON scalars; `body` is omitted when there is none). A scenario without requests stays in `api` without one, and consumers skip it. Without any request the file is `/2` or `/1`, byte for byte, and no handover id moves.
+- **Factory (X4 slice 7).** Pins `/3`. Its `ApiRequest` needs `Query` beside `Body` and `Path`, and the call binds query arguments by name like path arguments. Values are scalars the Factory converts. Variance (C5) treats `request` as part of an example's input, never its outcome.
+
+### Scenario gate clauses (B4)
+
+Two clauses of kind `scenario` (shown as "Test scenario"), from the gate input `testScenarios` (the parsed `test-scenarios/*.yaml`, each with `_path`; both `Core` assembly paths pass it, `renderer/gate-inputs.js` and the app's `recompile`). `TestScenarios.clauses` makes them. (1) A `commits: true` click transition has no **bound structured** scenario with at least one example that renders on the transition's screen (its host's, for an overlay) and clicks that locator: "`<screen>: committing "<locator>" (<from> -> <to>) has no bound test scenario with examples`", button "Draft test scenarios". (2) A structured scenario with `questions`: "`<id>: N open question(s) block binding`", buttons "Ask in Grill-me" and "Open scenario". Both carry `requirement` (the spec's `ticket`, the scenario's `requirement`), so an item's gate keeps only its own. Flat scenarios never count (D5). BR coverage (`TestScenarios.coverage(pageText, scenarios)`: covered/total sentences of the requirement page that a structured scenario's `source` quotes) shows on the requirement and is not a clause (D6).
+
 ## Checks
 
 Gate clauses of a new kind, `ui`, only when a pack is pinned (`ui/pack/` exists) or a spec exists (opt-in, like domain packs). `GATE_INPUTS` gains `ui`.
@@ -151,11 +220,23 @@ The QA bucket mapping stands (state not recorded → `spec_gap`, captured but no
 
 - `caught_by` stages: `ui-spec` (spec checks, designc), `ui-preview` (a person rejected a preview, designc), `ui-code` and `ui-visual` (the Factory's checks, projected into the registry ledger; `ui-visual` includes the placement kinds), `holdout` (the visible checks passed without the behaviour being right, counted on its own), alongside `parity` and `acceptance`. This touches `ledger.js`, the schema and the Python mirror.
 - Origin `catalogue_gap`: the spec passed but was wrong, because a slot accepts too much, a `useWhen` is vague or a template is missing. System 3 proposes a pack change.
+### Variance (C5)
+
+Two independent extractions of one requirement page are compared per BR sentence; each disagreement becomes a question on the scenario, so the B4 clause and the Bind button block it. This is not the spec variance below.
+
+- **Run tag.** `mint_test_scenarios` takes an optional `run` (`^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$`, for example `a`). It is written on each minted file as a top-level `run:` (after `by`, before `status`; a flat file writes `run:` after `by:`). Without `run`, every byte written is unchanged. `Records.validate` checks it; it is in `docs/records.schema.json`.
+- **Protocol.** (1) Extract, then call with `run: a`. (2) The person approves. (3) In a **fresh agent context** (a new subagent or session that has not seen run a), extract again from the page alone. (4) Call with `run: b`. (5) Run b must not read `test-scenarios/`. In the app, `Draft test scenarios` passes run a and the `Check variance` link on a requirement (shown when exactly one earlier run is minted) does a New chat and drafts with the next tag.
+- **Which call is the second run.** `TestScenarios.earlierRun(recs, requirement, run)` looks at minted structured scenarios of that requirement that carry a `run` (bound ones are ignored): none gives `{tag: null}` (a first run, minted as usual); this tag already present is an error; exactly one other tag is the comparison; more than one other tag is an error.
+- **Pairing.** `TestScenarios.diffRuns(a, b, {pageText, entities})`. Only structured scenarios take part. A scenario belongs to every page sentence its `source` covers (contains, either way); one that covers none is keyed by its own source. Per key, a different count is a disagreement on `the number of cases`; otherwise the scenarios are sorted and paired on `{screen, operation, steps}` and each pair adds the fields it differs on.
+- **Normalisation.** Compared: `screen` (as written), `effect.operation`, `steps` (placeholders renamed `{1}`, `{2}` by first appearance in step values, then in the sorted `effect.body`), and `examples`. Examples are not compared literally: an input (placeholder values plus `given` rows) is matched with its output (`then` rows plus any other non-placeholder key). Entity keys are qualified, rows and keys sorted, scalars compared as strings (`1` equals `"1"`). They disagree when one run has none, when the sets of `given` or `then` entities differ, or when an input in both runs has a different outcome. Not compared: titles, `effect.body` apart from numbering, `then_state`, scenario-level `given`/`when`/`then`, `questions`, `by`, `run`.
+- **Question text.** One per disagreeing key, with no run tags in it: `Variance: two extractions of "<sentence>" disagree on <parts>. Which does the page mean?`, parts in the order `screen (a or b)`, `steps`, `operation (a or b)`, `examples (...)`, or alone `the number of cases (n and m)`. A question already in a scenario's `questions` is not added again.
+- **Where it is written.** `TestScenarios.varianceWrites(diffs, earlier, list)`: the question is appended to every run-a scenario of the sentence (so none can be bound), or, where run a has none, to the new scenario minted from run b. Run b's agreeing scenarios and its alternatives where run a has some are not written; the card shows them under "Run b proposed". When nothing differs, the tool answers "agree on every sentence" and shows no card.
+
 ### What the ledger now carries (contract built, D7 part 1)
 
 - `caught_by` (the stage that should have caught an escape) is: `S1-lint, S1-p, S1-grill, ui-spec, ui-preview, ui-code, ui-visual, acceptance, holdout, parity, review, qa, pipeline`. `pipeline` stays as "other / unknown" so old rows validate. Origin gains `catalogue_gap`.
 - `escape` takes optional `screen` (string) and `bucket` (`caught, not_captured, state_not_recorded, not_flagged, triage`, the parity QA buckets; rule `bucket_member`). `caught_but_reached_qa` below means escapes with `bucket: caught`.
-- The Factory kind `stage_verdict {run, stage, outcome, change_ts, task?, element?, screen?, item?, round?, failures?}` (`docs/stage-verdict.example.json`, `docs/factory-evals-contract.md`, rule `verdict_shape`) goes to `pipeline.jsonl`. `stage` is `ui-code, ui-visual, acceptance, holdout, review, qa`; `outcome` is `pass, fail, could_not_run`; `round` only on `review`; a failure is `{state?, kind?, placement?, criterion?}` and never carries detail text, so holdout stays sealed.
+- The Factory kind `stage_verdict {run, stage, outcome, change_ts, task?, element?, screen?, item?, round?, failures?}` (`docs/stage-verdict.example.json`, `docs/factory-evals-contract.md`, rule `verdict_shape`) goes to `pipeline.jsonl`. `stage` is `ui-code, ui-visual, acceptance, holdout, scenario, review, qa`; a `scenario` row may carry `scenario` (the scenario id), and its failures are `{criterion: "<id> example <n>", kind: body|not_sent|could_not_run}`; `outcome` is `pass, fail, could_not_run`; `round` only on `review`; a failure is `{state?, kind?, placement?, criterion?}` and never carries detail text, so holdout stays sealed.
 
 Metrics (computed by `Ledger.system3` in D7 part 2; `ui-spec`, `ui-preview` and `parity` show "–" for time to signal, and `ui-spec` and `ui-preview` show escapes only because designc does not count its own catches yet):
 

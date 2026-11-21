@@ -22,7 +22,7 @@ const ROLES = {
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
   grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity', ...UI_READ_TOOLS], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'mint_test_scenarios', 'propose_parity_cover', 'write_check', 'set_check', 'suggest_stage'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When asked to draft test scenarios for a requirement: read its page with read_import_page, then call mint_test_scenarios once with one case per behaviour the page states, each quoting the sentence it comes from, given, when and then as short plain sentences. Never invent behaviour; where the page is unclear, say so in your reply instead of writing a case. That requirement only. Parity diagnosis: for a failing parity finding, read_parity, then judge the cause with evidence. If a requirement removes or changes it, call propose_parity_cover kind br (removes) or, for an added or changed element, mint_acceptance. If the code differs, call propose_parity_cover kind tech citing file:line. If neither is clear, do not write: name the one question the BA or QA must answer. Never decide the cause without citing the requirement or file. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When asked to draft test scenarios for a requirement: read its page with read_import_page, then call mint_test_scenarios once with one case per behaviour the page states, each quoting the sentence it comes from, given, when and then as short plain sentences. Never invent behaviour; where the page is unclear, say so in your reply instead of writing a case. Pass the run tag the request names to mint_test_scenarios; for a second extraction, never read or recall the earlier scenarios. That requirement only. Parity diagnosis: for a failing parity finding, read_parity, then judge the cause with evidence. If a requirement removes or changes it, call propose_parity_cover kind br (removes) or, for an added or changed element, mint_acceptance. If the code differs, call propose_parity_cover kind tech citing file:line. If neither is clear, do not write: name the one question the BA or QA must answer. Never decide the cause without citing the requirement or file. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
     starters: ['Grill me on this design', 'Grill me on Bookings DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: [...READ_TOOLS, 'list_reviews', 'get_system3'], ask: ['mint_proposal', 'group_reviews', 'draft_eval_task'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can. When asked to group failure notes (error analysis): call list_reviews, read every failed note, and group them by the first thing that went wrong, reusing a mode of the taxonomy where it fits and naming a new one (a short phrase for the failure, not its cause) only where none does. A note that fits nowhere stays ungrouped. Propose the grouping with group_reviews, saying why each group belongs together; the person approves it. You never change a verdict or a note. When asked to draft an eval task for a failure mode: call list_reviews, pick the failed reviews in that mode that show it most plainly, and draft one task with draft_eval_task whose title says what the pipeline must get right (not what went wrong). It is minted; a person checks and binds it. System 3: get_system3 gives time to signal, escape rate, review and QA veto and recovery per screen and stage, and the escapes without their text. For a `catalogue_gap` escape, draft a catalogue gap proposal for the pack owner with mint_proposal (kind catalogue gap, the pinned pack and the component): the pack\'s source registry is its target and you never write there.',
@@ -48,6 +48,8 @@ function roleCfg(role) {
 const verdict = (role, tool) => Policy.verdict(roleCfg(role), tool);
 
 // ---------------------------------------------------------------- tool definitions
+const LOCATOR = { type: 'object', properties: { role: { type: 'string' }, name: { type: 'string' } }, required: ['role', 'name'] };
+const ROWS = d => ({ type: 'object', description: `${d}: pack aggregate name -> list of rows (field -> literal value; id plus declared fields)`, additionalProperties: { type: 'array', items: { type: 'object' } } });
 const obj = (props, req = []) => ({ type: 'object', properties: props, required: req, additionalProperties: false });
 const TOOLS = {
   read_model: { d: 'Read the design model (Structurizr DSL) with line numbers. Optional line range.', p: obj({ from: { type: 'integer' }, to: { type: 'integer' } }) },
@@ -78,7 +80,15 @@ const TOOLS = {
   read_parity: { d: 'Read the legacy parity recordings: each scenario\'s steps, whether a legacy baseline is recorded, its latest result and the differences the latest report found. Shapes and interface text only, never page data or screenshots. Read-only.', p: obj({ scenario: { type: 'string' } }, []) },
   read_import_page: { d: 'Read the imported page behind one requirement (from the folder the person chose this session). Only for mapping that requirement to elements.', p: obj({ requirement_id: { type: 'string' } }, ['requirement_id']) },
   propose_parity_cover: { d: 'For one parity finding you have judged from read_parity: kind "br" (a requirement removes the legacy element: writes a PROPOSED business decision with removes, for the business to evidence and a person to bind) or kind "tech" (a technical difference: writes a work item whose done_when is that parity scenario plus a TODO gate). Never for an unknown cause: ask the BA or QA in chat instead.', p: obj({ kind: { type: 'string', enum: ['br', 'tech'] }, scenario: { type: 'string' }, requirement: { type: 'string' }, reason: { type: 'string', description: 'why, citing the finding and the requirement or file:line' }, removes: { type: 'array', items: obj({ role: { type: 'string' }, name: { type: 'string' } }, ['role', 'name']), description: 'kind br: the legacy elements the requirement drops' }, elements: { type: 'array', items: { type: 'string' }, description: 'kind tech: design element names the work changes' }, title: { type: 'string', description: 'kind tech: short work title' } }, ['kind', 'scenario', 'requirement', 'reason']) },
-  mint_test_scenarios: { d: 'Propose BDD test scenarios for one requirement, written to test-scenarios/ in one batch the person approves or declines. One case per behaviour the requirement page states; quote the sentence each case comes from. Never invent behaviour: where the page is unclear, say so instead of writing a case.', p: obj({ requirement: { type: 'string' }, scenarios: { type: 'array', items: obj({ title: { type: 'string' }, quote: { type: 'string' }, given: { type: 'array', items: { type: 'string' } }, when: { type: 'array', items: { type: 'string' } }, then: { type: 'array', items: { type: 'string' } } }, ['title', 'quote', 'given', 'when', 'then']) } }, ['requirement', 'scenarios']) },
+  mint_test_scenarios: { d: 'Propose test scenarios for one requirement, written to test-scenarios/ in one batch the person approves or declines. One case per behaviour the requirement page states; quote the sentence each case comes from, verbatim. Never invent behaviour: where the page is unclear, list it in questions (each blocks binding) instead of guessing. A flat case has given, when and then as sentences. A structured case (screen, steps, effect) is checked before the card is shown and refused whole when its quote is not in the page, a step locator is not in the screen spec (read_ui_spec), effect.operation is not an operationId of contracts/openapi/*.yaml, a step clicks a transition that commits and there are no examples, or a {placeholder} lacks a value in an example. Use {name} in a step value or effect.body and give each example a value for it. Examples may carry rows: given (seed rows) and then (expected rows), per example, keyed by domain pack aggregate name, with field id plus the declared fields and literal values; refused for an unknown aggregate or field, rows on some examples only, or no pinned pack. request (optional, per example with rows; all or none) gives path and query params and, only when there is no effect.body, the body; literal values; refused for a missing required or unknown parameter, a body the operation does not take or lacks, or a request on some examples only. run tags one extraction: call once with run a, and after it is approved extract again in a fresh context with run b; the second call is compared per page sentence and writes each disagreement as a question instead of minting duplicates.', p: obj({ requirement: { type: 'string' }, run: { type: 'string', description: 'Run tag of this extraction: a letter or word such as a or b' }, scenarios: { type: 'array', items: { type: 'object', properties: {
+    title: { type: 'string' }, quote: { type: 'string', description: 'The sentence of the page, verbatim (written as source)' },
+    given: { anyOf: [{ type: 'array', items: { type: 'string' } }, { type: 'object', description: 'Data the case starts from' }] }, when: { type: 'array', items: { type: 'string' } }, then: { type: 'array', items: { type: 'string' } },
+    screen: { type: 'string', description: 'A screen with a ui spec' },
+    steps: { type: 'array', items: { type: 'object', description: 'One verb (fill, select, click or check) holding {role, name}, plus value for fill and select', properties: { fill: LOCATOR, select: LOCATOR, click: LOCATOR, check: LOCATOR, value: { type: 'string' } } } },
+    effect: { type: 'object', properties: { operation: { type: 'string', description: 'operationId in contracts/openapi/*.yaml' }, body: { type: 'object' }, then_state: { type: 'object', properties: { screen: { type: 'string' }, state: { type: 'string' } } } } },
+    examples: { type: 'array', items: { type: 'object', properties: { given: ROWS('Seed rows before the call'), then: ROWS('Rows expected after the call, matched on the listed fields only'),
+      request: { type: 'object', description: 'The call inputs for the API test (all examples of a scenario with rows, or none): path and query parameters of the operation as literal scalars, and body only when effect.body is absent', properties: { path: { type: 'object', description: 'Path parameter name to value' }, query: { type: 'object', description: 'Query parameter name to value' }, body: { description: 'The JSON body; only when there is no effect.body' } } } } } },
+    questions: { type: 'array', items: { type: 'string' }, description: 'What the page does not settle; each blocks binding' } }, required: ['title', 'quote'] } } }, ['requirement', 'scenarios']) },
   map_requirement: { d: 'Propose the design elements an imported requirement concerns (element names from the model). Only the elements list of the requirement file changes. The user sees the change and approves or declines.', p: obj({ id: { type: 'string' }, elements: { type: 'array', items: { type: 'string' } } }, ['id', 'elements']) },
   list_reviews: { d: 'Error analysis: the failed reviews of pipeline task attempts (the latest per observation: task, note, failure_mode) and the failure modes of factory/taxonomy.yaml.', p: obj({}) },
   group_reviews: { d: 'Propose failure modes for failed reviews: each group names an existing mode id or a new_mode, the observations it covers (from list_reviews) and why. New modes are added to factory/taxonomy.yaml. The user sees the grouping and approves or declines.', p: obj({ groups: { type: 'array', items: obj({ mode: { type: 'string' }, new_mode: obj({ name: { type: 'string' }, description: { type: 'string' }, triage: { type: 'string', enum: ['spec', 'fix', 'grader'] } }, ['name']), observations: { type: 'array', items: { type: 'string' } }, why: { type: 'string' } }, ['observations', 'why']) } }, ['groups']) },
@@ -94,6 +104,18 @@ const cap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length
 
 // ---------------------------------------------------------------- tool implementations (read)
 const numbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
+// The raw text of a requirement's page from the folder the person chose this session: {req, name, text} or {error}.
+async function importPage(id) {
+  if (!A.importDir) return { error: 'No import folder was chosen in this session. Ask the person to choose the folder again (Requirements ⇩ or Map to elements).' };
+  const req = A.requirements.find(r => r.id === id);
+  if (!req) return { error: `Requirement ${id} is not in the registry.` };
+  const r = await host.readImportFolder(A.importDir);
+  if (r.error) return { error: r.error };
+  const plan = RequirementImport.plan(r.pages, { existing: A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source })) });
+  const item = plan.items.find(i => String(i.id).toLowerCase() === String(req.id).toLowerCase() && i.status !== 'invalid');
+  const page = item && r.pages.find(f => f.name === item.file);
+  return page ? { req, name: page.name, text: page.text } : { error: `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.` };
+}
 const READERS = {
   read_study: a => {
     const ts = A.studies || [];
@@ -106,9 +128,9 @@ const READERS = {
     const fails = [...Ledger.traceReviews(A.ledger).values()].filter(r => r.verdict === 'fail');
     return cap(JSON.stringify({ modes: Ledger.taxonomyModes(A.taxonomy).modes.map(({ count, ...m }) => m), failed: fails.map(r => ({ observation: r.observation, task: r.task, run: r.run_id, attempt: r.attempt, note: r.note, failure_mode: r.failure_mode ?? null })) }));
   },
-  read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) : `No model at ${A.cfg.model} yet.`,
-  get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
-  get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line })) }),
+  read_model: a => A.modelText ? cap(numbered(A.modelText, a.from || 1, a.to || Infinity)) + (modelSpans() ? '\n' + spansNote() : '') : `No model at ${A.cfg.model} yet.`,
+  get_findings: () => JSON.stringify(A.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))),
+  get_gate: () => JSON.stringify({ ready: A.gate.ready, blocking: A.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }),
   list_decisions: () => JSON.stringify({
     decisions: A.decisions.map(d => ({ id: d.id, status: d.status, effect: d.effect, statement: d.statement, binds: d.binds, resolves: d.resolves, checks: d.checks, requirement: d.requirement, assumptions: d.assumptions || [], latestCheck: (Core.latestCheck(A.ledger, d.id) || {}).outcome || null, file: d._path })),
     requirements: A.requirements.map(r => ({ id: r.id, title: r.title, elements: r.elements })),
@@ -146,15 +168,8 @@ const READERS = {
     })));
   },
   read_import_page: async a => {
-    if (!A.importDir) return 'No import folder was chosen in this session. Ask the person to choose the folder again (Requirements ⇩ or Map to elements).';
-    const req = A.requirements.find(r => r.id === a.requirement_id);
-    if (!req) return `Requirement ${a.requirement_id} is not in the registry.`;
-    const r = await host.readImportFolder(A.importDir);
-    if (r.error) return r.error;
-    const plan = RequirementImport.plan(r.pages, { existing: A.requirements.map(q => ({ id: q.id, version: q.version, source: q.source })) });
-    const item = plan.items.find(i => String(i.id).toLowerCase() === String(req.id).toLowerCase() && i.status !== 'invalid');
-    const page = item && r.pages.find(f => f.name === item.file);
-    return page ? cap(`Page ${page.name} for ${req.id} (${req.title}):\n\n${page.text}`) : `No page in the chosen folder matches ${req.id}. Ask the person to choose the folder it was imported from.`;
+    const r = await importPage(a.requirement_id);
+    return r.error || cap(`Page ${r.name} for ${r.req.id} (${r.req.title}):\n\n${r.text}`);
   },
   read_registry_file: async a => { const d = Policy.readVerdict(AG.role, a.path); if (!d.ok) return d.error; const t = await readText(a.path); return t == null ? `No file ${a.path} in the registry.` : cap(numbered(t)); },
   get_code_map: () => {
@@ -240,6 +255,7 @@ const WRITERS = {
   add_finding: a => studyWriter(a.topic, t => Study.addFinding(t, a), (r, t) => `Add finding ${r.index} to ${t.id}`, `${a.good_or_bad}: ${a.pattern}`),
   answer_question: a => studyWriter(a.topic, t => Study.answerQuestion(t, a), (r, t) => `Link findings to question ${a.question} of ${t.id}`, ((A.studies || []).find(t => t.id === a.topic)?.questions[a.question - 1] || {}).text || ''),
   propose_model_edit: a => {
+    if (modelSpans()) return { error: spansRefusal() };
     const count = A.modelText.split(a.find).length - 1;
     if (!a.find) return { error: 'find is empty.' };
     if (count === 0) return { error: 'find does not match the model text. Call read_model and copy the exact text without line numbers.' };
@@ -450,19 +466,31 @@ done_when:
     return { title: `Propose work item ${id}`, detail: title, preview: `<pre class="yamlprev">${esc(text)}</pre>`,
       apply: async () => { AG.approved.set(`work/${id}.yaml`, Date.now()); await host.write(`work/${id}.yaml`, text); A.tree = await host.tree(); await loadWork(); renderAll(); return `Created work/${id}.yaml. Replace the TODO gate, then Start it from Work.`; } };
   },
-  mint_test_scenarios: a => {
+  mint_test_scenarios: async a => {
     const req = A.requirements.find(r => r.id === a.requirement);
     if (!req) return { error: `Requirement ${a.requirement} is not in the registry. Agents never create requirements; the person imports pages first.` };
     const list = Array.isArray(a.scenarios) ? a.scenarios : [];
     if (!list.length) return { error: 'scenarios is empty. Write one case per behaviour the page states, or say the page states none.' };
-    const built = testScenarioFiles(req, list, 'grill', true);
+    const built = TestScenarios.build(req, list, { by: 'grill', taken: A.testScenarioIds || [], needQuote: true, dump: jsyaml.dump, run: a.run });
     if (built.error) return { error: built.error };
     const files = built.files;
-    const preview = files.map(f => `<div class="diffhead">${esc(f.path)}</div><div class="note">From the page: “${esc(f.quote)}”</div><pre class="yamlprev">${esc(f.text)}</pre>`).join('');
+    // The strict part: the quote must be in the page, the locators in the spec, the operation in a pinned contract.
+    const page = await importPage(req.id);
+    if (page.error) return { error: `A scenario's quote is checked against the requirement page, so the page must be readable. ${page.error}` };
+    const contracts = {}; for (const f of await host.list('contracts/openapi', ['.yaml', '.yml'])) contracts[f.path] = f.text;
+    const reg = { files: contracts, yamlLoad: jsyaml.load };
+    const refused = TestScenarios.refusal(files, { pageText: page.text, specs: (A.ui && A.ui.specs) || [], resolveOperation: id => Core.resolveOperation(reg, id), operationErrors: Core.operations(reg).errors, entities: Core.packAggregates(A.packs || []), operationInputs: id => Core.operationInputs(reg, id) });
+    if (refused) return { error: refused };
+    if (a.run != null) {
+      const prior = TestScenarios.earlierRun((A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), req.id, a.run);
+      if (prior.error) return { error: prior.error };
+      if (prior.tag !== null) return varianceCard(req, a, list, files, page, prior.tag);
+    }
+    const preview = files.map(f => `<div class="diffhead">${esc(f.path)}</div><div class="note">From the page: “${esc(f.quote)}”</div>${(f.rec.questions || []).length ? `<div class="note" style="color:var(--warn)">${plural(f.rec.questions.length, 'open question')}: it cannot be bound until they are answered.</div>` : ''}<pre class="yamlprev">${esc(f.text)}</pre>`).join('');
     return { title: `Add ${plural(files.length, 'test scenario')} to ${req.id}`, detail: files.map(f => f.rec.title).join('; '), preview,
       apply: async () => {
         await writeTestScenarioFiles(files);
-        return `Created ${files.map(f => f.path).join(', ')}. A person reviews them; they never block the gate.`;
+        return `Created ${files.map(f => f.path).join(', ')}. A person reviews them and binds them; they never block the gate.`;
       } };
   },
   map_requirement: a => {
@@ -556,8 +584,9 @@ async function runTool(role, name, args, c, { showReads = true } = {}) {
   if (v === 'deny' || (!READERS[name] && !WRITERS[name])) { out = `Denied by policy: the ${r.label} role may not use ${name}.`; chip.status = 'denied'; }
   else if (v === 'allow' && READERS[name]) { try { out = await READERS[name](args); chip.status = 'ok'; } catch (e) { out = `Error: ${e.message}`; chip.status = 'error'; } }
   else {
-    const w = WRITERS[name] ? WRITERS[name](args) : { error: `${name} is not available` };
-    if (w.error) { out = `Rejected before asking the user: ${w.error}`; chip.status = 'invalid'; if (!show) { c.items.push(chip); } }
+    const w = WRITERS[name] ? await WRITERS[name](args) : { error: `${name} is not available` };
+    if (w.done !== undefined) { out = w.done; chip.status = 'ok'; }
+    else if (w.error) { out = `Rejected before asking the user: ${w.error}`; chip.status = 'invalid'; if (!show) { c.items.push(chip); } }
     else {
       chip.status = 'waiting'; chip.card = w; renderAgent();
       const ok = await waitFor(chip);
@@ -761,7 +790,7 @@ const uid = p => `${p}_${Date.now().toString(36)}${Math.random().toString(36).sl
 function designcState() {
   const live = A.diags.filter(f => !f.suppressed);
   return { designc: {
-    model: { path: A.cfg.model, revision: 'r-' + hash(A.modelText || ''), elements: A.model ? A.model.elements.size : 0 },
+    model: { path: A.cfg.model, revision: modelRev(), elements: A.model ? A.model.elements.size : 0 },
     findings: { errors: live.filter(f => f.sev === 'error').length, warnings: live.filter(f => f.sev === 'warning').length,
       top: live.slice(0, 25).map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line })) },
     gate: { ready: !!(A.gate && A.gate.ready), blocking: A.gate ? A.gate.clauses.slice(0, 25).map(c => c.text) : [] },
@@ -1043,6 +1072,8 @@ function dontKnow(question, why) {
   toggleAgent(true); send(text);
 }
 // Grill-me in the panel, for when no model is set: uses the chosen ACP or AG-UI agent, or the first ACP one. False when there is none.
+// A fresh context: the chat and the session are reset and the ACP agent is disconnected.
+function newChat() { if (AG.busy) return; AG.chats[chatKey()] = { messages: [], items: [] }; AG.session = Math.random().toString(36).slice(2, 10); if (AG.agent !== 'builtin' && !isAgui()) { host.acpDisconnect(AG.agent); delete AG.conns[AG.agent]; } renderAgent(); }
 function grillInPanel(text) {
   if (AG.busy) { toast('The agent is still answering. Stop it or wait, then try again.', 'error'); return true; }
   if (AG.agent === 'builtin') { const key = Object.keys(AG.acpAgents)[0]; if (!key) return false; AG.agent = key; }
@@ -1061,20 +1092,41 @@ function mapRequirement(id) {
   const text = `Map requirement ${id} ("${r.title || id}") to the design elements it concerns. Read its page with read_import_page, read the model, then propose the mapping with map_requirement. This requirement only.`;
   if (!grillInPanel(text)) toast('Map to elements needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
-// Shared by mint_test_scenarios (by grill, quote required) and the .feature import (by qa). Takes the next free nn per requirement.
+// C5: the second run of mint_test_scenarios. Compares it with the earlier run per page sentence and writes each disagreement as a question.
+function varianceCard(req, a, list, files, page, tag) {
+  const earlier = (A.testScenarios || []).filter(t => Records.isStructuredScenario(t.rec) && t.rec.status !== 'bound' && t.rec.requirement === req.id && t.rec.run === tag).map(t => ({ path: t.path, rec: t.rec }));
+  const diffs = TestScenarios.diffRuns({ run: tag, scenarios: earlier.map(e => e.rec) }, { run: a.run, scenarios: files.map(f => f.rec) }, { pageText: page.text, entities: Core.packAggregates(A.packs || []) });
+  const w = TestScenarios.varianceWrites(diffs, earlier, list);
+  if (!w.updates.length && !w.mint.length) return { done: diffs.length ? `Runs ${tag} and ${a.run} disagree on ${plural(diffs.length, 'sentence')} of ${req.id}, but each question is already written. Nothing written.` : `Runs ${tag} and ${a.run} agree on every sentence of ${req.id} (${diffs.compared} compared). Nothing written.` };
+  const squashed = x => String(x).replace(/\s+/g, ' ').trim();
+  const preview = diffs.map(d => {
+    const mine = files.filter(f => TestScenarios.covers(squashed(f.quote), d.sentence) || squashed(f.quote) === d.sentence);
+    const upd = w.updates.filter(u => d.targets.a.includes(String(u.rec.id)));
+    const base = (A.testScenarios || []).find(t => upd[0] && t.path === upd[0].path);
+    return `<div class="note"><b>${esc(d.sentence)}</b></div><div class="note" style="color:var(--warn)">${esc(d.question)}</div>`
+      + upd.map(u => `<div class="diffhead">${esc(u.path)}</div>${diffHTML(TestScenarios.fileText(base && base.path === u.path ? base.rec : u.rec, jsyaml.dump), TestScenarios.fileText(u.rec, jsyaml.dump))}`).join('')
+      + (d.targets.b.length ? d.targets.b.map(i => `<div class="diffhead">new: ${esc(files[i].id)}</div><pre class="yamlprev">${esc(TestScenarios.fileText({ ...files[i].rec, questions: (w.mint.find(m => m.quote === files[i].quote) || {}).questions || files[i].rec.questions }, jsyaml.dump))}</pre>`).join('') : '')
+      + `<details><summary>Run ${esc(a.run)} proposed</summary>${mine.map(f => `<pre class="yamlprev">${esc(f.text)}</pre>${(f.rec.questions || []).length ? `<div class="note">Its own questions (shown, not written): ${esc(f.rec.questions.join(' | '))}</div>` : ''}`).join('')}</details>`;
+  }).join('');
+  const nq = w.updates.reduce((n, u) => n + u.added.length, 0) + w.mint.length;
+  return { title: `Variance on ${req.id}: ${plural(diffs.length, 'disagreement')}`, detail: diffs.map(d => d.sentence).join(' / '), preview,
+    apply: async () => {
+      for (const u of w.updates) {
+        const cur = jsyaml.load(await host.read(u.path));
+        const qs = Array.isArray(cur.questions) ? [...cur.questions] : [];
+        for (const q of u.added) if (!qs.some(x => String(x).trim() === q.trim())) qs.push(q);
+        cur.questions = qs;
+        AG.approved.set(u.path, Date.now()); await host.write(u.path, TestScenarios.fileText(cur, jsyaml.dump));
+      }
+      const made = TestScenarios.build(req, w.mint, { by: 'grill', taken: A.testScenarioIds || [], needQuote: true, dump: jsyaml.dump, run: a.run });
+      if (made.error) throw new Error(made.error);
+      await writeTestScenarioFiles(made.files);
+      return `Added ${plural(nq - w.mint.length, 'question')} to ${w.updates.map(u => u.path).join(', ') || 'no file'}; minted ${made.files.length}. They block binding until answered (Ask in Grill-me).`;
+    } };
+}
+// Shared by mint_test_scenarios (by grill, quote required) and the .feature import (by qa); see TestScenarios.build.
 function testScenarioFiles(req, list, by, needQuote) {
-  const taken = new Set(A.testScenarioIds || []);
-  const files = [];
-  for (const [i, x] of list.entries()) {
-    let n = 1, id; do { id = `${req.id}-ts-${String(n++).padStart(2, '0')}`; } while (taken.has(id)); taken.add(id);
-    const rec = { id, requirement: req.id, title: x && x.title, given: x && x.given, when: x && x.when, then: x && x.then, by };
-    const errs = Records.validate('test_scenario', rec);
-    if (errs.length) return { error: `Scenario ${i + 1}: ${errs.join('; ')}.` };
-    if (needQuote && !(typeof x.quote === 'string' && x.quote.trim())) return { error: `Scenario ${i + 1}: quote the sentence of the page it comes from.` };
-    const block = k => `${k}:\n${rec[k].map(v => `  - ${yamlStr(v)}`).join('\n')}`;
-    files.push({ id, path: `test-scenarios/${id}.yaml`, quote: needQuote ? x.quote.trim() : '', rec, text: `id: ${id}\nrequirement: ${yamlStr(req.id)}\ntitle: ${yamlStr(rec.title)}\n${block('given')}\n${block('when')}\n${block('then')}\nby: ${by}\n` });
-  }
-  return { files };
+  return TestScenarios.build(req, list, { by, taken: A.testScenarioIds || [], needQuote, dump: jsyaml.dump });
 }
 async function writeTestScenarioFiles(files) {
   for (const f of files) if (await host.exists(f.path)) throw new Error(`${f.path} already exists; nothing was written.`);
@@ -1082,11 +1134,27 @@ async function writeTestScenarioFiles(files) {
   A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
 }
 // Grill-me on one imported requirement: reads its page and proposes test scenarios in one batch card.
-function draftTestScenarios(id) {
+function draftTestScenarios(id, commit = false, run = 'a') {
   if (!A.importDir) { toast('Choose the folder the pages came from first (the ⇩ button in Requirements); designc does not keep that folder between sessions.', 'warning'); return; }
   const r = A.requirements.find(x => x.id === id); if (!r) return;
-  const text = `Draft test scenarios for requirement ${id} ("${r.title || id}"). Read its page with read_import_page, then call mint_test_scenarios once: one case per behaviour the page states, each quoting its sentence. Do not invent behaviour; say where the page is unclear. This requirement only.`;
+  const text = `Draft test scenarios for requirement ${id} ("${r.title || id}"). Read its page with read_import_page, then call mint_test_scenarios once with run "${run}": one case per behaviour the page states, each quoting its sentence. Do not invent behaviour; say where the page is unclear. This requirement only.${run !== 'a' ? ' This is a second, independent extraction: never read or recall the earlier scenarios (test-scenarios/); work from the page alone.' : ''}${commit ? ' A transition that commits a change has no bound scenario: include at least one with examples that clicks it.' : ''}`;
   if (!grillInPanel(text)) toast('Draft test scenarios needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
+}
+// C5: a fresh Grill-me extracts the page again with the next run tag; disagreements with the earlier run become questions.
+function checkVariance(id) {
+  if (AG.busy) { toast('The agent is still answering. Stop it or wait, then try again.', 'error'); return; }
+  const prior = TestScenarios.earlierRun((A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), id, '');
+  if (!prior.tag) { toast(prior.error || 'Mint run a first (Draft test scenarios).', 'warning'); return; }
+  const next = ['b', 'c', 'd', 'e', 'f', 'g', 'h'].find(t => t !== prior.tag);
+  newChat();
+  draftTestScenarios(id, false, next);
+}
+// Grill-me takes the open questions of one structured test scenario. Business questions go to the BA; it writes nothing, a person edits the file and binds.
+function askScenarioQuestions(id) {
+  const t = (A.testScenarios || []).find(x => String(x.rec.id) === String(id)); if (!t) return;
+  const qs = (Array.isArray(t.rec.questions) ? t.rec.questions : []).filter(q => typeof q === 'string' && q.trim());
+  const text = `Test scenario ${id} ("${t.rec.title || id}", requirement ${t.rec.requirement}) cannot be bound: it has ${qs.length} open question(s):\n${qs.map((q, i) => `${i + 1}. ${q}`).join('\n')}\nGo through them one at a time. Say which ones the requirement page already answers, and route business questions to the BA instead of guessing. Do not edit the file; the person answers in ${t.path} and removes each question, then binds.`;
+  if (!grillInPanel(text)) toast('Ask in Grill-me needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
 function draftCheck(id) {
   const d = A.decisions.find(x => x.id === id); if (!d) return;
@@ -1119,7 +1187,7 @@ document.addEventListener('click', e => {
   if (t.dataset.agsettings != null) return openFile('designc.json');
   if (t.id === 'agSend') { const v = $('#agInput').value; $('#agInput').value = ''; return send(v); }
   if (t.id === 'agStop') { for (const p of [...AG.pending]) p.resolve(p.chip.kind === 'perm' ? null : false); if (AG.reqId) host.agentCancel(AG.reqId); if (AG.aguiReq) host.aguiCancel(AG.aguiReq); else if (AG.agent !== 'builtin') host.acpCancel(AG.agent); return; }
-  if (t.id === 'agNew') { if (AG.busy) return; AG.chats[chatKey()] = { messages: [], items: [] }; AG.session = Math.random().toString(36).slice(2, 10); if (AG.agent !== 'builtin' && !isAgui()) { host.acpDisconnect(AG.agent); delete AG.conns[AG.agent]; } renderAgent(); }
+  if (t.id === 'agNew') return newChat();
 });
 document.addEventListener('keydown', e => {
   if (e.target.id === 'agInput' && e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); const v = e.target.value; e.target.value = ''; send(v); }

@@ -1,0 +1,40 @@
+{
+  "name": "TextField",
+  "import": "@your-org/ui",
+  "category": "form-field",
+  "description": "Single-line text input with a label, optional validation and help text.",
+  "useWhen": [
+    "A short free-text value, such as a name, a reference or a match string"
+  ],
+  "avoidWhen": [
+    "A value picked from a fixed list: use Select"
+  ],
+  "props": {
+    "label": {
+      "type": "string",
+      "required": true
+    },
+    "required": {
+      "type": "boolean"
+    },
+    "maxLength": {
+      "type": "number"
+    },
+    "pattern": {
+      "type": "string",
+      "description": "Regular expression the value must match"
+    },
+    "help": {
+      "type": "string"
+    }
+  },
+  "data": {},
+  "states": [
+    "ready",
+    "disabled"
+  ],
+  "status": "bound",
+  "source": {
+    "path": "packages/ui/src/TextField.tsx"
+  }
+}

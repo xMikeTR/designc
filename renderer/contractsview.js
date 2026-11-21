@@ -2,7 +2,7 @@
 // Writes the design's agents to contracts/agents.json, runs the person's own command on it and shows contracts/out/result.json.
 // Human only: no agent tool reaches it. The compiled files are not a gate input.
 function contractsAgents() {
-  try { return Core.handoverAgents(A.modelText); } catch { return { agents: [] }; }
+  try { return Core.handoverAgents(modelSrc()); } catch { return { agents: [] }; }
 }
 function contractsSection() {
   const s = Contracts.settings(A.cfg.contracts), doc = contractsAgents();
@@ -22,7 +22,7 @@ async function compileContracts() {
   if (A.running) return toast('Checks are already running.');
   if (dirtyBuffers()) return toast('Save your open files first: the contracts are compiled from what is on disk.', 'warning');
   let doc;
-  try { doc = Core.handoverAgents(A.modelText); } catch (e) { return toast(e.message, 'error'); }
+  try { doc = Core.handoverAgents(modelSrc()); } catch (e) { return toast(e.message, 'error'); }
   if (!doc.agents.length) return toast('The design has no agents to compile.', 'warning');
   const cmd = Contracts.command(s.command, { agents: dispatchAbs(Contracts.PATHS.agents), out: dispatchAbs(Contracts.PATHS.out), registry: A.root.root }, A.platform);
   if (cmd.error) return toast(cmd.error, 'error');
@@ -49,6 +49,6 @@ function contractFiles(resultText) {
 function contractGaps() {
   const c = A.cfg.contracts, s = Contracts.settings(c);
   if (!s || s.error || c.require !== true || !A.model || A.model.errors.length) return [];
-  let doc; try { doc = Core.handoverAgents(A.modelText); } catch { return []; }
+  let doc; try { doc = Core.handoverAgents(modelSrc()); } catch { return []; }
   return Contracts.gaps({ resultText: A.contractsText == null ? null : A.contractsText, agentsDoc: doc, agentsText: JSON.stringify(doc, null, 2) + '\n', hash: Core._shared.hash16 });
 }

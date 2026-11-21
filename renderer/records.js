@@ -46,6 +46,57 @@
     return m && PREFIXES.includes(m[1]) ? { prefix: m[1], key: m[2] } : null;
   };
 
+  // A structured test scenario (B1) has any of screen, steps or effect; every other one is flat (given, when, then as lists).
+  const SCENARIO_VERBS = ['fill', 'select', 'click', 'check'];
+  const isStructuredScenario = rec => isObj(rec) && (rec.screen != null || rec.steps != null || rec.effect != null);
+  function structuredScenarioErrors(rec, errs) {
+    if (!str(rec.screen)) errs.push('screen: required (the ui screen the steps run on)');
+    if (!Array.isArray(rec.steps) || !rec.steps.length) errs.push('steps: a non-empty list');
+    else rec.steps.forEach((s, i) => {
+      if (!isObj(s)) return errs.push(`steps[${i}]: must be a mapping like {click: {role, name}}`);
+      const verbs = Object.keys(s).filter(k => SCENARIO_VERBS.includes(k)), extra = Object.keys(s).filter(k => k !== 'value' && !SCENARIO_VERBS.includes(k));
+      if (verbs.length !== 1) errs.push(`steps[${i}]: exactly one verb of ${SCENARIO_VERBS.join('|')}`);
+      else if (!isObj(s[verbs[0]]) || !str(s[verbs[0]].role) || !str(s[verbs[0]].name)) errs.push(`steps[${i}]: ${verbs[0]} needs a locator {role, name}`);
+      if (extra.length) errs.push(`steps[${i}]: unknown field ${extra[0]}`);
+      if (s.value != null && typeof s.value !== 'string') errs.push(`steps[${i}]: value must be a string`);
+    });
+    if (!isObj(rec.effect) || !str(rec.effect.operation)) errs.push('effect: required, with an operation (an operationId)');
+    else {
+      if (rec.effect.body != null && !isObj(rec.effect.body)) errs.push('effect: body must be a mapping');
+      const t = rec.effect.then_state;
+      if (t != null && !(isObj(t) && str(t.screen) && str(t.state))) errs.push('effect: then_state needs a screen and a state');
+    }
+    (Array.isArray(rec.examples) ? rec.examples : []).forEach((ex, i) => {
+      if (!isObj(ex)) return;
+      if (ex.request !== undefined) {
+        const rq = ex.request;
+        if (!isObj(rq) || Object.keys(rq).some(k => !['path', 'query', 'body'].includes(k))) errs.push(`examples[${i}].request: a mapping with path, query and body only`);
+        else for (const k of ['path', 'query']) {
+          if (rq[k] === undefined) continue;
+          if (!isObj(rq[k]) || Object.values(rq[k]).some(v => !['string', 'number', 'boolean'].includes(typeof v))) errs.push(`examples[${i}].request.${k}: a mapping of parameter name to a string, number or boolean`);
+        }
+      }
+      for (const f of ['given', 'then']) {
+        if (ex[f] == null) continue;
+        if (!isObj(ex[f])) { errs.push(`examples[${i}].${f}: a mapping of entity name to a list of rows`); continue; }
+        for (const [ent, rows] of Object.entries(ex[f])) {
+          if (!Array.isArray(rows) || !rows.length) { errs.push(`examples[${i}].${f}.${ent}: a non-empty list of rows`); continue; }
+          rows.forEach((row, j) => { if (!isObj(row) || !Object.keys(row).length) errs.push(`examples[${i}].${f}.${ent}[${j}]: a row is a mapping of field to value with at least one field`); });
+        }
+      }
+    });
+    // {given}, {then} and {request} are reserved for an example's rows and request. Once per name.
+    for (const name of ['given', 'then', 'request']) {
+      const tok = `{${name}}`; let where = null;
+      const has = x => typeof x === 'string' ? x.includes(tok) : Array.isArray(x) ? x.some(has) : isObj(x) ? Object.values(x).some(has) : false;
+      if (Array.isArray(rec.steps)) rec.steps.forEach((s, k) => { if (!where && isObj(s) && has(s.value)) where = `steps[${k}]`; });
+      if (!where && isObj(rec.effect) && has(rec.effect.body)) where = 'effect.body';
+      if (where) errs.push(`${where} uses ${tok}: ${tok} is reserved for an example's rows: rename the placeholder`);
+    }
+    if (rec.given != null && !isObj(rec.given) && !(list(rec.given).length && list(rec.given).every(str))) errs.push('given: a mapping of data, or a non-empty list of strings');
+    for (const f of ['when', 'then']) if (rec[f] != null && !(list(rec[f]).length && list(rec[f]).every(str))) errs.push(`${f}: a non-empty list of strings`);
+  }
+
   function validate(kind, rec) {
     const errs = [];
     if (!KINDS.includes(kind)) return [`kind: must be one of ${KINDS.join('|')}`];
@@ -90,8 +141,13 @@
     if (kind === 'test_scenario') {
       if (!str(rec.requirement)) errs.push('requirement: required (the id of the requirement this case proves)');
       if (!str(rec.title)) errs.push('title: required');
-      for (const f of ['given', 'when', 'then']) if (!list(rec[f]).length || !list(rec[f]).every(str)) errs.push(`${f}: a non-empty list of strings`);
+      if (isStructuredScenario(rec)) structuredScenarioErrors(rec, errs);
+      else for (const f of ['given', 'when', 'then']) if (!list(rec[f]).length || !list(rec[f]).every(str)) errs.push(`${f}: a non-empty list of strings`);
       if (rec.by != null && !str(rec.by)) errs.push('by: must be a non-empty string');
+      if (rec.status != null && !['minted', 'bound'].includes(rec.status)) errs.push('status: a test scenario is minted or bound');
+      if (rec.run != null && !(typeof rec.run === 'string' && /^[A-Za-z0-9][A-Za-z0-9._-]{0,31}$/.test(rec.run))) errs.push('run: a run tag is letters, digits, ".", "_" or "-", at most 32');
+      if (rec.questions != null && !(Array.isArray(rec.questions) && rec.questions.every(str))) errs.push('questions: a list of strings');
+      if (rec.examples != null && !(Array.isArray(rec.examples) && rec.examples.every(isObj))) errs.push('examples: a list of mappings');
     }
     if (kind === 'procedure') {
       if (str(rec.id) && !/^[A-Za-z0-9._-]+$/.test(rec.id)) errs.push('id: letters, digits, ".", "_" or "-" (a trace row names it verbatim beside prefixed ids such as prompt:)');
@@ -164,5 +220,5 @@
     return inv;
   }
 
-  return { KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, validate, lint, inverse };
+  return { isStructuredScenario, KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, validate, lint, inverse };
 });

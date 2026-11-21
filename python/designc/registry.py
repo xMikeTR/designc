@@ -1,13 +1,12 @@
-"""Load a registry folder the way the desktop app does (loadSettings, loadRegistry, loadLedger)."""
-import hashlib
+"""Load a registry folder the way the desktop app does (loadSettings, loadRegistry, loadLedger), for the commands that
+still run in Python: work and verify-ledger. The gate inputs for check and eval are assembled in renderer/gate-inputs.js."""
 import json
 import os
 import re
 
 import yaml
 
-from . import ui as ui_mod
-from .gate import _s
+from .util import _s
 
 REG_DIRS = ['decisions', 'requirements', 'proposals', 'handovers', 'scenarios', 'evals', 'acceptance']
 ENVELOPE_OPTIONAL = {'system', 'session', 'task', 'element', 'payload'}
@@ -85,81 +84,6 @@ def read_tokens(root):
 
 
 def yaml_load(text): return yaml.load(text, _Loader)
-
-
-def load_domains(root, cfg):
-    """The domain packs a project pins: designc.json `domains` lists them, domain/<key>.yaml holds the copies,
-    and each pack's source registry (designc.json `registries`, by the key the ledger pin names) is read for a newer
-    version; sources maps a pack to its text, or None when that registry could not be read. None when nothing is
-    listed and nothing is copied (domain rules do not run)."""
-    listed = [str(k) for k in cfg.get('domains') or []]
-    packs = [{'key': re.sub(r'\.ya?ml$', '', p.split('/')[-1]), 'path': p, 'text': t} for p, t in _list(root, 'domain', ['.yaml', '.yml'])]
-    if not listed and not packs: return None
-    return {'listed': listed, 'packs': packs, 'behaviour': [{'path': p, 'text': t} for p, t in _list(root, 'behaviour', ['.p'])], 'load': yaml_load}
-
-
-def _ui_files(root, d):
-    return [{'path': p, 'text': t} for p, t in _list(root, d, ['.json'])]
-
-
-def load_ui(root, cfg, led):
-    """The UI pack a project pins (ui/pack/), its specs and holdouts, and the source registry of the pinned pack
-    (designc.json `registries`, by the registry name the ledger pin gives) for a newer version. None when the
-    project has no pack, no spec and no holdout (UI rules do not run)."""
-    pack = {'components': _ui_files(root, 'ui/pack/components'), 'templates': _ui_files(root, 'ui/pack/templates')}
-    specs, holdouts, legacy = _ui_files(root, 'ui/specs'), _ui_files(root, 'ui/holdout'), _ui_files(root, 'ui/legacy')
-    if not pack['components'] and not pack['templates'] and not specs and not holdouts: return None
-    sources = {}
-    pin = ui_mod.latest_pin(led)
-    if pin and (pack['components'] or pack['templates']): sources[pin['pack']] = read_ui_source(root, cfg, pin['registry'])
-    previews, spec_hashes = {}, {}
-    for f in specs:
-        screen = os.path.basename(f['path'])[:-len('.json')]
-        if not re.fullmatch(r'[a-z0-9-]+', screen): continue
-        previews[screen] = _preview_hashes(os.path.join(root, 'ui', 'previews', screen))
-        with open(os.path.join(root, f['path']), 'rb') as fh: spec_hashes[screen] = hashlib.sha256(fh.read()).hexdigest()
-    return {'pack': pack, 'specs': specs, 'legacy': legacy, 'holdouts': holdouts, 'sources': sources, 'scenarios': _ui_scenarios(root), 'previews': previews, 'specHashes': spec_hashes}
-
-
-def _preview_hashes(base):
-    """{relative path: sha256} of every file under ui/previews/<screen>/, forward slashes, symlinks skipped (paths.js previewHashes)."""
-    out = {}
-    for dirpath, dirs, names in os.walk(base):
-        dirs[:] = [d for d in dirs if not os.path.islink(os.path.join(dirpath, d))]
-        for n in names:
-            p = os.path.join(dirpath, n)
-            if os.path.islink(p) or not os.path.isfile(p): continue
-            with open(p, 'rb') as fh: out[os.path.relpath(p, base).replace(os.sep, '/')] = hashlib.sha256(fh.read()).hexdigest()
-    return dict(sorted(out.items()))
-
-
-def _ui_scenarios(root):
-    """parity/scenarios/*.yaml, parsed, for the state rules (a file that does not parse is parity's problem, not the gate's)."""
-    out = []
-    for _, text in _list(root, 'parity/scenarios', ['.yaml', '.yml']):
-        try: o = yaml_load(text)
-        except Exception: continue
-        if isinstance(o, dict): out.append(o)
-    return out
-
-
-def read_ui_source(root, cfg, registry):
-    """ui/components and ui/templates of the registry a pack was pinned from, or None when it cannot be read."""
-    rel = (cfg.get('registries') or {}).get(registry) if isinstance(cfg.get('registries'), dict) else None
-    if not rel: return None
-    base = os.path.join(root, rel)
-    if not os.path.isdir(os.path.join(base, 'ui')): return None
-    out = {'components': _ui_files(base, 'ui/components'), 'templates': _ui_files(base, 'ui/templates')}
-    return out if out['components'] or out['templates'] else None
-
-
-def read_source(root, cfg, registry, key):
-    """domain/<key>.yaml in the registry a pack was pinned from, or None when it cannot be read."""
-    rel = (cfg.get('registries') or {}).get(registry) if isinstance(cfg.get('registries'), dict) else None
-    if not rel: return None
-    try:
-        with open(os.path.join(root, rel, 'domain', f'{key}.yaml'), encoding='utf-8') as f: return f.read()
-    except OSError: return None
 
 
 def load_registry(root):

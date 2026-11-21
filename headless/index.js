@@ -13,6 +13,9 @@ const Verdicts = require('../renderer/verdicts.js');
 const Memory = require('../renderer/memory.js');
 const ProcLoop = require('../renderer/procloop.js');
 const Knowledge = require('../renderer/knowledge.js');
+const GateInputs = require('../renderer/gate-inputs.js');
+const Work = require('../renderer/work.js');
+const Paths = require('../paths.js');
 
 const BUNDLE_SCHEMA = 'designc.context.bundle/1';
 const SAFE_ID = /^[A-Za-z0-9._-]+$/;
@@ -62,7 +65,7 @@ function open(dir, { handover = null } = {}) {
   const modelRel = (frozen && frozen.model) || settings.model || 'model/workspace.dsl';
   const mp = path.join(base, modelRel);
   const modelText = fs.existsSync(mp) ? fs.readFileSync(mp, 'utf8') : null;
-  const model = modelText != null ? Core.parse(modelText) : null;
+  const model = modelText != null ? Core.parse(modelText, { path: modelRel, resolve: p => { try { return fs.readFileSync(path.join(base, p), 'utf8'); } catch { return null; } } }) : null;
   const decisions = readYamlDir(base, 'decisions');
   const requirements = readYamlDir(base, 'requirements');
   const verdicts = readYamlDir(dir, 'verdicts');
@@ -71,7 +74,7 @@ function open(dir, { handover = null } = {}) {
   const ledger = readLedger(dir);
   return {
     dir, settings, handover: frozen ? { id: handover, ...frozen } : null, modelText, model,
-    revision: modelText != null ? Core.modelRevision(modelText) : null,
+    revision: modelText != null ? Core.modelRevision(modelText, model.sources.slice(1)) : null,
     decisions: decisions.recs, requirements: requirements.recs, verdicts: verdicts.recs, procedures: procedures.recs, items: work.recs.map(r => r.rec),
     ledger: ledger.events,
     problems: [...decisions.errors, ...requirements.errors, ...verdicts.errors, ...procedures.errors, ...work.errors, ...ledger.errors],
@@ -200,4 +203,164 @@ function holdoutSpec(reg, { criterion, case: index } = {}) {
   try { return Core.holdoutSpec({ model: reg.model, criteria: crit, criterion, index: n }); } catch (e) { return { error: e.message }; }
 }
 
-module.exports = { open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };
+// ---------------------------------------------------------------- check (the compiler as a library)
+// The registry folder's text files, keyed as renderer/gate-inputs.js expects (the app's host.list, from disk).
+const GATE_EXTS = { yaml: ['.yaml', '.yml'], json: ['.json'], jsonl: ['.jsonl'], p: ['.p'] };
+function readFilesInto(files, dir, rel, exts) {
+  let names = []; try { names = fs.readdirSync(path.join(dir, rel)); } catch { return; }
+  for (const n of names.sort()) {
+    if (!exts.some(x => n.endsWith(x))) continue;
+    try { files[`${rel}/${n}`] = fs.readFileSync(path.join(dir, rel, n), 'utf8'); } catch { /* skipped, as host.list does */ }
+  }
+}
+function gateFiles(dir, cfg) {
+  const files = {};
+  const modelRel = cfg.model || 'model/workspace.dsl';
+  try { files[modelRel] = fs.readFileSync(path.join(dir, modelRel), 'utf8'); } catch { /* missing: the caller says so */ }
+  // The model's folder: every .dsl under it, so `!include` resolves from the same map the app has.
+  const mdir = path.dirname(modelRel) === '.' ? '' : path.dirname(modelRel);
+  const walk = rel => {
+    let ents = []; try { ents = fs.readdirSync(path.join(dir, rel), { withFileTypes: true }); } catch { return []; }
+    const skip = e => e.name === 'node_modules' || e.name === '.git' || (!rel && (e.name === 'handovers' || e.name === 'asbuilt'));
+    return ents.flatMap(e => e.isDirectory() ? (skip(e) ? [] : walk(rel ? `${rel}/${e.name}` : e.name)) : [rel ? `${rel}/${e.name}` : e.name]);
+  };
+  for (const p of Core.modelFiles(walk(mdir), modelRel)) if (!(p in files)) { try { files[p] = fs.readFileSync(path.join(dir, p), 'utf8'); } catch { /* skipped */ } }
+  for (const d of GateInputs.REG_DIRS) readFilesInto(files, dir, d, GATE_EXTS.yaml);
+  const hv = path.join(dir, 'handovers');
+  if (fs.existsSync(hv)) for (const n of fs.readdirSync(hv).sort()) if (fs.statSync(path.join(hv, n)).isDirectory()) readFilesInto(files, dir, `handovers/${n}`, GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'ledger', GATE_EXTS.jsonl);
+  readFilesInto(files, dir, 'work', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'domain', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'behaviour', GATE_EXTS.p);
+  for (const d of ['ui/pack/components', 'ui/pack/templates', 'ui/specs', 'ui/holdout', 'ui/legacy']) readFilesInto(files, dir, d, GATE_EXTS.json);
+  readFilesInto(files, dir, 'parity/scenarios', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'test-scenarios', GATE_EXTS.yaml);
+  readFilesInto(files, dir, 'contracts/openapi', GATE_EXTS.yaml);
+  for (const f of ['contracts/out/result.json', 'design-tokens/tokens.json']) { try { files[f] = fs.readFileSync(path.join(dir, f), 'utf8'); } catch { /* optional */ } }
+  return files;
+}
+// Sibling registries (designc.json registries): only what a pin is read from, as the app's registryRead/registryList do.
+function siblingRegistries(dir, cfg) {
+  const out = {};
+  for (const key of Object.keys(cfg.registries && typeof cfg.registries === 'object' ? cfg.registries : {})) {
+    let base; try { base = Paths.registryDir(dir, cfg.registries, key); } catch { continue; }
+    const r = {};
+    readFilesInto(r, base, 'domain', GATE_EXTS.yaml); readFilesInto(r, base, 'ui/components', GATE_EXTS.json); readFilesInto(r, base, 'ui/templates', GATE_EXTS.json);
+    out[key] = r;
+  }
+  return out;
+}
+function uiHashes(dir, files) {
+  const hashes = { previews: {}, specHashes: {} };
+  for (const p of Object.keys(files)) {
+    const m = /^ui\/specs\/([^/]+)\.json$/.exec(p);
+    if (!m || !/^[a-z0-9-]+$/.test(m[1])) continue;
+    try { hashes.previews[m[1]] = Paths.previewHashes(dir, m[1]); hashes.specHashes[m[1]] = Paths.specHash(dir, m[1]); } catch { /* the gate then says the previews are not rendered */ }
+  }
+  return hashes;
+}
+function readSettings(dir) {
+  const sp = path.join(dir, 'designc.json');
+  if (!fs.existsSync(sp)) return { cfg: {} };
+  try { return { cfg: JSON.parse(fs.readFileSync(sp, 'utf8')) }; } catch (e) { return { error: `designc.json does not parse: ${e.message}` }; }
+}
+
+// Everything one check run computes for a registry folder on disk: {cfg, modelText, model, diags, gate, ledgerRaw, files, assembled} or {error}.
+// What `python -m designc check` did, on the one front end: the assembly is renderer/gate-inputs.js.
+// L1: unsaved buffers. `overlay` is {registryRelPath: text}. A key gateFiles read is replaced; a model-folder .dsl is added (a new unsaved
+// include resolves); any other key is ignored (a brand-new unsaved YAML file counts once it is saved). Returns a new map.
+function applyOverlay(files, overlay, modelRel) {
+  const out = { ...files };
+  for (const [p, text] of Object.entries(overlay || {})) {
+    if (typeof text !== 'string') continue;
+    if (p in out || Core.modelFiles([p], modelRel).length) out[p] = text;
+  }
+  return out;
+}
+function checkState(dir, { overlay = {} } = {}) {
+  if (!fs.existsSync(dir) || !fs.statSync(dir).isDirectory()) return { error: `designc: ${dir} is not a folder. Open a registry folder.` };
+  const s = readSettings(dir);
+  if (s.error) return { error: `designc: ${s.error}` };
+  const files = applyOverlay(gateFiles(dir, { model: 'model/workspace.dsl', ...s.cfg }), overlay, s.cfg.model || 'model/workspace.dsl');
+  const a = GateInputs.assemble({ cfg: s.cfg, files, registries: siblingRegistries(dir, { ...s.cfg }), hashes: uiHashes(dir, files), yamlLoad: yaml.load });
+  if (a.modelText == null) return { error: `designc: cannot read ${a.cfg.model || 'model/workspace.dsl'} in ${dir}. Open a registry folder, or set "model" in designc.json.` };
+  const { diags, gate } = GateInputs.run(a, Core);
+  return { cfg: a.cfg, modelText: a.modelText, model: a.model, diags, gate, assembled: a, files };
+}
+
+// The report `python -m designc check --json` printed (cli.py report_of), key order included.
+function reportOf(s) {
+  const g = s.gate;
+  return {
+    errors: s.model.errors.map(e => ({ line: e.line, file: e.file, msg: e.msg })),
+    findings: s.diags.map(d => ({ code: d.code, sev: d.sev, msg: d.msg, label: d.loc.label, line: d.loc.line, file: d.loc.file, unknown: !!d.unknown, suppressed: d.suppressed || null })),
+    gate: { ready: g.ready, clauses: g.clauses.map(c => ({ kind: c.kind, text: c.text })), ...(g.notes && g.notes.length ? { notes: [...g.notes] } : {}), ...(g.coverage && g.coverage.length ? { coverage: [...g.coverage] } : {}) },
+  };
+}
+
+// check(dir): {report, state} or {error}. gate(dir, {item}): the same for one work item (clauses that touch its elements; no notes),
+// plus {item, outside, warnings}. Neither writes anything.
+function check(dir) {
+  const state = checkState(dir);
+  return state.error ? { error: state.error } : { state, report: reportOf(state) };
+}
+function gate(dir, { item } = {}) {
+  const state = checkState(dir);
+  if (state.error) return { error: state.error };
+  if (item == null) return { state, report: reportOf(state) };
+  const it = state.assembled.work.find(i => String(i.id) === String(item));
+  if (!it || !Work.isRepo(it)) return { error: `designc: no repo work item ${item} in work/. Check the id; an item with a target has no scope.` };
+  const scoped = Core.scopedGate(state.gate, { model: state.model, elements: it.elements || [], requirement: Work.reqs(it), decisions: state.assembled.gateInputs.decisions });
+  const scopedState = { ...state, gate: scoped };
+  return { state: scopedState, report: { ...reportOf(scopedState), item: String(item), outside: scoped.outside, warnings: scoped.warnings.map(c => c.text) } };
+}
+
+// ---------------------------------------------------------------- MCP tools without the app (designc-mcp.js headless mode)
+// The four read tools the app serves from its own state, served from the registry on disk, fresh on every call. Names,
+// descriptions and schemas are copies of renderer/agent.js TOOLS (test/mcp-headless.test.js asserts they are equal), and the
+// text shapes are the app handlers' (READERS in agent.js).
+const mcpObj = (props, req = []) => ({ type: 'object', properties: props, required: req, additionalProperties: false });
+const MCP_TOOLS = {
+  read_model: { d: 'Read the design model (Structurizr DSL) with line numbers. Optional line range.', p: mcpObj({ from: { type: 'integer' }, to: { type: 'integer' } }) },
+  get_findings: { d: 'Current lint findings on the model (code, severity, location, line, message, hint, suppressed).', p: mcpObj({}) },
+  get_gate: { d: 'Definition-of-ready verdict and every blocking clause.', p: mcpObj({}) },
+  get_code_map: { d: 'The as-built map extracted from the codebase: elements, dependencies with evidence, drift against the design, d.code areas against the files in the codebase, unresolved items.', p: mcpObj({}) },
+};
+const mcpCap = (s, n = 24000) => (s.length > n ? s.slice(0, n) + `\n… (${s.length - n} more characters)` : s);
+const mcpNumbered = (text, from = 1, to = Infinity) => text.split('\n').map((l, i) => [i + 1, l]).filter(([n]) => n >= from && n <= to).map(([n, l]) => `${String(n).padStart(4)}  ${l}`).join('\n');
+const mcpRead = (dir, rel) => { try { return fs.readFileSync(path.join(dir, rel), 'utf8'); } catch { return null; } };
+function mcpTools() {
+  return Object.entries(MCP_TOOLS).map(([name, t]) => ({ name, description: t.d, inputSchema: t.p }));
+}
+function mcpCodeMap(dir, s) {
+  const dsl = mcpRead(dir, 'asbuilt/workspace.dsl'), factsRaw = mcpRead(dir, 'asbuilt/facts.json');
+  let facts = null; try { facts = factsRaw ? JSON.parse(factsRaw) : null; } catch { facts = null; }
+  if (!facts) return s.cfg.codebase ? 'The codebase has not been extracted yet. Ask the user to run Extract Code Map.' : 'No codebase is configured.';
+  const asbuiltFull = dsl ? Core.parse(dsl) : null;
+  const asbuilt = asbuiltFull ? Core.atLevel(asbuiltFull, 'container') : null;
+  const hasModel = s.model && s.model.elements.size;
+  const d = asbuilt && hasModel ? Core.driftModels(Core.atLevel(s.model, 'container'), asbuilt) : null;
+  const areas = Core.codeAreaDrift(s.model, facts.files), intent = Core.intentDrift(s.model, facts.intent);
+  const designNameFor = name => { if (!name || !s.model) return null; const e = Core.resolveElement(s.model, name); return e ? e.name : null; };
+  return mcpCap(JSON.stringify({
+    repo: facts.repo, extractedAt: facts.extractedAt,
+    elements: facts.elements.map(e => ({ name: e.name, kind: e.kind, tech: e.tech, inDesign: d ? d.toDesign.has('e_' + e.key) || !!designNameFor(e.name) : null })),
+    dependencies: facts.edges.map(e => ({ from: e.from, to: e.to, kind: e.kind, label: e.label, evidence: e.evidence.slice(0, 2).map(v => `${v.file}:${v.line}`) })),
+    drift: d ? { inCodeNotDesign: d.undeclared.map(u => `${u.from} -> ${u.to}`), elementsInCodeOnly: d.unknownEls, designedNotInCode: d.unrealised.map(u => `${u.from} -> ${u.to}`), designElementsNotFound: d.missingEls } : 'no design to compare',
+    declaredIntent: intent ? (intent.error ? `${intent.file}: ${intent.error}` : { file: intent.file, declared: intent.declared, missingFromDesign: intent.missing }) : 'none configured (designc.json extract.intent)',
+    codeAreas: areas ? { areas: areas.areas.map(a => ({ element: a.name, pattern: a.pattern, files: a.matched, ...(a.hint ? { hint: a.hint } : {}) })), filesInCodebase: areas.files, inNoArea: areas.unclaimed.length, inNoAreaFirst: areas.unclaimed.slice(0, 50), ...(areas.areas.length ? {} : { note: 'no areas defined, drift is container-level only' }) } : 're-extract to see code areas',
+    unresolved: facts.unresolved.map(u => `${u.where}: ${u.what} (${u.file}:${u.line})`),
+  }));
+}
+// callTool(dir, name, args): {text, isError}. Reads the registry fresh; no state between calls.
+function callTool(dir, name, args = {}) {
+  if (!Object.prototype.hasOwnProperty.call(MCP_TOOLS, name)) return { isError: true, text: `designc app not running: ${name} needs the designc app open on this registry` };
+  const s = checkState(dir);
+  if (s.error) return { isError: true, text: s.error };
+  if (name === 'read_model') return { isError: false, text: s.modelText ? mcpCap(mcpNumbered(s.modelText, args.from || 1, args.to || Infinity)) + (s.model.sources.length > 1 ? `\n(this model also includes: ${s.model.sources.slice(1).map(f => f.path).join(', ')}; read them as files)` : '') : `No model at ${s.cfg.model} yet.` };
+  if (name === 'get_findings') return { isError: false, text: JSON.stringify(s.diags.map(f => ({ code: f.code, severity: f.sev, where: f.loc.label, line: f.loc.line, file: f.loc.file, message: f.msg, hint: f.hint, unknownProperty: f.unknown || undefined, suppressed: f.suppressed || undefined }))) };
+  if (name === 'get_gate') return { isError: false, text: JSON.stringify({ ready: s.gate.ready, blocking: s.gate.clauses.map(c => ({ kind: c.kind, text: c.text, line: c.line, file: c.file })) }) };
+  return { isError: false, text: mcpCodeMap(dir, s) };
+}
+
+module.exports = { applyOverlay, mcpTools, callTool, MCP_TOOLS, check, gate, checkState, reportOf, open, holdoutSpec, verdicts, episodes, procedureStats, procedureReview, knowledge, conflicts, bundle, canonical, resolver, BUNDLE_SCHEMA };

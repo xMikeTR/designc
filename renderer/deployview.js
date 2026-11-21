@@ -70,7 +70,7 @@ function renderTopology() {
   });
   const table = `<table class="tp-table"><tr><th>From</th><th>To</th><th>Call</th><th>Effect</th><th>Approval</th></tr>${t.edges.map(e => `<tr class="${e.unguarded ? 'bad' : ''}"><td>${esc(nodeBy.get(e.src).name)}</td><td>${esc(nodeBy.get(e.dst).name)}</td><td>${esc(e.description)}</td><td>${esc(e.effect || '–')}</td><td>${esc(e.approval || '–')}${e.unguarded ? ' · unguarded' : ''}</td></tr>`).join('')}</table>`;
   el.innerHTML = `<div class="dp"><h2>Agent topology</h2><div class="note">${plural(t.agents, 'agent')}, ${plural(t.edges.length, 'call')}${t.unguarded ? `, ${t.unguarded} irreversible without human approval` : ''}. Solid line: human approval. Dashed: policy approval. Red: irreversible with no human approval.</div><div style="overflow:auto">${svg}</div>${table}</div>`;
-  el.querySelectorAll('.node').forEach(g => g.addEventListener('click', () => { const e = A.model.elements.get(g.dataset.tp); if (e) openFile(A.cfg.model, e.line); }));
+  el.querySelectorAll('.node').forEach(g => g.addEventListener('click', () => { const e = A.model.elements.get(g.dataset.tp); if (e) openFile(Core.locFile(e, A.cfg.model), e.line); }));
 }
 function renderDeployment() {
   const d = deploymentChoice(); const el = $('#special');
@@ -85,6 +85,7 @@ function renderDeployment() {
 function pickDeployment(id) { A.deployPick = id; deployMemory(id); renderSidebar(); renderSpecial(); }
 function renderCanvasView() {
   const el = $('#special');
+  if (modelSpans()) { A.canvasApi = null; el.innerHTML = `<div class="dp"><div class="note">This model spans ${A.model.sources.length} files (${esc(A.model.sources.map(s => s.path || A.cfg.model).join(', '))}). The canvas edits a single-file model: edit the DSL text.</div></div>`; return; }
   if (A.canvasApi && el.querySelector('.dcv-stage')) { A.canvasApi.refresh(); return; }
   A.canvasApi = DesigncCanvas.canvas.mount(el, canvasHostFor());
 }

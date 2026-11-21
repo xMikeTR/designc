@@ -8,7 +8,6 @@ const { spawnSync } = require('child_process');
 const Ui = require('../renderer/ui.js');
 const { load, hash } = require('./helpers/ui.js');
 
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const sha = t => crypto.createHash('sha256').update(t).digest('hex');
 const H = sha('png');
 const STATES = ['ready', 'loading', 'empty', 'error', 'filtered'];
@@ -87,24 +86,6 @@ test('check 4: binding does not break an approval, which is compared with the cu
 });
 test('check 4 does not run when UI is not opted in', () => {
   assert.deepEqual(Ui.clauses({ uiElements: ['BordereauxList'], hash }), { clauses: [], notes: [], coverage: [] });
-});
-
-test('check 4: the python mirror says the same words for every case', { skip }, () => {
-  const cases = Object.fromEntries(Object.entries(CASES).map(([k, f]) => [k, f()]));
-  const code = `
-import json, sys
-from designc import ui
-cases = json.load(sys.stdin)
-out = {}
-for k, c in cases.items():
-    r = ui.clauses(c['pack'], c['specs'], c['holdouts'], c['tokens'], c['ledger'], {}, c['acceptance'], c['scenarios'], c['previews'], c['specHashes'], c['uiElements'])
-    out[k] = r['clauses']
-print(json.dumps(out))`;
-  const r = spawnSync('python3', ['-c', code], { cwd: path.join(__dirname, '..', 'python'), input: JSON.stringify(cases), encoding: 'utf8' });
-  assert.equal(r.status, 0, r.stderr);
-  const py = JSON.parse(r.stdout);
-  for (const [k, c] of Object.entries(cases)) assert.deepEqual(py[k], Ui.clauses({ ...c, hash }).clauses, k);
-  assert.ok(Object.entries(cases).some(([k]) => EXPECT[k].length));
 });
 
 test('check 4 is in Core.gate, scoped to the work item that names the UI element', () => {

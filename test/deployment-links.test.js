@@ -50,7 +50,7 @@ test('a deployment relationship naming an unknown identifier is an error with a 
 
 test('deployment views are listed and must name a declared environment', () => {
   assert.deepEqual(Core.parse(dsl).deployment.views, [
-    { scope: 'sys', environment: 'Live', key: 'live-view', line: 21, system: 'sys' },
+    { scope: 'sys', environment: 'Live', key: 'live-view', line: 21, file: null, system: 'sys' },
   ]);
   const m = Core.parse(dsl.replace('systemContext sys "ctx" { include * }', 'deployment * Live2 {\n   include *\n  }'));
   assert.deepEqual(m.errors.map(e => e.msg), ['deployment view names unknown environment "Live2"']);
