@@ -669,7 +669,7 @@ function setupMonaco(monaco) {
   });
   monaco.languages.registerCodeActionProvider('structurizr', {
     provideCodeActions(model, _range, context) {
-      const actions = context.markers.filter(m => /^DC00[1-9]$/.test(String(m.code))).map(m => ({
+      const actions = context.markers.filter(m => Refactor.recordable(m.code)).map(m => ({
         title: `Record a decision for ${m.code}`, kind: 'quickfix', diagnostics: [m],
         command: { id: 'designc.recordDecision', title: 'Record a decision', arguments: [String(m.code), m.startLineNumber] },
       }));
@@ -833,21 +833,7 @@ async function recordDecision({ finding, statement = '', effect = 'fix', binds, 
   if (!A.root) return;
   const id = Core.slugId(idFrom || statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
   if (finding) { binds = binds || finding.loc.names.slice(0, finding.loc.kind === 'element' ? 1 : 2); resolves = resolves || [finding.code]; }
-  const business = kind === 'business';
-  if (business && statement) statement = `PROPOSED: ${statement}`;
-  const text = `id: ${id}
-status: minted          # minted | checked | bound | superseded
-kind: ${business ? 'business' : 'technical'}          # business | technical
-effect: ${effect}             # fix (the model changes) | accept (keep the risk) | build (the code changes, tracked by the work item)
-${work ? `work: ${work}\n` : ''}${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
-binds: ${yamlList(binds || [])}
-resolves: ${yamlList(resolves || [])}
-statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
-${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
-${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
-rationale: ${rationale ? yamlStr(rationale) : '""'}
-${informed_by.length ? `informed_by: ${JSON.stringify(informed_by)}          # study topics behind this decision; shown, never a gate input\n` : ''}assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
-`;
+  const text = Refactor.decisionDraft({ id, statement, effect, binds, resolves, checks, rationale, kind, relies_on, informed_by, work });
   const path = `decisions/${id}.yaml`;
   if (open) await createAndOpen(path, text, statement ? null : 8);
   else { await host.write(path, text); A.tree = await host.tree(); await loadRegistry(); }

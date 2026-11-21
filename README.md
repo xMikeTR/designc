@@ -253,9 +253,13 @@ What it gives:
 - Live findings: the same rows as the app's Problems view (model parse errors, DC and AG findings, suppressed ones left out), on the file each lives in, including `!include`d `.dsl` files.
 - YAML errors in `decisions/`, `requirements/`, `proposals/`, `acceptance/` and the other registry folders, ledger (`ledger/*.jsonl`) parse errors, and duplicate proposal ids.
 - Hover and completion for `d.*` properties and their values in `.dsl` files.
-- Unsaved edits are checked: the open buffers overlay the files on disk. The server is read-only and never writes the registry.
+- Go to definition and find references for an element, from a DSL identifier or name, from `binds`/`elements`/`artifact` in `decisions/`, `requirements/`, `work/`, `proposals/` and `scenarios/`, and from `promoted_against` in a bound decision. They follow `!include` files; `!include` itself goes to the included file.
+- Rename (with prepare): put the cursor on an identifier to rename the identifier, or on a name string or a YAML name to rename the name. The one `WorkspaceEdit` updates every DSL reference (views included) and every YAML reference above (`promoted_against.element` and `.name` text in bound decisions too), never `handovers/`. Before returning it, the server re-parses the result and requires that the model changed only by that rename (a name change, or no change for an identifier); otherwise it refuses with the first difference. It never changes a `promoted_against` hash. A bound decision on a renamed element then shows the existing `changed since promotion` clause, and you re-bind it with Rebind all in the app (the rename's log line lists them).
+- Rename refuses, with a reason: a model with parse errors, an identifier that is invalid, reserved or already used, a name already used by another element or reading the same as a sibling, a dotted identifier, a name shared by two elements, a cursor on nothing, and a YAML file the server cannot edit safely (an anchor, or a multi-line list that mentions the old name).
+- Code actions: `Set d.x: value` for a finding whose hint is `set d.x: a | b`, and `Record a decision for DCnnn` (a new `decisions/<id>.yaml`, offered only when the client supports `documentChanges` and file creation).
+- Unsaved edits are checked: the open buffers overlay the files on disk. The server is read-only and never writes the registry: every change is an edit the client applies.
 
-What it does not give yet: `work/` and code-quality problems, go to definition, references and rename (L2).
+What it does not give yet: `work/` and code-quality problems.
 
 The registry is the nearest folder above the document that holds `designc.json`, else `--registry <dir>`, else `DESIGNC_REGISTRY`, else `initializationOptions.registry`, else the first workspace folder with a `designc.json` or `model/workspace.dsl`. Open the registry folder (or set `--registry`); the app need not run.
 

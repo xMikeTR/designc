@@ -86,3 +86,23 @@ test('completion and hover map to LSP shapes', () => {
   assert.deepEqual(h.range, { start: { line: 7, character: 2 }, end: { line: 7, character: 11 } });
   assert.equal(P.toHover(null, 0), null);
 });
+
+test('rangeFromPos, toLocation and toWorkspaceEdit shapes (L2)', () => {
+  assert.deepEqual(P.rangeFromPos({ line: 53, c: 6, n: 8 }), { start: { line: 52, character: 6 }, end: { line: 52, character: 14 } });
+  assert.deepEqual(P.toLocation('/r', { path: 'a/b.dsl', at: { line: 2, c: 1, n: 3 } }), { uri: 'file:///r/a/b.dsl', range: { start: { line: 1, character: 1 }, end: { line: 1, character: 4 } } });
+  const plan = { edits: [
+    { path: 'a.dsl', range: { line0: 1, c: 2, n: 3 }, newText: 'x' },
+    { path: 'a.dsl', range: { start: { line: 4, character: 0 }, end: { line: 4, character: 0 } }, newText: 'y' },
+    { path: 'b.yaml', range: { line0: 0, c: 0, n: 1 }, newText: 'z' },
+  ] };
+  const r = { start: { line: 1, character: 2 }, end: { line: 1, character: 5 } }, r2 = { start: { line: 4, character: 0 }, end: { line: 4, character: 0 } };
+  assert.deepEqual(P.toWorkspaceEdit(plan, { root: '/r' }), { changes: {
+    'file:///r/a.dsl': [{ range: r, newText: 'x' }, { range: r2, newText: 'y' }],
+    'file:///r/b.yaml': [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 1 } }, newText: 'z' }] } });
+  const dc = P.toWorkspaceEdit(plan, { root: '/r', documentChanges: true, versions: { 'file:///r/a.dsl': 3 } });
+  assert.deepEqual(dc.documentChanges.map(x => [x.textDocument.uri, x.textDocument.version, x.edits.length]), [['file:///r/a.dsl', 3, 2], ['file:///r/b.yaml', null, 1]]);
+  const created = P.toWorkspaceEdit({ creates: [{ path: 'decisions/x.yaml', text: 'id: x\n' }] }, { root: '/r', documentChanges: true });
+  assert.deepEqual(created.documentChanges, [
+    { kind: 'create', uri: 'file:///r/decisions/x.yaml', options: { overwrite: false, ignoreIfExists: false } },
+    { textDocument: { uri: 'file:///r/decisions/x.yaml', version: null }, edits: [{ range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, newText: 'id: x\n' }] }]);
+});

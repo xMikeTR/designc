@@ -84,4 +84,21 @@ function toHover(h, line) {
   return { contents: { kind: 'markdown', value: h.markdown.join('\n\n') }, range: { start: { line, character: h.from }, end: { line, character: h.to } } };
 }
 
-module.exports = { uri, relOf, rootFor, isRegistry, severity, rangeOf, toDiagnostics, withClears, toCompletion, toHover };
+// L2: Refactor results -> LSP shapes. A plan is {edits: [{path, range: {line0, c, n} | {start, end}, newText}], creates: [{path, text}]}.
+const rangeFromPos = ({ line, c, n }) => ({ start: { line: line - 1, character: c }, end: { line: line - 1, character: c + n } });
+const toLocation = (root, { path: rel, at }) => ({ uri: uri(root, rel), range: rangeFromPos(at) });
+const lspRange = r => (r.start ? r : { start: { line: r.line0, character: r.c }, end: { line: r.line0, character: r.c + r.n } });
+function toWorkspaceEdit(plan, { root, versions = {}, documentChanges = false }) {
+  const by = new Map();
+  for (const e of plan.edits || []) { const u = uri(root, e.path); if (!by.has(u)) by.set(u, []); by.get(u).push({ range: lspRange(e.range), newText: e.newText }); }
+  if (!documentChanges) return { changes: Object.fromEntries(by) };
+  const zero = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } }, out = [];
+  for (const c of plan.creates || []) {
+    const u = uri(root, c.path);
+    out.push({ kind: 'create', uri: u, options: { overwrite: false, ignoreIfExists: false } }, { textDocument: { uri: u, version: null }, edits: [{ range: zero, newText: c.text }] });
+  }
+  for (const [u, edits] of by) out.push({ textDocument: { uri: u, version: u in versions ? versions[u] : null }, edits });
+  return { documentChanges: out };
+}
+
+module.exports = { rangeFromPos, toLocation, toWorkspaceEdit, uri, relOf, rootFor, isRegistry, severity, rangeOf, toDiagnostics, withClears, toCompletion, toHover };

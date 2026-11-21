@@ -361,6 +361,70 @@ const Refactor = (() => {
     return { kind, from, to, edits, rebind };
   }
 
-  return { yamlRefs, symbolAt, definition, references, renamePlan, yamlScalar, applyEdits: applyTo, keysFor, _scan: scan, _yamlPaths: yamlPaths, _resolveYaml: resolveYaml, _CR: CR, _DSL: DSL };
+  // ---------- code actions ----------
+  // DC001-DC099 (not DC000, which is the "nothing declared" note) can have a decision recorded against them.
+  const recordable = code => /^DC0(0[1-9]|[1-9]\d)$/.test(String(code));
+  // The smallest single edit turning `before` into `after` (common prefix and suffix), in LSP positions; null when equal.
+  function textEditFrom(before, after) {
+    if (before === after) return null;
+    let a = 0; const max = Math.min(before.length, after.length);
+    while (a < max && before[a] === after[a]) a++;
+    let b = 0; while (b < max - a && before[before.length - 1 - b] === after[after.length - 1 - b]) b++;
+    const pos = i => { const t = before.slice(0, i), nl = t.lastIndexOf('\n'); return { line: t.split('\n').length - 1, character: i - (nl + 1) }; };
+    return { range: { start: pos(a), end: pos(before.length - b) }, newText: after.slice(a, after.length - b) };
+  }
+  // "Set d.x: v" quick fixes for a finding whose hint reads `set d.key: a | b | c`. Each is one minimal edit on the file that holds the node.
+  function fixesFor({ files, cfgModel }, f, PROP) {
+    const m = /^set (d\.[\w.]+): (.+)$/.exec((f && f.hint) || '');
+    if (!m || !f.loc) return [];
+    const p = PROP.get(m[1]);
+    if (!p || !p.values || (p.target !== f.loc.kind && p.target !== 'both')) return [];
+    const path = CR.locFile(f.loc, cfgModel), src = files[path];
+    if (src == null || (f.loc.kind !== 'relationship' && f.loc.kind !== 'element')) return [];
+    const where = DSL.locate(src), ref = { line: f.loc.line };
+    const node = f.loc.kind === 'relationship' ? DSL.findRelationship(where, ref) : DSL.findElement(where, ref);
+    if (!node || node.line !== f.loc.line) return [];
+    const base = parseWith(files, cfgModel).errors.length, out = [];
+    for (const v of m[2].split(' | ')) {
+      if (!p.values.includes(v)) continue;
+      let text; try { text = DSL.setProperty(src, { kind: f.loc.kind, ref }, m[1], v).text; } catch { continue; }
+      if (parseWith({ ...files, [path]: text }, cfgModel).errors.length > base) continue;
+      const edit = textEditFrom(src, text);
+      if (edit) out.push({ title: `Set ${m[1]}: ${v}`, kind: 'quickfix', edits: [{ path, ...edit }] });
+    }
+    return out;
+  }
+
+  // The YAML text of a new decision. Moved verbatim out of app.js recordDecision so the app and the language server write the same bytes.
+  const yamlList = a => `[${(a || []).map(x => /[:,\[\]{}#&*!|>'"%@`]/.test(x) ? JSON.stringify(x) : x).join(', ')}]`;
+  const yamlStr = s => JSON.stringify(String(s || ''));
+  function decisionDraft({ id, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], informed_by = [], work } = {}) {
+    const business = kind === 'business';
+    if (business && statement) statement = `PROPOSED: ${statement}`;
+    return `id: ${id}
+status: minted          # minted | checked | bound | superseded
+kind: ${business ? 'business' : 'technical'}          # business | technical
+effect: ${effect}             # fix (the model changes) | accept (keep the risk) | build (the code changes, tracked by the work item)
+${work ? `work: ${work}\n` : ''}${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
+binds: ${yamlList(binds || [])}
+resolves: ${yamlList(resolves || [])}
+statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
+${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
+${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
+rationale: ${rationale ? yamlStr(rationale) : '""'}
+${informed_by.length ? `informed_by: ${JSON.stringify(informed_by)}          # study topics behind this decision; shown, never a gate input\n` : ''}assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
+`;
+  }
+  // "Record a decision for DCnnn": a new decisions/<id>.yaml for a finding, with the id recordDecision would pick.
+  function recordAction({ files }, f) {
+    if (!f || !recordable(f.code) || !f.loc) return null;
+    const taken = [];
+    for (const p of Object.keys(files)) { const m = /^decisions\/([^/]+)\.ya?ml$/.exec(p); if (m) { taken.push(m[1]); try { const d = Y.load(files[p]); if (d && d.id != null) taken.push(String(d.id)); } catch { /* ignored */ } } }
+    const names = f.loc.names || [], id = CR.slugId(`${f.code} ${names[0] || ''}`, taken);
+    const text = decisionDraft({ id, binds: names.slice(0, f.loc.kind === 'element' ? 1 : 2), resolves: [f.code] });
+    return { title: `Record a decision for ${f.code}`, kind: 'quickfix', id, path: `decisions/${id}.yaml`, text };
+  }
+
+  return { recordable, textEditFrom, fixesFor, decisionDraft, recordAction, yamlRefs, symbolAt, definition, references, renamePlan, yamlScalar, applyEdits: applyTo, keysFor, _scan: scan, _yamlPaths: yamlPaths, _resolveYaml: resolveYaml, _CR: CR, _DSL: DSL };
 })();
 if (typeof module !== 'undefined') module.exports = Refactor;

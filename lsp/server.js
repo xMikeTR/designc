@@ -6,10 +6,12 @@
 const fs = require('fs');
 const path = require('path');
 const { fileURLToPath } = require('url');
-const { createConnection, ProposedFeatures, TextDocuments, TextDocumentSyncKind, DidChangeWatchedFilesNotification } = require('vscode-languageserver/node');
+const { createConnection, ProposedFeatures, TextDocuments, TextDocumentSyncKind, DidChangeWatchedFilesNotification, ResponseError, LSPErrorCodes } = require('vscode-languageserver/node');
 const { TextDocument } = require('vscode-languageserver-textdocument');
 const Headless = require('../headless/index.js');
 const Problems = require('../renderer/problems.js');
+const Core = require('../renderer/core.js');
+const Refactor = require('../renderer/refactor.js');
 const DslAssist = require('../renderer/dsl-assist.js');
 const Vocabulary = require('../renderer/canvas/vocabulary.js');
 const P = require('./providers.js');
@@ -23,7 +25,7 @@ const PROPS = DslAssist.props(Vocabulary), PROP = DslAssist.byKey(PROPS);
 const connection = createConnection(ProposedFeatures.all);
 const documents = new TextDocuments(TextDocument);
 const roots = new Map(); // root -> {timer, published: Set<uri>}
-let folders = [], initRegistry = null, related = false, watch = false;
+let folders = [], initRegistry = null, related = false, watch = false, docChanges = false, canCreate = false;
 const exists = p => fs.existsSync(p);
 const fsPathOf = uri => { try { return fileURLToPath(uri); } catch { return null; } };
 const isDsl = uri => /\.dsl$/i.test(uri);
@@ -36,10 +38,16 @@ connection.onInitialize(params => {
   const td = params.capabilities && params.capabilities.textDocument, ws = params.capabilities && params.capabilities.workspace;
   related = !!(td && td.publishDiagnostics && td.publishDiagnostics.relatedInformation);
   watch = !!(ws && ws.didChangeWatchedFiles && ws.didChangeWatchedFiles.dynamicRegistration);
+  docChanges = !!(ws && ws.workspaceEdit && ws.workspaceEdit.documentChanges);
+  canCreate = docChanges && ((ws.workspaceEdit.resourceOperations) || []).includes('create');
   return { capabilities: {
     textDocumentSync: { openClose: true, change: TextDocumentSyncKind.Incremental, save: { includeText: false } },
     hoverProvider: true,
     completionProvider: { triggerCharacters: ['"', '.'] },
+    definitionProvider: true,
+    referencesProvider: true,
+    renameProvider: { prepareProvider: true },
+    codeActionProvider: { codeActionKinds: ['quickfix'] },
   } };
 });
 
@@ -97,6 +105,61 @@ connection.onCompletion(({ textDocument, position }) => {
   const t = lineOf(textDocument.uri, position.line);
   return t == null ? null : P.toCompletion(DslAssist.completeAt(t, position.character, PROP, PROPS), position.line);
 });
+
+// ---- L2: definition, references, rename, code actions. Read-only: every change is a WorkspaceEdit the client applies.
+const failed = msg => new ResponseError(LSPErrorCodes.RequestFailed, msg);
+function stateFor(uri) {
+  const root = rootOf(uri), rel = root && P.relOf(root, uri);
+  if (!rel) return null;
+  const overlay = {}, versions = {};
+  for (const d of documents.all()) { const r = P.relOf(root, d.uri); if (r) { overlay[r] = d.getText(); versions[d.uri] = d.version; } }
+  const s = Headless.checkState(root, { overlay });
+  if (s.error) return null;
+  return { root, rel, s, versions, state: { files: s.files, cfgModel: s.cfg.model, model: s.model } };
+}
+const guarded = fn => (...a) => { try { return fn(...a); } catch (err) { log(`designc lsp: ${err && err.stack || err}`); return null; } };
+connection.onDefinition(guarded(({ textDocument, position }) => {
+  const st = stateFor(textDocument.uri); if (!st) return null;
+  const d = Refactor.definition(st.state, Refactor.symbolAt(st.state, st.rel, position.line, position.character));
+  return d ? P.toLocation(st.root, d) : null;
+}));
+connection.onReferences(guarded(({ textDocument, position, context }) => {
+  const st = stateFor(textDocument.uri); if (!st) return null;
+  const sym = Refactor.symbolAt(st.state, st.rel, position.line, position.character);
+  if (!sym || !sym.element) return null;
+  return Refactor.references(st.state, sym.element.id, { includeDeclaration: !!(context && context.includeDeclaration) }).map(r => P.toLocation(st.root, r));
+}));
+connection.onPrepareRename(({ textDocument, position }) => {
+  const st = stateFor(textDocument.uri); if (!st) return null;
+  const sym = Refactor.symbolAt(st.state, st.rel, position.line, position.character);
+  if (!sym || !sym.element) throw failed('nothing to rename here: put the cursor on an element identifier or name');
+  const from = sym.kind === 'ident' ? sym.element.ident : sym.element.name;
+  const plan = Refactor.renamePlan({ ...st.state, at: { path: st.rel, line0: position.line, character: position.character }, newName: from || '' });
+  if (plan.error) throw failed(plan.error);
+  const at = /\.dsl$/.test(st.rel) && sym.kind === 'name' && sym.role === 'def' ? { ...sym.at, c: sym.at.c + 1, n: sym.at.n - 2 } : sym.at;
+  return { range: P.rangeFromPos(at), placeholder: from };
+});
+connection.onRenameRequest(({ textDocument, position, newName }) => {
+  const st = stateFor(textDocument.uri); if (!st) return null;
+  const plan = Refactor.renamePlan({ ...st.state, at: { path: st.rel, line0: position.line, character: position.character }, newName });
+  if (plan.error) throw failed(plan.error);
+  log(`designc rename ${plan.kind} "${plan.from}" -> "${plan.to}": ${plan.edits.length} edits${plan.rebind.length ? `; decisions to re-bind: ${plan.rebind.map(r => r.decision).join(', ')}` : ''}`);
+  return P.toWorkspaceEdit(plan, { root: st.root, versions: st.versions, documentChanges: docChanges });
+});
+connection.onCodeAction(guarded(({ textDocument, context }) => {
+  const mine = (context.diagnostics || []).filter(d => d.source === 'designc' && d.code);
+  if (!mine.length) return [];
+  const st = stateFor(textDocument.uri); if (!st) return null;
+  const out = [];
+  for (const dg of mine) {
+    const f = st.s.diags.find(x => !x.suppressed && x.code === dg.code && x.loc && Core.locFile(x.loc, st.state.cfgModel) === st.rel && x.loc.line === dg.range.start.line + 1);
+    if (!f) continue;
+    for (const a of Refactor.fixesFor(st.state, f, PROP)) out.push({ title: a.title, kind: a.kind, diagnostics: [dg], edit: P.toWorkspaceEdit({ edits: a.edits }, { root: st.root, versions: st.versions, documentChanges: docChanges }) });
+    const rec = canCreate ? Refactor.recordAction(st.state, f) : null;
+    if (rec) out.push({ title: rec.title, kind: rec.kind, diagnostics: [dg], edit: P.toWorkspaceEdit({ creates: [{ path: rec.path, text: rec.text }] }, { root: st.root, documentChanges: true }) });
+  }
+  return out;
+}));
 
 documents.listen(connection);
 process.stdin.on('end', () => process.exit(0));

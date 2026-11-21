@@ -74,6 +74,7 @@ this marking is a reading of how the files are written and checked.
 | Trust zone | Value Object | `d.zone`, inherited from the nearest ancestor that declares it |
 | Design review | Value | The generated document of NFR questions per element and STRIDE per trust-zone crossing, saved under `reviews/` |
 | Fingerprint | Value | The hash and canonical content of one bound element (`Core.fingerprint` in `renderer/core.js`), recorded at promotion |
+| Rename (fingerprint-safe) | Process | `Refactor.renamePlan`, served as LSP `rename`: updates every DSL and YAML reference to an element, proves with `diffModels` that only the name changed, and never touches a `promoted_against` hash. Bound decisions on the renamed element then read `changed since promotion` until a human re-binds them |
 | Slug id | Value | An opaque id derived from a decision's or proposal's statement at mint time (`Core.slugId`); editable while `minted`, frozen once `bound` |
 | Fingerprint | Value | The hash and canonical content of one bound element (`Core.fingerprint` in `renderer/core.js`), recorded at promotion |
 | Semantic diff | Value | The difference between two models by element identity: added, removed, renamed, moved, changed (`Core.diffModels` in `renderer/core.js`) |
