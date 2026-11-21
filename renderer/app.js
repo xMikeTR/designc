@@ -12,7 +12,6 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
     Core.__dcvRegistered = true;
   }
 }
-const PROP = DslAssist.byKey(PROPS);
 const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap', catalogue_gap: 'Catalogue gap' };
 const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['scenario', 'Scenario tests'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
@@ -44,7 +43,7 @@ const A = {
   canvasApi: null, canvasLayout: null,
   regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
-let editor = null, monacoRef = null;
+let editor = null, monacoRef = null, LSPB = null, LSP = null; // LSPB: lsp-client's Monaco binding; LSP: {conn, rootUri, off} while the language server runs
 
 // ---------------------------------------------------------------- helpers
 const $ = s => document.querySelector(s);
@@ -550,7 +549,6 @@ function recompile() {
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
   A.intent = A.facts ? Core.intentDrift(A.model, A.facts.intent) : null;
-  setMarkers();
 }
 async function reloadAll() {
   await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadUi(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
@@ -647,35 +645,15 @@ function setupMonaco(monaco) {
       [/[A-Za-z_]\w*/, { cases: { '@keywords': 'keyword', '@typeKeywords': 'type', '@default': 'identifier' } }]] },
   });
 
-  // completions for d.* keys and their values
-  monaco.languages.registerCompletionItemProvider('structurizr', {
-    triggerCharacters: ['"', '.'],
-    provideCompletionItems(model, pos) {
-      const r = DslAssist.completeAt(model.getLineContent(pos.lineNumber), pos.column - 1, PROP, PROPS);
-      if (!r) return { suggestions: [] };
-      const range = new monaco.Range(pos.lineNumber, r.from + 1, pos.lineNumber, r.to + 1), K = monaco.languages.CompletionItemKind;
-      return { suggestions: r.items.map(i => ({ label: i.label, kind: i.kind === 'value' ? K.EnumMember : K.Property, ...(i.detail ? { detail: i.detail } : {}), documentation: i.documentation, range, insertText: i.insertText,
-        ...(i.snippet ? { insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet } : {}) })) };
-    },
-  });
-  monaco.languages.registerHoverProvider('structurizr', {
-    provideHover(model, pos) {
-      const h = DslAssist.hoverAt(model.getLineContent(pos.lineNumber), pos.column - 1, PROP);
-      return h ? { range: new monaco.Range(pos.lineNumber, h.from + 1, pos.lineNumber, h.to + 1), contents: h.markdown.map(value => ({ value })) } : null;
-    },
-  });
-  monaco.editor.registerCommand('designc.recordDecision', (_a, code, line) => {
-    const f = A.diags.find(d => d.code === code && d.loc.line === line && !d.suppressed); if (f) decisionForFinding(f);
-  });
-  monaco.languages.registerCodeActionProvider('structurizr', {
-    provideCodeActions(model, _range, context) {
-      const actions = context.markers.filter(m => Refactor.recordable(m.code)).map(m => ({
-        title: `Record a decision for ${m.code}`, kind: 'quickfix', diagnostics: [m],
-        command: { id: 'designc.recordDecision', title: 'Record a decision', arguments: [String(m.code), m.startLineNumber] },
-      }));
-      return { actions, dispose() {} };
-    },
-  });
+  // Completion, hover, markers, definition, rename and quick fixes come from the language server (renderer/lsp-client.js); see lspStart.
+  LSPB = LspClient.bindMonaco(monaco, { languages: ['structurizr', 'yaml'], onApplyEdit: applyWorkspaceEdit,
+    onShowMessage: (type, text) => toast(text, type === 1 ? 'error' : type === 2 ? 'warning' : 'info') });
+  monaco.editor.registerEditorOpener({ openCodeEditor(_source, resource, sel) {
+    if (resource.scheme !== 'file') return false;
+    let rel; try { rel = decodeURI(resource.path.slice(1)); } catch { return false; }
+    openFile(rel, sel ? (sel.startLineNumber || sel.lineNumber) : undefined);
+    return true;
+  } });
 
   const dark = window.matchMedia('(prefers-color-scheme: dark)');
   monaco.editor.defineTheme('designc-dark', { base: 'vs-dark', inherit: true, rules: [{ token: 'type', foreground: '7fb8e6' }, { token: 'string.escape', foreground: 'd7ba7d' }], colors: { 'editor.background': '#1e2227' } });
@@ -697,28 +675,6 @@ function langFor(path) {
 }
 function iconFor(path) { const x = extOf(path); if (x === 'cs') return ['cs', 'C#']; if (x === 'fs') return ['fs', 'F#']; if (/proj$/.test(x)) return ['json', '<>']; return x === 'dsl' ? ['dsl', 'C4'] : x === 'yaml' || x === 'yml' ? ['yaml', 'Y'] : x === 'p' ? ['p', 'P'] : x === 'md' ? ['md', 'M'] : x === 'json' || x === 'jsonl' ? ['json', '{}'] : ['', '·']; }
 
-function setMarkers() {
-  if (!monacoRef) return;
-  const S = monacoRef.MarkerSeverity;
-  for (const [path, b] of A.buffers) {
-    const markers = [];
-    if (path === A.cfg.model || Core.modelFiles([path], A.cfg.model).length) {
-      for (const e of A.model.errors) if (Core.locFile(e, A.cfg.model) === path) markers.push({ severity: S.Error, message: e.msg, startLineNumber: e.line, endLineNumber: e.line, startColumn: 1, endColumn: b.model.getLineMaxColumn(Math.min(e.line, b.model.getLineCount())), source: 'designc' });
-      for (const f of A.diags) {
-        if (f.suppressed || !f.loc.line || Core.locFile(f.loc, A.cfg.model) !== path || f.loc.line > b.model.getLineCount()) continue;
-        const ln = f.loc.line, text = b.model.getLineContent(ln), first = text.search(/\S/) + 1 || 1;
-        markers.push({ severity: f.sev === 'error' ? S.Error : f.sev === 'warning' ? S.Warning : S.Info, code: f.code, source: 'designc',
-          message: `${f.loc.label}: ${f.msg}${f.hint ? `\n${f.hint}` : ''}`, startLineNumber: ln, endLineNumber: ln, startColumn: first, endColumn: b.model.getLineMaxColumn(ln) });
-      }
-    }
-    for (const e of [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === path)) {
-      const ln = Math.min(e.line, b.model.getLineCount());
-      markers.push({ severity: S.Error, message: e.msg, startLineNumber: ln, endLineNumber: ln, startColumn: 1, endColumn: b.model.getLineMaxColumn(ln), source: 'designc' });
-    }
-    monacoRef.editor.setModelMarkers(b.model, 'designc', markers);
-  }
-}
-
 // ---------------------------------------------------------------- tabs & files
 async function openFile(path, line) {
   if (!A.buffers.has(path)) {
@@ -731,7 +687,6 @@ async function openFile(path, line) {
   if (!A.tabs.includes(path)) A.tabs.push(path);
   activate(path);
   if (line) revealLine(line);
-  setMarkers();
 }
 // A codebase file, read-only; with `ref` (a designc.json references key) a file of that repo instead.
 async function openCode(rel, line, ref) {
@@ -795,7 +750,7 @@ async function save(id = A.active) {
   if (id === 'special:canvas') id = A.cfg.model;   // the canvas edits the model buffer
   const b = A.buffers.get(id); if (!b || b.ro) return;
   const text = b.model.getValue();
-  try { await host.write(id, text); b.dirty = false; b.disk = text; renderTabs(); } catch (e) { toast(`Couldn't save ${id}: ${e.message}`, 'error'); }
+  try { await host.write(id, text); b.dirty = false; b.disk = text; renderTabs(); if (LSP) LSP.conn.notify('textDocument/didSave', { textDocument: { uri: LspClient.uriOf(LSP.rootUri, id) } }); } catch (e) { toast(`Couldn't save ${id}: ${e.message}`, 'error'); }
 }
 const recompileSoon = debounce(() => { recompile(); renderAll({ keepEditor: true }); }, 200);
 const registrySoon = debounce(async () => { await loadRegistry(); recompile(); renderAll({ keepEditor: true }); }, 250);
@@ -810,6 +765,7 @@ function onBufferChange(path) {
   else if (path === 'designc.json') settingsSoon();
 }
 async function onDiskChanged(paths) {
+  if (LSP && paths.length) LSP.conn.notify('workspace/didChangeWatchedFiles', { changes: paths.map(p => ({ uri: LspClient.uriOf(LSP.rootUri, p), type: 2 })) });
   for (const p of paths) {
     const b = A.buffers.get(p);
     if (b && !b.dirty) { try { const t = await host.read(p); if (t !== b.model.getValue()) { b.disk = t; b.model.setValue(t); b.dirty = false; } } catch { /* deleted */ } }
@@ -823,6 +779,65 @@ async function onDiskChanged(paths) {
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
+}
+
+// ---------------------------------------------------------------- language server (lsp/server.js, forked by main.js over Node IPC)
+// All LSP logic is in renderer/lsp-client.js; this is wiring: start/stop per folder, applying the edits the server returns, and toasts.
+async function lspStart() {
+  if (!LSPB) return;
+  let conn = null;
+  try {
+    const r = await host.lspStart(); if (!r || r.error) return;
+    const off = [];
+    conn = LspClient.connection({ send: host.lspSend, subscribe: fn => { const u = host.onLsp(fn); off.push(u); return u; } });
+    off.push(host.onLspExit(code => lspDied(conn, `exit code ${code}`)));
+    LSP = { conn, rootUri: r.rootUri, off };
+    const init = await conn.request('initialize', LspClient.initializeParams(r.rootUri, A.root && A.root.name));
+    if (LSP && LSP.conn === conn) { conn.notify('initialized', {}); LSPB.attach(conn, r.rootUri, init); }
+  } catch (e) { if (conn) lspDied(conn, e.message); }
+}
+function lspDied(conn, why) {
+  if (!LSP || LSP.conn !== conn) return;
+  lspStop();
+  toast(`The designc language server stopped (${why}). Editor hover, completion and markers are off until the folder is reopened; Problems still works.`, 'warning');
+}
+function lspStop() {
+  const l = LSP; LSP = null;
+  if (LSPB) LSPB.detach();
+  if (l) { l.conn.dispose(); for (const o of l.off) if (typeof o === 'function') o(); }
+  host.lspStop();
+}
+// Applies a WorkspaceEdit from the server (rename, quick fix, Record a decision): open buffers by undoable edit, closed files by write.
+async function applyWorkspaceEdit(edit) {
+  const fail = msg => { toast(msg, 'error'); return { ok: false, error: msg }; };
+  if (!LSP) return fail('The language server is not running');
+  const targets = LspClient.editTargets(edit, u => LspClient.relOfUri(LSP.rootUri, u));
+  if (targets.error) return fail(targets.error);
+  for (const t of targets) {
+    const b = A.buffers.get(t.rel);
+    if (b && !t.create && t.version != null && t.version !== b.model.getVersionId()) return fail('The file changed while the edit was computed; try again');
+    if (t.create && await host.exists(t.rel)) return fail(`${t.rel} already exists`);
+  }
+  const written = [], open = [];
+  try {
+    for (const t of targets) {
+      const b = A.buffers.get(t.rel);
+      if (b && !t.create) {
+        b.model.pushEditOperations([], t.edits.map(e => ({ range: LspClient.toMonacoRange(e.range), text: e.newText })), () => null);
+        open.push(t.rel);
+      } else {
+        const base = t.create ? '' : await host.read(t.rel);
+        await host.write(t.rel, LspClient.applyTextEdits(base, t.edits)); written.push(t.rel);
+      }
+    }
+  } catch (e) { return fail(`Couldn't apply the edit: ${e.message}`); }
+  if (written.length) await onDiskChanged(written);
+  if (targets.length === 1 && targets[0].create) {
+    const text = LspClient.applyTextEdits('', targets[0].edits), todo = text.split('\n').findIndex(l => l.includes('TODO'));
+    await openFile(targets[0].rel, todo >= 0 ? todo + 1 : 1);
+  }
+  toast(`Edited ${open.length} open file(s) (save to keep) and wrote ${written.length} file(s): ${[...open, ...written].join(', ')}`, 'info');
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- registry actions
@@ -2587,12 +2602,14 @@ host.onCheckOutput((_id, chunk) => appendOutput(chunk));
 
 async function onFolder(info) {
   if (!info) return;
+  lspStop();
   for (const [, b] of A.buffers) b.model.dispose();
   A.buffers.clear(); A.tabs = []; A.active = null; A.selected = null; A.zoom = 'fit'; A.cmSel = null; A.cmZoom = 'fit'; A.grill = { busy: false, questions: [], error: null };
   A.canvasApi = null; A.canvasLayout = null;
   A.cmLevel = 'container'; A.cmScope = null; A.asbuiltFull = null;
   A.root = info; A.testDeps = null; A.tree = await host.tree();
   await reloadAll();
+  lspStart();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
   SU.draft = null;
   if (!(await host.exists('designc.json'))) await openSetup(); // a new folder starts at Set up

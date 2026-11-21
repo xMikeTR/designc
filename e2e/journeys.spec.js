@@ -766,3 +766,95 @@ test('user can see health on the C4 sheet @critical', async () => {
   await api.click();
   await expect(block).toContainText('8 smell, 3 duplication, 2 dead-code, 1 security (2 new)');
 });
+
+// L3: the editor's markers, hover, completion and definition are the language server's (one implementation).
+const LSP_TRIPLES = [[53, 8, 'DC002'], [94, 8, 'DC004'], [82, 4, 'DC001'], [63, 4, 'DC003'], [33, 4, 'DC005'], [94, 4, 'DC006'], [94, 4, 'DC008'], [94, 4, 'DC011']];
+const lspMarkers = (page, owner, rel) => page.evaluate(([o, r]) => monaco.editor.getModelMarkers({ owner: o }).filter(m => m.resource.path === '/' + r)
+  .map(m => [m.startLineNumber, m.severity, String(m.code && m.code.value !== undefined ? m.code.value : m.code)]), [owner, rel]);
+
+test('editor markers, hover and completion come from the language server @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const W = 'model/workspace.dsl', onDisk = fs.readFileSync(path.join(reg, W), 'utf8');
+  await expect.poll(() => lspMarkers(page, 'designc-lsp', W), { timeout: 20000 }).toEqual(LSP_TRIPLES);
+  expect(await lspMarkers(page, 'designc', W)).toEqual([]);
+
+  // an unsaved edit: line 100 "no" -> "yes" drops DC004 at :94; the file on disk stays as it was
+  await page.evaluate(() => {
+    const m = monaco.editor.getModels().find(x => x.uri.path === '/model/workspace.dsl'), l = m.getLineContent(100), c = l.indexOf('"no"');
+    editor.executeEdits('e2e', [{ range: new monaco.Range(100, c + 1, 100, c + 5), text: '"yes"' }]);
+  });
+  await expect.poll(async () => (await lspMarkers(page, 'designc-lsp', W)).some(m => m[2] === 'DC004' && m[0] === 94), { timeout: 20000 }).toBe(false);
+  expect(fs.readFileSync(path.join(reg, W), 'utf8')).toBe(onDisk);
+
+  // hover inside "d.idempotent" on line 91
+  await page.evaluate(() => {
+    const m = editor.getModel(), c = m.getLineContent(91).indexOf('d.idempotent') + 3;
+    editor.focus(); editor.setPosition({ lineNumber: 91, column: c }); editor.trigger('e2e', 'editor.action.showHover', {});
+  });
+  await expect(page.locator('.monaco-hover').filter({ hasText: 'd.idempotent' }).first()).toBeVisible({ timeout: 15000 });
+
+  // completion after a typed "d. on a new line
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = 100;
+    editor.executeEdits('e2e', [{ range: new monaco.Range(l, 1, l, m.getLineMaxColumn(l)), text: '        "d.' }]);
+    editor.setPosition({ lineNumber: l, column: m.getLineMaxColumn(l) });
+    editor.focus(); editor.trigger('e2e', 'editor.action.triggerSuggest', {});
+  });
+  const widget = page.locator('.suggest-widget.visible');
+  await expect(widget).toBeVisible({ timeout: 15000 });
+  await page.keyboard.type('retry'); // the list is virtualised: narrow it to the key under test
+  await expect(widget.getByText('d.retry', { exact: true }).first()).toBeVisible({ timeout: 15000 });
+  await page.keyboard.press('Escape');
+
+  // F12 from a requirement's element list goes to its definition in the DSL
+  await page.locator('#sbBody').getByText('DEMO-1234.yaml', { exact: true }).click();
+  await expect(page.locator('#tabs').getByText('DEMO-1234.yaml')).toBeVisible();
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = m.getLineContent(5);
+    editor.focus(); editor.setPosition({ lineNumber: 5, column: l.indexOf('Escalation Worker') + 4 });
+  });
+  await page.keyboard.press('F12');
+  await expect(page.locator('#tabs .tab.active')).toContainText('workspace.dsl', { timeout: 15000 });
+  expect(await page.evaluate(() => editor.getPosition().lineNumber)).toBe(48);
+});
+
+test('user can rename an element in the editor and every reference follows @critical', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  session = await launch(reg);
+  const { page } = session;
+  const W = 'model/workspace.dsl';
+  await expect.poll(() => lspMarkers(page, 'designc-lsp', W), { timeout: 20000 }).toHaveLength(8);
+  await page.evaluate(() => {
+    const m = editor.getModel(), l = m.getLineContent(53);
+    editor.focus(); editor.setPosition({ lineNumber: 53, column: l.indexOf('"Bookings DB"') + 4 });
+  });
+  await page.keyboard.press('F2');
+  const input = page.locator('.rename-input');
+  await expect(input).toBeVisible({ timeout: 15000 });
+  await input.fill('Booking Store');
+  await page.keyboard.press('Enter');
+  await expect(page.getByText(/^Edited 1 open file\(s\)/)).toBeVisible({ timeout: 15000 });
+  expect(await page.evaluate(() => editor.getModel().getLineContent(53))).toContain('"Booking Store"');
+  await expect(page.locator('#tabs [data-tab="model/workspace.dsl"]')).toHaveClass(/dirty/);
+  const read = rel => fs.readFileSync(path.join(reg, rel), 'utf8');
+  expect(read('decisions/D-0001.yaml')).toMatch(/binds: \[Booking Store\]/);
+  expect(read('decisions/D-0001.yaml')).not.toContain('Bookings DB');
+  expect(read('requirements/DEMO-1234.yaml')).toMatch(/elements: \[Booking Store, Escalation Worker\]/);
+  expect(read('requirements/DEMO-1234.yaml')).not.toContain('Bookings DB');
+
+  await page.keyboard.press('Control+S');
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  const panel = page.locator('#panelBody');
+  await expect(panel.getByText('⊗')).toHaveCount(2);
+  await expect(panel.getByText('⚠')).toHaveCount(6);
+
+  // a property key is not renamable
+  await page.evaluate(() => {
+    const m = editor.getModel(); let n = 1; while (!m.getLineContent(n).includes('"d.interaction"')) n++;
+    editor.focus(); editor.setPosition({ lineNumber: n, column: m.getLineContent(n).indexOf('d.interaction') + 3 });
+  });
+  await page.keyboard.press('F2');
+  await expect(page.getByText('nothing to rename here').first()).toBeVisible({ timeout: 15000 });
+});
