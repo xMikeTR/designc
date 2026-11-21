@@ -1268,7 +1268,7 @@ function gateRecord({ modelText, modelIncludes = [], diags, gate, source, git })
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, KINDS, SKIP, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
