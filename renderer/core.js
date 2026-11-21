@@ -7,44 +7,44 @@ const Core = (() => {
   const TS = () => (typeof require === 'function' && typeof module === 'object' ? require('./test-scenarios.js') : TestScenarios); // lazy: the renderer loads test-scenarios.js after core.js
   // ---------- tokenizer ----------
   function tokenize(src, file = null) {
-    const toks = []; let i = 0, line = 1; const n = src.length;
+    const toks = []; let i = 0, line = 1, ls = 0; const n = src.length; // ls: offset of the current line's first character; `c` and `n` on a token are its column (UTF-16) and length
     while (i < n) {
       const c = src[i];
-      if (c === '\n') { line++; i++; continue; }
+      if (c === '\n') { line++; i++; ls = i; continue; }
       if (c === ' ' || c === '\t' || c === '\r') { i++; continue; }
       if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
       if (c === '#') { while (i < n && src[i] !== '\n') i++; continue; }
       if (c === '/' && src[i + 1] === '*') {
         i += 2;
-        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') line++; i++; }
+        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') { line++; ls = i + 1; } i++; }
         i += 2; continue;
       }
       if (c === '"') {
-        const start = line; let j = i + 1, s = '';
+        const start = line, col = i - ls; let j = i + 1, s = '';
         while (j < n && src[j] !== '"') {
           if (src[j] === '\\' && j + 1 < n) { s += src[j + 1]; j += 2; continue; }
-          if (src[j] === '\n') line++;
+          if (src[j] === '\n') { line++; ls = j + 1; }
           s += src[j]; j++;
         }
-        toks.push({ t: 'str', v: s, line: start }); i = j + 1; continue;
+        toks.push({ t: 'str', v: s, line: start, c: col, n: Math.min(j + 1, n) - i }); i = j + 1; continue;
       }
-      if (c === '{' || c === '}' || c === '=') { toks.push({ t: c, line }); i++; continue; }
-      if (c === '-' && src[i + 1] === '>') { toks.push({ t: '->', line }); i += 2; continue; }
+      if (c === '{' || c === '}' || c === '=') { toks.push({ t: c, line, c: i - ls, n: 1 }); i++; continue; }
+      if (c === '-' && src[i + 1] === '>') { toks.push({ t: '->', line, c: i - ls, n: 2 }); i += 2; continue; }
       const num = /^\d+(?![\w.])/.exec(src.slice(i, i + 20));
-      if (num) { toks.push({ t: 'id', v: num[0], line }); i += num[0].length; continue; }
+      if (num) { toks.push({ t: 'id', v: num[0], line, c: i - ls, n: num[0].length }); i += num[0].length; continue; }
       const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, i + 200));
       if (m && m[0] === '!include') {
         // `!include <path>`: the rest of the line is the path, so a `/` in it is not lexed as `?`.
-        i += m[0].length;
+        const at0 = i; i += m[0].length;
         while (i < n && (src[i] === ' ' || src[i] === '\t')) i++;
         let raw = '';
         if (src[i] === '"') { i++; while (i < n && src[i] !== '"' && src[i] !== '\n') raw += src[i++]; if (src[i] === '"') i++; }
         else while (i < n && !/\s/.test(src[i])) raw += src[i++];
-        toks.push({ t: 'include', v: raw, line });
+        toks.push({ t: 'include', v: raw, line, c: at0 - ls, n: i - at0 });
         continue;
       }
-      if (m) { toks.push({ t: 'id', v: m[0], line }); i += m[0].length; continue; }
-      toks.push({ t: '?', v: c, line }); i++;
+      if (m) { toks.push({ t: 'id', v: m[0], line, c: i - ls, n: m[0].length }); i += m[0].length; continue; }
+      toks.push({ t: '?', v: c, line, c: i - ls, n: 1 }); i++;
     }
     toks.forEach(t => { t.file = file; });
     return toks;
@@ -76,6 +76,9 @@ const Core = (() => {
   // ---------- parser ----------
   function parse(src, { path = null, resolve: resolveInc = null } = {}) {
     const errors = [], sources = [{ path, text: src }];
+    // Positions for the language server (m.symbols): a side table only; nothing else in the model reads it.
+    const pos = t => (t ? { file: t.file ?? null, line: t.line, c: t.c, n: t.n } : null);
+    const symDefs = [], symRefs = [], symIncludes = [], viewToks = [];
     const errAt = (tok, msg) => errors.push({ line: tok.line, msg, file: tok.file ?? null });
     // Expand `!include` tokens in place (textual inclusion at token level), recursively.
     function expand(list, stack) {
@@ -83,6 +86,7 @@ const Core = (() => {
       const out = [];
       for (const t of list) {
         if (t.t !== 'include') { out.push(t); continue; }
+        const inc = { at: pos(t), path: null }; symIncludes.push(inc);
         if (!t.v) { errAt(t, '!include needs a path'); continue; }
         const r = includePath(t.file, t.v);
         if (r.error) { errAt(t, r.error); continue; }
@@ -92,6 +96,7 @@ const Core = (() => {
         const text = resolveInc(r.path);
         if (text == null) { errAt(t, `cannot read included file "${t.v}" (${r.path})`); continue; }
         if (!sources.some(s => s.path === r.path)) sources.push({ path: r.path, text });
+        inc.path = r.path;
         out.push(...expand(tokenize(text, r.path), stack.concat(r.path)));
       }
       return out;
@@ -105,9 +110,9 @@ const Core = (() => {
     const addTags = (set, s) => s.split(',').map(x => x.trim()).filter(Boolean).forEach(x => set.add(x));
 
     function strings() { const out = []; while (peek() && peek().t === 'str') out.push(next().v); return out; }
-    function skipBlock() {
+    function skipBlock(collect) {
       let depth = 0;
-      while (p < toks.length) { const t = next(); if (t.t === '{') depth++; else if (t.t === '}') { depth--; if (depth === 0) return; } }
+      while (p < toks.length) { const t = next(); if (collect && t.t === 'id') collect.push(t); if (t.t === '{') depth++; else if (t.t === '}') { depth--; if (depth === 0) return; } }
     }
     function props(target) {
       const kw = next();
@@ -120,8 +125,8 @@ const Core = (() => {
       }
       if (peek()) next(); else err(kw, 'properties block is missing }');
     }
-    function element(kindTok, ident, parent) {
-      const kind = KINDS[kindTok.v]; const s = strings();
+    function element(kindTok, ident, parent, identTok = null) {
+      const kind = KINDS[kindTok.v]; const nameTok = peek() && peek().t === 'str' ? peek() : null; const s = strings();
       const el = { id: ident || ('_e' + (++auto)), ident, name: s[0] || '(unnamed)', kind, tags: new Set(['Element']),
         technology: null, description: s[1] || null, parent, props: {}, line: kindTok.line, file: kindTok.file };
       if (kind === 'person' || kind === 'softwareSystem') { if (s[2]) addTags(el.tags, s[2]); }
@@ -129,11 +134,14 @@ const Core = (() => {
       if (!s[0]) err(kindTok, `${kindTok.v} needs a name`);
       if (ident) { if (idents.has(ident)) err(kindTok, `identifier "${ident}" is already used`); idents.set(ident, el.id); }
       els.set(el.id, el);
+      symDefs.push({ id: el.id, ident, identAt: pos(identTok), nameAt: pos(nameTok) });
       if (peek() && peek().t === '{') { const open = next(); if (!body(el)) err(open, `block for "${el.name}" is missing }`); }
     }
-    function relationship(srcRef, arrow) {
+    function relationship(srcRef, arrow, srcTok = null) {
       const dst = next();
       if (!dst || dst.t !== 'id') { err(arrow, 'expected a destination after ->'); return; }
+      if (srcTok) symRefs.push({ ident: srcRef, at: pos(srcTok), role: 'rel-src', id: null });
+      symRefs.push({ ident: dst.v, at: pos(dst), role: 'rel-dst', id: null });
       const s = strings();
       const r = { srcRef, dstRef: dst.v, description: s[0] || '', technology: s[1] || null, props: {}, line: arrow.line, file: arrow.file };
       if (peek() && peek().t === '{') {
@@ -169,7 +177,7 @@ const Core = (() => {
         const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line, file: kw.file };
         if (v === 'containerInstance' || v === 'softwareSystemInstance') {
           const ref = peek();
-          if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; instRefs.push(node); }
+          if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; symRefs.push({ ident: ref.v, at: pos(ref), role: 'instance', id: null }); instRefs.push(node); }
           strings();
         } else {
           const s = strings();
@@ -208,11 +216,12 @@ const Core = (() => {
       while (p < toks.length) {
         const t = peek();
         if (t.t === '}') { next(); return; }
-        if (t.t === '{') { skipBlock(); continue; }
+        if (t.t === '{') { skipBlock(viewToks); continue; }
         next();
-        if (t.t !== 'id' || t.v !== 'deployment') continue;
+        if (t.t !== 'id' || t.v !== 'deployment') { if (t.t === 'id') viewToks.push(t); continue; }
         const head = []; while (peek() && peek().t !== '{' && peek().t !== '}' && head.length < 6) head.push(next());
         if (head.length < 2) { err(t, 'deployment view needs a scope and an environment'); continue; }
+        if (head[0].t === 'id' && head[0].v !== '*') symRefs.push({ ident: head[0].v, at: pos(head[0]), role: 'view-scope', id: null });
         depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line, file: t.file });
       }
     }
@@ -229,10 +238,10 @@ const Core = (() => {
           if (v === 'deploymentEnvironment') { environment(null); continue; }
           if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && peek(2).v === 'deploymentEnvironment') { next(); next(); environment(v); continue; }
           if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && KINDS[peek(2).v]) {
-            next(); next(); const k = next(); element(k, v, owner ? owner.id : null); continue;
+            next(); next(); const k = next(); element(k, v, owner ? owner.id : null, t); continue;
           }
           if (KINDS[v]) { next(); element(t, null, owner ? owner.id : null); continue; }
-          if (peek(1) && peek(1).t === '->') { next(); const a = next(); relationship(v, a); continue; }
+          if (peek(1) && peek(1).t === '->') { next(); const a = next(); relationship(v, a, t); continue; }
           if (v === 'workspace' || v === 'model') {
             next(); const s = strings(); if (v === 'workspace' && s[0]) name = s[0];
             if (peek() && peek().t === '{') { const open = next(); if (!body(null)) err(open, `${v} block is missing }`); }
@@ -288,7 +297,10 @@ const Core = (() => {
       }
       views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line, file: v.file, system });
     });
+    for (const t of viewToks) if (idents.has(t.v)) symRefs.push({ ident: t.v, at: pos(t), role: 'view', id: null });
+    for (const r of symRefs) r.id = idents.get(r.ident) || null;
     const m = makeModel(name, els, rels, errors);
+    m.symbols = { defs: symDefs, refs: symRefs, includes: symIncludes };
     m.sources = sources;
     m.deployment = { environments: envs, views };
     return m;
