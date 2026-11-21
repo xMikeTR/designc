@@ -144,6 +144,7 @@ connection.onRenameRequest(({ textDocument, position, newName }) => {
   const plan = Refactor.renamePlan({ ...st.state, at: { path: st.rel, line0: position.line, character: position.character }, newName });
   if (plan.error) throw failed(plan.error);
   log(`designc rename ${plan.kind} "${plan.from}" -> "${plan.to}": ${plan.edits.length} edits${plan.rebind.length ? `; decisions to re-bind: ${plan.rebind.map(r => r.decision).join(', ')}` : ''}`);
+  if (plan.rebind.length) connection.sendNotification('window/showMessage', { type: 3, message: `Rename changes the fingerprint of bound decisions: ${plan.rebind.map(r => r.decision).join(', ')}. Re-bind them (Rebind all) once the rename is saved.` });
   return P.toWorkspaceEdit(plan, { root: st.root, versions: st.versions, documentChanges: docChanges });
 });
 connection.onCodeAction(guarded(({ textDocument, context }) => {
@@ -162,5 +163,6 @@ connection.onCodeAction(guarded(({ textDocument, context }) => {
 }));
 
 documents.listen(connection);
-process.stdin.on('end', () => process.exit(0));
+if (argv.includes('--node-ipc')) process.on('disconnect', () => process.exit(0));
+else process.stdin.on('end', () => process.exit(0));
 connection.listen();

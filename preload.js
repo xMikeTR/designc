@@ -2,6 +2,11 @@
 const { contextBridge, ipcRenderer } = require('electron');
 const on = (ch, fn) => { const h = (_e, ...a) => fn(...a); ipcRenderer.on(ch, h); return () => ipcRenderer.removeListener(ch, h); };
 contextBridge.exposeInMainWorld('host', {
+  lspStart: () => ipcRenderer.invoke('lsp:start'),
+  lspStop: () => ipcRenderer.invoke('lsp:stop'),
+  lspSend: m => ipcRenderer.send('lsp:send', m),
+  onLsp: fn => on('lsp:msg', fn),
+  onLspExit: fn => on('lsp:exit', fn),
   boot: () => ipcRenderer.invoke('app:boot'),
   openFolder: () => ipcRenderer.invoke('folder:open'),
   openPath: p => ipcRenderer.invoke('folder:openPath', p),

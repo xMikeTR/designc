@@ -5,7 +5,8 @@ const fs = require('fs');
 const path = require('path');
 const { pathToFileURL } = require('url');
 const { start, applyTextEdits } = require('./helpers/lsp-client.js');
-const { renameRegistry, stateOf } = require('./helpers/l2-registry.js');
+const Refactor = require('../renderer/refactor.js');
+const { sampleCopy, renameRegistry, stateOf } = require('./helpers/l2-registry.js');
 
 const APP = path.join(__dirname, '..');
 const W = 'model/workspace.dsl';
@@ -48,7 +49,14 @@ test('LSP refactoring over stdio: definition, references, rename, code actions; 
   await assert.rejects(c.request('textDocument/rename', { ...pos(52, nameCol + 3), newName: 'Fares API' }), /another element is already named "Fares API"/);
   assert.deepEqual(snapshot(), before, 'the server wrote nothing');
 
+  const nMsgs = c.seen.filter(m => m.method === 'window/showMessage').length, from = c.seen.length;
   const edit = await c.request('textDocument/rename', { ...pos(52, nameCol + 3), newName: 'Booking Store' });
+  const plan = Refactor.renamePlan({ ...beforeState, at: { path: W, line0: 52, character: nameCol + 3 }, newName: 'Booking Store' });
+  assert.ok(plan.rebind.length > 0);
+  const msg = await c.waitFor('window/showMessage', () => true, 10000, from);
+  assert.equal(msg.message, `Rename changes the fingerprint of bound decisions: ${plan.rebind.map(r => r.decision).join(', ')}. Re-bind them (Rebind all) once the rename is saved.`);
+  assert.equal(msg.type, 3);
+  assert.equal(c.seen.filter(m => m.method === 'window/showMessage').length, nMsgs + 1);
   assert.ok(edit.documentChanges.every(d => d.textDocument && d.edits));
   assert.ok(!JSON.stringify(edit).includes('handovers'));
   assert.deepEqual(snapshot(), before, 'rename returns an edit; it does not apply it');
@@ -94,4 +102,20 @@ test('LSP code actions over stdio: Set d.idempotent and Record a decision', asyn
   const a2 = await c2.request('textDocument/codeAction', { textDocument: { uri: u2 }, range: dg2.range, context: { diagnostics: [dg2] } });
   assert.deepEqual(a2.map(a => a.title), ['Set d.idempotent: yes', 'Set d.idempotent: no']);
   assert.ok(a2[0].edit.changes, 'plain changes when documentChanges is not declared');
+});
+
+test('LSP rename with nothing to re-bind sends no showMessage', async t => {
+  const dir = sampleCopy();
+  const c = start([path.join(APP, 'lsp/server.js'), '--stdio']);
+  t.after(() => c.close());
+  await c.request('initialize', { processId: process.pid, rootUri: pathToFileURL(dir).href, workspaceFolders: [{ uri: pathToFileURL(dir).href, name: 'r' }], capabilities: { workspace: { workspaceEdit: { documentChanges: true } } } });
+  c.notify('initialized', {});
+  const uri = pathToFileURL(path.join(dir, W)).href;
+  await c.waitFor('textDocument/publishDiagnostics', p => p.uri === uri, 10000);
+  const ws = fs.readFileSync(path.join(dir, W), 'utf8').split('\n'), l = ws.findIndex(x => x.includes('"Escalation Worker"') && /^\s*\w+ = /.test(x));
+  const from = c.seen.length;
+  const ed = await c.request('textDocument/rename', { textDocument: { uri }, position: { line: l, character: ws[l].indexOf('"Escalation Worker"') + 3 }, newName: 'Escalation Runner' });
+  assert.ok(ed.documentChanges);
+  await new Promise(r => setTimeout(r, 300));
+  assert.equal(c.seen.slice(from).filter(m => m.method === 'window/showMessage').length, 0);
 });
