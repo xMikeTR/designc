@@ -261,6 +261,8 @@ What it gives:
 
 What it does not give yet: `work/` and code-quality problems.
 
+**In the app.** The editor's markers, hover, completion, go to definition, find references, rename and quick fixes all come from this same server. The app forks `lsp/server.js` with `--node-ipc` when a folder opens and relays its messages over Electron IPC (no extra dependency). Rename in the editor applies the server's edit to open buffers (undoable) and to closed files on disk. Problems and the gate still use the in-process rows.
+
 The registry is the nearest folder above the document that holds `designc.json`, else `--registry <dir>`, else `DESIGNC_REGISTRY`, else `initializationOptions.registry`, else the first workspace folder with a `designc.json` or `model/workspace.dsl`. Open the registry folder (or set `--registry`); the app need not run.
 
 **Claude Code.** A local plugin with a `.lsp.json` at its root (the `lspServers` fields are `command`, `args`, `extensionToLanguage`, and more; checked against the plugin reference, code.claude.com/docs/en/plugins-reference):
