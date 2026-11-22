@@ -33,7 +33,7 @@ const MAP_GROUP_ASSIGN_RE = /\b(?:var|IEndpointRouteBuilder|RouteGroupBuilder)\s
 const EXT_METHOD_DEF_RE = /\bpublic\s+static\s+\S+\s+(\w+)\s*\(\s*this\s+(?:IEndpointRouteBuilder|RouteGroupBuilder)\s+(\w+)/;
 const EXT_METHOD_CALL_RE = /\b(\w+)\.(\w+)\(\s*\)\s*;/;
 const ROOT_VAR_RE = /\bvar\s+(\w+)\s*=\s*\w+(?:\.\w+)*\.Build\s*\(\s*\)/g;
-const MAP_CALL_RE = /(\b\w+)?\s*\.\s*(MapGet|MapPost|MapPut|MapPatch|MapDelete|MapMethods)\s*\(/g;
+const MAP_CALL_RE = /(?:(\b\w+)\s*)?\.\s*(MapGet|MapPost|MapPut|MapPatch|MapDelete|MapMethods)\s*\(/g;
 const HUB_RE = /\bMapHub\s*<[^>]+>\s*\(\s*"([^"]+)"/;
 
 function analyzeMinimalApiFile(text) {

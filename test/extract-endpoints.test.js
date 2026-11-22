@@ -382,3 +382,36 @@ test('R8 an F# type variable does not swallow the handlers after it, and csharp.
   assert.equal(blankComments("var c = 'a'; // x\nvar s = \"q\";"), "var c = 'a';     \nvar s = \"q\";");
   assert.equal(blankComments("'a x'", true), "'   '");
 });
+
+test('S1b r2 blankJs is linear: 1 MB with many slashes blanks in well under a second', () => {
+  const { blankJs } = require('../extract/endpoints.js');
+  const text = 'let a = b / c; // note\n'.repeat(45000);
+  const t0 = Date.now();
+  const out = blankJs(text);
+  const ms = Date.now() - t0;
+  assert.equal(out.length, text.length);
+  assert.ok(ms < 1000, `blankJs took ${ms} ms`);
+});
+
+test('S1b r2 a JSX closing tag and division after ++ keep their handler span', async () => {
+  const r = await extract(repo({ 'package.json': '{"name":"nodeapi","dependencies":{"express":"4"}}', 'server.js': [
+    "const app = require('express')();",
+    'app.get("/page", (req, res) => res.send(<p>hi</p>)); // see docs/pages',
+    'app.get("/after", (q, r) => r.end());',
+    "app.get('/d', (q, r) => { let i = 0; i++ / 2; r.end(); }); // a/b",
+    "app.get('/e', (q, r) => r.end());",
+  ].join('\n') + '\n' }));
+  for (const n of ['/page', '/after', '/d', '/e']) {
+    const e = find(r, `nodeapi/GET ${n}`);
+    assert.ok(e && e.handler && e.handler.kind === 'inline', n);
+  }
+  assert.equal(r.facts.unresolved.filter(u => u.file === 'server.js').length, 0);
+});
+
+test('S1b r2 a long blanked string literal does not make the Map* scan quadratic', async () => {
+  const t0 = Date.now();
+  const r = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': 'var app = WebApplication.CreateBuilder().Build();\nvar s = "' + ' '.repeat(60000) + '";\napp.MapGet("/ok", () => 1);\n' }));
+  const ms = Date.now() - t0;
+  assert.ok(find(r, 'Api/GET /ok'));
+  assert.ok(ms < 1500, `extract took ${ms} ms`);
+});

@@ -25,22 +25,32 @@ const NAME_CHAIN = /^[A-Za-z_$][\w$]*(?:\.[A-Za-z_$][\w$]*)*$/;
 function blankJs(text) {
   let out = '', i = 0;
   const sp = c => (c === '\n' ? '\n' : ' ');
+  // the last two significant (non-blank) chars of `out`, and the word of word chars that ends the last one: kept as we go, never rescanned
+  let p1 = '', p2 = '', word = '', last = '';
+  const REGEX_AFTER = /^[(,=:[!&|?{};+\-*%<>~^]$/, KEYWORD = /^(?:return|typeof|case|in|of|delete|void|throw|new|else|do|yield|await)$/;
+  // record a char appended to `out` (blanked content is whitespace and never significant)
+  const note = ch => {
+    const prev = last; last = ch;
+    if (ch === ' ' || ch === '\n' || ch === '\r' || ch === '\t') return;
+    word = /\w/.test(ch) ? (/\w/.test(prev) ? word + ch : ch).slice(-8) : '';
+    p2 = p1; p1 = ch;
+  };
   while (i < text.length) {
     const c = text[i], n = text[i + 1];
-    if (c === '/' && n === '/') { while (i < text.length && text[i] !== '\n') { out += ' '; i++; } }
-    else if (c === '/' && n === '*') { while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) { out += sp(text[i]); i++; } out += '  '; i += 2; }
-    else if (c === '/' && /(?:^|[(,=:[!&|?{};+\-*%<>~^]|\b(?:return|typeof|case|in|of|delete|void|throw|new|else|do|yield|await))$/.test(out.trimEnd())) {
+    if (c === '/' && n === '/') { while (i < text.length && text[i] !== '\n') { out += ' '; i++; note(' '); } }
+    else if (c === '/' && n === '*') { while (i < text.length && !(text[i] === '*' && text[i + 1] === '/')) { out += sp(text[i]); i++; } out += '  '; i += 2; note(' '); }
+    else if (c === '/' && (p1 === '' || (REGEX_AFTER.test(p1) && !(p1 === '<' && last === '<') && !((p1 === '+' || p1 === '-') && p2 === p1)) || KEYWORD.test(word))) {
       // a regex literal: blank it, keeping '/' and flags, and never run past the line
       let j = i + 1, cls = false;
       while (j < text.length && text[j] !== '\n' && (cls || text[j] !== '/')) { if (text[j] === '\\') j++; else if (text[j] === '[') cls = true; else if (text[j] === ']') cls = false; j++; }
-      if (text[j] === '/') { out += '/' + ' '.repeat(j - i - 1) + '/'; i = j + 1; } else { out += c; i++; }
+      if (text[j] === '/') { out += '/' + ' '.repeat(j - i - 1) + '/'; i = j + 1; note('/'); note(' '); note('/'); } else { out += c; i++; note(c); }
     } else if (c === '"' || c === "'" || c === '`') {
-      out += c; i++;
+      out += c; i++; note(c);
       while (i < text.length && text[i] !== c && (text[i] !== '\n' || c === '`')) {
-        if (text[i] === '\\') { out += ' ' + sp(text[i + 1] || ''); i += 2; } else { out += sp(text[i]); i++; }
+        if (text[i] === '\\') { out += ' ' + sp(text[i + 1] || ''); i += 2; note(' '); } else { out += sp(text[i]); i++; note(' '); }
       }
-      if (text[i] === c) { out += c; i++; }
-    } else { out += c; i++; }
+      if (text[i] === c) { out += c; i++; note(c); }
+    } else { out += c; i++; note(c); }
   }
   return out;
 }
