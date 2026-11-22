@@ -6,6 +6,7 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
 const DSL = `workspace "Q" {
   model {
@@ -71,9 +72,7 @@ test('handoverPlan copies the tokens file, lists it and counts it in the id', ()
   assert.doesNotMatch(b.files[0].text, /^tokens:/m);
 });
 
-const PY = path.join(__dirname, '..', 'python');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
-test('Python reports the same ux and token clauses', { skip }, () => {
+test('Python reports the same ux and token clauses', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-ux-'));
   const put = (rel, text) => { fs.mkdirSync(path.dirname(path.join(root, rel)), { recursive: true }); fs.writeFileSync(path.join(root, rel), text); };
   put('designc.json', '{ "ux": { "minTextSize": 14 } }');
@@ -90,7 +89,7 @@ test('Python reports the same ux and token clauses', { skip }, () => {
   const js = Core.gate({ model, diags: Core.check(model, {}), decisions: [], requirements: [{ id: 'R-1', elements: ['Booking UI'] }], ledger: [], acceptance: [yaml.load(text)], tokens, minTextSize: 14 })
     .clauses.filter(c => c.kind === 'acceptance' || c.kind === 'tokens');
   assert.equal(js.length, 6, js.map(c => c.text).join('; '));
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json'], { encoding: 'utf8' });
   const py = JSON.parse(r.stdout).gate.clauses.filter(c => c.kind === 'acceptance' || c.kind === 'tokens');
   assert.deepEqual(py, js.map(c => ({ kind: c.kind, text: c.text })));
 });

@@ -7,6 +7,7 @@ const path = require('node:path');
 const { spawnSync } = require('node:child_process');
 const jsyaml = require('js-yaml');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
 // An effect: build decision acknowledges a finding that the code has to answer. It covers the finding while its work
 // item is open, and the finding blocks again once the item is done and the model still raises it.
@@ -70,7 +71,7 @@ test('the Python CLI reaches the same clauses', () => {
     fs.writeFileSync(path.join(dir, 'decisions', 'build-dc003.yaml'), jsyaml.dump(dec()));
     if (events !== null) fs.writeFileSync(path.join(dir, 'work', 'W-1.yaml'), 'id: W-1\ntitle: t\nrequirement: R-1\nelements: []\ndone_when:\n  - gate: "true"\n');
     if (events && events.length) fs.writeFileSync(path.join(dir, 'ledger', 'designc.jsonl'), events.map((e, i) => JSON.stringify({ schema_version: 1, event_id: `e${i}`, ts: 1000 + i, by: 'x', ...e })).join('\n') + '\n');
-    const r = spawnSync('python3', ['-m', 'designc', 'check', dir, '--json'], { cwd: path.join(__dirname, '..', 'python'), encoding: 'utf8' });
+    const r = spawnSync(process.execPath, [CORE, 'check', dir, '--json'], { encoding: 'utf8' });
     const py = JSON.parse(r.stdout).gate.clauses.map(c => c.text).filter(t => /build-dc003|DC003/.test(t)).sort();
     const js = gate(dec(), { 'W-1': events === null ? undefined : name === 'missing' ? undefined : name }).filter(t => /build-dc003|DC003/.test(t)).sort();
     assert.deepEqual(py, js, name);

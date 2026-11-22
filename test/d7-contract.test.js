@@ -14,7 +14,7 @@ const env = o => ({ schema_version: 1, event_id: 'e' + Math.random(), ts: 1000, 
 const py = ev => JSON.parse(spawnSync('python3', ['-I', '-c', 'import json,sys; sys.path.insert(0, sys.argv[1]); from designc import ledger; print(json.dumps(ledger.validate(json.loads(sys.stdin.read()))))', PY], { input: JSON.stringify(ev), encoding: 'utf8' }).stdout);
 
 test('caught_by lists the S1 stages, the UI and delivery stages, and pipeline', () => {
-  assert.deepEqual(Ledger.CAUGHT_BY, ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa', 'pipeline']);
+  assert.deepEqual(Ledger.CAUGHT_BY, ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'scenario', 'parity', 'review', 'qa', 'pipeline']);
   for (const c of Ledger.CAUGHT_BY) assert.deepEqual(Ledger.validate(env({ kind: 'escape', id: 'E', description: 'd', caught_by: c })), [], c);
   assert.ok(Ledger.validate(env({ kind: 'escape', id: 'E', description: 'd', caught_by: 'nope' })).some(m => /caught_by/.test(m)));
   assert.deepEqual(Ledger.validate(env({ kind: 'escape_classified', escape: 'E', caught_by: 'holdout' })), []);
@@ -61,7 +61,7 @@ test('stage_verdict: required fields, enums, pipeline kind and stream', () => {
     const { [k]: _, ...rest } = V;
     assert.ok(Ledger.validate(env(rest)).some(e => e.includes(k)), k);
   }
-  for (const s of ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'review', 'qa']) assert.deepEqual(Ledger.validate(verdict({ stage: s })), [], s);
+  for (const s of ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'scenario', 'review', 'qa']) assert.deepEqual(Ledger.validate(verdict({ stage: s })), [], s);
   assert.ok(Ledger.validate(verdict({ stage: 'parity' })).some(e => /stage/.test(e)));
   assert.ok(Ledger.validate(verdict({ outcome: 'flaky' })).some(e => /outcome/.test(e)));
   assert.equal(Ledger.KINDS.stage_verdict.stream, 'pipeline.jsonl');
@@ -97,4 +97,24 @@ test('designc record accepts stage_verdict into pipeline.jsonl and refuses a bad
 test('the example file validates in JS', () => {
   const ex = JSON.parse(fs.readFileSync(path.join(__dirname, '..', 'docs', 'stage-verdict.example.json'), 'utf8').trim().split('\n')[0]);
   assert.deepEqual(Ledger.validate(ex), []);
+});
+
+test('B3c: a scenario verdict row validates in JS and Python; unknown stage refused; scenario is a string', () => {
+  const rows = fs.readFileSync(path.join(__dirname, '..', 'docs', 'stage-verdict.example.json'), 'utf8').trim().split('\n').map(l => JSON.parse(l));
+  const row = rows.find(r => r.stage === 'scenario');
+  assert.ok(row && row.scenario && row.failures[0].criterion, 'example has a scenario row');
+  assert.deepEqual(Ledger.validate(row), []);
+  assert.ok(Ledger.validate(verdict({ stage: 'scenarios' })).some(e => /stage/.test(e)));
+  assert.ok(Ledger.validate(verdict({ stage: 'scenario', scenario: 5 })).some(e => /scenario/.test(e)));
+  assert.deepEqual(Ledger.validate(verdict({ stage: 'scenario', scenario: 'ORD-1-ts-01' })), []);
+  assert.deepEqual(Ledger.validate(env({ kind: 'escape', id: 'E', description: 'd', caught_by: 'scenario' })), []);
+  if (!skip) {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-b3c-'));
+    try {
+      const rec = ev => spawnSync('python3', ['-m', 'designc', 'record', root, '--by', 'factory'], { cwd: PY, input: JSON.stringify(ev) + '\n', encoding: 'utf8' });
+      assert.equal(rec(row).status, 0);
+      assert.equal(rec({ ...row, scenario: 5 }).status, 1);
+      assert.equal(rec({ ...row, stage: 'scenarios' }).status, 1);
+    } finally { fs.rmSync(root, { recursive: true, force: true }); }
+  }
 });

@@ -10,9 +10,16 @@
   // none of them has to parse the DSL: every element under its hierarchical id (System/Container/Component),
   // d.code as normalised path patterns and d.risk where declared, relationships by id (one per pair), and the
   // events behaviour announces. A model that does not parse, or a code area that is not a pattern, is refused.
-  function handoverElements(modelText, behaviour = [], inScope = null) {
-    const m = parse(modelText);
-    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+  // A model text, or `{text, path, resolve}` (a model with `!include`): one private reader for every helper below.
+  const parseSrc = x => (typeof x === 'string' ? parse(x) : parse(x.text, { path: x.path, resolve: x.resolve }));
+  // The refusal for a model that does not parse; it names the file when the first error is not in the root.
+  const refuseParse = m => {
+    const e = m.errors[0], root = m.sources[0].path;
+    return new Error(`handover refused: the model does not parse (${e.file && e.file !== root ? `${e.file} ` : ''}line ${e.line}: ${e.msg})`);
+  };
+  function handoverElements(modelText, behaviour = [], inScope = null, boundary = null) {
+    const m = parseSrc(modelText);
+    if (m.errors.length) throw refuseParse(m);
     const elements = [...m.elements.values()].map(e => {
       const out = { id: m.label(e.id), name: e.name, kind: e.kind };
       if (e.props['d.code'] != null) out.code = String(e.props['d.code']).split(',').map(s => s.trim()).filter(Boolean).map(s => {
@@ -29,9 +36,73 @@
     for (const r of m.rels) { const from = m.label(r.src), to = m.label(r.dst); pairs.set(`${from}\0${to}`, { from, to }); }
     const events = [...new Set([...behaviour].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))
       .flatMap(f => [...f.text.matchAll(/\bannounce\s+(\w+)/g)].map(x => x[1])))];
+    const attached = boundary ? attachInterfaces(m, elements, boundary) : false;
+    if (attached) return { schema: 'designc.handover.elements/3', elements, relationships: [...pairs.values()], events, ...(inScope ? { reserved: [RESERVED_TEST_PATH] } : {}) };
     return inScope
       ? { schema: 'designc.handover.elements/2', elements, relationships: [...pairs.values()], events, reserved: [RESERVED_TEST_PATH] }
       : { schema: 'designc.handover.elements/1', elements, relationships: [...pairs.values()], events };
+  }
+
+  // Interfaces (R4b): each typed relationship's resolved operation or event, attached to BOTH ends' entries so the two sides
+  // read the same schema and the same version. Unresolved names are skipped (the gate blocks them). Returns true when any was attached.
+  // The operation schema is the operation object with local '#/...' refs inlined; a ref already on the current path stays a $ref.
+  function inlineRefs(node, doc, stack) {
+    if (Array.isArray(node)) return node.map(x => inlineRefs(x, doc, stack));
+    if (!node || typeof node !== 'object') return node;
+    const ref = node.$ref;
+    if (typeof ref === 'string' && ref.startsWith('#/') && !stack.includes(ref)) {
+      let t = doc;
+      for (const seg of ref.slice(2).split('/').map(x => x.replace(/~1/g, '/').replace(/~0/g, '~'))) t = t != null && typeof t === 'object' ? t[seg] : undefined;
+      if (t !== undefined) {
+        const { $ref, ...rest } = node;
+        const inl = inlineRefs(t, doc, [...stack, ref]);
+        return inl && typeof inl === 'object' && !Array.isArray(inl) ? { ...inl, ...inlineRefs(rest, doc, stack) } : inl;
+      }
+    }
+    const out = {};
+    for (const [k, v] of Object.entries(node)) out[k] = inlineRefs(v, doc, stack);
+    return out;
+  }
+  function attachInterfaces(m, elements, { apiContracts = [], packs = [] }) {
+    const load = typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load;
+    const files = {}; for (const f of apiContracts) files[f.path] = f.text;
+    const ops = Core.operations({ files, yamlLoad: load }), events = Core.packEvents(packs);
+    const reads = packs.map(p => DM.read(p.text, p.load, p.key)).filter(r => r.pack && !r.error).map(r => r.pack);
+    const docs = new Map(), byId = new Map(elements.map(e => [e.id, e]));
+    const docOf = file => { if (!docs.has(file)) docs.set(file, load(files[file])); return docs.get(file); };
+    const found = new Map();
+    for (const r of m.rels) {
+      if (structural(m, r)) continue;
+      const es = m.elements.get(r.src), ed = m.elements.get(r.dst);
+      if (!es || !ed || es.kind === 'person' || ed.kind === 'person') continue;
+      const op = get(r, 'd.operation'), msg = get(r, 'd.message');
+      let iface = null, roles;
+      const hits = op != null ? ops.operations.filter(o => o.operationId === String(op)) : [];
+      if (hits.length === 1 && get(r, 'd.interaction') !== 'async') {
+        const h = hits[0], item = docOf(h.file).paths[h.path][h.method.toLowerCase()];
+        const schema = inlineRefs(item, docOf(h.file), []);
+        iface = { kind: 'operation', id: h.operationId, method: h.method, path: h.path, file: h.file, schema, version: hash16(JSON.stringify(schema)) };
+        roles = ['calls', 'serves'];
+      } else if (msg != null) {
+        const res = Core.resolveMessage(events, msg);
+        if (!res.error) {
+          const { pack, name } = res.event;
+          const ev = reads.find(p => (p.id || '') === pack).events.find(e => e.name === name);
+          iface = { kind: 'event', id: `${pack}/${name}`, pack, name, fields: ev.fields, version: hash16(JSON.stringify(ev.fields)) };
+          roles = ['publishes', 'consumes'];
+        }
+      }
+      if (!iface) continue;
+      const rel = { from: m.label(r.src), to: m.label(r.dst) };
+      [[rel.from, roles[0]], [rel.to, roles[1]]].forEach(([id, role]) => {
+        const e = byId.get(id); if (!e) return;
+        const item = { role, rel, ...iface }, key = JSON.stringify(item);
+        if (!found.has(id)) found.set(id, new Map());
+        found.get(id).set(key, item);
+      });
+    }
+    for (const [id, items] of found) byId.get(id).interfaces = [...items.values()].sort((a, b) => (a.rel.from < b.rel.from ? -1 : a.rel.from > b.rel.from ? 1 : a.rel.to < b.rel.to ? -1 : a.rel.to > b.rel.to ? 1 : a.role < b.role ? -1 : a.role > b.role ? 1 : 0));
+    return found.size > 0;
   }
 
   // The agents of the model described neutrally, for whatever turns a design into an agent contract
@@ -42,8 +113,8 @@
   const AGENT_PROPS = ['autonomy', 'model', 'fallback', 'maxSteps', 'budget', 'memory', 'untrustedInput', 'privateData',
     'externalComms', 'codeExec', 'sandbox', 'identity', 'tracing', 'eval', 'pattern', 'patternWhy'];
   function handoverAgents(modelText) {
-    const m = parse(modelText);
-    if (m.errors.length) throw new Error(`handover refused: the model does not parse (line ${m.errors[0].line}: ${m.errors[0].msg})`);
+    const m = parseSrc(modelText);
+    if (m.errors.length) throw refuseParse(m);
     const isAgent = e => e.tags.has('Agent') || get(e, 'd.agent.autonomy') != null;
     const agents = [...m.elements.values()].filter(isAgent).map(e => {
       const out = { id: m.label(e.id), name: e.name };
@@ -282,7 +353,7 @@ export { expect };
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null, dependencies = false }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -315,6 +386,9 @@ export { expect };
     if (domain) out.push(`${++n}. ${code('domain.json')} says which element owns which aggregate; ${code('domain/')} holds the team's domain model. Honour its aggregates, invariants and event payloads, and do not edit it.`);
     if (references.length) out.push(`${++n}. Read-only references: ${references.map(r => `${code(r.key)} (${r.kind})`).join(', ')}. Whoever started this build gives you where each one lives. Read them to learn what correct behaviour is; never write them, and do not copy their code into the areas above where the requirements say otherwise.`);
     if (ui) out.push(`${++n}. ${code('ui.json')} lists the screens, each with its spec under ${code('ui/specs/')} and the approved previews under ${code('ui/previews/')}. Build each screen from its spec: one library component per placement, ${code('data-ui-id')} first, no inline styles or raw values. Do not edit the spec, the pack files or the previews.`);
+    if (scenarioTests && scenarioTests.copies.length) out.push(`${++n}. ${code('scenarios.json')} lists the scenario tests designc generated from the bound test scenarios. Never edit ${code('ui-contract/tests/*.scenarios.page.test.tsx')}: they are how the screen's requests are judged.`);
+    if (dependencies) out.push(`${++n}. ${code('dependencies.json')} lists, per element, the other elements its code may depend on (from the design's relationships). Do not add a project reference, namespace use or import between two elements it does not allow: that needs a relationship in the design, which is a new handover.`);
+    if (scenarioTests && scenarioTests.hasApi) out.push(`${++n}. ${code('scenarios.json')} ${code('api')} lists example rows: ${code('given')} rows are seeded, the operation is called, ${code('then')} rows are expected after it (only the listed fields). The Factory generates API tests from them. Never edit those tests; implement the repo's seed/query adapter once.`);
     out.push('');
     if (decisions.length) out.push('## Decisions', '', list(decisions.map(f => f.path)), '');
     out.push('## Done means', '');
@@ -344,7 +418,7 @@ export { expect };
   // owners[].element is the elements.json id. null when no touched element owns anything a pack defines.
   function handoverDomain(modelText, packs, { item, focus }, elementsDoc) {
     if (!packs || !packs.length) return null;
-    const m = parse(modelText), read_ = packs.map(p => DM.read(p.text, p.load || undefined, p.key)).filter(r => r.pack).map(r => r.pack);
+    const m = parseSrc(modelText), read_ = packs.map(p => DM.read(p.text, p.load || undefined, p.key)).filter(r => r.pack).map(r => r.pack);
     const wanted = item ? new Set(item.elements || []) : (focus && focus.length ? new Set(focus) : null);
     const ids = new Map(elementsDoc.elements.map(e => [e.name, e.id]));
     const owners = [], keys = new Set();
@@ -376,41 +450,131 @@ export { expect };
     return { risk, dataClass };
   }
 
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null }) {
+
+  // B3: the generated scenario tests (docs/handover-scenarios.schema.json, designc.handover.scenarios/1). Each bound structured test
+  // scenario of a requirement in the handover, with an operation and examples, on a screen the handover's UI part carries, compiles
+  // (TestScenarios.compile) to request tests in ui-contract/tests/<screen>.scenarios.page.test.tsx. Anything else is listed in `skipped`
+  // with its reason. A scenario that cannot compile is a refusal. Files are verbatim copies (inside the id); scenarios.json is derived.
+  // Pure. files: [{path, text}] of test-scenarios/*.yaml; null when there is nothing to say.
+  function handoverScenarioTests({ files, requirementIds, uiPart, specs, apiContracts, packs = [] }) {
+    const TS = typeof TestScenarios !== 'undefined' ? TestScenarios : require('./test-scenarios.js');
+    const Rec = typeof Records !== 'undefined' ? Records : require('./records.js');
+    const yamlLoad = typeof jsyaml !== 'undefined' ? jsyaml.load : require('js-yaml').load;
+    const ops = { files: Object.fromEntries((apiContracts || []).map(f => [f.path, f.text])), yamlLoad };
+    const serverOf = file => { try { const d = yamlLoad(ops.files[file]); const s = d && Array.isArray(d.servers) && d.servers[0]; return s && typeof s.url === 'string' ? s.url : undefined; } catch { return undefined; } };
+    const operations = id => { const o = Core.resolveOperation(ops, id); return o ? { method: o.method, path: o.path, server: serverOf(o.file) } : null; };
+    const uiScreens = new Set(uiPart ? uiPart.screens : []);
+    const byScreen = new Map(), skipped = [];
+    for (const f of [...(files || [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0))) {
+      let rec; try { rec = yamlLoad(f.text); } catch { throw new Error(`handover refused: ${f.path} does not parse as YAML`); }
+      if (!rec || typeof rec !== 'object' || !Rec.isStructuredScenario(rec) || !requirementIds.includes(String(rec.requirement))) continue;
+      const skip = reason => skipped.push({ scenario: rec.id, reason });
+      if (rec.status !== 'bound') { skip(`${rec.status === 'minted' ? 'minted' : 'not bound'}: a person binds it before a test is generated`); continue; }
+      if (!rec.effect || typeof rec.effect.operation !== 'string') { skip('no operation: effect.operation names the request the test waits for'); continue; }
+      if (!Array.isArray(rec.examples) || !rec.examples.length) { skip('no examples: a test needs at least one'); continue; }
+      const screen = TS.renderScreen(rec, specs);
+      if (screen == null) { skip(`no ui spec for ${rec.screen}`); continue; }
+      if (!uiScreens.has(screen)) { skip(`screen ${screen} is not among the handover's UI screens`); continue; }
+      const c = TS.compile({ scenario: rec, specs, operations, path: f.path });
+      if (!byScreen.has(screen)) byScreen.set(screen, []);
+      byScreen.get(screen).push({ ...c, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, ...(({ method, path }) => ({ method, path }))(operations(rec.effect.operation)) }, examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}` })) });
+    }
+    // C4: example rows. A separate pass over the same records; the B3 loop above and its skips are untouched.
+    const api = [], used = new Map();
+    const sortedFiles = [...(files || [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const hasRows = ex => ex && typeof ex === 'object' && (ex.given != null || ex.then != null);
+    for (const f of sortedFiles) {
+      let rec; try { rec = yamlLoad(f.text); } catch { continue; }
+      if (!rec || typeof rec !== 'object' || !Rec.isStructuredScenario(rec) || !requirementIds.includes(String(rec.requirement))) continue;
+      if (rec.status !== 'bound' || !Array.isArray(rec.examples) || !rec.examples.some(hasRows)) continue;
+      const bad = m => new Error(`handover refused: scenario ${rec.id}: ${m}`);
+      const errs = Rec.validate('test_scenario', rec);
+      if (errs.length) throw bad(errs[0]);
+      const entities = Core.packAggregates(packs);
+      const rp = TS.rowProblems(rec, entities);
+      if (rp.length) throw bad(rp[0].message);
+      const op = operations(rec.effect.operation);
+      if (!op) throw bad(`operation ${rec.effect.operation} is not in a pinned OpenAPI file`);
+      const qp = TS.requestProblems(rec, Core.operationInputs(ops, rec.effect.operation));
+      if (qp.length) throw bad(qp[0].message);
+      const qualify = rows => {
+        const o = {};
+        for (const [name, list] of Object.entries(rows || {})) {
+          const e = Core.resolveEntity(entities, name).entity, k = `${e.pack}/${e.name}`;
+          used.set(k, e); o[k] = [...(o[k] || []), ...list];
+        }
+        return Object.fromEntries(Object.keys(o).sort().map(k => [k, o[k]]));
+      };
+      api.push({ id: rec.id, path: f.path, sha256: UI.sha256(f.text), operation: { id: rec.effect.operation, method: op.method, path: op.path },
+        examples: rec.examples.map((e, i) => ({ index: i + 1, title: e && typeof e.title === 'string' ? e.title : `example ${i + 1}`, given: qualify(e && e.given), then: qualify(e && e.then), ...(TS.requestOf(rec, i) ? { request: TS.requestOf(rec, i) } : {}) })) });
+    }
+    api.sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    if (!byScreen.size && !skipped.length && !api.length) return null;
+    const copies = [], docScreens = [], idEntries = [];
+    for (const screen of [...byScreen.keys()].sort()) {
+      const list = byScreen.get(screen).sort((a, b) => (a.id < b.id ? -1 : 1));
+      const test = { path: `ui-contract/tests/${screen}.scenarios.page.test.tsx`, text: TS.testFile(screen, list) };
+      copies.push(test);
+      docScreens.push({ screen, component: list[0].component, test: { path: test.path, sha256: UI.sha256(test.text) },
+        scenarios: list.map(c => ({ id: c.id, path: c.path, sha256: c.sha256, operation: c.operation, examples: c.examples })) });
+      for (const c of list) idEntries.push(`scenario_test\0${c.path}\0${c.sha256}`);
+    }
+    skipped.sort((a, b) => (a.scenario < b.scenario ? -1 : a.scenario > b.scenario ? 1 : 0));
+    let doc = { schema: 'designc.handover.scenarios/1', screens: docScreens, skipped };
+    if (api.length) {
+      const DM = typeof Domain !== 'undefined' ? Domain : require('./domain.js');
+      const texts = new Map();
+      for (const p of packs || []) { const r = DM.read(p.text, p.load, p.key); if (!r.error && r.pack) texts.set(r.pack.id || p.key, p.text); }
+      const entities = [...used.entries()].sort((a, b) => (a[0] < b[0] ? -1 : 1)).map(([id, e]) => ({ id, pack: e.pack, name: e.name, version: e.version, fields: e.fields }));
+      doc = { ...doc, schema: api.some(a => a.examples.some(e => e.request)) ? 'designc.handover.scenarios/3' : 'designc.handover.scenarios/2', api, entities };
+      for (const a of api) idEntries.push(`scenario_api\0${a.path}\0${a.sha256}`);
+      for (const pk of [...new Set(entities.map(e => e.pack))].sort()) idEntries.push(`scenario_entity\0${pk}\0${hash16(texts.get(pk))}`);
+    }
+    return { copies, json: { path: 'scenarios.json', text: JSON.stringify(doc, null, 2) + '\n' }, idEntries, paths: copies.map(c => c.path), hasApi: api.length > 0 };
+  }
+
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null, testScenarios = [] }) {
     const apiContracts = apiIn || [];
     let acceptance = acceptanceIn;
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
     const refs = references.map(r => ({ key: r.key, kind: r.kind })).sort((a, b) => (a.key < b.key ? -1 : a.key > b.key ? 1 : 0));
-    const elementsDoc = handoverElements(model.text, behaviour, item ? item.elements : null);
+    // `model.files` is {path: text} for the model folder; a model with `!include` freezes each included file at its own path.
+    const src = { text: model.text, path: model.path, resolve: p => (model.files || {})[p] ?? null };
+    const parsedModel = parseSrc(src);
+    const includes = parsedModel.sources.slice(1);
+    const elementsDoc = handoverElements(src, behaviour, item ? item.elements : null, { apiContracts: apiIn || [], packs: domain || [] });
     // Holdout cases leave the acceptance copies here, so no caller can ship one by mistake (D5).
     const acc = acceptanceCopies(acceptance, criteria, yamlDump);
     acceptance = acc.files;
-    const uiPart = handoverUi({ model: parse(model.text), ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
-    const dom = handoverDomain(model.text, domain, { item, focus }, elementsDoc);
+    const uiPart = handoverUi({ model: parsedModel, ui: uiIn, inScope: item ? item.elements : null, holdoutCases: acc.holdouts });
+    const scn = handoverScenarioTests({ files: testScenarios, requirementIds: requirements.map(f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); }), uiPart, specs: uiIn ? uiIn.specs : [], apiContracts: apiIn || [], packs: domain || [] });
+    const depsDoc = handoverDependencies(src, elementsDoc);
+    const dom = handoverDomain(src, domain, { item, focus }, elementsDoc);
     // The test map (D6) is derived from the as-built facts, which are not copied: their hash joins the id, so new facts are a new handover.
     const testsDoc = handoverTests(elementsDoc, facts, specs, uiPart ? uiPart.components : []);
     // Compiled agent contracts (Contracts.forFreeze): verbatim copies, so inside the id; a different policy is a different handover.
     const ctr = contracts ? [contracts.result, ...contracts.files] : [];
-    const content = [model, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
+    const content = [{ path: model.path, text: model.text }, ...includes, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : []), ...(scn ? scn.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(scn ? scn.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const reqProfile = requirementProfile(requirements);
-    const agentsDoc = handoverAgents(model.text);
+    const agentsDoc = handoverAgents(src);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc }) };
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn, dependencies: !!depsDoc }) };
+    const depsFile = depsDoc ? { path: 'dependencies.json', text: JSON.stringify(depsDoc, null, 2) + '\n' } : null;
     const testsFile = testsDoc ? { path: 'tests.json', text: JSON.stringify(testsDoc, null, 2) + '\n' } : null;
-    const frozen = [...content, elements, build, ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const frozen = [...content, elements, build, ...(depsFile ? [depsFile] : []), ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
-revision: ${modelRevision(model.text)}
+revision: ${modelRevision(model.text, includes)}
 created: ${q(now)}
 by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
-build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${depsFile ? `dependencies: ${q(depsFile.path)}\n` : ''}build: ${q(build.path)}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text, includes)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}
@@ -418,6 +582,33 @@ ${acceptance.length ? `acceptance: ${q(acceptance.map(idOf))}\n` : ''}${tokens ?
 ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\n')}
 `;
     return { id, files: [{ path: dir + 'handover.yaml', text: head }, ...frozen.map(f => ({ path: dir + f.path, text: f.text }))], binaryCopies: uiPart ? uiPart.binary.map(b => ({ from: b.from, to: dir + b.rel, sha256: b.sha256 })) : [], testsUnmapped: testsDoc ? testsDoc.unmapped : [] };
+  }
+
+  // The allow list (R3a, designc.handover.dependencies/1, docs/handover-dependencies.schema.json): for every element with a code area,
+  // the elements its code may depend on, derived from the relationships. An endpoint's owners are itself when coded, else its nearest
+  // coded ancestor, else its coded descendants (d.code never nests, DC009). Direction is the rel's; structural and person rels add
+  // nothing. Pure and deterministic. Returns null when no element has a code area.
+  function handoverDependencies(modelText, elementsDoc) {
+    const coded = elementsDoc.elements.filter(e => e.code && e.code.length);
+    if (!coded.length) return null;
+    const m = parseSrc(modelText);
+    const byId = new Map(coded.map(e => [e.id, e]));
+    const owners = id => {
+      const own = [];
+      if (byId.has(m.label(id))) return [m.label(id)];
+      for (let p = m.elements.get(id).parent; p; p = m.elements.get(p).parent) if (byId.has(m.label(p))) return [m.label(p)];
+      for (const e of m.elements.values()) if (byId.has(m.label(e.id)) && m.isAncestor(id, e.id)) own.push(m.label(e.id));
+      return own;
+    };
+    const allow = new Map(coded.map(e => [e.id, new Set()]));
+    for (const r of m.rels) {
+      if (structural(m, r) || m.elements.get(r.src).kind === 'person' || m.elements.get(r.dst).kind === 'person') continue;
+      const to = owners(r.dst);
+      for (const s of owners(r.src)) for (const t of to) if (s !== t) allow.get(s).add(t);
+    }
+    const cmp = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
+    const out = coded.map(e => ({ element: e.id, code: e.code, ...(e.repo ? { repo: e.repo } : {}), allows: [...allow.get(e.id)].sort(cmp) })).sort((a, b) => cmp(a.element, b.element));
+    return { schema: 'designc.handover.dependencies/1', elements: out };
   }
 
   // The test map (D6, designc.handover.tests/1, docs/handover-tests.schema.json): for each element with a code area, the tests that
@@ -487,5 +678,5 @@ ${frozen.map(f => `  - { path: ${q(f.path)}, hash: ${hash16(f.text)} }`).join('\
   }
 
 
-  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
+  Object.assign(Core, { holdoutCaseHash, holdoutSpec, acceptanceCopies, handoverUi, handoverElements, handoverAgents, acceptanceSpecs, buildBrief, handoverDomain, handoverTests, handoverDependencies, handoverScenarioTests, handoverPlan, frozenAs, rebindable, latestHandoverModel });
 })(typeof module === 'object' && typeof require === 'function' ? require('./core.js') : Core);

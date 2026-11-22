@@ -236,6 +236,51 @@ What designc does for an ACP agent:
 - **Flags bypasses.** An external agent can still change files directly with its own tools. Anything that changes in the registry during an ACP turn without an approved write is flagged in the panel and recorded as `unapproved_change` in the ledger.
 - **Records** its tool calls, permission answers, writes and turns in `ledger/agents.jsonl`, tagged with the agent name, next to the built-in agent's.
 
+**With the app closed.** `designc-mcp.js` also runs on its own under plain `node`, no Electron and no `DESIGNC_MCP_URL`. Register it in Claude Code with:
+
+```
+claude mcp add designc -- node /path/to/designc-mcp.js --registry /path/to/registry
+```
+
+The registry is `--registry <dir>`, else `DESIGNC_REGISTRY`, else the current folder. Four read tools are available, served from the files on disk with the same names and answers as the app: `read_model`, `get_findings`, `get_gate`, `get_code_map` (from `asbuilt/facts.json`). Every other tool answers `designc app not running: <name> needs the designc app open on this registry`. If `DESIGNC_MCP_URL` points at an app that is not listening, the server falls back to this mode.
+
+### Language server (LSP)
+
+`lsp/server.js` is a stdio language server over the headless core, so an editor or Claude Code shows designc's findings with the app closed. Run it with `node lsp/server.js --stdio` (`npm run lsp`).
+
+What it gives:
+
+- Live findings: the same rows as the app's Problems view (model parse errors, DC and AG findings, suppressed ones left out), on the file each lives in, including `!include`d `.dsl` files.
+- YAML errors in `decisions/`, `requirements/`, `proposals/`, `acceptance/` and the other registry folders, ledger (`ledger/*.jsonl`) parse errors, and duplicate proposal ids.
+- Hover and completion for `d.*` properties and their values in `.dsl` files.
+- Go to definition and find references for an element, from a DSL identifier or name, from `binds`/`elements`/`artifact` in `decisions/`, `requirements/`, `work/`, `proposals/` and `scenarios/`, and from `promoted_against` in a bound decision. They follow `!include` files; `!include` itself goes to the included file.
+- Rename (with prepare): put the cursor on an identifier to rename the identifier, or on a name string or a YAML name to rename the name. The one `WorkspaceEdit` updates every DSL reference (views included) and every YAML reference above (`promoted_against.element` and `.name` text in bound decisions too), never `handovers/`. Before returning it, the server re-parses the result and requires that the model changed only by that rename (a name change, or no change for an identifier); otherwise it refuses with the first difference. It never changes a `promoted_against` hash. A bound decision on a renamed element then shows the existing `changed since promotion` clause, and you re-bind it with Rebind all in the app (the rename's log line lists them).
+- Rename refuses, with a reason: a model with parse errors, an identifier that is invalid, reserved or already used, a name already used by another element or reading the same as a sibling, a dotted identifier, a name shared by two elements, a cursor on nothing, and a YAML file the server cannot edit safely (an anchor, or a multi-line list that mentions the old name).
+- Code actions: `Set d.x: value` for a finding whose hint is `set d.x: a | b`, and `Record a decision for DCnnn` (a new `decisions/<id>.yaml`, offered only when the client supports `documentChanges` and file creation).
+- Unsaved edits are checked: the open buffers overlay the files on disk. The server is read-only and never writes the registry: every change is an edit the client applies.
+
+What it does not give yet: `work/` and code-quality problems.
+
+**In the app.** The editor's markers, hover, completion, go to definition, find references, rename and quick fixes all come from this same server. The app forks `lsp/server.js` with `--node-ipc` when a folder opens and relays its messages over Electron IPC (no extra dependency). Rename in the editor applies the server's edit to open buffers (undoable) and to closed files on disk. Problems and the gate still use the in-process rows.
+
+The registry is the nearest folder above the document that holds `designc.json`, else `--registry <dir>`, else `DESIGNC_REGISTRY`, else `initializationOptions.registry`, else the first workspace folder with a `designc.json` or `model/workspace.dsl`. Open the registry folder (or set `--registry`); the app need not run.
+
+**Claude Code.** A local plugin with a `.lsp.json` at its root (the `lspServers` fields are `command`, `args`, `extensionToLanguage`, and more; checked against the plugin reference, code.claude.com/docs/en/plugins-reference):
+
+```json
+{
+  "designc": {
+    "command": "node",
+    "args": ["/path/to/Designc/app/lsp/server.js", "--stdio"],
+    "extensionToLanguage": { ".dsl": "structurizr", ".yaml": "yaml", ".yml": "yaml", ".jsonl": "jsonl" }
+  }
+}
+```
+
+Unverified: whether a standalone `.lsp.json` is a bare name-to-config map (as above) or wrapped in `"lspServers"`; the reference documents the inline `lspServers` form in `plugin.json`. Run `claude plugin validate <plugin dir>` and adjust. Not run in the session that wrote this.
+
+**VS Code.** VS Code needs an extension to talk to any server. Use a generic LSP client extension pointed at `node /path/to/Designc/app/lsp/server.js --stdio`, with a document selector for `**/*.dsl`, `**/*.yaml` and `**/ledger/*.jsonl`. A designc VS Code extension is not shipped.
+
 The limit to be clear about: designc governs everything that flows through ACP and its own MCP tools. It does not sandbox the agent process. What an agent does with its own native tools depends on that agent's permission settings, so leave its auto-approve modes off, and run it inside the MAF harness under ACS where you need hard enforcement rather than detection.
 
 For offline demos, `dev/mock-acp-agent.js` is a scripted ACP agent that uses the MCP bridge, asks permission, writes through the client and tries a write the policy refuses:
@@ -356,7 +401,7 @@ Opening a folder with no `designc.json` starts at **Set up this folder** (also H
 }
 ```
 
-`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and one OpenAPI file in `contracts/openapi/` pins the contract between them for the handover.
+`repos` (optional) names the repositories of an app split across several, `{ "Api": "../api", "Ui": "../ui" }`, with paths relative to the registry folder. With it, Extract Code Map reads every repo and `codebase` is ignored; see [Code map](#code-map), Split repos. Each element with `d.code` then names its repo with `d.repo` (lint DC010), and each relationship between repos names what crosses it: `d.operation` (an `operationId` in an OpenAPI file in `contracts/openapi/`, sync) or `d.message` (an event of a pinned domain pack, async). The gate checks coverage per relationship (clause `unpinned_contract`), and the pinned files travel with the handover. A relationship belongs to a requirement only when **both** ends are that requirement's elements (or inside one), so a hub like `Api` does not pick up every call into it. For an async relationship the gate also checks the producer (clause kind `domain`): the source, or an ancestor or descendant of it, must own (`d.owns`) an aggregate of the same pack that publishes the event, or a P model must announce `e<Event>`. When a relationship's operation or event resolves, `elements.json` becomes schema `designc.handover.elements/3` and both ends carry the same resolved interface (`interfaces`: `calls`/`serves` for an operation with its inlined schema, `publishes`/`consumes` for an event with its fields, each with a `version` hash); see `docs/handover-elements-3.schema.json`. With nothing resolved the file stays /1 or /2.
 
 To use your Claude subscription instead of an API key, set `"llm": { "provider": "claude-code" }` (model optional) and run `claude login` once. Designc runs the local `claude` CLI in print mode with tools off, and drops `ANTHROPIC_API_KEY` from its environment so it cannot bill the API. Designc's own tools (read_model and the rest) are offered to the model as text and it asks for them with a JSON reply, so the agent panel, its roles (Grill-me included) and the permission prompts work as they do with any provider. Each turn starts a fresh CLI process, so replies take a few seconds.
 
@@ -405,6 +450,8 @@ Declare how long calls may take and the app checks the numbers agree. Only synch
 | Property | On | Meaning |
 | --- | --- | --- |
 | `d.timeout` | relationship | Caller timeout in milliseconds |
+| `d.operation` | relationship | The OpenAPI `operationId` this call carries (sync, across repos or zones); must be in a pinned file in `contracts/openapi/` |
+| `d.message` | relationship | The pack event this call carries (async); `pack/Event`, or a bare `Event` that exactly one pinned pack defines |
 | `d.latency.max` | element | Worst-case own processing time in milliseconds, not counting its calls |
 | `d.fanout` | element | `sequential` (default) or `parallel`: whether its outgoing calls add up or only the slowest counts |
 | `d.retry.budget` | element | Retry amplification this receiver tolerates; overrides the project default |
@@ -434,10 +481,13 @@ With split repos (`repos` in `designc.json`) a pattern is relative to the repo t
 - **DC000 (error).** A pattern the contract rejects (absolute, `..`, `.`, empty folder names, `[...]`, `{...}`, `a**b`), an empty list or blank entry, or `d.code` without `d.risk`.
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
 - **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
+- **DC011 (warning, error).** A relationship that crosses a repo or a zone (both ends declare one, inherited from the container, and they differ) and names neither `d.operation` nor `d.message` is an unknown (warning). A `d.operation` that is not in exactly one pinned OpenAPI file, or a `d.message` that no pinned pack (or more than one) defines, is an error. Person ends and parent/child pairs are skipped; suppress with `d.suppress`.
 
 **A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
 
-The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc (JS and Python) runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
+Each handover also carries `dependencies.json`, an allow list derived from the relationships: per element with `d.code`, the other coded elements its code may depend on (a relationship between containers applies to the code areas inside them). Add a relationship to allow a new dependency; it is a new handover.
+
+The meaning of a pattern is written down once, as test cases in `docs/path-patterns.json`, which designc runs and any coding agent that reads `d.code` should run too. `extract.components` and `extract.coverage` in `designc.json` use the same meaning.
 
 ## Agent contracts
 
@@ -483,15 +533,15 @@ The results file is `{"metrics": {"task_success": 0.9}, "cases": 40}` (schema in
 
 ## Command line (CI)
 
-The same compiler and gate run without the app, for CI. It needs Python 3.9 or later and PyYAML:
+The same compiler and gate run without the app, for CI. `check` and `eval` run the Node core (`scripts/designc-core.js`), so the app, `designc-core` and `python3 -m designc check` give the same `ready` and findings; the Python command is a thin shim over it. They need Node on the PATH (no Node: exit 2). `record`, `work` and `verify-ledger` are Python and need Python 3.9 or later and PyYAML:
 
 ```
-cd python
-python3 -m designc check /path/to/registry          # findings and gate clauses
-python3 -m designc check /path/to/registry --json   # the same as JSON
+node scripts/designc-core.js check /path/to/registry          # findings and gate clauses
+node scripts/designc-core.js check /path/to/registry --json   # the same as JSON
+cd python && python3 -m designc check /path/to/registry        # the shim: same output, same exit code
 ```
 
-`python3 -m designc check <registry> --item <id>` prints the gate scoped to one work item. `python3 -m designc work <registry>` lists work items with their state and clashes, `verify-ledger` checks the ledger trail, and `eval` runs agent evals.
+`check <registry> --item <id>` prints the gate scoped to one work item. `python3 -m designc work <registry>` lists work items with their state and clashes, `verify-ledger` checks the ledger trail, and `eval` runs agent evals (also in the Node core).
 
 Exit code 0 means ready for handover, 1 means the gate is blocked, 2 means the folder could not be read. It does not do drift, diff, blast radius or code extraction; those stay in the app.
 
@@ -628,7 +678,7 @@ npm run e2e                       # @critical journeys; the app stays hidden on 
 
 The end-to-end journeys (`e2e/journeys.spec.js`) drive the real app on a scratch copy of the registry. `scripts/agent-gate.sh` runs them as a Claude Code Stop hook. They are never skipped or loosened.
 
-Core logic, the extractors, the ledger, the Python CLI parity and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
+Core logic, the extractors, the ledger, the CLI and the governance checks run in Node. Headless app runs use `DESIGNC_SNAPSHOT` and `DESIGNC_STEPS` (see below). Scripted mocks in `dev/` (gateway, ACP agent, AG-UI service, Anthropic API, eval and suite runners) let you try the agent flows without real keys. Always run flows against a copy of `sample-registry`, because they write files.
 
 ## Layout of the code
 
@@ -640,10 +690,10 @@ Core logic, the extractors, the ledger, the Python CLI parity and the governance
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. Same rules and results as the Python CLI in `python/designc` |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. The one front end: the app, `designc-core` and the `python -m designc check` shim all run it |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
-| `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app |
+| `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app, or four read tools headless |
 | `dev/mock-gateway.js` | Scripted OpenAI-compatible gateway for demos and tests |
 | `dev/mock-acp-agent.js` | Scripted ACP agent for demos and tests |
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |

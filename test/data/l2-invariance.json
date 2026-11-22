@@ -1,0 +1,719 @@
+{
+ "sample-registry": {
+  "findings": [
+   {
+    "code": "DC002",
+    "sev": "error",
+    "msg": "lost update: 2 containers (Fares API, Escalation Worker) write \"Booking\" and at least one has no concurrency control",
+    "loc": {
+     "kind": "element",
+     "id": "bookings",
+     "label": "Bookings DB",
+     "names": [
+      "Bookings DB"
+     ],
+     "line": 53,
+     "file": "model/workspace.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r8",
+      "label": "Escalation Worker → Bookings DB",
+      "names": [
+       "Escalation Worker",
+       "Bookings DB"
+      ],
+      "line": 103,
+      "file": "model/workspace.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r4",
+      "label": "Fares API → Bookings DB",
+      "names": [
+       "Fares API",
+       "Bookings DB"
+      ],
+      "line": 76,
+      "file": "model/workspace.dsl"
+     }
+    ],
+    "hint": "declare one owner with d.owns, or set d.concurrency: optimistic",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC004",
+    "sev": "error",
+    "msg": "retries on a non-idempotent call duplicate side effects",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 94,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "send an idempotency key, or remove the retry",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC001",
+    "sev": "warning",
+    "msg": "at-least-once delivery, receiver idempotency undeclared",
+    "loc": {
+     "kind": "relationship",
+     "id": "r5",
+     "label": "Fares API → Escalation Worker",
+     "names": [
+      "Fares API",
+      "Escalation Worker"
+     ],
+     "line": 82,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "set d.idempotent: yes | no",
+    "unknown": true,
+    "suppressed": null
+   },
+   {
+    "code": "DC003",
+    "sev": "warning",
+    "msg": "4 synchronous hops: Fares Portal → Fares API → Surcharge Engine → Weather Feed Adapter → Weather Feed Vendor; end-to-end availability ≈ 99.10%",
+    "loc": {
+     "kind": "relationship",
+     "id": "r2",
+     "label": "Fares Portal → Fares API",
+     "names": [
+      "Fares Portal",
+      "Fares API"
+     ],
+     "line": 63,
+     "file": "model/workspace.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r3",
+      "label": "Fares API → Surcharge Engine",
+      "names": [
+       "Fares API",
+       "Surcharge Engine"
+      ],
+      "line": 68,
+      "file": "model/workspace.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r6",
+      "label": "Surcharge Engine → Weather Feed Adapter",
+      "names": [
+       "Surcharge Engine",
+       "Weather Feed Adapter"
+      ],
+      "line": 88,
+      "file": "model/workspace.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r7",
+      "label": "Weather Feed Adapter → Weather Feed Vendor",
+      "names": [
+       "Weather Feed Adapter",
+       "Weather Feed Vendor"
+      ],
+      "line": 94,
+      "file": "model/workspace.dsl"
+     }
+    ],
+    "hint": "make a hop async, cache, or add a fallback",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC005",
+    "sev": "warning",
+    "msg": "critical, but runs 1 instance",
+    "loc": {
+     "kind": "element",
+     "id": "surcharge",
+     "label": "Surcharge Engine",
+     "names": [
+      "Surcharge Engine"
+     ],
+     "line": 33,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "add an instance, or record the fallback as an accepted risk",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC005",
+    "sev": "warning",
+    "msg": "critical, but runs 1 instance",
+    "loc": {
+     "kind": "element",
+     "id": "catAdapter",
+     "label": "Weather Feed Adapter",
+     "names": [
+      "Weather Feed Adapter"
+     ],
+     "line": 40,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "add an instance, or record the fallback as an accepted risk",
+    "unknown": false,
+    "suppressed": "vendor licence is per-instance; falls back to cached losses (ADR-014)"
+   },
+   {
+    "code": "DC006",
+    "sev": "warning",
+    "msg": "crosses platform → vendor; d.authenticated undeclared",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 94,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "unknown on a boundary is a finding",
+    "unknown": true,
+    "suppressed": null
+   },
+   {
+    "code": "DC008",
+    "sev": "warning",
+    "msg": "retries multiply load ×24 along Fares Portal → Fares API → Surcharge Engine → Weather Feed Adapter → Weather Feed Vendor; Weather Feed Vendor tolerates ×4",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 94,
+     "file": "model/workspace.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r2",
+      "label": "Fares Portal → Fares API",
+      "names": [
+       "Fares Portal",
+       "Fares API"
+      ],
+      "line": 63,
+      "file": "model/workspace.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r3",
+      "label": "Fares API → Surcharge Engine",
+      "names": [
+       "Fares API",
+       "Surcharge Engine"
+      ],
+      "line": 68,
+      "file": "model/workspace.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r6",
+      "label": "Surcharge Engine → Weather Feed Adapter",
+      "names": [
+       "Surcharge Engine",
+       "Weather Feed Adapter"
+      ],
+      "line": 88,
+      "file": "model/workspace.dsl"
+     }
+    ],
+    "hint": "retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC011",
+    "sev": "warning",
+    "msg": "crosses zone platform → vendor and names no d.operation or d.message",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 94,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "set d.operation: <operationId> (sync) or d.message: <event> (async)",
+    "unknown": true,
+    "suppressed": null
+   }
+  ],
+  "fingerprints": [
+   [
+    "traveller",
+    "0e15feaea9d059ea"
+   ],
+   [
+    "catVendor",
+    "fb04083903695b2d"
+   ],
+   [
+    "fares",
+    "1b1fbcf27ebadf26"
+   ],
+   [
+    "portal",
+    "7ce4ce750b479e89"
+   ],
+   [
+    "api",
+    "f077c86507b91029"
+   ],
+   [
+    "surcharge",
+    "aeffefc05bacf8fc"
+   ],
+   [
+    "catAdapter",
+    "faf7e82cf973f808"
+   ],
+   [
+    "escalations",
+    "96d4a351566ca81d"
+   ],
+   [
+    "bookings",
+    "0c5d1f9a3686cb0e"
+   ]
+  ],
+  "verdict": "a8d8644d30812849",
+  "errors": []
+ },
+ "split-registry": {
+  "findings": [
+   {
+    "code": "DC009",
+    "sev": "error",
+    "msg": "code area \"src/**\" may overlap \"src/Shop.Api/**\" of \"Shop.Api\"",
+    "loc": {
+     "kind": "element",
+     "id": "ui",
+     "label": "ui",
+     "names": [
+      "ui"
+     ],
+     "line": 7,
+     "file": "model/workspace.dsl"
+    },
+    "related": [
+     {
+      "kind": "element",
+      "id": "api",
+      "label": "Shop.Api",
+      "names": [
+       "Shop.Api"
+      ],
+      "line": 4,
+      "file": "model/workspace.dsl"
+     }
+    ],
+    "hint": "make the areas disjoint: a file in both areas has no single owner",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC011",
+    "sev": "warning",
+    "msg": "crosses repo Ui → Api and names no d.operation or d.message",
+    "loc": {
+     "kind": "relationship",
+     "id": "r1",
+     "label": "ui → Shop.Api",
+     "names": [
+      "ui",
+      "Shop.Api"
+     ],
+     "line": 10,
+     "file": "model/workspace.dsl"
+    },
+    "related": [],
+    "hint": "set d.operation: <operationId> (sync) or d.message: <event> (async)",
+    "unknown": true,
+    "suppressed": null
+   }
+  ],
+  "fingerprints": [
+   [
+    "shop",
+    "7c9d2dc4a1eed918"
+   ],
+   [
+    "api",
+    "2dcd1d82dd54acee"
+   ],
+   [
+    "ui",
+    "53a4944f8863be4b"
+   ]
+  ],
+  "verdict": "51a7cd70d7e6a464",
+  "errors": []
+ },
+ "include-registry": {
+  "findings": [
+   {
+    "code": "DC002",
+    "sev": "error",
+    "msg": "lost update: 2 containers (Fares API, Escalation Worker) write \"Booking\" and at least one has no concurrency control",
+    "loc": {
+     "kind": "element",
+     "id": "bookings",
+     "label": "Bookings DB",
+     "names": [
+      "Bookings DB"
+     ],
+     "line": 6,
+     "file": "model/fares/workers.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r8",
+      "label": "Escalation Worker → Bookings DB",
+      "names": [
+       "Escalation Worker",
+       "Bookings DB"
+      ],
+      "line": 48,
+      "file": "model/relationships.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r4",
+      "label": "Fares API → Bookings DB",
+      "names": [
+       "Fares API",
+       "Bookings DB"
+      ],
+      "line": 21,
+      "file": "model/relationships.dsl"
+     }
+    ],
+    "hint": "declare one owner with d.owns, or set d.concurrency: optimistic",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC004",
+    "sev": "error",
+    "msg": "retries on a non-idempotent call duplicate side effects",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 39,
+     "file": "model/relationships.dsl"
+    },
+    "related": [],
+    "hint": "send an idempotency key, or remove the retry",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC001",
+    "sev": "warning",
+    "msg": "at-least-once delivery, receiver idempotency undeclared",
+    "loc": {
+     "kind": "relationship",
+     "id": "r5",
+     "label": "Fares API → Escalation Worker",
+     "names": [
+      "Fares API",
+      "Escalation Worker"
+     ],
+     "line": 27,
+     "file": "model/relationships.dsl"
+    },
+    "related": [],
+    "hint": "set d.idempotent: yes | no",
+    "unknown": true,
+    "suppressed": null
+   },
+   {
+    "code": "DC003",
+    "sev": "warning",
+    "msg": "4 synchronous hops: Fares Portal → Fares API → Surcharge Engine → Weather Feed Adapter → Weather Feed Vendor; end-to-end availability ≈ 99.10%",
+    "loc": {
+     "kind": "relationship",
+     "id": "r2",
+     "label": "Fares Portal → Fares API",
+     "names": [
+      "Fares Portal",
+      "Fares API"
+     ],
+     "line": 8,
+     "file": "model/relationships.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r3",
+      "label": "Fares API → Surcharge Engine",
+      "names": [
+       "Fares API",
+       "Surcharge Engine"
+      ],
+      "line": 13,
+      "file": "model/relationships.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r6",
+      "label": "Surcharge Engine → Weather Feed Adapter",
+      "names": [
+       "Surcharge Engine",
+       "Weather Feed Adapter"
+      ],
+      "line": 33,
+      "file": "model/relationships.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r7",
+      "label": "Weather Feed Adapter → Weather Feed Vendor",
+      "names": [
+       "Weather Feed Adapter",
+       "Weather Feed Vendor"
+      ],
+      "line": 39,
+      "file": "model/relationships.dsl"
+     }
+    ],
+    "hint": "make a hop async, cache, or add a fallback",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC005",
+    "sev": "warning",
+    "msg": "critical, but runs 1 instance",
+    "loc": {
+     "kind": "element",
+     "id": "surcharge",
+     "label": "Surcharge Engine",
+     "names": [
+      "Surcharge Engine"
+     ],
+     "line": 18,
+     "file": "model/fares.dsl"
+    },
+    "related": [],
+    "hint": "add an instance, or record the fallback as an accepted risk",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC005",
+    "sev": "warning",
+    "msg": "critical, but runs 1 instance",
+    "loc": {
+     "kind": "element",
+     "id": "catAdapter",
+     "label": "Weather Feed Adapter",
+     "names": [
+      "Weather Feed Adapter"
+     ],
+     "line": 25,
+     "file": "model/fares.dsl"
+    },
+    "related": [],
+    "hint": "add an instance, or record the fallback as an accepted risk",
+    "unknown": false,
+    "suppressed": "vendor licence is per-instance; falls back to cached losses (ADR-014)"
+   },
+   {
+    "code": "DC006",
+    "sev": "warning",
+    "msg": "crosses platform → vendor; d.authenticated undeclared",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 39,
+     "file": "model/relationships.dsl"
+    },
+    "related": [],
+    "hint": "unknown on a boundary is a finding",
+    "unknown": true,
+    "suppressed": null
+   },
+   {
+    "code": "DC008",
+    "sev": "warning",
+    "msg": "retries multiply load ×24 along Fares Portal → Fares API → Surcharge Engine → Weather Feed Adapter → Weather Feed Vendor; Weather Feed Vendor tolerates ×4",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 39,
+     "file": "model/relationships.dsl"
+    },
+    "related": [
+     {
+      "kind": "relationship",
+      "id": "r2",
+      "label": "Fares Portal → Fares API",
+      "names": [
+       "Fares Portal",
+       "Fares API"
+      ],
+      "line": 8,
+      "file": "model/relationships.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r3",
+      "label": "Fares API → Surcharge Engine",
+      "names": [
+       "Fares API",
+       "Surcharge Engine"
+      ],
+      "line": 13,
+      "file": "model/relationships.dsl"
+     },
+     {
+      "kind": "relationship",
+      "id": "r6",
+      "label": "Surcharge Engine → Weather Feed Adapter",
+      "names": [
+       "Surcharge Engine",
+       "Weather Feed Adapter"
+      ],
+      "line": 33,
+      "file": "model/relationships.dsl"
+     }
+    ],
+    "hint": "retry at one layer only, lower d.retry.max, or raise d.retry.budget on the receiver",
+    "unknown": false,
+    "suppressed": null
+   },
+   {
+    "code": "DC011",
+    "sev": "warning",
+    "msg": "crosses zone platform → vendor and names no d.operation or d.message",
+    "loc": {
+     "kind": "relationship",
+     "id": "r7",
+     "label": "Weather Feed Adapter → Weather Feed Vendor",
+     "names": [
+      "Weather Feed Adapter",
+      "Weather Feed Vendor"
+     ],
+     "line": 39,
+     "file": "model/relationships.dsl"
+    },
+    "related": [],
+    "hint": "set d.operation: <operationId> (sync) or d.message: <event> (async)",
+    "unknown": true,
+    "suppressed": null
+   }
+  ],
+  "fingerprints": [
+   [
+    "traveller",
+    "0e15feaea9d059ea"
+   ],
+   [
+    "catVendor",
+    "fb04083903695b2d"
+   ],
+   [
+    "fares",
+    "1b1fbcf27ebadf26"
+   ],
+   [
+    "portal",
+    "7ce4ce750b479e89"
+   ],
+   [
+    "api",
+    "f077c86507b91029"
+   ],
+   [
+    "surcharge",
+    "aeffefc05bacf8fc"
+   ],
+   [
+    "catAdapter",
+    "faf7e82cf973f808"
+   ],
+   [
+    "escalations",
+    "96d4a351566ca81d"
+   ],
+   [
+    "bookings",
+    "0c5d1f9a3686cb0e"
+   ]
+  ],
+  "verdict": "a8d8644d30812849",
+  "errors": []
+ },
+ "core-registry": {
+  "findings": [],
+  "fingerprints": [
+   [
+    "s",
+    "947f625fd644e7ab"
+   ],
+   [
+    "ui",
+    "031accb07c64679c"
+   ],
+   [
+    "api",
+    "34c42507cbf2ac93"
+   ],
+   [
+    "db",
+    "e424da2fcec5f393"
+   ]
+  ],
+  "verdict": "588ceef035dae9d4",
+  "errors": []
+ }
+}

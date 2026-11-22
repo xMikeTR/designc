@@ -140,6 +140,7 @@ test('a repository with no commits yet gives commit null; a broken git leaves th
   const noGit = registry();
   const bin = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-rec-bin-'));
   fs.symlinkSync(execFileSync('which', ['python3'], { encoding: 'utf8' }).trim(), path.join(bin, 'python3'));
+  fs.symlinkSync(process.execPath, path.join(bin, 'node'));
   check(noGit, [], { PATH: bin });
   assert.ok(!('commit' in gates(noGit)[0]));
 });

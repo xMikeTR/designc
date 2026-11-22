@@ -1,0 +1,35 @@
+{
+  "name": "Select",
+  "import": "@your-org/ui",
+  "category": "form-field",
+  "description": "Pick one value from a list of options, with a label and optional validation.",
+  "useWhen": [
+    "A value picked from a fixed or fetched list of options"
+  ],
+  "avoidWhen": [
+    "Free text: use TextField"
+  ],
+  "props": {
+    "label": {
+      "type": "string",
+      "required": true
+    },
+    "required": {
+      "type": "boolean"
+    }
+  },
+  "data": {
+    "options": {
+      "shape": "list",
+      "required": true
+    }
+  },
+  "states": [
+    "ready",
+    "disabled"
+  ],
+  "status": "bound",
+  "source": {
+    "path": "packages/ui/src/Select.tsx"
+  }
+}

@@ -6,9 +6,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
-const PY = path.join(__dirname, '..', 'python');
-const skip = spawnSync('python3', ['-c', 'import yaml']).status === 0 ? false : 'python3 with PyYAML is not installed';
 const DSL = 'workspace "Q" {\n  model {\n    s = softwareSystem "Bookings" {\n      api = container "Bookings API"\n    }\n  }\n}\n';
 
 test('a superseded decision does not block the gate', () => {
@@ -25,13 +24,13 @@ test('a superseded decision no longer covers its finding', () => {
   assert.deepEqual(g.clauses.map(c => c.text), ['DC005 on Bookings API is neither fixed nor accepted']);
 });
 
-test('the Python gate ignores a superseded decision too', { skip }, () => {
+test('the Python gate ignores a superseded decision too', () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'designc-superseded-'));
   fs.mkdirSync(path.join(root, 'model')); fs.mkdirSync(path.join(root, 'decisions'));
   fs.writeFileSync(path.join(root, 'designc.json'), '{}');
   fs.writeFileSync(path.join(root, 'model/workspace.dsl'), DSL);
   fs.writeFileSync(path.join(root, 'decisions/D-1.yaml'), 'id: D-1\nstatus: superseded\nbinds: [Bookings API]\nstatement: a\n');
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json', '--no-record'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json', '--no-record'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr + r.stdout);
   assert.deepEqual(JSON.parse(r.stdout).gate.clauses, []);
 });

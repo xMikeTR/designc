@@ -4,57 +4,115 @@ const Core = (() => {
   const PP = typeof require === 'function' && typeof module === 'object' ? require('./pathpattern.js') : PathPattern;
   const RC = typeof require === 'function' && typeof module === 'object' ? require('./records.js') : Records;
   const UI = typeof require === 'function' && typeof module === 'object' ? require('./ui.js') : Ui;
+  const TS = () => (typeof require === 'function' && typeof module === 'object' ? require('./test-scenarios.js') : TestScenarios); // lazy: the renderer loads test-scenarios.js after core.js
   // ---------- tokenizer ----------
-  function tokenize(src) {
-    const toks = []; let i = 0, line = 1; const n = src.length;
+  function tokenize(src, file = null) {
+    const toks = []; let i = 0, line = 1, ls = 0; const n = src.length; // ls: offset of the current line's first character; `c` and `n` on a token are its column (UTF-16) and length
     while (i < n) {
       const c = src[i];
-      if (c === '\n') { line++; i++; continue; }
+      if (c === '\n') { line++; i++; ls = i; continue; }
       if (c === ' ' || c === '\t' || c === '\r') { i++; continue; }
       if (c === '/' && src[i + 1] === '/') { while (i < n && src[i] !== '\n') i++; continue; }
       if (c === '#') { while (i < n && src[i] !== '\n') i++; continue; }
       if (c === '/' && src[i + 1] === '*') {
         i += 2;
-        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') line++; i++; }
+        while (i < n && !(src[i] === '*' && src[i + 1] === '/')) { if (src[i] === '\n') { line++; ls = i + 1; } i++; }
         i += 2; continue;
       }
       if (c === '"') {
-        const start = line; let j = i + 1, s = '';
+        const start = line, col = i - ls; let j = i + 1, s = '';
         while (j < n && src[j] !== '"') {
           if (src[j] === '\\' && j + 1 < n) { s += src[j + 1]; j += 2; continue; }
-          if (src[j] === '\n') line++;
+          if (src[j] === '\n') { line++; ls = j + 1; }
           s += src[j]; j++;
         }
-        toks.push({ t: 'str', v: s, line: start }); i = j + 1; continue;
+        toks.push({ t: 'str', v: s, line: start, c: col, n: Math.min(j + 1, n) - i }); i = j + 1; continue;
       }
-      if (c === '{' || c === '}' || c === '=') { toks.push({ t: c, line }); i++; continue; }
-      if (c === '-' && src[i + 1] === '>') { toks.push({ t: '->', line }); i += 2; continue; }
+      if (c === '{' || c === '}' || c === '=') { toks.push({ t: c, line, c: i - ls, n: 1 }); i++; continue; }
+      if (c === '-' && src[i + 1] === '>') { toks.push({ t: '->', line, c: i - ls, n: 2 }); i += 2; continue; }
       const num = /^\d+(?![\w.])/.exec(src.slice(i, i + 20));
-      if (num) { toks.push({ t: 'id', v: num[0], line }); i += num[0].length; continue; }
+      if (num) { toks.push({ t: 'id', v: num[0], line, c: i - ls, n: num[0].length }); i += num[0].length; continue; }
       const m = /^[A-Za-z_!][\w.]*/.exec(src.slice(i, i + 200));
-      if (m) { toks.push({ t: 'id', v: m[0], line }); i += m[0].length; continue; }
-      toks.push({ t: '?', v: c, line }); i++;
+      if (m && m[0] === '!include') {
+        // `!include <path>`: the rest of the line is the path, so a `/` in it is not lexed as `?`.
+        const at0 = i; i += m[0].length;
+        while (i < n && (src[i] === ' ' || src[i] === '\t')) i++;
+        let raw = '';
+        if (src[i] === '"') { i++; while (i < n && src[i] !== '"' && src[i] !== '\n') raw += src[i++]; if (src[i] === '"') i++; }
+        else while (i < n && !/\s/.test(src[i])) raw += src[i++];
+        toks.push({ t: 'include', v: raw, line, c: at0 - ls, n: i - at0 });
+        continue;
+      }
+      if (m) { toks.push({ t: 'id', v: m[0], line, c: i - ls, n: m[0].length }); i += m[0].length; continue; }
+      toks.push({ t: '?', v: c, line, c: i - ls, n: 1 }); i++;
     }
+    toks.forEach(t => { t.file = file; });
     return toks;
   }
 
   const KINDS = { person: 'person', softwareSystem: 'softwareSystem', softwaresystem: 'softwareSystem', container: 'container', component: 'component' };
   const SKIP = new Set(['views', 'styles', 'configuration', 'deploymentEnvironment', '!docs', '!adrs', '!identifiers', '!impliedRelationships', 'branding', 'terminology']);
 
+  // ---------- includes ----------
+  const MAX_INCLUDE_DEPTH = 8;
+  // `!include` path rules: relative to the including file, same folder or below, one .dsl file per line.
+  function includePath(fromFile, raw) {
+    if (/^https?:/i.test(raw)) return { error: 'designc does not fetch included URLs: copy the file into the model folder' };
+    if (raw.startsWith('/') || /^[A-Za-z]:/.test(raw) || raw.includes('\\')) return { error: `include path "${raw}" must be relative, with forward slashes` };
+    if (raw.split('/').includes('..')) return { error: `include path "${raw}" must stay in the including file's folder or below` };
+    if (!/\.dsl$/.test(raw)) return { error: 'include a .dsl file; directories and URLs are not included' };
+    const dir = fromFile && fromFile.includes('/') ? fromFile.slice(0, fromFile.lastIndexOf('/')) : '';
+    const parts = (dir ? dir.split('/') : []).concat(raw.split('/')).filter(x => x && x !== '.');
+    return { path: parts.join('/') };
+  }
+  // The file a model row (error, finding, clause) belongs to: its own, else the model root (a model read without a path).
+  const locFile = (x, modelPath) => (x && x.file) || modelPath;
+  // Registry paths of the `.dsl` files in the model's folder (the unit that is read, frozen and dirty-checked).
+  function modelFiles(paths, modelPath) {
+    const dir = modelPath && modelPath.includes('/') ? modelPath.slice(0, modelPath.lastIndexOf('/') + 1) : '';
+    return paths.filter(p => /\.dsl$/.test(p) && p.startsWith(dir) && !/^(handovers|asbuilt)\//.test(p) && !/(^|\/)node_modules\//.test(p)).slice().sort();
+  }
+
   // ---------- parser ----------
-  function parse(src) {
-    const toks = tokenize(src); let p = 0; const errors = [];
+  function parse(src, { path = null, resolve: resolveInc = null } = {}) {
+    const errors = [], sources = [{ path, text: src }];
+    // Positions for the language server (m.symbols): a side table only; nothing else in the model reads it.
+    const pos = t => (t ? { file: t.file ?? null, line: t.line, c: t.c, n: t.n } : null);
+    const symDefs = [], symRefs = [], symIncludes = [], viewToks = [];
+    const errAt = (tok, msg) => errors.push({ line: tok.line, msg, file: tok.file ?? null });
+    // Expand `!include` tokens in place (textual inclusion at token level), recursively.
+    function expand(list, stack) {
+      if (!list.some(t => t.t === 'include')) return list;
+      const out = [];
+      for (const t of list) {
+        if (t.t !== 'include') { out.push(t); continue; }
+        const inc = { at: pos(t), path: null }; symIncludes.push(inc);
+        if (!t.v) { errAt(t, '!include needs a path'); continue; }
+        const r = includePath(t.file, t.v);
+        if (r.error) { errAt(t, r.error); continue; }
+        if (!resolveInc) { errAt(t, '!include is not available here: the model was read without its folder'); continue; }
+        if (stack.includes(r.path)) { errAt(t, `include cycle: ${stack.concat(r.path).join(' → ')}`); continue; }
+        if (stack.length - (path == null ? 0 : 1) >= MAX_INCLUDE_DEPTH) { errAt(t, `includes nest deeper than ${MAX_INCLUDE_DEPTH} files`); continue; }
+        const text = resolveInc(r.path);
+        if (text == null) { errAt(t, `cannot read included file "${t.v}" (${r.path})`); continue; }
+        if (!sources.some(s => s.path === r.path)) sources.push({ path: r.path, text });
+        inc.path = r.path;
+        out.push(...expand(tokenize(text, r.path), stack.concat(r.path)));
+      }
+      return out;
+    }
+    const toks = expand(tokenize(src, path), path == null ? [] : [path]); let p = 0;
     let curEnv = null; const envScopes = [];
     const els = new Map(), idents = new Map(), pending = [], envs = [], instRefs = [], depViews = []; let name = 'Untitled workspace', auto = 0;
     const peek = (k = 0) => toks[p + k];
     const next = () => toks[p++];
-    const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg });
+    const err = (tok, msg) => errors.push({ line: tok ? tok.line : (toks.length ? toks[toks.length - 1].line : 1), msg, file: tok ? tok.file : (toks.length ? toks[toks.length - 1].file : path) });
     const addTags = (set, s) => s.split(',').map(x => x.trim()).filter(Boolean).forEach(x => set.add(x));
 
     function strings() { const out = []; while (peek() && peek().t === 'str') out.push(next().v); return out; }
-    function skipBlock() {
+    function skipBlock(collect) {
       let depth = 0;
-      while (p < toks.length) { const t = next(); if (t.t === '{') depth++; else if (t.t === '}') { depth--; if (depth === 0) return; } }
+      while (p < toks.length) { const t = next(); if (collect && t.t === 'id') collect.push(t); if (t.t === '{') depth++; else if (t.t === '}') { depth--; if (depth === 0) return; } }
     }
     function props(target) {
       const kw = next();
@@ -67,22 +125,25 @@ const Core = (() => {
       }
       if (peek()) next(); else err(kw, 'properties block is missing }');
     }
-    function element(kindTok, ident, parent) {
-      const kind = KINDS[kindTok.v]; const s = strings();
+    function element(kindTok, ident, parent, identTok = null) {
+      const kind = KINDS[kindTok.v]; const nameTok = peek() && peek().t === 'str' ? peek() : null; const s = strings();
       const el = { id: ident || ('_e' + (++auto)), ident, name: s[0] || '(unnamed)', kind, tags: new Set(['Element']),
-        technology: null, description: s[1] || null, parent, props: {}, line: kindTok.line };
+        technology: null, description: s[1] || null, parent, props: {}, line: kindTok.line, file: kindTok.file };
       if (kind === 'person' || kind === 'softwareSystem') { if (s[2]) addTags(el.tags, s[2]); }
       else { el.technology = s[2] || null; if (s[3]) addTags(el.tags, s[3]); }
       if (!s[0]) err(kindTok, `${kindTok.v} needs a name`);
       if (ident) { if (idents.has(ident)) err(kindTok, `identifier "${ident}" is already used`); idents.set(ident, el.id); }
       els.set(el.id, el);
+      symDefs.push({ id: el.id, ident, identAt: pos(identTok), nameAt: pos(nameTok) });
       if (peek() && peek().t === '{') { const open = next(); if (!body(el)) err(open, `block for "${el.name}" is missing }`); }
     }
-    function relationship(srcRef, arrow) {
+    function relationship(srcRef, arrow, srcTok = null) {
       const dst = next();
       if (!dst || dst.t !== 'id') { err(arrow, 'expected a destination after ->'); return; }
+      if (srcTok) symRefs.push({ ident: srcRef, at: pos(srcTok), role: 'rel-src', id: null });
+      symRefs.push({ ident: dst.v, at: pos(dst), role: 'rel-dst', id: null });
       const s = strings();
-      const r = { srcRef, dstRef: dst.v, description: s[0] || '', technology: s[1] || null, props: {}, line: arrow.line };
+      const r = { srcRef, dstRef: dst.v, description: s[0] || '', technology: s[1] || null, props: {}, line: arrow.line, file: arrow.file };
       if (peek() && peek().t === '{') {
         const open = next();
         while (peek() && peek().t !== '}') {
@@ -113,10 +174,10 @@ const Core = (() => {
         if (peek(1) && peek(1).t === '->' && !ident) { next(); const arrow = next(); deployRel(v, arrow); continue; }
         if (!DEPLOY[v]) { next(); strings(); if (peek() && peek().t === '{') skipBlock(); else err(kw, `unknown keyword "${v}"`); continue; }
         next();
-        const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line };
+        const node = { kind: v, ident, name: '', description: null, technology: null, instances: null, tags: new Set(), props: {}, children: [], line: kw.line, file: kw.file };
         if (v === 'containerInstance' || v === 'softwareSystemInstance') {
           const ref = peek();
-          if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; instRefs.push(node); }
+          if (!ref || ref.t !== 'id') err(kw, `${v} needs an element`); else { next(); node.refName = ref.v; symRefs.push({ ident: ref.v, at: pos(ref), role: 'instance', id: null }); instRefs.push(node); }
           strings();
         } else {
           const s = strings();
@@ -138,11 +199,11 @@ const Core = (() => {
     function deployRel(src, arrow) {
       const dst = peek() && peek().t === 'id' ? next().v : null, s = strings();
       if (peek() && peek().t === '{') skipBlock();
-      curEnv.pending.push({ src, dst, description: s[0] || null, technology: s[1] || null, line: arrow.line });
+      curEnv.pending.push({ src, dst, description: s[0] || null, technology: s[1] || null, line: arrow.line, file: arrow.file });
     }
     function environment(ident) {
       const kw = next(); const s = strings();
-      const env = { ident, name: s[0] || '(unnamed)', nodes: [], rels: [], line: kw.line };
+      const env = { ident, name: s[0] || '(unnamed)', nodes: [], rels: [], line: kw.line, file: kw.file };
       curEnv = { env, idents: new Map(), pending: [] };
       if (!s[0]) err(kw, 'deploymentEnvironment needs a name');
       if (peek() && peek().t === '{') { const open = next(); if (!deployBody(env.nodes, null)) err(open, `block for "${env.name}" is missing }`); }
@@ -155,12 +216,13 @@ const Core = (() => {
       while (p < toks.length) {
         const t = peek();
         if (t.t === '}') { next(); return; }
-        if (t.t === '{') { skipBlock(); continue; }
+        if (t.t === '{') { skipBlock(viewToks); continue; }
         next();
-        if (t.t !== 'id' || t.v !== 'deployment') continue;
+        if (t.t !== 'id' || t.v !== 'deployment') { if (t.t === 'id') viewToks.push(t); continue; }
         const head = []; while (peek() && peek().t !== '{' && peek().t !== '}' && head.length < 6) head.push(next());
         if (head.length < 2) { err(t, 'deployment view needs a scope and an environment'); continue; }
-        depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line });
+        if (head[0].t === 'id' && head[0].v !== '*') symRefs.push({ ident: head[0].v, at: pos(head[0]), role: 'view-scope', id: null });
+        depViews.push({ scope: head[0].v, environment: head[1].v, key: head[2] && head[2].t === 'str' ? head[2].v : null, line: t.line, file: t.file });
       }
     }
     // returns true when it stopped on a closing brace
@@ -176,10 +238,10 @@ const Core = (() => {
           if (v === 'deploymentEnvironment') { environment(null); continue; }
           if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && peek(2).v === 'deploymentEnvironment') { next(); next(); environment(v); continue; }
           if (peek(1) && peek(1).t === '=' && peek(2) && peek(2).t === 'id' && KINDS[peek(2).v]) {
-            next(); next(); const k = next(); element(k, v, owner ? owner.id : null); continue;
+            next(); next(); const k = next(); element(k, v, owner ? owner.id : null, t); continue;
           }
           if (KINDS[v]) { next(); element(t, null, owner ? owner.id : null); continue; }
-          if (peek(1) && peek(1).t === '->') { next(); const a = next(); relationship(v, a); continue; }
+          if (peek(1) && peek(1).t === '->') { next(); const a = next(); relationship(v, a, t); continue; }
           if (v === 'workspace' || v === 'model') {
             next(); const s = strings(); if (v === 'workspace' && s[0]) name = s[0];
             if (peek() && peek().t === '{') { const open = next(); if (!body(null)) err(open, `${v} block is missing }`); }
@@ -203,13 +265,13 @@ const Core = (() => {
     const rels = [];
     pending.forEach((r, i) => {
       const src = resolve(r.srcRef), dst = resolve(r.dstRef);
-      if (!src) { errors.push({ line: r.line, msg: `unknown element "${r.srcRef}"` }); return; }
-      if (!dst) { errors.push({ line: r.line, msg: `unknown element "${r.dstRef}"` }); return; }
-      rels.push({ id: 'r' + (i + 1), src, dst, description: r.description, technology: r.technology, props: r.props, line: r.line });
+      if (!src) { errors.push({ line: r.line, file: r.file, msg: `unknown element "${r.srcRef}"` }); return; }
+      if (!dst) { errors.push({ line: r.line, file: r.file, msg: `unknown element "${r.dstRef}"` }); return; }
+      rels.push({ id: 'r' + (i + 1), src, dst, description: r.description, technology: r.technology, props: r.props, line: r.line, file: r.file });
     });
     instRefs.forEach(n => {
       const id = resolve(n.refName), el = id && els.get(id);
-      if (!el) { errors.push({ line: n.line, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
+      if (!el) { errors.push({ line: n.line, file: n.file, msg: `unknown element "${n.refName}"` }); n.name = n.refName; return; }
       n.ref = el.id; n.name = el.name;
     });
     envScopes.forEach(({ env, idents: ids, pending: rs }) => {
@@ -217,25 +279,29 @@ const Core = (() => {
       const pathOf = ref => { const n = typeof ref === 'string' ? ids.get(ref) : ref; return n ? paths.get(n) : null; };
       rs.forEach(r => {
         const src = pathOf(r.src), dst = r.dst == null ? null : pathOf(r.dst);
-        if (!src) { errors.push({ line: r.line, msg: `unknown deployment element "${r.src}"` }); return; }
-        if (!dst) { errors.push({ line: r.line, msg: `unknown deployment element "${r.dst}"` }); return; }
-        env.rels.push({ src, dst, description: r.description, technology: r.technology, line: r.line });
+        if (!src) { errors.push({ line: r.line, file: r.file, msg: `unknown deployment element "${r.src}"` }); return; }
+        if (!dst) { errors.push({ line: r.line, file: r.file, msg: `unknown deployment element "${r.dst}"` }); return; }
+        env.rels.push({ src, dst, description: r.description, technology: r.technology, line: r.line, file: r.file });
       });
     });
     const views = [];
     depViews.forEach(v => {
       const env = envs.find(e => e.name === v.environment || (e.ident && e.ident === v.environment));
-      if (!env) { errors.push({ line: v.line, msg: `deployment view names unknown environment "${v.environment}"` }); return; }
+      if (!env) { errors.push({ line: v.line, file: v.file, msg: `deployment view names unknown environment "${v.environment}"` }); return; }
       let system = null;
       if (v.scope !== '*') {
         const id = idents.get(v.scope), el = id && els.get(id);
-        if (!el) { errors.push({ line: v.line, msg: `deployment view names unknown software system "${v.scope}"` }); return; }
-        if (el.kind !== 'softwareSystem') { errors.push({ line: v.line, msg: 'deployment view scope must be a software system' }); return; }
+        if (!el) { errors.push({ line: v.line, file: v.file, msg: `deployment view names unknown software system "${v.scope}"` }); return; }
+        if (el.kind !== 'softwareSystem') { errors.push({ line: v.line, file: v.file, msg: 'deployment view scope must be a software system' }); return; }
         system = el.id;
       }
-      views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line, system });
+      views.push({ scope: v.scope, environment: env.name, key: v.key, line: v.line, file: v.file, system });
     });
+    for (const t of viewToks) if (idents.has(t.v)) symRefs.push({ ident: t.v, at: pos(t), role: 'view', id: null });
+    for (const r of symRefs) r.id = idents.get(r.ident) || null;
     const m = makeModel(name, els, rels, errors);
+    m.symbols = { defs: symDefs, refs: symRefs, includes: symIncludes };
+    m.sources = sources;
     m.deployment = { environments: envs, views };
     return m;
   }
@@ -244,8 +310,8 @@ const Core = (() => {
     const m = { name, elements: els, rels, errors, relById: new Map(rels.map(r => [r.id, r])) };
     m.label = id => { const parts = []; let c = els.get(id); while (c) { parts.push(c.name); c = c.parent ? els.get(c.parent) : null; } return parts.reverse().join('/'); };
     m.isAncestor = (a, child) => { let c = els.get(child); while (c && c.parent) { if (c.parent === a) return true; c = els.get(c.parent); } return false; };
-    m.locEl = e => ({ kind: 'element', id: e.id, label: e.name, names: [e.name], line: e.line });
-    m.locRel = r => ({ kind: 'relationship', id: r.id, label: `${els.get(r.src).name} → ${els.get(r.dst).name}`, names: [els.get(r.src).name, els.get(r.dst).name], line: r.line });
+    m.locEl = e => ({ kind: 'element', id: e.id, label: e.name, names: [e.name], line: e.line, file: e.file ?? null });
+    m.locRel = r => ({ kind: 'relationship', id: r.id, label: `${els.get(r.src).name} → ${els.get(r.dst).name}`, names: [els.get(r.src).name, els.get(r.dst).name], line: r.line, file: r.file ?? null });
     return m;
   }
 
@@ -259,6 +325,7 @@ const Core = (() => {
       'd.retry.max': { k: 'int' }, 'd.encrypted': { k: 'enum', v: YN }, 'd.authenticated': { k: 'enum', v: YN },
       'd.writes': { k: 'list' }, 'd.concurrency': { k: 'enum', v: ['none', 'optimistic', 'pessimistic'] },
       'd.timeout': { k: 'int' }, 'd.suppress': { k: 'suppress' },
+      'd.operation': { k: 'str' }, 'd.message': { k: 'str' }, // R4: the OpenAPI operationId (sync) or pack event (async) this rel carries
     },
     element: {
       'd.instances': { k: 'int' }, 'd.critical': { k: 'enum', v: YN }, 'd.zone': { k: 'str' },
@@ -641,6 +708,39 @@ const Core = (() => {
         }
         return out;
       } },
+    { code: 'DC011', title: 'Untyped boundary', source: 'designc-compiler-recommendations R4',
+      doc: 'A relationship that crosses a repo or a zone must name what crosses: d.operation (an OpenAPI operationId, sync) or d.message (a pack event, async). A name that is not in a pinned file is an error.',
+      fn(m, o) {
+        const out = [];
+        const repoOf = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+        const b = o && o.boundary;
+        for (const r of m.rels) {
+          if (structural(m, r)) continue;
+          const es = m.elements.get(r.src), ed = m.elements.get(r.dst);
+          if (es.kind === 'person' || ed.kind === 'person') continue;
+          const op = get(r, 'd.operation'), msg = get(r, 'd.message');
+          if (op == null && msg == null) {
+            const rs = repoOf(es), rd = repoOf(ed), zs = zone(m, r.src), zd = zone(m, r.dst), what = [];
+            if (rs && rd && rs !== rd) what.push(`repo ${rs} → ${rd}`);
+            if (zs && zd && zs !== zd) what.push(`zone ${zs} → ${zd}`);
+            if (what.length) out.push(D('DC011', 'warning', `crosses ${what.join(' and ')} and names no d.operation or d.message`, m.locRel(r), { hint: 'set d.operation: <operationId> (sync) or d.message: <event> (async)', unknown: true }));
+          }
+          if (!b) continue;
+          if (op != null) {
+            const hits = ((b.operations && b.operations.operations) || []).filter(x => x.operationId === String(op));
+            if (!hits.length) out.push(D('DC011', 'error', `operationId "${op}" is not in a pinned OpenAPI file (contracts/openapi/*.yaml)`, m.locRel(r)));
+            else {
+              const dup = ((b.operations && b.operations.errors) || []).find(e => e.code === 'duplicate_operation' && e.operationId === String(op));
+              if (dup) out.push(D('DC011', 'error', dup.message, m.locRel(r)));
+            }
+          }
+          if (msg != null) {
+            const res = Core.resolveMessage(b.events || [], msg);
+            if (res.error) out.push(D('DC011', 'error', res.error, m.locRel(r)));
+          }
+        }
+        return out;
+      } },
   ];
 
   const SEV = { error: 2, warning: 1, note: 0 };
@@ -709,9 +809,9 @@ const Core = (() => {
     if (!live.some(f => decisionsFor(f, [{ ...dec, status: 'bound' }]).length)) out.push(`no current ${arr(dec.resolves).join(', ')} finding is on ${arr(dec.binds).join(', ') || 'any element it binds'}`);
     return out;
   }
-  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, workStates = {}, repos = null, apiContracts = [], now = Date.now() }) {
+  function gate({ model, diags, decisions, requirements, ledger, registryErrors = [], evidenceHosts = [], businessOwners = [], scenarios = [], evals = [], acceptance = [], tokens = null, minTextSize = DEFAULT_MIN_TEXT, contractGaps = [], domains = null, ui = null, testScenarios = [], workStates = {}, repos = null, apiContracts = [], operations = null, now = Date.now() }) {
     const clauses = [];
-    if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line });
+    if (model.errors.length) clauses.push({ kind: 'parse', text: `${model.errors.length} model error(s) must be fixed first`, line: model.errors[0].line, file: model.errors[0].file ?? null });
     for (const [kind, list] of [['decision', decisions], ['requirement', requirements]]) {
       const seen = new Set(), said = new Set();
       for (const x of list) { if (seen.has(x.id) && !said.has(x.id)) { said.add(x.id); clauses.push({ kind: 'duplicate', text: `duplicate id ${x.id}`, [kind]: x.id }); } seen.add(x.id); }
@@ -725,7 +825,7 @@ const Core = (() => {
     for (const f of diags) {
       if (f.suppressed || f.sev === 'note') continue;
       if (bound.some(dec => covers(dec, f))) continue;
-      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, finding: f, about: [...f.loc.names, ...f.related.flatMap(r => r.names || [])] });
+      clauses.push({ kind: 'finding', text: `${f.code} on ${f.loc.label} is neither fixed nor accepted`, line: f.loc.line, file: f.loc.file ?? null, finding: f, about: [...f.loc.names, ...f.related.flatMap(r => r.names || [])] });
     }
     const boundBusiness = new Set(decisions.filter(d => d.status === 'bound' && d.kind === 'business').map(d => d.id));
     for (const dec of decisions) {
@@ -763,21 +863,49 @@ const Core = (() => {
       }
       if (dec.effect === 'fix' || (dec.effect === 'build' && dec.work != null && workStates[dec.work] === 'done')) {
         const still = diags.filter(f => !f.suppressed && (dec.resolves || []).includes(f.code) && (dec.binds || []).some(b => f.loc.names.includes(b)));
-        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${(dec.resolves || []).join(', ')} is ${dec.effect === 'build' ? 'built' : 'fixed'}, but the model still raises it`, decision: dec.id, line: still[0].loc.line });
+        if (still.length) clauses.push({ kind: 'decision', text: `${dec.id} says ${(dec.resolves || []).join(', ')} is ${dec.effect === 'build' ? 'built' : 'fixed'}, but the model still raises it`, decision: dec.id, line: still[0].loc.line, file: still[0].loc.file ?? null });
       }
     }
     for (const req of requirements) {
       const traced = decisions.some(d => d.requirement === req.id) || (req.elements || []).some(n => [...model.elements.values()].some(e => e.name === n));
       if (!traced) clauses.push({ kind: 'requirement', text: `${req.id} is not traced to any element or decision`, requirement: req.id });
     }
-    // Split repos: a requirement that reaches more than one declared repo needs the seam written down (OpenAPI) before it is ready.
+    // Split repos (R4a): coverage, not existence. Each cross-repo rel of a requirement must name a d.operation found in exactly one
+    // pinned OpenAPI file (or, async, a d.message a pinned pack defines). A rel is a requirement's only when BOTH ends are its elements or inside one (C-D11).
     const declared = Object.keys(repos || {});
-    if (declared.length && !(apiContracts || []).length) {
+    if (declared.length) {
       const repoOf = e => { for (let c = e; c; c = c.parent ? model.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+      const ops = (operations && operations.operations) || [], opErrs = (operations && operations.errors) || [];
+      const events = Core.packEvents(domains ? domains.packs : []);
       for (const req of requirements) {
-        const names = req.elements || [], span = new Set();
-        for (const e of model.elements.values()) if (names.includes(e.name)) { const r = repoOf(e); if (r) span.add(r); }
-        if (span.size > 1) clauses.push({ kind: 'unpinned_contract', text: `${req.id} spans ${[...span].sort().join(', ')}: pin an OpenAPI contract in contracts/openapi/ first`, requirement: req.id, about: names.map(String) });
+        const names = req.elements || [], mine = [...model.elements.values()].filter(e => names.includes(e.name)), span = new Set();
+        for (const e of mine) { const r = repoOf(e); if (r) span.add(r); }
+        const touches = id => mine.some(e => e.id === id || model.isAncestor(e.id, id));
+        let crossing = 0;
+        for (const r of model.rels) {
+          if (structural(model, r)) continue;
+          const es = model.elements.get(r.src), ed = model.elements.get(r.dst);
+          if (es.kind === 'person' || ed.kind === 'person') continue;
+          const rs = repoOf(es), rd = repoOf(ed);
+          if (!rs || !rd || rs === rd || !(touches(r.src) && touches(r.dst))) continue;
+          crossing++;
+          const head = `${req.id}: ${es.name} → ${ed.name} crosses ${rs} → ${rd}`;
+          let why = null;
+          if (interaction(r) === 'async') {
+            const msg = get(r, 'd.message');
+            if (msg == null || Core.resolveMessage(events, msg).error) why = `${head} and names no d.message from a pinned pack`;
+          } else {
+            const op = get(r, 'd.operation');
+            if (op == null) why = `${head} and names no d.operation`;
+            else {
+              const hits = ops.filter(x => x.operationId === String(op));
+              if (!hits.length) why = `${head} and names d.operation "${op}", which is not in a pinned OpenAPI file`;
+              else if (hits.length > 1) { const dup = opErrs.find(e => e.code === 'duplicate_operation' && e.operationId === String(op)); why = `${head} and names d.operation "${op}", which is defined more than once (in ${dup ? dup.files.join(', ') : [...new Set(hits.map(h => h.file))].sort().join(', ')})`; }
+            }
+          }
+          if (why) clauses.push({ kind: 'unpinned_contract', text: why, requirement: req.id, rel: r.id, about: [es.name, ed.name] });
+        }
+        if (span.size > 1 && !crossing) clauses.push({ kind: 'unpinned_contract', text: `${req.id} spans ${[...span].sort().join(', ')} but no relationship crosses between them: model the call and name its d.operation`, requirement: req.id, about: names.map(String) });
       }
     }
     for (const nd of ledger.filter(e => e.kind === 'needs_decision' && e.status === 'open'))
@@ -798,6 +926,8 @@ const Core = (() => {
     clauses.push(...acceptanceClauses({ model, acceptance, requirements, decisions }));
     clauses.push(...tokenClauses(tokens, minTextSize));
     clauses.push(...contractGaps.map(g => ({ kind: 'contracts', text: g.text, about: [g.name] })));
+    // B4: structured test scenarios (ui specs name the commits transitions, testScenarios are the parsed test-scenarios/*.yaml with _path).
+    clauses.push(...TS().clauses({ specs: ui ? ui.specs : [], testScenarios }));
     if (!domains && !ui) return { ready: clauses.length === 0, clauses };
     const notes = [];
     if (domains) { const dc = domainClauses({ model, ledger, ...domains }); clauses.push(...dc.clauses); notes.push(...dc.notes); }
@@ -819,7 +949,39 @@ const Core = (() => {
     return [...model.elements.values()].map(e => ({ id: e.id, name: e.name, owns: get(e, 'd.owns') || [] })).filter(o => o.owns.length);
   }
   function domainClauses({ model, ledger, listed = [], packs = [], sources = {}, behaviour = [] }) {
-    return DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
+    const out = DM.clauses({ packs, listed, sources, behaviour, ledger: ledger || [], owners: domainOwners(model), isAncestor: (a, b) => model.isAncestor(a, b), hash: hash16 });
+    out.clauses.push(...producerClauses({ model, packs, behaviour }));
+    return out;
+  }
+  // Producer check (R4b): a rel naming a pack event (d.message) must come from an element that publishes it: the source, an
+  // ancestor or a descendant of it owns (d.owns) an aggregate of the same pack that publishes the event, or a P model
+  // announces e<Event>. An unresolved message is DC011's and the coverage clause's job. Consumers have no declared subscriptions.
+  function producerClauses({ model, packs = [], behaviour = [] }) {
+    const events = Core.packEvents(packs);
+    const read = packs.map(p => DM.read(p.text, p.load, p.key)).filter(r => r.pack && !r.error).map(r => ({ ...r.pack, id: r.pack.id || '' }));
+    const said = DM.announced(behaviour), out = [];
+    for (const r of model.rels) {
+      if (structural(model, r)) continue;
+      const es = model.elements.get(r.src), ed = model.elements.get(r.dst);
+      if (!es || !ed || es.kind === 'person' || ed.kind === 'person') continue;
+      const msg = get(r, 'd.message');
+      if (msg == null) continue;
+      const res = Core.resolveMessage(events, msg);
+      if (res.error) continue;
+      const { pack, name } = res.event;
+      const publishes = e => (get(e, 'd.owns') || []).some(o => {
+        const q = DM.qualify(o, read);
+        if (q.error) return false;
+        const i = q.id.indexOf('/');
+        if (q.id.slice(0, i) !== pack) return false;
+        const agg = read.find(p => p.id === pack).aggregates.find(a => a.name === q.id.slice(i + 1));
+        return !!agg && agg.publishes.includes(name);
+      });
+      const ok = [...model.elements.values()].some(e => (e.id === es.id || model.isAncestor(e.id, es.id) || model.isAncestor(es.id, e.id)) && publishes(e));
+      if (ok || said.has(`e${name}`)) continue;
+      out.push({ kind: 'domain', text: `${es.name} → ${ed.name} names d.message ${pack}/${name}, but ${es.name} owns no aggregate that publishes it: own one (d.owns) or announce e${name} in a P model`, about: [es.name, ed.name], rel: r.id });
+    }
+    return out;
   }
   // ---------- design tokens  ----------
   // design-tokens/tokens.json is a W3C design tokens file. A text size token (a token whose path has a font size
@@ -946,6 +1108,7 @@ const Core = (() => {
     const kept = g.clauses.filter(c => {
       if (c.kind === 'parse' || c.kind === 'registry' || c.kind === 'duplicate') return true;
       if (c.kind === 'requirement') return wanted.includes(c.requirement);
+      if (c.kind === 'scenario' && c.requirement != null) return wanted.includes(c.requirement);
       if (c.decision != null) { const d = decisions.find(x => x.id === c.decision); return !d || touches(d.binds || []); }
       return c.about ? touches(c.about) : true;
     });
@@ -1002,7 +1165,8 @@ const Core = (() => {
 
   // ---------- gate record ----------
   // The model revision a handover and a gate event both carry: r- plus 8 hex of the model text.
-  const modelRevision = text => `r-${hash16(String(text)).slice(0, 8)}`;
+  // `includes` is `model.sources.slice(1)`: the included files, so a change in one is a new revision. Empty: the text alone.
+  const modelRevision = (text, includes = []) => `r-${hash16(String(text) + includes.map(f => '\0\0' + f.path + '\0' + f.text).join('')).slice(0, 8)}`;
   // Canonical JSON: keys sorted at every level, no whitespace. Mirrored in python/designc/record.py.
   const canonical = v => Array.isArray(v) ? `[${v.map(canonical).join(',')}]`
     : v && typeof v === 'object' ? `{${Object.keys(v).sort().map(k => `${JSON.stringify(k)}:${canonical(v[k])}`).join(',')}}`
@@ -1013,17 +1177,17 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'test-scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';
   // evals/ holds the definitions (.yaml) the gate reads and the results files it does not, so only the definitions count.
-  return files.map(f => f.path).filter(p => p === model || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')) && !(p.startsWith('evals/') && !/\.ya?ml$/.test(p)));
+  return files.map(f => f.path).filter(p => p === model || modelFiles([p], model).length || GATE_INPUTS.some(i => p === i || p.startsWith(i + '/')) && !(p.startsWith('evals/') && !/\.ya?ml$/.test(p)));
 }
-function gateRecord({ modelText, diags, gate, source, git }) {
+function gateRecord({ modelText, modelIncludes = [], diags, gate, source, git }) {
     const clauses = byCanonical(gate.clauses.map(c => ({ kind: c.kind, text: c.text })));
     const findings = byCanonical(diags.map(d => ({ code: d.code, sev: d.sev, on: d.loc.label, loc: d.loc.kind, unknown: !!d.unknown, suppressed: !!d.suppressed })));
-    const ev = { kind: 'gate', source, revision: modelRevision(modelText), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
+    const ev = { kind: 'gate', source, revision: modelRevision(modelText, modelIncludes), ready: !!gate.ready, verdict: verdictHash({ ready: !!gate.ready, clauses, findings }), clauses, findings };
     if (git) { ev.commit = git.commit; ev.dirty = !!git.dirty; }
     return ev;
   }
@@ -1104,7 +1268,7 @@ function gateRecord({ modelText, diags, gate, source, git }) {
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { _shared: { makeModel, hash16, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, KINDS, SKIP, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
@@ -1115,4 +1279,12 @@ if (typeof module !== 'undefined') {
   require('./core-forecast.js');
   require('./core-handover.js');
   require('./core-levels.js');
+  require('./core-operations.js');
+  // One rule set in every host: loading core in Node always means the full set (canvas properties + AG rules), as in the IDE.
+  // The flag stops app.js and canvas.js registering them a second time.
+  if (!Object.prototype.hasOwnProperty.call(Core, '__dcvRegistered')) {
+    Core.registerProperties(require('./canvas/vocabulary.js').coreSpecs());
+    Core.registerRules(require('./canvas/agentic-rules.js').makeRules(Core));
+    Core.__dcvRegistered = true;
+  }
 }

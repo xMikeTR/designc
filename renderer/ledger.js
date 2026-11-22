@@ -27,13 +27,13 @@ const Ledger = (() => {
 
   // STAGES keys in renderer/app.js must equal this list (R-lint: see test/ledger.schema.test.js).
   // D7: `caught_by` is the stage that SHOULD have caught the escape. `pipeline` stays as "other / unknown" so old rows validate.
-  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'parity', 'review', 'qa', 'pipeline'];
+  const CAUGHT_BY = ['S1-lint', 'S1-p', 'S1-grill', 'ui-spec', 'ui-preview', 'ui-code', 'ui-visual', 'acceptance', 'holdout', 'scenario', 'parity', 'review', 'qa', 'pipeline'];
   // Where an escape came from, beside the stage that should have caught it (slice 33).
   const ORIGINS = ['spec_gap', 'design_error', 'translation_error', 'gate_gap', 'catalogue_gap'];
   // `escape.bucket`: where a QA bug stood in parity (renderer/parity-qa.js BUCKETS; test/d7-contract.test.js keeps them equal).
   const ESCAPE_BUCKETS = ['caught', 'not_captured', 'state_not_recorded', 'not_flagged', 'triage'];
   // `stage_verdict.stage`: the stages whose verdicts the Factory projects (D7, docs/stage-verdict.example.json).
-  const VERDICT_STAGES = ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'review', 'qa'];
+  const VERDICT_STAGES = ['ui-code', 'ui-visual', 'acceptance', 'holdout', 'scenario', 'review', 'qa'];
 
   const STREAM = {
     check: 'checks.jsonl',
@@ -254,9 +254,9 @@ const Ledger = (() => {
     // `change_ts` is when the change under test was made (epoch ms, null when unknown). A failure never carries detail text.
     stage_verdict: {
       required: ['run', 'stage', 'outcome', 'change_ts'],
-      optional: ['task', 'element', 'screen', 'item', 'round', 'failures'],
+      optional: ['task', 'element', 'screen', 'item', 'round', 'failures', 'scenario'],
       enums: { stage: VERDICT_STAGES, outcome: ['pass', 'fail', 'could_not_run'] },
-      types: { run: 'string', task: 'string', element: 'string', screen: 'string', item: 'string', round: 'number', failures: 'array', change_ts: 'number|null' },
+      types: { run: 'string', task: 'string', element: 'string', screen: 'string', item: 'string', scenario: 'string', round: 'number', failures: 'array', change_ts: 'number|null' },
       rules: ['verdict_shape'],
     },
     // A pipeline started building a handover, and how that run ended (Build's Runs). `run` is the pipeline's own

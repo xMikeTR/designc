@@ -1,7 +1,6 @@
 /* designc desktop: UI packs and screen specs. Pure, no I/O, no dependencies.
    Dual-load like renderer/domain.js: <script src="ui.js"> after ui-schemas.js and before core.js in the renderer,
-   require('./ui.js') from core.js and tests. python/designc/ui.py mirrors every clause word for word
-   (test/ui-parity.test.js). docs/ui-contract.md says what the pieces are.
+   require("./ui.js") from core.js and tests (no Python mirror since A2). docs/ui-contract.md says what the pieces are.
    A UI pack (components + templates, source: a kind: ui registry) is pinned into ui/pack/. A screen spec
    (ui/specs/<screen>.json) fills a template's slots with the pack's components. The checks are a port of the
    standalone kit's validate.ts: pack (check 1), spec (check 2), states (check 3) and the holdout clause. */
@@ -48,7 +47,7 @@ const Ui = (() => {
   // ---------- a small JSON Schema checker ----------
   // The subset docs/ui-*.schema.json uses: type, enum, const, pattern, minLength, minItems, minProperties, minimum,
   // required, properties, additionalProperties, items, allOf with if/then, oneOf and local $ref. Messages are Ajv's
-  // in spirit; python/designc/ui.py has the same checker.
+  // in spirit.
   const kindOf = v => (v === null ? 'null' : Array.isArray(v) ? 'array' : typeof v === 'number' ? (Number.isInteger(v) ? 'integer' : 'number') : typeof v);
   const typeOk = (t, v) => { const k = kindOf(v); return t === k || (t === 'number' && k === 'integer'); };
   function resolve(ref, root) {
@@ -370,6 +369,7 @@ const Ui = (() => {
     }
     for (const [screen, s] of [...parsed].sort((a, b) => (a[0] < b[0] ? -1 : 1))) if (!held.has(screen)) coverage.push(`${s.path}: no holdout sample (ui/holdout/${screen}.json), so a page hard-coded to the visible sample would pass`);
     stateRules({ parsed, acceptance, scenarios, push, coverage });
+    hostRules({ parsed, push });
     previewRules({ parsed, acceptance, ledger, previews, specHashes, uiElements, push });
     legacyRules({ parsed, legacy, decisions, ledger, previews, specHashes, readP, push, notes });
     return { clauses: out, notes, coverage };
@@ -379,6 +379,32 @@ const Ui = (() => {
   // records is coverage. R5: a commits transition cannot be recorded read-only; a state reachable only through such edges is uncovered.
   const ACCEPTANCE_STATES = ['ready', 'loading', 'empty', 'error', 'forbidden'];
 
+  // B2: a spec with `host {screen, state, anchor}` is an overlay (a hosted spec). Cross-spec, so it runs here and not in checkSpec: the
+  // host spec exists (and is not this one), has the state, has a placement with that id and a locator, has a click transition into the
+  // state on exactly that locator, and is not itself hosted (one level only).
+  function hostRules({ parsed, push }) {
+    const placements = spec => Object.values(isMap(spec.slots) ? spec.slots : {}).flatMap(l => (Array.isArray(l) ? l : [])).filter(isMap);
+    const loc = l => `${l.role} '${l.name}'`;
+    for (const { path, spec } of [...parsed.values()].filter(x => isMap(x.spec) && isMap(x.spec.host)).sort(byPath2)) {
+      const h = spec.host, extra = { path, screen: spec.screen };
+      const say = (at, msg, fix) => push(fmt(path, `/host${at}`, msg, fix), extra);
+      const mine = parsed.get(h.screen);
+      if (typeof h.screen !== 'string' || h.screen === spec.screen) { say('/screen', `'${show(h.screen)}' cannot host itself`, 'Name the screen this overlay opens over'); continue; }
+      if (!mine || !isMap(mine.spec)) { say('/screen', `'${h.screen}' is not a spec in ui/specs/`, 'Name the screen this overlay opens over'); continue; }
+      const host = mine.spec;
+      if (isMap(host.host)) { say('/screen', `'${h.screen}' is itself hosted (by ${show(host.host.screen)}); an overlay cannot open over an overlay`, 'Host it on a page spec'); continue; }
+      const names = isMap(host.states) ? Object.keys(host.states) : [];
+      if (!names.includes(h.state)) { say('/state', `State '${show(h.state)}' is not in spec ${h.screen}`, `The spec has: ${names.join(', ')}`); continue; }
+      const anchor = placements(host).find(p => p.id === h.anchor);
+      if (!anchor) { say('/anchor', `'${show(h.anchor)}' is not a placement id in spec ${h.screen}`, `The spec has: ${placements(host).map(p => p.id).join(', ')}`); continue; }
+      if (!isMap(anchor.locator)) { say('/anchor', `placement '${h.anchor}' in spec ${h.screen} has no locator`, 'Give the anchor a role and name the host clicks'); continue; }
+      const into = (Array.isArray(host.transitions) ? host.transitions : []).filter(t => isMap(t) && t.to === h.state);
+      if (!into.some(t => isMap(t.on) && isMap(t.on.click) && t.on.click.role === anchor.locator.role && t.on.click.name === anchor.locator.name)) {
+        const have = into.map(t => `${show(t.from)} → ${t.to} on ${isMap(t.on) && isMap(t.on.click) ? `click ${loc(t.on.click)}` : isMap(t.on) && t.on.event ? `event ${show(t.on.event)}` : 'another trigger'}`);
+        say('', `spec ${h.screen} has no transition into '${h.state}' that clicks ${loc(anchor.locator)}`, have.length ? `Transitions into it: ${have.join('; ')}` : 'No transition leads into it');
+      }
+    }
+  }
   // D8, a spec copied from a legacy one (ui/legacy/<screen>.json exists next to ui/specs/<screen>.json). What changed from the legacy
   // screen has to be said: an added or changed placement has a locator, a removed one is covered by a bound business decision whose
   // `removes` holds its {role, name} (screen this one or absent), and a changed look (the template, or a token-typed prop) is

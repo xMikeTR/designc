@@ -1,0 +1,103 @@
+{
+  "screen": "orders-tag",
+  "component": "OrdersTagPopover",
+  "intent": "Tag every order whose reference matches the string entered.",
+  "ticket": "ORD-1",
+  "template": "popover-form",
+  "host": {
+    "screen": "orders",
+    "state": "tag-popover",
+    "anchor": "tag"
+  },
+  "data": {
+    "tags": {
+      "shape": "list",
+      "source": "GET /api/tags",
+      "sample": [
+        "Priority",
+        "Review",
+        "Hold"
+      ]
+    }
+  },
+  "slots": {
+    "fields": [
+      {
+        "id": "match",
+        "component": "TextField",
+        "props": {
+          "label": "Match",
+          "required": true,
+          "help": "Tag is added to orders matching this"
+        },
+        "locator": {
+          "role": "textbox",
+          "name": "Match"
+        },
+        "why": "Selects the orders the tag is added to"
+      },
+      {
+        "id": "tag",
+        "component": "Select",
+        "props": {
+          "label": "Tag",
+          "required": true
+        },
+        "bind": {
+          "options": "tags"
+        },
+        "locator": {
+          "role": "combobox",
+          "name": "Tag"
+        },
+        "why": "Which tag to apply"
+      }
+    ],
+    "actions": [
+      {
+        "id": "apply",
+        "component": "Button",
+        "props": {
+          "label": "Apply",
+          "variant": "primary",
+          "onClick": "apply"
+        },
+        "locator": {
+          "role": "button",
+          "name": "Apply"
+        }
+      },
+      {
+        "id": "cancel",
+        "component": "Button",
+        "props": {
+          "label": "Cancel",
+          "variant": "secondary",
+          "onClick": "cancel"
+        },
+        "locator": {
+          "role": "button",
+          "name": "Cancel"
+        }
+      }
+    ]
+  },
+  "states": {
+    "editing": {
+      "initial": true
+    },
+    "invalid": {
+      "description": "A required field is empty; Apply disabled"
+    }
+  },
+  "transitions": [
+    {
+      "from": "editing",
+      "to": "invalid",
+      "on": {
+        "event": "required field empty"
+      }
+    }
+  ],
+  "status": "minted"
+}

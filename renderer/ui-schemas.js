@@ -518,6 +518,30 @@ const UiSchemas = {
    "file": {
     "type": "string",
     "description": "Path of the page's source file in the app. The page test is always generated from the spec and imports this."
+   },
+   "host": {
+    "type": "object",
+    "description": "Marks this spec as an overlay (a hosted spec): the screen and state it opens over, and the placement id in that screen that opens it. Cross-spec checks live in renderer/ui.js hostRules.",
+    "required": [
+     "screen",
+     "state",
+     "anchor"
+    ],
+    "additionalProperties": false,
+    "properties": {
+     "screen": {
+      "type": "string",
+      "description": "Screen name of the host spec (ui/specs/<screen>.json)."
+     },
+     "state": {
+      "type": "string",
+      "description": "The host state the overlay is open in."
+     },
+     "anchor": {
+      "type": "string",
+      "description": "Placement id in the host spec whose locator opens the overlay (the host has a click transition into the state on it)."
+     }
+    }
    }
   },
   "$defs": {

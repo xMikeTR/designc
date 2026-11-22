@@ -7,10 +7,8 @@ const os = require('os');
 const path = require('path');
 const { spawnSync } = require('child_process');
 const Core = require('../renderer/core.js');
+const { CORE } = require('./helpers/parity.js');
 
-const PY = path.join(__dirname, '..', 'python');
-const havePython = spawnSync('python3', ['-c', 'import yaml']).status === 0;
-const skip = havePython ? false : 'python3 with PyYAML is not installed';
 
 const dsl = (code, risk) => `workspace {
   model {
@@ -31,7 +29,7 @@ function pyFindings(text) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'dc-factory-'));
   fs.mkdirSync(path.join(root, 'model'));
   fs.writeFileSync(path.join(root, 'model', 'workspace.dsl'), text);
-  const r = spawnSync('python3', ['-m', 'designc', 'check', root, '--json'], { cwd: PY, encoding: 'utf8' });
+  const r = spawnSync(process.execPath, [CORE, 'check', root, '--json'], { encoding: 'utf8' });
   return JSON.parse(r.stdout).findings;
 }
 
@@ -49,7 +47,7 @@ test('d.risk outside low|medium|high is a DC000 error', () => {
   assert.match(ds[0].msg + (ds[0].hint || ''), /low \| medium \| high/);
 });
 
-test('designc check agrees with the app on d.code and d.risk', { skip }, () => {
+test('designc check agrees with the app on d.code and d.risk', () => {
   assert.deepEqual(dc000(pyFindings(dsl('src/Fares.Data/**', 'medium'))), []);
   assert.equal(dc000(pyFindings(dsl('src/**', 'extreme'))).length, 1);
 });

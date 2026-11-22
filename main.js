@@ -25,7 +25,8 @@ const fs = require('fs');
 const fsp = fs.promises;
 const os = require('os');
 const net = require('net');
-const { spawn } = require('child_process');
+const { spawn, fork } = require('child_process');
+const { pathToFileURL } = require('url');
 const { extract, extractUi } = require('./extract');
 const Dispatch = require('./renderer/dispatch.js');
 const { fetchTelemetry, fetchTrace, traceSteps } = require('./telemetry');
@@ -72,7 +73,21 @@ async function tree(abs, depth = 0) {
   return out.sort((a, b) => (b.dir - a.dir) || a.name.localeCompare(b.name));
 }
 
+// ---------- language server host: forks lsp/server.js over Node IPC and relays JSON-RPC objects (no framing, no logic) ----------
+let lsp = null;
+function stopLsp() { const c = lsp; lsp = null; if (c) { c.removeAllListeners('message'); try { c.kill(); } catch { /* already gone */ } } }
+function startLsp() {
+  stopLsp();
+  const child = fork(path.join(__dirname, 'lsp', 'server.js'), ['--node-ipc', '--registry', root], { cwd: root, env: { ...process.env, ELECTRON_RUN_AS_NODE: '1' }, stdio: ['ignore', 'ignore', 'pipe', 'ipc'] });
+  lsp = child;
+  child.on('message', m => { if (child === lsp && win) win.webContents.send('lsp:msg', m); });
+  child.stderr.on('data', d => console.error('designc-lsp:', String(d).trimEnd()));
+  child.on('exit', code => { if (child === lsp) { lsp = null; if (win) win.webContents.send('lsp:exit', code); } });
+}
+ipcMain.on('lsp:send', (_e, m) => { if (lsp && lsp.connected) lsp.send(m); });
+
 function setRoot(dir) {
+  stopLsp();
   if (typeof hub !== 'undefined') hub.disconnectAll();
   if (terminals) terminals.closeAll();
   root = path.resolve(dir);
@@ -526,6 +541,8 @@ const hub = new AcpHub({
     { name: 'DESIGNC_MCP_TOKEN', value: MCP_TOKEN }, { name: 'DESIGNC_MCP_SESSION', value: (meta && meta.session) || '' }] }),
   ui: (channel, ...args) => (channel === 'acp:write' || channel === 'acp:permission') ? askUi(channel, ...args) : (win && win.webContents.send(channel, ...args)),
 });
+handle('lsp:start', () => root ? (startLsp(), { rootUri: pathToFileURL(root).href }) : { error: 'No folder is open' });
+handle('lsp:stop', () => { stopLsp(); return true; });
 handle('acp:agents', () => Object.fromEntries(Object.entries(acpSpecs()).map(([k, v]) => [k, { label: v.label || k, command: [v.command, ...(v.args || [])].join(' ') }])));
 let acpRan = false;
 handle('acp:connect', async (key, meta) => {
@@ -536,7 +553,7 @@ handle('acp:connect', async (key, meta) => {
 handle('acp:prompt', async (key, text) => { try { return await hub.prompt(key, text); } catch (e) { return { error: e.message }; } });
 handle('acp:cancel', key => { hub.cancel(key); return true; });
 handle('acp:disconnect', key => { hub.disconnect(key); return true; });
-app.on('before-quit', () => { hub.disconnectAll(); if (terminals) terminals.closeAll(); });
+app.on('before-quit', () => { stopLsp(); hub.disconnectAll(); if (terminals) terminals.closeAll(); });
 // Once node-pty has run a shell, or an ACP agent has been connected, Node's normal teardown never finishes (it hangs
 // after 'exit' fires; process.exit and app.exit hang the same way), so leave directly. Shells and agents are already
 // killed in before-quit and state.json is saved synchronously.

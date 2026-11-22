@@ -2,33 +2,8 @@
 'use strict';
 
 // ---------------------------------------------------------------- reference data
-const PROPS = [
-  ['d.interaction', 'relationship', ['sync', 'async'], 'Call style. Undeclared counts as sync for DC003.'],
-  ['d.delivery', 'relationship', ['at-most-once', 'at-least-once', 'exactly-once'], 'Delivery guarantee of an async interaction (DC001).'],
-  ['d.idempotent', 'relationship', ['yes', 'no'], 'Whether the receiver handles this interaction idempotently (DC001, DC004).'],
-  ['d.retry', 'relationship', ['none', 'fixed', 'backoff'], 'Caller retry policy (DC004).'],
-  ['d.retry.max', 'relationship', null, 'Maximum retry attempts, a whole number.'],
-  ['d.timeout', 'relationship', null, 'Caller timeout in milliseconds. Must cover the callee\'s worst case (DC007).'],
-  ['d.encrypted', 'relationship', ['yes', 'no'], 'Encrypted in transit (DC006).'],
-  ['d.authenticated', 'relationship', ['yes', 'no'], 'Caller is authenticated (DC006).'],
-  ['d.writes', 'relationship', null, 'Comma-separated entities written to the destination store (DC002).'],
-  ['d.concurrency', 'relationship', ['none', 'optimistic', 'pessimistic'], 'Concurrency control on those writes (DC002).'],
-  ['d.latency.max', 'element', null, 'Worst-case own processing time in milliseconds, not counting its calls (DC007).'],
-  ['d.fanout', 'element', ['sequential', 'parallel'], 'Whether the element makes its outgoing sync calls one after another or together. Default sequential (DC007).'],
-  ['d.retry.budget', 'element', null, 'Retry amplification this receiver tolerates; overrides retryAmplification in designc.json (DC008).'],
-  ['d.instances', 'element', null, 'Running instances, a whole number (DC002, DC005).'],
-  ['d.critical', 'element', ['yes', 'no'], 'On a critical path (DC005).'],
-  ['d.zone', 'element', null, 'Trust zone name; children inherit it (DC006).'],
-  ['d.availability', 'element', null, 'Availability as a fraction, e.g. 0.999 (DC003).'],
-  ['d.owns', 'element', null, 'Comma-separated entities this element owns writes to (DC002).'],
-  ['d.store', 'element', ['yes', 'no'], 'Treat as a data store. Default: the Database tag.'],
-  ['d.aka', 'element', null, 'Other names, used to match code in the as-built diff.'],
-  ['d.code', 'element', null, 'Repo paths or globs where this element\'s code lives, comma-separated: * and ? within a folder name, ** as a whole folder (src/Api is one file; write src/Api/**). A coding agent keeps task writes inside them. Needs d.risk; areas must not overlap or nest (DC009).'],
-  ['d.risk', 'element', ['low', 'medium', 'high'], 'How risky a change here is. A coding agent may use it to gate merges.'],
-  ['d.suppress', 'both', null, 'Accept findings here: "DCnnn: reason; DCnnn: reason". A reason is required.'],
-];
+const PROPS = DslAssist.props(typeof DesigncCanvas !== 'undefined' ? DesigncCanvas.vocabulary : null);
 if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
-  PROPS.push(...DesigncCanvas.vocabulary.propsList());
   // Register the canvas's extra properties and agentic rules up front, so linting and completion
   // see them even if the Canvas view is never opened. canvas.js does the same check before mounting.
   if (!Core.__dcvRegistered) {
@@ -37,9 +12,8 @@ if (typeof DesigncCanvas !== 'undefined' && DesigncCanvas.vocabulary) {
     Core.__dcvRegistered = true;
   }
 }
-const PROP = new Map(PROPS.map(p => [p[0], { key: p[0], target: p[1], values: p[2], doc: p[3] }]));
 const ORIGIN_LABEL = { spec_gap: 'Spec gap', design_error: 'Design error', translation_error: 'Translation error', gate_gap: 'Gate gap', catalogue_gap: 'Catalogue gap' };
-const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
+const STAGES = [['S1-lint', 'S1 lint'], ['S1-p', 'S1 behaviour (P)'], ['S1-grill', 'S1 grill-me / gate'], ['ui-spec', 'UI spec checks'], ['ui-preview', 'UI preview review'], ['ui-code', 'UI code check'], ['ui-visual', 'UI visual check'], ['acceptance', 'Acceptance'], ['holdout', 'Holdout'], ['scenario', 'Scenario tests'], ['parity', 'Parity'], ['review', 'Review'], ['qa', 'QA'], ['pipeline', 'Pipeline']];
 if (typeof Ledger !== 'undefined') {
   const stageKeys = STAGES.map(([k]) => k).sort().join(',');
   const caughtBy = Ledger.CAUGHT_BY.slice().sort().join(',');
@@ -69,7 +43,7 @@ const A = {
   canvasApi: null, canvasLayout: null,
   regs: { loaded: false, loading: false, rows: [], problems: [] },
 };
-let editor = null, monacoRef = null;
+let editor = null, monacoRef = null, LSPB = null, LSP = null; // LSPB: lsp-client's Monaco binding; LSP: {conn, rootUri, off} while the language server runs
 
 // ---------------------------------------------------------------- helpers
 const $ = s => document.querySelector(s);
@@ -77,6 +51,22 @@ const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': 
 const plural = (n, w) => `${n} ${n === 1 ? w : /[^aeiou]y$/.test(w) ? w.slice(0, -1) + 'ies' : w + 's'}`;
 const trunc = (s, n) => (String(s).length > n ? String(s).slice(0, n - 1) + '…' : String(s));
 const hash = s => { let h = 5381; for (let i = 0; i < s.length; i++) h = ((h << 5) + h + s.charCodeAt(i)) >>> 0; return h.toString(16).slice(0, 7); };
+// The status-bar revision: the model text, plus the included files when the model has `!include` (unchanged for a single file).
+// A model of several files (`!include`): the root text, the model folder's other .dsl files, and the helpers that read them.
+const treePaths = ns => (ns || []).flatMap(n => (n.dir ? treePaths(n.children) : [n.path]));
+const modelSpans = () => !!(A.model && A.model.sources && A.model.sources.length > 1);
+const modelSrc = () => ({ text: A.modelText, path: A.cfg.model, resolve: p => (p === A.cfg.model ? A.modelText : (A.modelFiles || {})[p] ?? null) });
+const spansRefusal = () => `${A.cfg.model} includes other files; this action rewrites a single file. Edit the DSL text instead.`;
+const spansNote = () => `(this model also includes: ${A.model.sources.slice(1).map(s => s.path).join(', ')}; read them as files)`;
+// A handover's frozen model: the root plus every .dsl in its files: list, resolved under handovers/<id>/.
+async function readFrozenModel(h) {
+  if (!h || !h.model) return null;
+  const base = `handovers/${h.id}/`, files = {};
+  for (const f of h.files || []) if (f.path && /\.dsl$/.test(f.path) && f.path !== h.model) files[f.path] = (await host.read(base + f.path)) || '';
+  const t = await host.read(base + h.model);
+  return t ? Core.parse(t, { path: h.model, resolve: p => files[p] ?? null }) : null;
+}
+const modelRev = () => 'r-' + hash((A.modelText || '') + (A.model && A.model.sources ? A.model.sources.slice(1).map(f => '\0\0' + f.path + '\0' + f.text).join('') : ''));
 const fmtN = n => (n >= 1e6 ? (n / 1e6).toFixed(2) + 'M' : n >= 1e3 ? (n / 1e3).toFixed(1) + 'k' : String(Math.round(n)));
 const when = ts => (ts ? new Date(ts).toLocaleDateString(undefined, { day: 'numeric', month: 'short' }) : '');
 const extOf = p => (p.match(/\.([^.\/]+)$/) || [, ''])[1].toLowerCase();
@@ -160,7 +150,8 @@ async function loadYamlDir(dir, keepText = false) {
 async function loadRegistry() {
   A.yamlErrors = [];
   [A.decisions, A.requirements, A.proposals, A.handovers, A.scenarios, A.evals, A.acceptance] = await Promise.all(REG_DIRS.map(d => loadYamlDir(d, d === 'evals' || d === 'acceptance')));
-  A.apiContractPaths = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => f.path);
+  A.apiContractFiles = (await host.list('contracts/openapi', ['.yaml', '.yml'])).map(f => ({ path: f.path, text: textOf(f.path) ?? f.text }));
+  A.apiContractPaths = A.apiContractFiles.map(f => f.path);
   A.tokens = await host.exists(TOKENS) ? await host.read(TOKENS) : null;
   A.contractsText = await readText(Contracts.PATHS.result);
   // Folder handovers (handovers/<id>/handover.yaml) sit beside the older flat files.
@@ -184,6 +175,9 @@ async function loadDomains() {
     if (A.packSources[key] === undefined) A.packSources[key] = null;
   }
 }
+// R4: the pinned OpenAPI operations and pack events a rel's d.operation / d.message is checked against (as gate-inputs.js does).
+const operationsInput = () => Core.operations({ files: Object.fromEntries((A.apiContractFiles || []).map(f => [f.path, f.text])), yamlLoad: jsyaml.load });
+const boundaryInput = () => ({ operations: operationsInput(), events: Core.packEvents(A.packs || []) });
 const domainsInput = () => ((A.packs && A.packs.length) || (Array.isArray(A.cfg.domains) && A.cfg.domains.length)
   ? { listed: A.cfg.domains || [], packs: A.packs || [], sources: A.packSources || {}, behaviour: A.packBehaviour || [] } : null);
 // Pin or re-pin a pack: a person's copy of the pack as the source registry has it now, with its hash in the ledger.
@@ -507,7 +501,12 @@ async function recordSessionEvent(kind, { session_id, payload, parent_session_id
 const layoutPathFor = p => p.replace(/\.dsl$/, '') + '.layout.json';
 // health.json: evidence for the health overlay. Optional and read-only; absent or unreadable means the map renders as before.
 async function loadHealth() { try { const t = await readText('health.json'); A.health = t == null ? null : JSON.parse(t); } catch { A.health = null; } }
-async function loadModel() { A.modelText = (await readText(A.cfg.model)) ?? ''; await loadCanvasLayout(); }
+async function loadModel() {
+  A.modelText = (await readText(A.cfg.model)) ?? '';
+  A.modelFiles = {};
+  for (const p of Core.modelFiles(treePaths(A.tree), A.cfg.model)) if (p !== A.cfg.model) A.modelFiles[p] = (await readText(p)) ?? '';
+  await loadCanvasLayout();
+}
 async function loadCanvasLayout() {
   const t = await readText(layoutPathFor(A.cfg.model));
   try { A.canvasLayout = t ? JSON.parse(t) : null; } catch { A.canvasLayout = null; }
@@ -543,14 +542,13 @@ function cmQualityBadge(e) {
   return hit && hit.breaches ? { badge: hit.breaches, badgeColor: 'var(--warn)' } : {};
 }
 function recompile() {
-  A.model = Core.parse(A.modelText);
-  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos }) : [];
-  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), domains: domainsInput(), ui: A.ui, workStates: Work.states(A.work || [], A.ledger || []) });
+  A.model = Core.parse(A.modelText, { path: A.cfg.model, resolve: modelSrc().resolve });
+  A.diags = A.model.elements.size || A.model.errors.length ? Core.check(A.model, { chainHops: A.cfg.chainHops || 4, retryAmplification: A.cfg.retryAmplification || 4, repos: A.cfg.repos, boundary: boundaryInput() }) : [];
+  A.gate = Core.gate({ model: A.model, diags: A.diags, decisions: A.decisions, requirements: A.requirements, ledger: A.ledger, registryErrors: A.yamlErrors.map(e => ({ path: e.path, message: e.msg })), evidenceHosts: A.cfg.evidenceHosts || [], businessOwners: A.cfg.businessOwners || [], scenarios: A.scenarios, evals: A.evals, acceptance: A.acceptance, tokens: A.tokens, minTextSize: (A.cfg.ux && A.cfg.ux.minTextSize) || Core.DEFAULT_MIN_TEXT, contractGaps: contractGaps(), repos: A.cfg.repos, apiContracts: (A.apiContractPaths || []), operations: operationsInput(), domains: domainsInput(), ui: A.ui, testScenarios: (A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), workStates: Work.states(A.work || [], A.ledger || []) });
   A.drift = A.asbuilt && A.model.elements.size ? Core.driftModels(Core.atLevel(A.model, 'container'), A.asbuilt) : null;
   A.cdrift = A.asbuiltFull && A.model.elements.size ? Core.driftComponents(A.model, A.asbuiltFull) : null;
   A.areas = A.facts ? Core.codeAreaDrift(A.model, A.facts.files) : null;
   A.intent = A.facts ? Core.intentDrift(A.model, A.facts.intent) : null;
-  setMarkers();
 }
 async function reloadAll() {
   await loadSettings(); await loadModel(); await loadHealth(); await loadRegistry(); await loadLedger(); await loadDomains(); await loadUi(); await loadAsbuilt(); recompile(); renderAll(); loadTelemetry(); loadRegistries();
@@ -647,53 +645,15 @@ function setupMonaco(monaco) {
       [/[A-Za-z_]\w*/, { cases: { '@keywords': 'keyword', '@typeKeywords': 'type', '@default': 'identifier' } }]] },
   });
 
-  // completions for d.* keys and their values
-  monaco.languages.registerCompletionItemProvider('structurizr', {
-    triggerCharacters: ['"', '.'],
-    provideCompletionItems(model, pos) {
-      const line = model.getLineContent(pos.lineNumber).slice(0, pos.column - 1);
-      const val = /"(d\.[\w.]+)"\s+"([^"]*)$/.exec(line);
-      if (val) {
-        const p = PROP.get(val[1]); if (!p || !p.values) return { suggestions: [] };
-        const range = new monaco.Range(pos.lineNumber, pos.column - val[2].length, pos.lineNumber, pos.column);
-        return { suggestions: p.values.map(v => ({ label: v, kind: monaco.languages.CompletionItemKind.EnumMember, insertText: v, range, documentation: p.doc })) };
-      }
-      const key = /"(d\.?[\w.]*)$/.exec(line) || (/"$/.test(line) ? ['', ''] : null);
-      if (!key) return { suggestions: [] };
-      const range = new monaco.Range(pos.lineNumber, pos.column - key[1].length, pos.lineNumber, pos.column);
-      return { suggestions: PROPS.map(([k, target, values, doc]) => ({
-        label: k, kind: monaco.languages.CompletionItemKind.Property, detail: target === 'both' ? 'element or relationship' : target,
-        documentation: doc, range, insertTextRules: monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
-        insertText: values ? `${k}" "\${1|${values.join(',')}|}` : `${k}" "\${1}`,
-      })) };
-    },
-  });
-  monaco.languages.registerHoverProvider('structurizr', {
-    provideHover(model, pos) {
-      const line = model.getLineContent(pos.lineNumber); const re = /"(d\.[\w.]+)"/g; let m;
-      while ((m = re.exec(line))) {
-        if (pos.column > m.index && pos.column <= m.index + m[0].length + 1) {
-          const p = PROP.get(m[1]);
-          return { range: new monaco.Range(pos.lineNumber, m.index + 1, pos.lineNumber, m.index + m[0].length + 1),
-            contents: p ? [{ value: `**${p.key}** · ${p.target === 'both' ? 'element or relationship' : p.target}` }, { value: p.doc + (p.values ? `\n\nValues: \`${p.values.join('` | `')}\`` : '') }]
-              : [{ value: `**${m[1]}** is not a design property` }] };
-        }
-      }
-      return null;
-    },
-  });
-  monaco.editor.registerCommand('designc.recordDecision', (_a, code, line) => {
-    const f = A.diags.find(d => d.code === code && d.loc.line === line && !d.suppressed); if (f) decisionForFinding(f);
-  });
-  monaco.languages.registerCodeActionProvider('structurizr', {
-    provideCodeActions(model, _range, context) {
-      const actions = context.markers.filter(m => /^DC00[1-9]$/.test(String(m.code))).map(m => ({
-        title: `Record a decision for ${m.code}`, kind: 'quickfix', diagnostics: [m],
-        command: { id: 'designc.recordDecision', title: 'Record a decision', arguments: [String(m.code), m.startLineNumber] },
-      }));
-      return { actions, dispose() {} };
-    },
-  });
+  // Completion, hover, markers, definition, rename and quick fixes come from the language server (renderer/lsp-client.js); see lspStart.
+  LSPB = LspClient.bindMonaco(monaco, { languages: ['structurizr', 'yaml'], onApplyEdit: applyWorkspaceEdit,
+    onShowMessage: (type, text) => toast(text, type === 1 ? 'error' : type === 2 ? 'warning' : 'info') });
+  monaco.editor.registerEditorOpener({ openCodeEditor(_source, resource, sel) {
+    if (resource.scheme !== 'file') return false;
+    let rel; try { rel = decodeURI(resource.path.slice(1)); } catch { return false; }
+    openFile(rel, sel ? (sel.startLineNumber || sel.lineNumber) : undefined);
+    return true;
+  } });
 
   const dark = window.matchMedia('(prefers-color-scheme: dark)');
   monaco.editor.defineTheme('designc-dark', { base: 'vs-dark', inherit: true, rules: [{ token: 'type', foreground: '7fb8e6' }, { token: 'string.escape', foreground: 'd7ba7d' }], colors: { 'editor.background': '#1e2227' } });
@@ -715,28 +675,6 @@ function langFor(path) {
 }
 function iconFor(path) { const x = extOf(path); if (x === 'cs') return ['cs', 'C#']; if (x === 'fs') return ['fs', 'F#']; if (/proj$/.test(x)) return ['json', '<>']; return x === 'dsl' ? ['dsl', 'C4'] : x === 'yaml' || x === 'yml' ? ['yaml', 'Y'] : x === 'p' ? ['p', 'P'] : x === 'md' ? ['md', 'M'] : x === 'json' || x === 'jsonl' ? ['json', '{}'] : ['', '·']; }
 
-function setMarkers() {
-  if (!monacoRef) return;
-  const S = monacoRef.MarkerSeverity;
-  for (const [path, b] of A.buffers) {
-    const markers = [];
-    if (path === A.cfg.model) {
-      for (const e of A.model.errors) markers.push({ severity: S.Error, message: e.msg, startLineNumber: e.line, endLineNumber: e.line, startColumn: 1, endColumn: b.model.getLineMaxColumn(Math.min(e.line, b.model.getLineCount())), source: 'designc' });
-      for (const f of A.diags) {
-        if (f.suppressed || !f.loc.line || f.loc.line > b.model.getLineCount()) continue;
-        const ln = f.loc.line, text = b.model.getLineContent(ln), first = text.search(/\S/) + 1 || 1;
-        markers.push({ severity: f.sev === 'error' ? S.Error : f.sev === 'warning' ? S.Warning : S.Info, code: f.code, source: 'designc',
-          message: `${f.loc.label}: ${f.msg}${f.hint ? `\n${f.hint}` : ''}`, startLineNumber: ln, endLineNumber: ln, startColumn: first, endColumn: b.model.getLineMaxColumn(ln) });
-      }
-    }
-    for (const e of [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === path)) {
-      const ln = Math.min(e.line, b.model.getLineCount());
-      markers.push({ severity: S.Error, message: e.msg, startLineNumber: ln, endLineNumber: ln, startColumn: 1, endColumn: b.model.getLineMaxColumn(ln), source: 'designc' });
-    }
-    monacoRef.editor.setModelMarkers(b.model, 'designc', markers);
-  }
-}
-
 // ---------------------------------------------------------------- tabs & files
 async function openFile(path, line) {
   if (!A.buffers.has(path)) {
@@ -749,7 +687,6 @@ async function openFile(path, line) {
   if (!A.tabs.includes(path)) A.tabs.push(path);
   activate(path);
   if (line) revealLine(line);
-  setMarkers();
 }
 // A codebase file, read-only; with `ref` (a designc.json references key) a file of that repo instead.
 async function openCode(rel, line, ref) {
@@ -773,7 +710,8 @@ function writeCheckFor(id) {
   toggleAgent(true);
   send(`Decision ${id} has a check that is still a TODO. Read the decision and the model, then use write_check to draft the script it describes. Keep it read-only and make it fail with a clear reason.`);
 }
-function revealInCanvas(line) {
+function revealInCanvas(line, file) {
+  if (modelSpans()) return openFile(file || A.cfg.model, line || undefined);
   if (!line || typeof DesigncCanvas === 'undefined' || !DesigncCanvas.canvas) return openFile(A.cfg.model, line || undefined);
   openSpecial('special:canvas');
   setTimeout(() => { if (A.canvasApi) A.canvasApi.selectLine(line); else openFile(A.cfg.model, line); }, 0);
@@ -812,7 +750,7 @@ async function save(id = A.active) {
   if (id === 'special:canvas') id = A.cfg.model;   // the canvas edits the model buffer
   const b = A.buffers.get(id); if (!b || b.ro) return;
   const text = b.model.getValue();
-  try { await host.write(id, text); b.dirty = false; b.disk = text; renderTabs(); } catch (e) { toast(`Couldn't save ${id}: ${e.message}`, 'error'); }
+  try { await host.write(id, text); b.dirty = false; b.disk = text; renderTabs(); if (LSP) LSP.conn.notify('textDocument/didSave', { textDocument: { uri: LspClient.uriOf(LSP.rootUri, id) } }); } catch (e) { toast(`Couldn't save ${id}: ${e.message}`, 'error'); }
 }
 const recompileSoon = debounce(() => { recompile(); renderAll({ keepEditor: true }); }, 200);
 const registrySoon = debounce(async () => { await loadRegistry(); recompile(); renderAll({ keepEditor: true }); }, 250);
@@ -822,10 +760,12 @@ function onBufferChange(path) {
   const dirty = b.model.getValue() !== b.disk;
   if (dirty !== b.dirty) { b.dirty = dirty; renderTabs(); }
   if (path === A.cfg.model) { A.modelText = b.model.getValue(); recompileSoon(); }
+  else if (Core.modelFiles([path], A.cfg.model).length) { (A.modelFiles = A.modelFiles || {})[path] = b.model.getValue(); recompileSoon(); }
   else if (isRegPath(path)) registrySoon();
   else if (path === 'designc.json') settingsSoon();
 }
 async function onDiskChanged(paths) {
+  if (LSP && paths.length) LSP.conn.notify('workspace/didChangeWatchedFiles', { changes: paths.map(p => ({ uri: LspClient.uriOf(LSP.rootUri, p), type: 2 })) });
   for (const p of paths) {
     const b = A.buffers.get(p);
     if (b && !b.dirty) { try { const t = await host.read(p); if (t !== b.model.getValue()) { b.disk = t; b.model.setValue(t); b.dirty = false; } } catch { /* deleted */ } }
@@ -834,11 +774,70 @@ async function onDiskChanged(paths) {
   if (paths.length) A.tree = await host.tree();
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
-  if (paths.includes(A.cfg.model) && !(A.buffers.get(A.cfg.model) || {}).dirty) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (paths.some(p => (p === A.cfg.model || Core.modelFiles([p], A.cfg.model).length) && !(A.buffers.get(p) || {}).dirty)) await loadModel();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });
+}
+
+// ---------------------------------------------------------------- language server (lsp/server.js, forked by main.js over Node IPC)
+// All LSP logic is in renderer/lsp-client.js; this is wiring: start/stop per folder, applying the edits the server returns, and toasts.
+async function lspStart() {
+  if (!LSPB) return;
+  let conn = null;
+  try {
+    const r = await host.lspStart(); if (!r || r.error) return;
+    const off = [];
+    conn = LspClient.connection({ send: host.lspSend, subscribe: fn => { const u = host.onLsp(fn); off.push(u); return u; } });
+    off.push(host.onLspExit(code => lspDied(conn, `exit code ${code}`)));
+    LSP = { conn, rootUri: r.rootUri, off };
+    const init = await conn.request('initialize', LspClient.initializeParams(r.rootUri, A.root && A.root.name));
+    if (LSP && LSP.conn === conn) { conn.notify('initialized', {}); LSPB.attach(conn, r.rootUri, init); }
+  } catch (e) { if (conn) lspDied(conn, e.message); }
+}
+function lspDied(conn, why) {
+  if (!LSP || LSP.conn !== conn) return;
+  lspStop();
+  toast(`The designc language server stopped (${why}). Editor hover, completion and markers are off until the folder is reopened; Problems still works.`, 'warning');
+}
+function lspStop() {
+  const l = LSP; LSP = null;
+  if (LSPB) LSPB.detach();
+  if (l) { l.conn.dispose(); for (const o of l.off) if (typeof o === 'function') o(); }
+  host.lspStop();
+}
+// Applies a WorkspaceEdit from the server (rename, quick fix, Record a decision): open buffers by undoable edit, closed files by write.
+async function applyWorkspaceEdit(edit) {
+  const fail = msg => { toast(msg, 'error'); return { ok: false, error: msg }; };
+  if (!LSP) return fail('The language server is not running');
+  const targets = LspClient.editTargets(edit, u => LspClient.relOfUri(LSP.rootUri, u));
+  if (targets.error) return fail(targets.error);
+  for (const t of targets) {
+    const b = A.buffers.get(t.rel);
+    if (b && !t.create && t.version != null && t.version !== b.model.getVersionId()) return fail('The file changed while the edit was computed; try again');
+    if (t.create && await host.exists(t.rel)) return fail(`${t.rel} already exists`);
+  }
+  const written = [], open = [];
+  try {
+    for (const t of targets) {
+      const b = A.buffers.get(t.rel);
+      if (b && !t.create) {
+        b.model.pushEditOperations([], t.edits.map(e => ({ range: LspClient.toMonacoRange(e.range), text: e.newText })), () => null);
+        open.push(t.rel);
+      } else {
+        const base = t.create ? '' : await host.read(t.rel);
+        await host.write(t.rel, LspClient.applyTextEdits(base, t.edits)); written.push(t.rel);
+      }
+    }
+  } catch (e) { return fail(`Couldn't apply the edit: ${e.message}`); }
+  if (written.length) await onDiskChanged(written);
+  if (targets.length === 1 && targets[0].create) {
+    const text = LspClient.applyTextEdits('', targets[0].edits), todo = text.split('\n').findIndex(l => l.includes('TODO'));
+    await openFile(targets[0].rel, todo >= 0 ? todo + 1 : 1);
+  }
+  toast(`Edited ${open.length} open file(s) (save to keep) and wrote ${written.length} file(s): ${[...open, ...written].join(', ')}`, 'info');
+  return { ok: true };
 }
 
 // ---------------------------------------------------------------- registry actions
@@ -849,21 +848,7 @@ async function recordDecision({ finding, statement = '', effect = 'fix', binds, 
   if (!A.root) return;
   const id = Core.slugId(idFrom || statement || (finding ? `${finding.code} ${(finding.loc.names || [])[0] || ''}` : 'decision'), A.decisions.map(d => d.id));
   if (finding) { binds = binds || finding.loc.names.slice(0, finding.loc.kind === 'element' ? 1 : 2); resolves = resolves || [finding.code]; }
-  const business = kind === 'business';
-  if (business && statement) statement = `PROPOSED: ${statement}`;
-  const text = `id: ${id}
-status: minted          # minted | checked | bound | superseded
-kind: ${business ? 'business' : 'technical'}          # business | technical
-effect: ${effect}             # fix (the model changes) | accept (keep the risk) | build (the code changes, tracked by the work item)
-${work ? `work: ${work}\n` : ''}${relies_on.length ? `relies_on: ${yamlList(relies_on)}\n` : ''}${business ? 'evidence: ""             # https URL on a host in designc.json evidenceHosts; not needed when one of businessOwners binds it\n' : ''}requirement: null
-binds: ${yamlList(binds || [])}
-resolves: ${yamlList(resolves || [])}
-statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
-${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
-${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
-rationale: ${rationale ? yamlStr(rationale) : '""'}
-${informed_by.length ? `informed_by: ${JSON.stringify(informed_by)}          # study topics behind this decision; shown, never a gate input\n` : ''}assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it
-`;
+  const text = Refactor.decisionDraft({ id, statement, effect, binds, resolves, checks, rationale, kind, relies_on, informed_by, work });
   const path = `decisions/${id}.yaml`;
   if (open) await createAndOpen(path, text, statement ? null : 8);
   else { await host.write(path, text); A.tree = await host.tree(); await loadRegistry(); }
@@ -1280,7 +1265,7 @@ async function gateGit() {
 async function recordGate(source, git) {
   if (git === undefined) git = await gateGit();
   const modelText = (await host.read(A.cfg.model)) || '';
-  const ev = Core.gateRecord({ modelText, diags: A.diags, gate: A.gate, source, git });
+  const ev = Core.gateRecord({ modelText, modelIncludes: A.model ? A.model.sources.slice(1) : [], diags: A.diags, gate: A.gate, source, git });
   if (!Ledger.gateUnchanged(A.ledgerRaw, ev)) await recordEvent('gate', ev);
   return git;
 }
@@ -1288,8 +1273,8 @@ async function recordGate(source, git) {
 // Settings: designc.json `currency` (default GBP) and `forecast: { minSamples, window }`.
 async function computeForecast(modelText) {
   const base = Core.latestHandoverModel(A.handovers), fc = A.cfg.forecast || {};
-  const prev = base ? Core.parse((await host.read(base.path)) || '') : null;
-  const forecast = Core.forecast({ before: prev, after: Core.parse(modelText),
+  const prev = base ? await readFrozenModel(A.handovers.find(h => h.id === base.id)) || Core.parse('') : null;
+  const forecast = Core.forecast({ before: prev, after: Core.parse(modelText, { path: A.cfg.model, resolve: p => (A.modelFiles || {})[p] ?? null }),
     history: Ledger.elementHistory(A.ledgerRaw, { window: fc.window || 10 }), minSamples: fc.minSamples || 3 });
   return { forecast, frozen: Core.freezeForecast(forecast, { currency: A.cfg.currency || 'GBP', baseline: base ? base.id : null }) };
 }
@@ -1321,6 +1306,8 @@ async function freezeOnce(item) {
   const decisions = [];
   for (const d of A.decisions.filter(d => boundIds.has(d.id))) decisions.push({ path: d._path, text: (await host.read(d._path)) || '' });
   const modelText = (await host.read(A.cfg.model)) || '';
+  const modelFilesOnDisk = {};
+  for (const p of Core.modelFiles(treePaths(A.tree), A.cfg.model)) if (p !== A.cfg.model) modelFilesOnDisk[p] = (await host.read(p)) || '';
   const { frozen } = item ? { frozen: null } : await computeForecast(modelText);
   const reqs = await read('requirements', ['.yaml', '.yml']), evs = await read('evals', ['.yaml', '.yml']), scs = await read('scenarios', ['.yaml', '.yml']), acs = await read('acceptance', ['.yaml', '.yml']);
   const refs = Dispatch.references(A.cfg.references);
@@ -1328,7 +1315,7 @@ async function freezeOnce(item) {
   // Compiled agent contracts travel with a whole-model handover when a contracts command is configured.
   let contracts = null;
   if (!item && Contracts.settings(A.cfg.contracts) && !Contracts.settings(A.cfg.contracts).error) {
-    const agentsDoc = Core.handoverAgents(modelText), agentsText = JSON.stringify(agentsDoc, null, 2) + '\n', cache = new Map();
+    const agentsDoc = Core.handoverAgents({ text: modelText, path: A.cfg.model, resolve: p => modelFilesOnDisk[p] ?? null }), agentsText = JSON.stringify(agentsDoc, null, 2) + '\n', cache = new Map();
     const resultText = await readText(Contracts.PATHS.result);
     for (const rel of agentsDoc.agents.length && resultText ? contractFiles(resultText) : []) cache.set(rel, await readText(rel));
     const c = Contracts.forFreeze({ resultText, agentsDoc, agentsText, hash: Core._shared.hash16, read: rel => cache.has(rel) ? cache.get(rel) : null });
@@ -1355,13 +1342,13 @@ async function freezeOnce(item) {
   let plan;
   try {
     plan = Core.handoverPlan({
-      ui: uiIn, facts: factsIn, criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
+      ui: uiIn, facts: factsIn, testScenarios: await read('test-scenarios', ['.yaml', '.yml']), criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
       apiContracts: await read('contracts/openapi', ['.yaml', '.yml']),
       item: item ? { id: item.id, requirement: Work.reqs(item), elements: item.elements || [] } : null,
-      model: { path: A.cfg.model, text: modelText },
+      model: { path: A.cfg.model, text: modelText, files: modelFilesOnDisk },
       requirements: item ? only(reqs, A.requirements, r => Work.reqs(item).includes(r.id)) : reqs,
       decisions,
       behaviour: await read('behaviour', ['.p']),
@@ -1586,7 +1573,7 @@ function renderStatus() {
     ${pos ? `<button>${pos}</button>` : ''}${lang ? `<button>${lang}</button>` : ''}
     <button data-s="tel" title="Langfuse telemetry (click to refresh)">${A.tel.loading ? 'Langfuse: loading…' : A.tel.error ? (A.tel.error.error === 'not_configured' ? 'Langfuse: off' : 'Langfuse: error') : A.tel.meta ? `Langfuse${A.tel.meta.source === 'sample' ? ' (sample)' : ''}: ${plural(A.tel.runs.length, 'run')}` : 'Langfuse: off'}</button>
     <button data-s="llm" title="Model gateway for grill-me and drafting">${esc(llm)}</button>
-    ${hasModel ? `<button>r-${hash(A.modelText)}</button><button data-s="gate" class="${g.ready ? '' : 'gate-no'}" title="Definition of ready">${g.ready ? 'Gate: ready to hand over' : `Gate: ${g.clauses.length} blocking`}</button>` : ''}`;
+    ${hasModel ? `<button>${modelRev()}</button><button data-s="gate" class="${g.ready ? '' : 'gate-no'}" title="Definition of ready">${g.ready ? 'Gate: ready to hand over' : `Gate: ${g.clauses.length} blocking`}</button>` : ''}`;
 }
 
 // ---------------------------------------------------------------- sidebar
@@ -1621,7 +1608,7 @@ function treeHTML(nodes, depth) {
       return `<div class="row" ${pad} data-dir="${esc(n.path)}"><span class="tw">${open ? '▾' : '▸'}</span><span class="lbl">${esc(n.name)}</span></div>${open ? treeHTML(n.children, depth + 1) : ''}`;
     }
     const [, ch] = iconFor(n.path); const b = A.buffers.get(n.path);
-    const errs = n.path === A.cfg.model ? A.diags.filter(d => !d.suppressed && d.sev === 'error').length + A.model.errors.length : [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === n.path).length;
+    const errs = n.path === A.cfg.model || (A.model.sources || []).some(s => s.path === n.path) ? A.diags.filter(d => !d.suppressed && d.sev === 'error' && Core.locFile(d.loc, A.cfg.model) === n.path).length + A.model.errors.filter(e => Core.locFile(e, A.cfg.model) === n.path).length : [...A.yamlErrors, ...A.ledgerErrors].filter(e => e.path === n.path).length;
     return `<div class="row ${A.active === n.path ? 'active' : ''}" ${pad} data-file="${esc(n.path)}"><span class="tw"></span><span class="fi">${esc(ch)}</span><span class="lbl" style="${errs ? 'color:var(--err)' : ''}">${esc(n.name)}${b && b.dirty ? ' ●' : ''}</span>${errs ? `<span class="desc" style="color:var(--err)">${errs}</span>` : ''}${/^(ledger|handovers)\//.test(n.path) ? '' : `<button class="rowdel" data-delfile="${esc(n.path)}" title="Delete ${esc(n.name)}">×</button>`}</div>`;
   }).join('');
 }
@@ -1651,7 +1638,7 @@ function clauseHelp(c) {
   if (c.kind === 'assumption') return 'Each assumption needs text and a review_by date written as YYYY-MM-DD. Fix them in the decision file.';
   if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return 'Evidence is a link to where the business agreed this, starting with https://.';
   if (c.kind === 'scenario') return 'Open the scenario in scenarios/ and complete it: artifact (an element in the model), attribute and measure. For a failing fitness function, run it and read the output.';
-  if (c.kind === 'unpinned_contract') return 'This requirement spans several elements. Add the OpenAPI file that pins the contract between them under contracts/openapi/.';
+  if (c.kind === 'unpinned_contract') return 'A relationship of this requirement crosses repos without a pinned contract. Name the operation (d.operation) or event (d.message) the relationship carries, and pin it in an OpenAPI file under contracts/openapi/ or a domain pack.';
   if (c.kind === 'eval' && !(c.agent && c.evalId)) return 'Open the eval in evals/ and fix it, or add one for the agent named. It needs a command, a results path and thresholds.';
   if (c.kind === 'domain') return 'Open the domain pack in domain/ (or its source registry) and fix what the line names, then pin it again.';
   return '';
@@ -1679,6 +1666,8 @@ function clauseActions(c) {
   if (c.kind === 'evidence' && / without evidence$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this') + b('data-owner', c.decision, "I'm the business", `Adds ${A.user} to businessOwners in designc.json, so a business decision you bind needs no link`);
   if (c.kind === 'decision' && / accepts a risk without a bound business decision$/.test(c.text)) return b('data-relyon', c.decision, 'Choose business decision', 'Pick or draft the business decision this accepted risk rests on');
   if (c.kind === 'requirement' && c.requirement) return b('data-mapreq', c.requirement, 'Map to elements', 'Grill-me reads the imported page and proposes the elements; you approve');
+  if (c.kind === 'scenario' && c.scenario) return b('data-grillscen', c.scenario, 'Ask in Grill-me', 'Grill-me takes the open questions; business questions go to the BA') + (c.path ? b('data-file', c.path, 'Open scenario') : '');
+  if (c.kind === 'scenario' && c.screen && c.requirement) return b('data-draftscen', c.requirement, 'Draft test scenarios', 'Grill-me drafts structured scenarios with examples through mint_test_scenarios; you bind them');
   if (c.kind === 'tokens') return b('data-file', TOKENS, 'Open tokens file');
   if (c.kind === 'contracts') return b('data-a', 'compilecontracts', 'Compile contracts', 'Writes the design\'s agents and runs your contracts command');
   if (c.kind === 'acceptance') return b('data-a', 'newacc', 'New criterion', 'Write an acceptance criterion for a UI element: one case per state');
@@ -1689,7 +1678,7 @@ function clauseActions(c) {
   if (c.kind === 'domain' && c.pack) return b('data-file', `domain/${c.pack}.yaml`, 'Open domain pack');
   if (c.kind === 'evidence' && /evidence must be an https URL$/.test(c.text)) return b('data-addevidence', c.decision, 'Add evidence', 'Link to where the business agreed this');
   if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x && x._path) return b('data-file', x._path, 'Open decision'); }
-  if (c.kind === 'parse') return b('data-file', A.cfg.model, 'Open model');
+  if (c.kind === 'parse') return b('data-file', Core.locFile(c, A.cfg.model), 'Open model');
   return '';
 }
 // Human only: evidence is what a person agreed, so no agent tool writes it.
@@ -1787,6 +1776,7 @@ function codeAreasButton() {
     <button class="btn block" data-a="suggestcode" title="Suggests one folder per container; you see them before anything is written">Suggest code areas</button>`;
 }
 async function suggestCodeAreas() {
+  if (modelSpans()) return toast(spansRefusal(), 'error');
   const b = A.buffers.get(A.cfg.model);
   if (b && b.dirty) return toast(`Save ${A.cfg.model} first. Suggesting code areas writes to the file and would overwrite your unsaved edits.`, 'error');
   const r = Core.suggestCodeAreas(A.modelText);
@@ -1806,7 +1796,7 @@ function designSidebar() {
   let gate;
   if (!hasModel) gate = `<div class="hint">No model at <b>${esc(A.cfg.model)}</b>.</div><button class="btn block" data-a="newmodel">Create ${esc(A.cfg.model)}</button>`;
   else gate = `<div class="verdict ${g.ready ? 'ok' : 'no'}">${g.ready ? '✓ Ready to hand over' : `✗ ${plural(g.clauses.length, 'blocking item')}`}</div>` + (g.ready ? '' : itemFreezeHint()) +
-    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
+    gateOrder(g.clauses).map(({ c, i }, n) => `<div class="clause" data-clause="${i}"><span class="k">${n === 0 ? 'next · ' : ''}${c.kind === 'scenario' && (c.scenario || c.screen) ? 'Test scenario' : CLAUSE_LABEL[c.kind] || esc(c.kind)}</span><span>${esc(c.text)}${c.finding ? extractedTag(c.finding) : ''}${clauseHelp(c) ? `<span class="help">${esc(clauseHelp(c))}</span>` : ''}</span><span class="acts">${clauseActions(c)}</span></div>`).join('') +
     (Core.rebindable(g).length ? `<button class="btn block" data-a="rebindall" title="Records the current state of what each decision binds as accepted">Re-bind ${plural(Core.rebindable(g).length, 'decision')}</button>` : '') +
     codeAreasButton() + (g.ready ? '<button class="btn primary block" data-a="freeze">Freeze handover</button>' : '') + dispatchButton();
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
@@ -1814,7 +1804,7 @@ function designSidebar() {
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
       <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${Records.runs(d).some(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || '')) ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
-  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div>${chainHtml(r.id)}<div class="acts"><button class="lnk" data-draftts="${esc(r.id)}" title="Grill-me reads the imported page and proposes BDD test scenarios; you approve">Draft test scenarios</button><button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
+  const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div>${chainHtml(r.id)}<div class="acts"><button class="lnk" data-draftts="${esc(r.id)}" title="Grill-me reads the imported page and proposes BDD test scenarios; you approve">Draft test scenarios</button>${TestScenarios.earlierRun((A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), r.id, '').tag ? `<button class="lnk" data-variance="${esc(r.id)}" title="A fresh Grill-me extracts the page again; disagreements become questions">Check variance</button>` : ''}<button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';
   const rows = Core.scenarioReport({ model: A.model, scenarios: A.scenarios, ledger: A.ledger });
   rows.forEach((r, i) => { r._path = A.scenarios[i]._path; });
@@ -1931,15 +1921,8 @@ function renderPanel() {
   if (A.panel === 'output') { body.innerHTML = `<pre class="out">${esc(A.output || 'Check runs appear here. Run > Run All Decision Checks (Ctrl+Shift+B).')}</pre>`; body.scrollTop = 1e9; return; }
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
-  const mrows = [...A.model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line })),
-    ...live.map((f, i) => ({ sev: f.sev, msg: `${f.loc.label}: ${f.msg}`, code: f.code, line: f.loc.line, fi: A.diags.indexOf(f), unknown: f.unknown, dec: Core.decisionsFor(f, A.decisions)[0], f }))];
-  if (mrows.length) groups.push([A.cfg.model, mrows]);
-  const byPath = new Map();
-  for (const e of [...A.yamlErrors, ...A.ledgerErrors, ...A.workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
-  for (const w of A.workWarnings) { if (!byPath.has(w.path)) byPath.set(w.path, []); byPath.get(w.path).push({ sev: 'warning', msg: w.msg, code: 'work', line: 1 }); }
-  const seenP = new Set();
-  for (const x of A.proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
-  groups.push(...byPath);
+  const spans = modelSpans();
+  groups.push(...Problems.rows({ model: A.model, diags: A.diags, cfgModel: A.cfg.model, decisions: A.decisions, yamlErrors: A.yamlErrors, ledgerErrors: A.ledgerErrors, workErrors: A.workErrors, workWarnings: A.workWarnings, proposals: A.proposals }));
   const qrows = new Map();
   for (const f of qual.findings) { if (!qrows.has(f.file)) qrows.set(f.file, []); qrows.get(f.file).push({ sev: 'warning', msg: f.msg, code: f.code, line: f.line, codeFile: true }); }
   for (const [file, rows] of qrows) groups.push([file, rows]);
@@ -1947,7 +1930,7 @@ function renderPanel() {
   if (!groups.length) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const supp = A.diags.length - live.length;
   body.innerHTML = groups.map(([path, rows]) => `<div class="pfile" data-open="${esc(path)}"><span class="fi">${esc(iconFor(path)[1])}</span>${esc(path.split('/').pop())}<span class="desc">${esc(path)}</span><span class="count">${rows.length}</span></div>` +
-    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : r.fi != null ? 'data-cvline' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
+    rows.map(r => `<div class="prow" ${r.codeFile ? 'data-code' : r.fi != null && !spans ? 'data-cvline' : 'data-open'}="${esc(path)}" data-line="${r.line || ''}"><span class="ic ${r.sev}">${r.sev === 'error' ? '⊗' : r.sev === 'warning' ? '⚠' : 'ⓘ'}</span><span class="m">${esc(r.msg)}${r.unknown ? ' <span class="src">(undeclared property)</span>' : ''}${r.f ? extractedTag(r.f) : ''}</span>
       ${r.fi != null ? `<button class="lnk fix" data-askfi="${r.fi}">Ask the tutor</button><button class="lnk fix" data-open="${esc(path)}" data-line="${r.line || ''}" title="Show the line in the DSL text">Show in DSL</button>` : ''}${r.dec ? `<button class="lnk fix" data-file="${esc(r.dec._path)}" title="Open the decision">${esc(decisionNote(r.dec))}</button>` : `${r.fi != null && r.code !== 'DC000' ? `<button class="lnk fix" data-fixfi="${r.fi}">Record decision</button>` : ''}${r.fi != null && r.code !== 'DC000' && r.sev !== 'note' && !r.unknown ? `<button class="lnk fix" data-accfi="${r.fi}">Accept risk</button><button class="lnk fix" data-bldfi="${r.fi}">Build it</button>` : ''}`}<span class="src">designc(${esc(r.code)}) [Ln ${r.line || 1}]</span></div>`).join('')).join('')
     + (supp ? `<div class="pempty">${plural(supp, 'finding')} suppressed in the model with a reason.</div>` : '');
 }
@@ -2148,7 +2131,7 @@ function renderSheet() {
   });
   const live = A.diags.filter(d => !d.suppressed), last = A.handovers[A.handovers.length - 1];
   const tb = $('#titleblock'); tb.style.display = host_.clientWidth < 560 ? 'none' : '';
-  tb.innerHTML = `<table><tr><td colspan="2" class="t">${esc(m.name)}</td></tr><tr><td class="k">Revision</td><td>r-${hash(A.modelText)}</td></tr>
+  tb.innerHTML = `<table><tr><td colspan="2" class="t">${esc(m.name)}</td></tr><tr><td class="k">Revision</td><td>${modelRev()}</td></tr>
     <tr><td class="k">Findings</td><td>${plural(live.filter(d => d.sev === 'error').length, 'error')}, ${plural(live.filter(d => d.sev === 'warning').length, 'warning')}</td></tr>
     <tr><td class="k">Gate</td><td class="${A.gate.ready ? 'ok' : 'no'}">${A.gate.ready ? 'Ready to hand over' : `${A.gate.clauses.length} blocking`}</td></tr>
     <tr><td class="k">As built</td><td>${A.drift ? (A.drift.undeclared.length + A.drift.unknownEls.length ? `<span class="no">${plural(A.drift.undeclared.length + A.drift.unknownEls.length, 'difference')}</span>` : '<span class="ok">matches the design</span>') : 'not mapped'}</td></tr>
@@ -2405,7 +2388,7 @@ document.addEventListener('click', async e => {
   if (d.accfi) { e.stopPropagation(); return acceptRisk(A.diags[+d.accfi]); }
   if (d.bldfi) { e.stopPropagation(); return buildIt(A.diags[+d.bldfi]); }
   if (d.bind) { e.stopPropagation(); return bindDecision(A.decisions.find(x => x.id === d.bind)); }
-  if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(A.cfg.model, e.line); return; }
+  if (d.topo) { const e = A.model.elements.get(d.topo); if (e) openFile(Core.locFile(e, A.cfg.model), e.line); return; }
   if (d.review) { e.stopPropagation(); return reviewAssumptions(A.decisions.find(x => x.id === d.review)); }
   if (d.run) { e.stopPropagation(); return runChecks(A.decisions.filter(x => x.id === d.run)); }
   if (d.qdraft) { const q = A.grill.questions[+d.qdraft]; return recordDecision({ statement: q.suggested_decision || '', effect: q.suggested_effect === 'accept' ? 'accept' : 'fix', binds: q.element ? [q.element] : [], resolves: /^DC\d{3}$/.test(q.code || '') ? [q.code] : [], checks: q.suggested_check ? [q.suggested_check] : [], rationale: `${q.question} Answer: ${q.answer || ''}` }); }
@@ -2427,12 +2410,16 @@ document.addEventListener('click', async e => {
   if (d.pinui) { e.stopPropagation(); return pinUi(d.pinui === '*' ? null : d.pinui); }
   if (d.dguide) { e.stopPropagation(); return domainGuide(d.dguide, d.agg, d.name); }
   if (d.bindtask) { e.stopPropagation(); return bindFactoryTask(d.bindtask); }
+  if (d.tsbind) { e.stopPropagation(); return bindTestScenario(d.tsbind); }
   if (d.procstatus) { e.stopPropagation(); return setProcedureStatus(d.procpath, d.procstatus); }
   if ('regsRefresh' in d) return loadRegistries();
   if (d.ndres) { e.stopPropagation(); return resolveNd(d.ndres); }
   if (d.ndopt) { e.stopPropagation(); return chooseNdOption(d.ndopt, d.opt); }
   if (d.runeval) return runEvals(d.runeval);
   if (d.rects) { e.stopPropagation(); return recordFromLegacy(d.rects); }
+  if (d.draftscen) { e.stopPropagation(); return draftTestScenarios(d.draftscen, true); }
+  if (d.grillscen) { e.stopPropagation(); return askScenarioQuestions(d.grillscen); }
+  if (d.variance) { e.stopPropagation(); return checkVariance(d.variance); }
   if (d.draftts) { e.stopPropagation(); return draftTestScenarios(d.draftts); }
   if (d.mapreq) { e.stopPropagation(); return mapRequirement(d.mapreq); }
   if (d.allowhost) { e.stopPropagation(); return allowEvidenceHost(d.allowhost); }
@@ -2445,11 +2432,11 @@ document.addEventListener('click', async e => {
   if (d.wcheck) return writeCheckFor(d.wcheck);
   if (d.draftcheck) return draftCheck(d.draftcheck);
   if (d.whyfail) return explainCheckFail(d.whyfail);
-  if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0);
+  if (d.cvline != null) return revealInCanvas(d.line ? +d.line : 0, d.cvline);
   if (d.open) return openFile(d.open, d.line ? +d.line : undefined);
   if (d.clause) {
     const c = A.gate.clauses[+d.clause];
-    if (c.line) return c.kind === 'finding' ? revealInCanvas(c.line) : openFile(A.cfg.model, c.line);
+    if (c.line) return c.kind === 'finding' ? revealInCanvas(c.line, Core.locFile(c, A.cfg.model)) : openFile(Core.locFile(c, A.cfg.model), c.line);
     if (c.decision) { const x = A.decisions.find(y => y.id === c.decision); if (x) return openFile(x._path); }
     if (c.requirement) { const x = A.requirements.find(y => y.id === c.requirement); if (x) return openFile(x._path); }
     if (c.kind === 'needs') return setActivity('build');
@@ -2460,7 +2447,7 @@ document.addEventListener('click', async e => {
   if (d.cmsel && A.asbuiltFull) { const x = A.asbuiltFull.elements.get(d.cmsel); if (x && x.kind === 'component' && A.cmLevel !== 'component') { A.cmLevel = 'component'; A.cmScope = x.parent; A.cmZoom = 'fit'; } }
   if (d.cmsel) { A.cmSel = d.cmsel; if (A.active !== 'special:codemap') openSpecial('special:codemap'); else drawCodemap(); return; }
   if (d.cm) { A.cmSel = A.cmSel === d.cm ? null : d.cm; return drawCodemap(); }
-  if (t.classList.contains('node')) { A.selected = t.dataset.el; const el = A.model.elements.get(A.selected); renderSheet(); if (el) openFile(A.cfg.model, el.line); return; }
+  if (t.classList.contains('node')) { A.selected = t.dataset.el; const el = A.model.elements.get(A.selected); renderSheet(); if (el) openFile(Core.locFile(el, A.cfg.model), el.line); return; }
   if (d.recent) { const i = await host.openPath(d.recent); return onFolder(i); }
   if (d.s) {
     if (d.s === 'open') return host.openFolder();
@@ -2615,12 +2602,14 @@ host.onCheckOutput((_id, chunk) => appendOutput(chunk));
 
 async function onFolder(info) {
   if (!info) return;
+  lspStop();
   for (const [, b] of A.buffers) b.model.dispose();
   A.buffers.clear(); A.tabs = []; A.active = null; A.selected = null; A.zoom = 'fit'; A.cmSel = null; A.cmZoom = 'fit'; A.grill = { busy: false, questions: [], error: null };
   A.canvasApi = null; A.canvasLayout = null;
   A.cmLevel = 'container'; A.cmScope = null; A.asbuiltFull = null;
   A.root = info; A.testDeps = null; A.tree = await host.tree();
   await reloadAll();
+  lspStart();
   if (A.model.elements.size || A.model.errors.length) await openFile(A.cfg.model); else activate(null);
   SU.draft = null;
   if (!(await host.exists('designc.json'))) await openSetup(); // a new folder starts at Set up

@@ -1,0 +1,132 @@
+{
+  "requirement": "ORD-1",
+  "run": "a",
+  "scenarios": [
+    {
+      "title": "Tag matching orders",
+      "quote": "The tag is applied to all orders matching the string entered.",
+      "screen": "orders-tag",
+      "steps": [
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "Match"
+          },
+          "value": "{match}"
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "Tag"
+          },
+          "value": "{tag}"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Apply"
+          }
+        }
+      ],
+      "effect": {
+        "operation": "tagOrders",
+        "body": {
+          "match": "{match}",
+          "tag": "{tag}"
+        }
+      },
+      "examples": [
+        {
+          "title": "prefix match",
+          "match": "A-",
+          "tag": "Priority",
+          "given": {
+            "Order": [
+              {
+                "id": 1,
+                "ref": "A-100"
+              },
+              {
+                "id": 2,
+                "ref": "B-200"
+              },
+              {
+                "id": 3,
+                "ref": "XA-1"
+              }
+            ]
+          },
+          "then": {
+            "Order": [
+              {
+                "id": 1,
+                "tag": "Priority"
+              },
+              {
+                "id": 3,
+                "tag": null
+              }
+            ]
+          }
+        }
+      ]
+    },
+    {
+      "title": "Leave non-matching alone",
+      "quote": "An order that does not match is left untouched.",
+      "screen": "orders-tag",
+      "steps": [
+        {
+          "fill": {
+            "role": "textbox",
+            "name": "Match"
+          },
+          "value": "{match}"
+        },
+        {
+          "select": {
+            "role": "combobox",
+            "name": "Tag"
+          },
+          "value": "{tag}"
+        },
+        {
+          "click": {
+            "role": "button",
+            "name": "Apply"
+          }
+        }
+      ],
+      "effect": {
+        "operation": "tagOrders",
+        "body": {
+          "match": "{match}",
+          "tag": "{tag}"
+        }
+      },
+      "examples": [
+        {
+          "title": "no match",
+          "match": "Z-",
+          "tag": "Hold",
+          "given": {
+            "Order": [
+              {
+                "id": 1,
+                "ref": "A-100"
+              }
+            ]
+          },
+          "then": {
+            "Order": [
+              {
+                "id": 1,
+                "tag": null
+              }
+            ]
+          }
+        }
+      ]
+    }
+  ]
+}
