@@ -177,3 +177,64 @@ test('item 2: a software system, an external system, a person or a vanished box 
     assert.match(inner, /this box can't be a node/, id); assert.doesNotMatch(inner, /name is shared/, id);
   }
 });
+
+// ---------- retry 3: a container without components, through the real Core.view, the real layout and the real SVG ----------
+const APP = fs.readFileSync(path.join(__dirname, '..', 'renderer', 'app.js'), 'utf8');
+const LAYOUT_SRC = APP.slice(APP.indexOf('function layout(m, opts = {})'), APP.indexOf("  return svg + '</svg>';\n}") + "  return svg + '</svg>';\n}".length);
+const BARE_W = () => {
+  const model = Core.parse('workspace "w" { model { sys = softwareSystem "w" { api = container "Api" "" "x" { o = component "Orders" } web = container "Web" "" "x" { p = component "Page" } wh = container "Warehouse" "" "Postgres" { } tiny = container "Tiny" "" "x" { } } } }');
+  const facts = { code: { types: [] }, endpoints: [{ id: 'th', node: 'Tiny/GET /health', container: 'Tiny', component: null, method: 'GET', route: '/health', handler: { kind: 'inline', node: 'Tiny/GET /health#handler', file: 'a', line: 1, uses: [] } }] };
+  return { model, facts };
+};
+async function bareDraw(scopeName) {
+  const w = BARE_W();
+  const s = await setup(new Map(), w);
+  vm.runInContext('const chipsSvg = () => ""; const trunc = (t, n) => (String(t).length > n ? String(t).slice(0, n - 1) + "…" : String(t));\n' + LAYOUT_SRC, s.ctx);
+  s.ctx.Core = Core;
+  const idOf = n => [...w.model.elements.values()].find(e => e.name === n).id;
+  s.A.cmLevel = 'component'; s.A.cmScope = scopeName ? idOf(scopeName) : null;
+  s.run("lyOpen('R-1')");
+  s.A.layer.draft = { requirement: 'R-1', author: 'human', status: 'proposed', entry: null,
+    path: [{ stage: 'handler', node: 'Tiny/GET /health#handler' }, { stage: 'store', node: 'Warehouse/NewTable' }],
+    changes: [{ node: 'Tiny', what: 'wire it' }, { node: 'Tiny/GET /health', what: 'answer ok' }, { node: 'Warehouse', what: 'add a table' }] };
+  s.ctx.view0 = s.run('A.asbuiltFull && Core.view(A.asbuiltFull, { level: A.cmLevel, scope: A.cmScope })');
+  const out = s.run('(() => { const m = lyPrepare(view0), L = layout(m, { groupEdges: true }); const svg = lyDecorate(drawModel(m, L, { attr: "cm", zoom: 1, extra: [], edgeStyle: () => ({ color: "#000", width: 1 }), nodeStyle: lyStyle(e => ({ stroke: "#000", sw: 1, dash: "", note: "" })) }), L); return { m, L, svg, layer: lyCache.layer }; })()');
+  return { out, idOf, w };
+}
+const noteBox = (svg, id) => { const m = new RegExp(`<text x="([\\d.]+)" y="([\\d.]+)" text-anchor="(\\w+)"[^>]*data-ly-note="${id}"[^>]*>(?:<title>[^<]*</title>)?([^<]*)</text>`).exec(svg); if (!m) return null; const w = m[4].length * 5.6; const x1 = +m[1] + (m[3] === 'end' ? 0 : m[3] === 'middle' ? w / 2 : w), x0 = x1 - w; return { x0, x1, y0: +m[2] - 10, y1: +m[2], text: m[4] }; };
+const hit = (a, b) => a.x0 < b.x1 && b.x0 < a.x1 && a.y0 < b.y1 && b.y0 < a.y1;
+
+test('retry 3: unscoped Components: the endpoint, handler and new store table sit inside their component-less containers, noted and not overlapping', async () => {
+  const { out, idOf } = await bareDraw(null);
+  const { L, svg, layer } = out;
+  const inside = (box, g) => box.x >= g.x && box.y >= g.y && box.x + box.w <= g.x + g.w && box.y + box.h <= g.y + g.h;
+  for (const [name, cont] of [['NewTable', 'Warehouse'], ['GET /health', 'Tiny'], ['handler GET /health', 'Tiny']]) {
+    const o = layer.own.find(x => x.name === name); assert.ok(o, name);
+    const n = L.nodes.get(o.id), g = L.groups.find(x => x.el.id === idOf(cont));
+    assert.ok(n && g && inside(n, g), `${name} lies inside the rectangle of ${cont}`);
+    assert.ok(svg.includes(`data-ly-note="${o.id}"`), `${name} has its note`);
+    const gn = noteBox(svg, idOf(cont)), nn = noteBox(svg, o.id);
+    assert.ok(gn && nn && !hit(gn, nn), `the note of ${cont} does not overlap the note of ${name}`);
+    assert.ok(!(gn.y0 < n.y + n.h && n.y < gn.y1 && gn.x0 < n.x + n.w && n.x < gn.x1), `the note of ${cont} is not on the box ${name}`);
+  }
+  const table = layer.own.find(x => x.name === 'NewTable');
+  assert.match(svg, new RegExp(`data-cm="${table.id}"><title>NewTable\\nnot on the map`), 'not on the map stays readable on the new box');
+  assert.match(noteBox(svg, table.id).text, /^new /);
+  assert.ok(/data-ly-edge="1"/.test(svg), 'the edge from the handler to the new table is drawn');
+});
+for (const [scope, present, absent] of [['Tiny', ['GET /health', 'handler GET /health'], ['NewTable']], ['Warehouse', ['NewTable'], ['GET /health']], ['Api', [], ['NewTable', 'GET /health']]]) {
+  test(`retry 3: Components scoped to ${scope}: own boxes ${present.join(', ') || 'none'}; others say not shown at this level`, async () => {
+    const { out, idOf } = await bareDraw(scope);
+    const { L, svg, layer } = out;
+    for (const n of present) {
+      const o = layer.own.find(x => x.name === n); assert.ok(o, n);
+      const nd = L.nodes.get(o.id), g = L.groups.find(x => x.el.id === idOf(scope));
+      assert.ok(nd && g && nd.x >= g.x && nd.y >= g.y && nd.x + nd.w <= g.x + g.w && nd.y + nd.h <= g.y + g.h, `${n} inside ${scope}`);
+      assert.ok(svg.includes(`data-ly-note="${o.id}"`));
+    }
+    for (const n of absent) {
+      assert.ok(!layer.own.some(x => x.name === n), `${n} is not drawn`);
+      assert.match(layer.items.find(i => i.node.includes(n)).mark, /not shown at this level/);
+    }
+  });
+}

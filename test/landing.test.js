@@ -376,7 +376,7 @@ test('item 2: on the real fixture every box that has a node round-trips', async 
     const r = Landing.resolve(idx, n);
     assert.equal(r.status, 'mapped', n); assert.equal(e.kind === 'container' ? r.container : r.component, e.id, n);
   }
-  for (const t of facts.code.types) { const n = Landing.nodeOfBox(idx, t.id); if (n != null) assert.equal(Landing.resolve(idx, n).type || Landing.resolve(idx, n).component, Landing.resolve(idx, n).type ? t.id : t.component); }
+  for (const t of facts.code.types) { const n = Landing.nodeOfBox(idx, t.id); if (n != null) assert.equal(Landing.resolve(idx, n).type, t.id, `type ${t.id} comes back as itself, not as its component`); }
   const comps = [...idx.els.values()].filter(e => e.kind === 'component');
   assert.ok(comps.every(c => Landing.nodeOfBox(idx, c.id)), 'every fixture component has a node');
 });
@@ -449,4 +449,40 @@ test('item 10: a short note per box, the full text kept apart', () => {
   assert.equal(Landing.shortNote(notes, { isNew: true }), 'new entry 1 ui +change');
   assert.equal(Landing.shortNote([], { isNew: true }), 'new');
   assert.match(Landing.fullNote(notes), /accept the discount code filter/);
+});
+
+// ---------- retry 3: a container without components still holds the layer's own boxes at Components ----------
+const BARE = () => {
+  const model = modelOf('workspace "w" { model { sys = softwareSystem "w" { api = container "Api" "" "x" { o = component "Orders" } web = container "Web" "" "x" { p = component "Page" } wh = container "Warehouse" "" "Postgres" { } tiny = container "Tiny" "" "x" { } } } }');
+  const facts = { code: { types: [] }, endpoints: [{ id: 'th', node: 'Tiny/GET /health', container: 'Tiny', component: null, method: 'GET', route: '/health', handler: { kind: 'inline', node: 'Tiny/GET /health#handler', file: 'a', line: 1, uses: [] } }] };
+  const rec = { requirement: 'RE-1', author: 'human', status: 'proposed', path: [{ stage: 'handler', node: 'Tiny/GET /health#handler' }, { stage: 'store', node: 'Warehouse/NewTable' }],
+    changes: [{ node: 'Tiny/GET /health', what: 'a' }, { node: 'Warehouse', what: 'b' }] };
+  return { model, idx: Landing.buildIndex(model, facts), rec, facts };
+};
+test('retry 3: unscoped Components draws a new node of a store and an endpoint of a component-less container inside it', () => {
+  const { model, idx, rec } = BARE();
+  const view = Core.view(model, { level: 'component' });
+  const L = Landing.layerFor(idx, rec, 'component', view, {});
+  const own = L.own.map(o => `${o.parent}:${o.name}`).sort();
+  assert.ok(own.some(x => /:NewTable$/.test(x)), 'NewTable has its own box');
+  assert.ok(own.some(x => /:GET \/health$/.test(x)) && own.some(x => /:handler GET \/health$/.test(x)), 'endpoint and handler have boxes');
+  const wh = [...view.elements.values()].find(e => e.name === 'Warehouse').id, tiny = [...view.elements.values()].find(e => e.name === 'Tiny').id;
+  assert.ok(L.own.filter(o => /NewTable/.test(o.name)).every(o => o.parent === wh));
+  assert.ok(L.own.filter(o => /health/.test(o.name)).every(o => o.parent === tiny));
+  assert.equal(L.items.find(i => i.node === 'Warehouse/NewTable').mark, 'not on the map');
+  assert.equal(L.edges.length, 1, 'the edge between the handler and the new table is drawn');
+});
+test('retry 3: scope = the container holds its own boxes even with no components; scope = another container does not', () => {
+  const { model, idx, rec } = BARE();
+  const idOf = n => [...model.elements.values()].find(e => e.name === n).id;
+  for (const [scope, want, not] of [['Tiny', 'GET /health', 'NewTable'], ['Warehouse', 'NewTable', 'GET /health']]) {
+    const sid = idOf(scope), view = Core.view(model, { level: 'component', scope: sid });
+    const L = Landing.layerFor(idx, rec, 'component', view, { scope: sid });
+    assert.ok(L.own.some(o => o.name === want), `${scope}: ${want} is drawn`);
+    assert.ok(!L.own.some(o => o.name === not), `${scope}: ${not} is not`);
+    assert.match(L.items.find(i => i.node.includes(not)).mark, /not shown at this level/);
+  }
+  const sid = idOf('Api'), view = Core.view(model, { level: 'component', scope: sid });
+  const L = Landing.layerFor(idx, rec, 'component', view, { scope: sid });
+  assert.equal(L.own.length, 0, 'scope = another container: nothing floats');
 });

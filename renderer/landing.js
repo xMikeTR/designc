@@ -271,8 +271,11 @@ const Landing = (() => {
   function layerFor(idx, rec, level, view, opts = {}) {
     const ids = new Set(values(view && view.elements).map(e => e.id));
     const parentOf = id => { const e = view.elements.get(id); return e ? e.parent : null; };
-    // a container is drawn open (its components inside) when the view holds a component of it
+    // a container can hold the layer's own boxes when the view holds a component of it; unscoped, every container in the view can,
+    // and a scoped view's own container can even with no components. Containers outside the scope never do.
     const open = new Set(values(view && view.elements).filter(e => e.kind === 'component').map(e => e.parent));
+    if (!opts.scope) values(view && view.elements).filter(e => e.kind === 'container').forEach(e => open.add(e.id));
+    else { const sc = view && view.elements.get(opts.scope); if (sc && sc.kind === 'container') open.add(sc.id); }
     const items = [];
     if (rec.entry) items.push({ role: 'entry', kind: rec.entry.kind, node: rec.entry.node });
     list(rec.path).forEach((s, i) => items.push({ role: 'path', i, n: i + 1, stage: s.stage, node: s.node }));
