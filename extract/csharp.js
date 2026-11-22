@@ -33,6 +33,7 @@ const MAP_GROUP_ASSIGN_RE = /\b(?:var|IEndpointRouteBuilder|RouteGroupBuilder)\s
 const EXT_METHOD_DEF_RE = /\bpublic\s+static\s+\S+\s+(\w+)\s*\(\s*this\s+(?:IEndpointRouteBuilder|RouteGroupBuilder)\s+(\w+)/;
 const EXT_METHOD_CALL_RE = /\b(\w+)\.(\w+)\(\s*\)\s*;/;
 const ROOT_VAR_RE = /\bvar\s+(\w+)\s*=\s*\w+(?:\.\w+)*\.Build\s*\(\s*\)/g;
+const MAP_CALL_RE = /\b(\w+)\.(MapGet|MapPost|MapPut|MapPatch|MapDelete|MapMethods)\s*\(/;
 const HUB_RE = /\bMapHub\s*<[^>]+>\s*\(\s*"([^"]+)"/;
 
 function analyzeMinimalApiFile(text) {
@@ -72,8 +73,11 @@ function finalizeMinimalApiRoute(dr, resolve) {
 
 // ---- controllers: [Route("template")] on the class ([controller] -> class name minus
 // "Controller"), [Http(Get|Post|Put|Patch|Delete)("sub")] on actions.
+// `cls` is the class declared above the action. `orphans` are the action attributes of a file that has no class
+// [Route], whose routes are not read (reported, not linked); comments do not count.
 function scanControllerRoutes(text) {
   const lines = text.split(/\r?\n/);
+  const bare = blankComments(text, true).split(/\r?\n/);
   let classRoutePrefix = null, className = null;
   const routes = [];
   for (let i = 0; i < lines.length; i++) {
@@ -82,12 +86,15 @@ function scanControllerRoutes(text) {
     const classM = /\bclass\s+(\w+)/.exec(lines[i]);
     if (classM) className = classM[1];
     const hAttr = /\[Http(Get|Post|Put|Patch|Delete)(?:\(\s*"([^"]*)"\s*\))?\]/.exec(lines[i]);
-    if (hAttr) routes.push({ verb: hAttr[1], sub: hAttr[2] || '', lineIdx: i });
+    if (hAttr) routes.push({ verb: hAttr[1], sub: hAttr[2] || '', lineIdx: i, cls: className });
   }
-  if (!classRoutePrefix || !className) return [];
+  if (!classRoutePrefix || !className) {
+    const orphans = routes.filter(r => /\[Http(Get|Post|Put|Patch|Delete)\b/.test(bare[r.lineIdx])).map(r => ({ verb: r.verb, lineIdx: r.lineIdx }));
+    return { routes: [], orphans };
+  }
   const controllerName = className.replace(/Controller$/, '');
   const prefix = classRoutePrefix.replace('[controller]', controllerName);
-  return routes.map(r => ({ ...r, route: joinRoute(prefix, r.sub) }));
+  return { routes: routes.map(r => ({ ...r, route: joinRoute(prefix, r.sub) })), orphans: [] };
 }
 
 // ---- Azure Functions: [HttpTrigger(..., Route = "<r>")] (literal or $"{X.Y}/<r>" interpolated
@@ -280,7 +287,7 @@ async function scan(ctx) {
   }
   // async: Azure Service Bus senders and processors, reported as queue consumes/provides —
   // link.js matches them on queue or topic name across the whole repo (and later, cross-language).
-  const consumes = [], provides = [];
+  const consumes = [], provides = [], endpointSites = [], endpointProblems = [];
   for (const s of hits) {
     const m = /Create(Sender|Processor|Receiver|SessionProcessor)\s*\((.*)$/.exec(s.text); if (!m) continue;
     const owners = s.p.kind === 'library' ? ownersOf(s.p) : [s.p];
@@ -304,10 +311,15 @@ async function scan(ctx) {
   for (const d of deployables) {
     const fileTexts = new Map();
     for (const f of d.sources) fileTexts.set(f, await read(f));
-    const pushHttpRoute = (routeStr, kind, file, lineIdx, textLine) => {
+    // `site` says what the endpoint nodes need: the verb (null when unreadable) and where the handler is, either the call
+    // itself (via 'call') or a type (via 'type'). It never reaches link.js.
+    const pushHttpRoute = (routeStr, kind, file, lineIdx, textLine, site) => {
       const evidence = { file: rel(file), line: lineIdx + 1, text: textLine.trim().slice(0, 200) };
       provides.push({ owner: keyOf(d.name), kind, key: normaliseRouteCs(routeStr), evidence });
+      if (kind === 'http' && site) endpointSites.push({ owner: keyOf(d.name), route: normaliseRouteCs(routeStr), evidence, ...site });
     };
+    const mapMethod = verb => (verb === 'MapMethods' ? null : verb.slice(3).toUpperCase());
+    const problem = (what, file, lineIdx, textLine) => endpointProblems.push({ where: d.name, what, file: rel(file), line: lineIdx + 1, text: textLine.trim().slice(0, 200) });
 
     if (!isFunctionsWorker(d)) {
       const analyses = new Map();
@@ -326,8 +338,15 @@ async function scan(ctx) {
         for (const dr of a.directRoutes) {
           const res = finalizeMinimalApiRoute(dr, a.resolve);
           if (res.kind !== 'concrete') continue;
-          pushHttpRoute(res.value, dr.verb === 'MapHub' ? 'hub' : 'http', f, dr.lineIdx, lines[dr.lineIdx]);
+          pushHttpRoute(res.value, dr.verb === 'MapHub' ? 'hub' : 'http', f, dr.lineIdx, lines[dr.lineIdx], { method: mapMethod(dr.verb), via: 'call' });
         }
+        // Map* calls whose route this scanner does not read: no literal right after the paren (a constant, or the next line)
+        const read = new Set(a.directRoutes.filter(dr => dr.verb !== 'MapHub').map(dr => dr.lineIdx));
+        const bare = blankComments(fileTexts.get(f), true).split(/\r?\n/);
+        bare.forEach((bl, i) => {
+          const m = MAP_CALL_RE.exec(bl);
+          if (m && !read.has(i)) problem(`${m[2]} route is not a string literal on the same line as the call, so this endpoint was not read`, f, i, lines[i]);
+        });
         for (let i = 0; i < lines.length; i++) {
           const cm = EXT_METHOD_CALL_RE.exec(lines[i]);
           if (!cm) continue;
@@ -336,26 +355,34 @@ async function scan(ctx) {
           const base = a.resolve(cm[1]);
           if (base.kind !== 'concrete') continue;
           const extLines = fileTexts.get(ext.file).split(/\r?\n/);
-          for (const tpl of ext.templates) pushHttpRoute(joinRoute(base.value, tpl.suffix), tpl.verb === 'MapHub' ? 'hub' : 'http', ext.file, tpl.lineIdx, extLines[tpl.lineIdx]);
+          for (const tpl of ext.templates) pushHttpRoute(joinRoute(base.value, tpl.suffix), tpl.verb === 'MapHub' ? 'hub' : 'http', ext.file, tpl.lineIdx, extLines[tpl.lineIdx], { method: mapMethod(tpl.verb), via: 'call' });
         }
       }
       for (const [f, t] of fileTexts) {
         const lines = t.split(/\r?\n/);
-        for (const r of scanControllerRoutes(t)) pushHttpRoute(r.route, 'http', f, r.lineIdx, lines[r.lineIdx]);
+        const ctl = scanControllerRoutes(t);
+        for (const r of ctl.routes) pushHttpRoute(r.route, 'http', f, r.lineIdx, lines[r.lineIdx], { method: r.verb.toUpperCase(), via: 'type', type: r.cls });
+        for (const o of ctl.orphans) problem(`[Http${o.verb}] action has no [Route] on its class, so its route was not read`, f, o.lineIdx, lines[o.lineIdx]);
       }
     } else {
       const routePrefix = closure(d).map(q => q.routePrefix).find(rp => rp != null) ?? 'api';
       for (const [f, t] of fileTexts) {
         const lines = t.split(/\r?\n/);
+        // the verbs of an HttpTrigger are the string arguments before Route; one verb is a method, anything else is unreadable
+        const trigger = (line, i) => {
+          const verbs = [...line.slice(0, line.search(/\bRoute\s*=/)).matchAll(/"(get|post|put|patch|delete|head|options)"/gi)].map(m => m[1].toUpperCase());
+          let cls = null; for (let j = i; j >= 0 && !cls; j--) { const cm = /\bclass\s+(\w+)/.exec(lines[j]); if (cm) cls = cm[1]; }
+          return { method: verbs.length === 1 ? verbs[0] : null, via: 'type', type: cls };
+        };
         lines.forEach((line, i) => {
           const lit = HTTPTRIGGER_LITERAL_RE.exec(line);
-          if (lit) { pushHttpRoute(joinRoute(routePrefix, lit[1]), 'http', f, i, line); return; }
+          if (lit) { pushHttpRoute(joinRoute(routePrefix, lit[1]), 'http', f, i, line, trigger(line, i)); return; }
           const interp = HTTPTRIGGER_INTERP_RE.exec(line);
           if (interp) {
             const [, clsVar, constName, suffix] = interp;
             const constRe = new RegExp(`\\bconst\\s+string\\s+${constName}\\s*=\\s*"([^"]*)"`);
             const constHit = hits.find(s => closure(d).includes(s.p) && constRe.test(s.text));
-            if (constHit) pushHttpRoute(joinRoute(routePrefix, joinRoute(constRe.exec(constHit.text)[1], suffix)), 'http', f, i, line);
+            if (constHit) pushHttpRoute(joinRoute(routePrefix, joinRoute(constRe.exec(constHit.text)[1], suffix)), 'http', f, i, line, trigger(line, i));
             else unresolved.push({ where: d.name, what: `HttpTrigger Route references ${clsVar}.${constName}, which could not be resolved to a literal`, file: rel(f), line: i + 1, text: line.trim().slice(0, 200) });
           }
         });
@@ -421,6 +448,8 @@ async function scan(ctx) {
     edges,
     consumes,
     provides,
+    endpoints: endpointSites,
+    endpointProblems,
     units,
     unresolved,
   };

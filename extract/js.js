@@ -55,14 +55,18 @@ function resolveRelative(fromFile, relPath) {
   return null;
 }
 
-async function routesInFile(file, prefix, owner, read, rel, provides) {
+// `sites` keeps what the endpoint nodes need (verb, route, place); provides is what link.js reads, deduplicated by route alone.
+// Only a path that starts with '/' is an endpoint: `cache.get('key')` matches ROUTE_RE too.
+async function routesInFile(file, prefix, owner, read, rel, provides, sites) {
   const text = await read(file);
   const lines = text.split(/\r?\n/);
   lines.forEach((line, i) => {
     const m = ROUTE_RE.exec(line);
     if (!m) return;
     const full = prefix ? `${prefix}${m[3].startsWith('/') ? '' : '/'}${m[3]}` : m[3];
-    provides.push({ owner, kind: 'http', key: normaliseRoute(full), evidence: { file: rel(file), line: i + 1, text: line.trim().slice(0, 200) } });
+    const evidence = { file: rel(file), line: i + 1, text: line.trim().slice(0, 200) };
+    provides.push({ owner, kind: 'http', key: normaliseRoute(full), evidence });
+    if (full.startsWith('/')) sites.push({ owner, route: normaliseRoute(full), method: m[1] === 'all' ? null : m[1].toUpperCase(), via: 'call', evidence });
   });
 }
 
@@ -143,7 +147,7 @@ async function scan(ctx) {
     }
   }
 
-  const provides = [];
+  const provides = [], sites = [];
   for (const p of pkgDefs) {
     if (p.kind !== 'node-api') continue;
     const mountedFiles = new Set();
@@ -157,12 +161,12 @@ async function scan(ctx) {
         const relPath = importSource(text, routerId);
         if (!relPath) continue;
         const target = resolveRelative(f, relPath);
-        if (target) { await routesInFile(target, prefix, keyOf(p.name), read, rel, provides); mountedFiles.add(target); }
+        if (target) { await routesInFile(target, prefix, keyOf(p.name), read, rel, provides, sites); mountedFiles.add(target); }
       }
     }
     for (const f of p.files) {
       if (mountedFiles.has(f)) continue;
-      await routesInFile(f, '', keyOf(p.name), read, rel, provides);
+      await routesInFile(f, '', keyOf(p.name), read, rel, provides, sites);
     }
   }
   // dedup as a safety net in case two mounts ever resolve to the same route
@@ -178,6 +182,7 @@ async function scan(ctx) {
     edges: [...calls.edges],
     consumes: [...calls.consumes],
     provides: [...dedupedProvides, ...calls.provides],
+    endpoints: sites,
     units,
     tests,
     unresolved: [...calls.unresolved],
