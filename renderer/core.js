@@ -1177,7 +1177,7 @@ const Core = (() => {
   // (Improve joins on element names) and drop lines, messages, hints and related locations. Clauses and
   // findings are in canonical order, so diagnostic order never changes the record or its verdict.
   // What the gate reads from the registry besides the model file. `ledger/` is left out on purpose: recording must not make a run dirty.
-const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'test-scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'designc.json'];
+const GATE_INPUTS = ['decisions', 'requirements', 'scenarios', 'test-scenarios', 'acceptance', 'design-tokens', 'evals', 'behaviour', 'vocabulary', 'domain', 'ui', 'landings', 'designc.json'];
 // Registry-relative changed files (from git status) that are gate inputs.
 function dirtyInputs(files, cfg) {
   const model = (cfg && cfg.model) || 'model/workspace.dsl';

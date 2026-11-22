@@ -741,6 +741,92 @@ test('a gate clause on a check offers the next step, and the TODO is replaced on
   await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks:\n  - "?bash \.\/checks\/b\.sh/m);
 });
 
+// S2: a requirement's change layer, drawn by hand on the code map with real clicks, saved to landings/, drawn again after a reload.
+test('user can draw a requirement change layer on the code map and keep it', async () => {
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-1.yaml'), 'id: FARE-1\ntitle: Filter fares by discount code\nversion: 1\n');
+  session = await launch(reg);
+  let { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.endpoints.length).toBeGreaterThan(0);
+  const ep = facts.endpoints.find(e => e.container === 'Shop.Api');
+  expect(ep).toBeTruthy();
+  const box = id => page.locator(`#cmcanvas .node[data-cm="${id}"]`);
+  const panel = page.locator('[data-ly-panel]');
+  // None draws as before; picking the layer adds the panel.
+  await expect(panel).toHaveCount(0);
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(panel).toContainText('Layer FARE-1');
+  // Four steps: ui, the API container's endpoint row, its handler row, the store. The first step is also the entry.
+  await box('e_ui').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await panel.getByRole('button', { name: '↳ handler', exact: true }).click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_snowflake').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await expect(panel.locator('[data-ly-line="path"]')).toHaveCount(4);
+  await expect(panel.locator('[data-ly-line="entry"]')).toContainText('ui');
+  // A change on the endpoint, and a node that is not on the map, typed.
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByLabel('What changes here').fill('accept the discount code filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api/DiscountFilter');
+  await expect(panel.locator('[data-ly-target]')).toContainText('not on the map');
+  // The typed node is not sticky: selecting a box drops it and the target is that box.
+  await box('e_ui').click();
+  await expect(panel.getByLabel('Node', { exact: true })).toHaveValue('');
+  await expect(panel.locator('[data-ly-target]')).toContainText('ui');
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api/DiscountFilter');
+  await expect(panel.locator('[data-ly-target]')).toContainText('not on the map');
+  await panel.getByLabel('What changes here').fill('new filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await expect(panel.locator('[data-ly-unsaved]').first()).toBeVisible();
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved landings/FARE-1.yaml.')).toBeVisible();
+  const text = fs.readFileSync(path.join(reg, 'landings/FARE-1.yaml'), 'utf8');
+  expect(text).toMatch(/author: human/);
+  expect(text).toMatch(/status: proposed/);
+  expect(text).toMatch(/accept the discount code filter/);
+  expect(text).toMatch(/Shop\.Api\/DiscountFilter/);
+  expect(text.match(/stage: /g).length).toBe(4);
+  // Reload the app: the layer comes back from the file, drawn with its own dashed box for the new node.
+  await session.app.close(); session = null;
+  session = await launch(reg);
+  page = session.page;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Re-extract' }).waitFor();
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(page.locator('[data-ly-panel] [data-ly-status]')).toContainText('human, proposed');
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await page.locator('.cm-seg button[data-level="component"]').click();
+  await expect(page.locator('#cmcanvas')).toContainText(/not on the map/i);
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(3);
+  // Readable: at four steps and two changes no note, number or box overlaps another, and the panel does not scroll sideways.
+  const geo = await page.evaluate(() => {
+    const R = e => e.getBoundingClientRect(), hit = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+    const marks = [...document.querySelectorAll('#cmcanvas [data-ly-note], #cmcanvas [data-ly-edge] circle')].map(e => ({ what: e.getAttribute('data-ly-note') || 'edge number', r: R(e) }));
+    const problems = [];
+    for (let i = 0; i < marks.length; i++) for (let j = i + 1; j < marks.length; j++) if (hit(marks[i].r, marks[j].r)) problems.push(`${marks[i].what} overlaps ${marks[j].what}`);
+    const boxes = [...document.querySelectorAll('#cmcanvas g.node')].map(g => ({ id: g.getAttribute('data-cm'), r: R(g.querySelector('rect, path')) }));
+    for (const c of document.querySelectorAll('#cmcanvas [data-ly-edge] circle')) for (const b of boxes) if (hit(R(c), b.r)) problems.push(`an edge number sits on ${b.id}`);
+    for (const n of document.querySelectorAll('#cmcanvas g.node [data-ly-note]')) { const b = boxes.find(x => x.id === n.closest('g.node').getAttribute('data-cm')), r = R(n); if (r.left < b.r.left - 1 || r.right > b.r.right + 1) problems.push(`a note spills out of ${b.id}`); }
+    const side = document.querySelector('#cmside');
+    return { problems, notes: marks.length, sideways: side.scrollWidth - side.clientWidth };
+  });
+  expect(geo.notes).toBeGreaterThan(5);
+  expect(geo.problems).toEqual([]);
+  expect(geo.sideways).toBeLessThanOrEqual(0);
+});
+
 test('user can see health on the C4 sheet @critical', async () => {
   const { reg } = copyRegistry('sample-registry');
   // The model holds the claims; health.json holds the evidence, keyed by the handover id (names joined by "/").

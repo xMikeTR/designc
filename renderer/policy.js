@@ -42,6 +42,8 @@ const Policy = (() => {
   function writeVerdict(role, rel, content, parseYaml) {
     const no = error => ({ ok: false, error });
     if (!rel) return no('designc only lets agents write inside the registry. The codebase is read-only here; code changes go through the coding pipeline.');
+    // landings/ is a person's record of a change; however the path is spelled (dot segments, backslashes, case), no agent writes it.
+    if (typeof rel === 'string' && /^landings(\/|$)/.test(rel.replace(/\\/g, '/').split('/').reduce((acc, seg) => { if (seg === '..') acc.pop(); else if (seg && seg !== '.') acc.push(seg); return acc; }, []).join('/').toLowerCase())) return no('landings/ is written by a person in designc; an agent may not write it.');
     if (!(WRITE_PATHS[role] || []).some(re => re.test(rel))) return no(`The ${role} role may not write ${rel}.`);
     const dir = /^(decisions|proposals|factory\/tasks|acceptance)\//.exec(rel);
     if (dir) {
