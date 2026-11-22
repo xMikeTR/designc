@@ -135,3 +135,45 @@ test('item 4 in the panel: lines that are not drawn say so', async () => {
   const html = s.run('lyPanel()');
   assert.match(html, /data-ly-mark[^>]*>not on the map/);
 });
+
+// S2 retry 2, item 1: the landing's text is data, never a replacement pattern.
+test('item 1: "$&", "$`", "$$" and "$\'" in a what come out as literal text with the markup intact', async () => {
+  for (const what of ['cost $& tax', 'cost $` tax', 'price in $$', "cost $' tax"]) {
+    const text = yaml.dump({ requirement: 'R-9', author: 'human', status: 'proposed', entry: null,
+      path: [{ stage: 'ui', node: 'ui' }, { stage: 'api', node: 'Shop.Api' }], changes: [{ node: 'Shop.Api', what }] });
+    const s = await setup(new Map([['landings/R-9.yaml', text]]));
+    s.run("lyOpen('R-9')");
+    s.run('lyPrepare')(Core.view((await world()).model, { level: 'component' }));
+    const lay = s.run('lyCache').layer;
+    const ids = [...lay.boxes.keys()];
+    assert.ok(ids.length >= 2, 'the layer has boxes');
+    const nodes = new Map(ids.map((id, i) => [id, { x: i * 100, y: 0, w: 80, h: 40 }]));
+    const svg = '<svg>' + ids.map(id => `<g class="node" data-cm="${id}"><title>T</title><rect/></g>`).join('') + '</svg>';
+    const out = s.run('lyDecorate')(svg, { nodes, groups: [] });
+    assert.ok(out.includes(what), 'literal text kept: ' + what + '\n' + out);
+    assert.equal((out.match(/<title>/g) || []).length, (out.match(/<\/title>/g) || []).length, 'titles balanced');
+    assert.ok(out.endsWith('</svg>'));
+    assert.equal((out.match(/<svg>/g) || []).length, 1);
+  }
+});
+
+// S2 retry 2, item 2: only a name that is really shared says so.
+test('item 2: a software system, an external system, a person or a vanished box cannot be a node, and it says that', async () => {
+  const model = Core.parse('workspace "w" { model { u = person "Shopper" ext = softwareSystem "Pay" "" "External" sys = softwareSystem "w" { api = container "Api" "" "x" { a = component "Orders" } } } }');
+  const facts = { code: { types: [] }, endpoints: [] };
+  const s = await setup(new Map(), { facts, model });
+  s.run("lyOpen('R-1')");
+  const ids = [...model.elements.values()].filter(e => e.kind !== 'container' && e.kind !== 'component').map(e => e.id).concat(['gone_box']);
+  assert.ok(ids.length >= 3);
+  for (const id of ids) {
+    s.A.cmSel = id;
+    const html = s.run('lyPanel()');
+    assert.match(html, /this box can't be a node: select a container, component or type/, id);
+    assert.doesNotMatch(html, /name is shared/, id);
+    assert.match(html, /data-a="ly-step" disabled/, id);
+    let inner = null;
+    s.ctx.document.querySelector = q => q === '[data-ly-target]' ? { set innerHTML(v) { inner = v; }, get innerHTML() { return inner; } } : null;
+    s.run('lyTypedRefresh()');
+    assert.match(inner, /this box can't be a node/, id); assert.doesNotMatch(inner, /name is shared/, id);
+  }
+});

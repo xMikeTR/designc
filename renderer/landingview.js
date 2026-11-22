@@ -111,8 +111,8 @@ function lyDecorate(svg, L) {
       ? `<text x="${r.x + r.w - 10}" y="${r.y + r.h - 8}" text-anchor="end" font-size="10" font-weight="700" fill="var(--accent)" data-ly-note="${esc(id)}"><title>${esc(full)}</title>${esc(short)}</text>`
       : `<text x="${r.x + r.w / 2}" y="${r.y + r.h - 7}" text-anchor="middle" font-size="10" font-weight="700" fill="var(--accent)" data-ly-note="${esc(id)}">${esc(short)}</text>`;
     let body = svg.slice(i, j);
-    if (g) body = body.replace('stroke="var(--ink3)" stroke-width="1.2"', 'stroke="var(--accent)" stroke-width="2.6"');
-    else body = body.replace('</title>', `\n${esc(full)}</title>`);
+    if (g) body = body.replace('stroke="var(--ink3)" stroke-width="1.2"', () => 'stroke="var(--accent)" stroke-width="2.6"');
+    else body = body.replace('</title>', () => `\n${esc(full)}</title>`);
     svg = svg.slice(0, i) + body + text + svg.slice(j);
   }
   const clipTo = (r, tx, ty) => {
@@ -132,7 +132,7 @@ function lyDecorate(svg, L) {
       + `<circle cx="${mx}" cy="${my}" r="9" fill="var(--accent)"/><text x="${mx}" y="${my + 4}" text-anchor="middle" font-size="11" font-weight="700" fill="var(--onaccent)">${ed.n}</text></g>`;
   }
   const at = svg.indexOf('<g class="node"');
-  return at < 0 ? svg.replace(/<\/svg>$/, h + '</svg>') : svg.slice(0, at) + h + svg.slice(at);
+  return at < 0 ? svg.replace(/<\/svg>$/, () => h + '</svg>') : svg.slice(0, at) + h + svg.slice(at);
 }
 
 // ---------------------------------------------------------------- the side panel
@@ -152,8 +152,11 @@ function lyTarget() {
   const own = lyCache && lyCache.layer.own.find(o => o.id === A.cmSel);
   if (own) return { node: own.node, how: 'box' };
   const node = Landing.nodeOfBox(idx, A.cmSel);
-  return node ? { node, how: 'box' } : { node: null, how: 'shared' };
+  if (node) return { node, how: 'box' };
+  const e = idx.els.get(A.cmSel), isType = !e && [...idx.typesOf.values()].some(ts => ts.some(t => t.id === A.cmSel));
+  return { node: null, how: (e && (e.kind === 'container' || e.kind === 'component')) || isType ? 'shared' : 'nonode' };
 }
+const lyWhyNot = tg => tg.how === 'shared' ? 'name is shared: select its component' : "this box can't be a node: select a container, component or type";
 function lyResText(r) {
   if (r.status === 'new') return 'not on the map';
   if (r.status === 'ambiguous') return `ambiguous: ${r.candidates.length} matches, so it is not drawn. Pick a more specific node.`;
@@ -192,7 +195,7 @@ function lyPanel() {
   const tg = lyTarget(), r = tg && tg.node ? Landing.resolve(idx, tg.node) : null;
   const stage = L.stage || (tg && tg.node ? Landing.defaultStage(idx, tg.node, rec) : 'ui');
   const target = tg && tg.node ? `<div data-ly-target><span class="muted">Target</span> <b>${esc(tg.node)}</b> <span class="desc">${esc(lyResText(r))}</span></div>`
-    : tg ? '<div data-ly-target style="color:var(--warn)">name is shared: select its component</div>'
+    : tg ? `<div data-ly-target style="color:var(--warn)">${lyWhyNot(tg)}</div>`
     : '<div class="muted" data-ly-target>Select a box or a row below, or type a node.</div>';
   const can = r && r.status !== 'ambiguous' ? '' : 'disabled';
   const draw = `<div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0">
@@ -274,7 +277,7 @@ function lyTypedRefresh() {
   const idx = lyIndex(), tg = lyTarget(), rec = A.layer.draft; if (!idx || !rec) return;
   const r = tg && tg.node ? Landing.resolve(idx, tg.node) : null;
   const el = document.querySelector('[data-ly-target]');
-  if (el) el.innerHTML = tg && tg.node ? `<span class="muted">Target</span> <b>${esc(tg.node)}</b> <span class="desc">${esc(lyResText(r))}</span>` : tg ? 'name is shared: select its component' : 'Select a box or a row below, or type a node.';
+  if (el) el.innerHTML = tg && tg.node ? `<span class="muted">Target</span> <b>${esc(tg.node)}</b> <span class="desc">${esc(lyResText(r))}</span>` : tg ? lyWhyNot(tg) : 'Select a box or a row below, or type a node.';
   const off = !(r && r.status !== 'ambiguous');
   document.querySelectorAll('[data-a="ly-entry"], [data-a="ly-step"], [data-a="ly-change"]').forEach(b => { b.disabled = off; });
   const st = document.querySelector('[data-ly-stage]'); if (st && r && !A.layer.stage) st.value = Landing.defaultStage(idx, tg.node, rec);
