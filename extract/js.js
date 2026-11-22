@@ -3,6 +3,7 @@
 const fs = require('fs');
 const path = require('path');
 const jsCalls = require('./js-calls');
+const { blankJs, callArgs } = require('./endpoints');
 
 const SPA_TRIGGERS = ['vite', 'next', 'react-scripts', '@angular/core', 'vue', 'svelte'];
 const NODE_TRIGGERS = ['express', 'fastify', 'koa', '@nestjs/core', 'hono'];
@@ -57,16 +58,25 @@ function resolveRelative(fromFile, relPath) {
 
 // `sites` keeps what the endpoint nodes need (verb, route, place); provides is what link.js reads, deduplicated by route alone.
 // Only a path that starts with '/' is an endpoint: `cache.get('key')` matches ROUTE_RE too.
-async function routesInFile(file, prefix, owner, read, rel, provides, sites) {
+async function routesInFile(file, prefix, owner, read, rel, provides, sites, report) {
   const text = await read(file);
   const lines = text.split(/\r?\n/);
+  const code = blankJs(text), blank = code.split(/\r?\n/);
+  const offsets = [0]; for (const l of text.split('\n')) offsets.push(offsets[offsets.length - 1] + l.length + 1);
   lines.forEach((line, i) => {
     const m = ROUTE_RE.exec(line);
     if (!m) return;
     const full = prefix ? `${prefix}${m[3].startsWith('/') ? '' : '/'}${m[3]}` : m[3];
     const evidence = { file: rel(file), line: i + 1, text: line.trim().slice(0, 200) };
     provides.push({ owner, kind: 'http', key: normaliseRoute(full), evidence });
-    if (full.startsWith('/')) sites.push({ owner, route: normaliseRoute(full), method: m[1] === 'all' ? null : m[1].toUpperCase(), via: 'call', evidence });
+    if (full.startsWith('/')) sites.push({ owner, route: normaliseRoute(full), method: m[1] === 'all' ? null : m[1].toUpperCase(), via: 'call', col: m.index, evidence });
+    // only the first route call of a line is read; a later one with a path and a handler is reported
+    for (const x of blank[i].matchAll(/\b[\w$]+\.(?:get|post|put|patch|delete|all)\s*\(\s*(['"`])/g)) {
+      if (x.index === m.index) continue;
+      const open = offsets[i] + x.index + x[0].indexOf('(');
+      const lit = /^\s*(['"`])([^'"`]*)\1/.exec(lines[i].slice(x.index + x[0].lastIndexOf('(') + 1));
+      if (lit && lit[2].startsWith('/') && callArgs(code, open).args.length >= 2) report.problems.push({ where: report.name, what: `${x[0].match(/\.(\w+)/)[1]}(${lit[2]}, ...) is not the first route call on its line, so this endpoint was not read`, file: rel(file), line: i + 1, text: evidence.text });
+    }
   });
 }
 
@@ -147,7 +157,7 @@ async function scan(ctx) {
     }
   }
 
-  const provides = [], sites = [];
+  const provides = [], sites = [], endpointProblems = [];
   for (const p of pkgDefs) {
     if (p.kind !== 'node-api') continue;
     const mountedFiles = new Set();
@@ -161,12 +171,12 @@ async function scan(ctx) {
         const relPath = importSource(text, routerId);
         if (!relPath) continue;
         const target = resolveRelative(f, relPath);
-        if (target) { await routesInFile(target, prefix, keyOf(p.name), read, rel, provides, sites); mountedFiles.add(target); }
+        if (target) { await routesInFile(target, prefix, keyOf(p.name), read, rel, provides, sites, { name: p.name, problems: endpointProblems }); mountedFiles.add(target); }
       }
     }
     for (const f of p.files) {
       if (mountedFiles.has(f)) continue;
-      await routesInFile(f, '', keyOf(p.name), read, rel, provides, sites);
+      await routesInFile(f, '', keyOf(p.name), read, rel, provides, sites, { name: p.name, problems: endpointProblems });
     }
   }
   // dedup as a safety net in case two mounts ever resolve to the same route
@@ -183,6 +193,7 @@ async function scan(ctx) {
     consumes: [...calls.consumes],
     provides: [...dedupedProvides, ...calls.provides],
     endpoints: sites,
+    endpointProblems,
     units,
     tests,
     unresolved: [...calls.unresolved],

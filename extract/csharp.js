@@ -33,7 +33,7 @@ const MAP_GROUP_ASSIGN_RE = /\b(?:var|IEndpointRouteBuilder|RouteGroupBuilder)\s
 const EXT_METHOD_DEF_RE = /\bpublic\s+static\s+\S+\s+(\w+)\s*\(\s*this\s+(?:IEndpointRouteBuilder|RouteGroupBuilder)\s+(\w+)/;
 const EXT_METHOD_CALL_RE = /\b(\w+)\.(\w+)\(\s*\)\s*;/;
 const ROOT_VAR_RE = /\bvar\s+(\w+)\s*=\s*\w+(?:\.\w+)*\.Build\s*\(\s*\)/g;
-const MAP_CALL_RE = /\b(\w+)\.(MapGet|MapPost|MapPut|MapPatch|MapDelete|MapMethods)\s*\(/;
+const MAP_CALL_RE = /(\b\w+)?\s*\.\s*(MapGet|MapPost|MapPut|MapPatch|MapDelete|MapMethods)\s*\(/g;
 const HUB_RE = /\bMapHub\s*<[^>]+>\s*\(\s*"([^"]+)"/;
 
 function analyzeMinimalApiFile(text) {
@@ -57,7 +57,7 @@ function analyzeMinimalApiFile(text) {
       return;
     }
     const vm = MAP_VERB_RE.exec(line);
-    if (vm) directRoutes.push({ baseVar: vm[1], verb: vm[2], route: vm[3], lineIdx: i });
+    if (vm) directRoutes.push({ baseVar: vm[1], verb: vm[2], route: vm[3], lineIdx: i, col: vm.index });
     const hm = HUB_RE.exec(line);
     if (hm) directRoutes.push({ baseVar: null, verb: 'MapHub', route: hm[1], lineIdx: i });
   });
@@ -124,7 +124,8 @@ function configKey(text) {
 // Replaces comments with spaces (newlines kept, so offsets and line numbers still match the
 // source) while leaving string and char literals alone, so "//" inside a URL is not a comment.
 // Pass blankStrings to blank literal contents too, for brace matching.
-function blankComments(text, blankStrings = false) {
+// `fsharp` reads a lone ' as a type variable ('a) and not as the start of a char literal; callers that omit it are unchanged.
+function blankComments(text, blankStrings = false, fsharp = false) {
   let out = '', i = 0;
   const n = text.length;
   const blank = ch => (ch === '\n' || ch === '\r' ? ch : ' ');
@@ -137,6 +138,7 @@ function blankComments(text, blankStrings = false) {
       if (i < n) { out += '  '; i += 2; }
       continue;
     }
+    if (fsharp && c === "'" && !/^'(?:\\.[^'\n]*|[^'\\\n])'/.test(text.slice(i, i + 12))) { out += c; i++; continue; }
     if (c === '"' || c === "'") {
       const verbatim = c === '"' && text[i - 1] === '@';
       out += c; i++;
@@ -330,7 +332,7 @@ async function scan(ctx) {
         const templates = a.directRoutes
           .map(dr => ({ dr, res: finalizeMinimalApiRoute(dr, a.resolve) }))
           .filter(x => x.res.kind === 'symbolic' && x.res.param === a.extDef.paramName)
-          .map(x => ({ suffix: x.res.suffix, verb: x.dr.verb, lineIdx: x.dr.lineIdx }));
+          .map(x => ({ suffix: x.res.suffix, verb: x.dr.verb, lineIdx: x.dr.lineIdx, col: x.dr.col }));
         extByName.set(a.extDef.methodName, { file: f, templates });
       }
       for (const [f, a] of analyses) {
@@ -338,14 +340,19 @@ async function scan(ctx) {
         for (const dr of a.directRoutes) {
           const res = finalizeMinimalApiRoute(dr, a.resolve);
           if (res.kind !== 'concrete') continue;
-          pushHttpRoute(res.value, dr.verb === 'MapHub' ? 'hub' : 'http', f, dr.lineIdx, lines[dr.lineIdx], { method: mapMethod(dr.verb), via: 'call' });
+          pushHttpRoute(res.value, dr.verb === 'MapHub' ? 'hub' : 'http', f, dr.lineIdx, lines[dr.lineIdx], { method: mapMethod(dr.verb), via: 'call', col: dr.col });
         }
-        // Map* calls whose route this scanner does not read: no literal right after the paren (a constant, or the next line)
-        const read = new Set(a.directRoutes.filter(dr => dr.verb !== 'MapHub').map(dr => dr.lineIdx));
-        const bare = blankComments(fileTexts.get(f), true).split(/\r?\n/);
+        // Map* calls whose route this scanner does not read: no literal right after the paren (a constant, or the next line),
+        // a call chained off another (MapGroup(..).MapGet), or a second call on a line that already has one read
+        const readAt = new Set(a.directRoutes.filter(dr => dr.verb !== 'MapHub').map(dr => `${dr.lineIdx}:${dr.col}`));
+        const bare = blankComments(fileTexts.get(f), true, /\.fs$/i.test(f)).split(/\r?\n/);
         bare.forEach((bl, i) => {
-          const m = MAP_CALL_RE.exec(bl);
-          if (m && !read.has(i)) problem(`${m[2]} route is not a string literal on the same line as the call, so this endpoint was not read`, f, i, lines[i]);
+          for (const m of bl.matchAll(MAP_CALL_RE)) {
+            if (readAt.has(`${i}:${m.index}`)) continue;
+            const literal = /^\s*"/.test(bl.slice(m.index + m[0].length));
+            const why = !m[1] ? `${m[2]} chained off another call is not read` : !literal ? `${m[2]} route is not a string literal on the same line as the call` : `${m[2]} is not the first route call on its line`;
+            problem(`${why}, so this endpoint was not read`, f, i, lines[i]);
+          }
         });
         for (let i = 0; i < lines.length; i++) {
           const cm = EXT_METHOD_CALL_RE.exec(lines[i]);
@@ -355,7 +362,7 @@ async function scan(ctx) {
           const base = a.resolve(cm[1]);
           if (base.kind !== 'concrete') continue;
           const extLines = fileTexts.get(ext.file).split(/\r?\n/);
-          for (const tpl of ext.templates) pushHttpRoute(joinRoute(base.value, tpl.suffix), tpl.verb === 'MapHub' ? 'hub' : 'http', ext.file, tpl.lineIdx, extLines[tpl.lineIdx], { method: mapMethod(tpl.verb), via: 'call' });
+          for (const tpl of ext.templates) pushHttpRoute(joinRoute(base.value, tpl.suffix), tpl.verb === 'MapHub' ? 'hub' : 'http', ext.file, tpl.lineIdx, extLines[tpl.lineIdx], { method: mapMethod(tpl.verb), via: 'call', col: tpl.col });
         }
       }
       for (const [f, t] of fileTexts) {

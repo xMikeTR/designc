@@ -235,3 +235,150 @@ test('split repos: nodes use the container name and file paths carry the repo pr
   assert.deepEqual([one.handler.line, one.handler.endLine], [2, 2]);
   assert.equal(find(r, 'Web/GET /c').handler.file, 'Three/Program.cs');
 });
+
+// ---- retry 1: wrong handler links, nodes for non-endpoints, silent misses, wrong spans
+const TOP = 'var app = WebApplication.CreateBuilder(args).Build();\n';
+const PKG = JSON.stringify({ name: 'nodeapi', dependencies: { express: '4', axios: '1' } });
+const jsRepo = (body, more = {}) => repo({ 'package.json': PKG, 'server.js': "const app = require('express')();\n" + body, ...more });
+const rowsFor = (r, file, line) => r.facts.unresolved.filter(u => u.file === file && u.line === line);
+
+test('R1.1 a bare handler name resolves only to the enclosing type, never to another type that has a method of that name', async () => {
+  for (const [body, other] of [
+    ['app.MapGet("/h", Health);\nstring Health() => "ok";\n', 'public string Health() => "other";'],
+    ['var health = () => "ok";\napp.MapGet("/h", health);\n', 'public string health() => "other";'],
+  ]) {
+    const r = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + body, 'Monitor.cs': `public class Monitor\n{\n    ${other}\n}\n` }));
+    const e = find(r, 'Api/GET /h');
+    assert.ok(e);
+    assert.equal(e.handler, null, body);
+    assert.equal(rowsFor(r, 'Program.cs', body.startsWith('app') ? 2 : 3).filter(u => /handler/.test(u.what)).length, 1, body);
+  }
+});
+
+test('R1.1 a local of the same name shadows the enclosing type method; the method group in its own class still links', async () => {
+  const r = await extract(repo({
+    'Api.csproj': WEB, 'Program.cs': TOP + 'app.MapO();\n',
+    'OEndpoints.cs': [
+      'public static class OEndpoints', // 1
+      '{',
+      '    public static void MapO(this IEndpointRouteBuilder g)',
+      '    {',
+      '        g.MapGet("/o", List);', // 5
+      '    }',
+      '    public static void MapP(this IEndpointRouteBuilder g)',
+      '    {',
+      '        var List = Make();',
+      '        g.MapGet("/p", List);', // 10
+      '    }',
+      '    static string List() => "";',
+      '}',
+    ].join('\n'),
+  }));
+  const own = r.facts.endpoints.find(e => e.evidence.line === 5);
+  assert.deepEqual([own.handler.kind, own.handler.node], ['named', 'Api/OEndpoints']);
+  const shadowed = r.facts.endpoints.find(e => e.evidence.line === 10);
+  assert.equal(shadowed.handler, null);
+  assert.equal(rowsFor(r, 'OEndpoints.cs', 10).filter(u => /handler/.test(u.what)).length, 1);
+});
+
+test('R1.2 a qualifier matches a type with the exact case-sensitive rule and never when a local has that name', async () => {
+  const orders = 'public class Orders\n{\n    public string List() => "";\n}\n';
+  const a = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + 'var orders = Factory.Make();\napp.MapGet("/o", orders.List);\n', 'Orders.cs': orders }));
+  assert.equal(find(a, 'Api/GET /o').handler, null);
+  assert.equal(rowsFor(a, 'Program.cs', 3).filter(u => /handler/.test(u.what)).length, 1);
+  const b = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + 'var Orders = Factory.Make();\napp.MapGet("/o", Orders.List);\n', 'Orders.cs': orders }));
+  assert.equal(find(b, 'Api/GET /o').handler, null, 'a local named Orders shadows the type');
+  const c = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + 'app.MapGet("/o", Orders.List);\n', 'Orders.cs': orders }));
+  assert.equal(find(c, 'Api/GET /o').handler.node, 'Api/Orders');
+});
+
+test('R1 a named JS handler in its own module still links', async () => {
+  const r = await extract(jsRepo("function list(req, res) { res.end(); }\napp.get('/n', list);\n"));
+  assert.equal(find(r, 'nodeapi/GET /n').handler.kind, 'named');
+});
+
+test('R3 a route in a comment is neither a node nor a row (provides are pinned by the unchanged-output tests)', async () => {
+  const cs = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + '// app.MapGet("/ghost", () => 1);\n/*\napp.MapPost("/ghost2", () => 2);\n*/\n', 'C.cs': '[Route("a")]\npublic class AController : ControllerBase\n{\n  // [HttpGet("ghost")]\n  public int X() => 1;\n}\n' }));
+  assert.deepEqual(cs.facts.endpoints, []);
+  assert.deepEqual(cs.facts.unresolved.filter(u => /ghost|GET|POST/.test(u.what) && /handler|not read|endpoint/.test(u.what)), []);
+  const js = await extract(jsRepo("// app.get('/ghost', h);\n/* app.post('/g2', h) */\n"));
+  assert.deepEqual(js.facts.endpoints, []);
+  assert.deepEqual(js.facts.unresolved.filter(u => /ghost|g2/.test(u.what)), []);
+  const fn = await extract(repo({ 'Fn.csproj': '<Project Sdk="Microsoft.NET.Sdk"><PropertyGroup><OutputType>Exe</OutputType></PropertyGroup><ItemGroup><PackageReference Include="Microsoft.Azure.Functions.Worker" Version="1"/></ItemGroup></Project>', 'F.cs': 'public class F\n{\n    // [Function("A")] [HttpTrigger(AuthorizationLevel.Anonymous, "get", Route = "ghost")]\n    public int A() => 1;\n}\n' }));
+  assert.deepEqual(fn.facts.endpoints, []);
+  assert.deepEqual(fn.facts.unresolved.filter(u => /ghost/.test(u.what)), []);
+});
+
+test('R4 a JS call with no handler argument is neither a node nor a row; with a handler it needs an express receiver', async () => {
+  const r = await extract(jsRepo([
+    "app.get('/real', async (req, res) => {", // 2
+    "  const x = await axios.get('/remote/thing');", // 3
+    '  res.json(x);',
+    '});',
+    "const v = cache.get('/not/a/route');", // 6
+    "axios.post('/remote', body);", // 7
+    "const router = require('express').Router();",
+    "router.get('/r', (req, res) => res.end());", // 9
+    'module.exports = (srv) => { srv.get(\'/inj\', (req, res) => res.end()); };', // 10
+    "const inj = (app) => app.put('/in', (req, res) => res.end());", // 11
+  ].join('\n') + '\n', { 'server.test.js': "request(app).get('/real');\nagent.post('/real');\n" }));
+  assert.deepEqual(r.facts.endpoints.map(e => e.node).sort(), ['nodeapi/GET /r', 'nodeapi/GET /real', 'nodeapi/PUT /in'].sort(), r.facts.endpoints.map(e => e.node).join());
+  assert.equal(rowsFor(r, 'server.js', 3).length + rowsFor(r, 'server.js', 6).length + rowsFor(r, 'server.test.js', 2).length, 0);
+  const lost = rowsFor(r, 'server.js', 7);
+  assert.equal(lost.length, 1);
+  assert.match(lost[0].what, /axios/);
+  assert.equal(rowsFor(r, 'server.js', 10).length, 1, 'a route on an unknown receiver is a row, not a silent loss');
+});
+
+test('R5 a Map call chained off MapGroup is reported, not dropped', async () => {
+  const r = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + 'app.MapGroup("/g").MapGet("/in", () => 1);\n' }));
+  assert.deepEqual(r.facts.endpoints, []);
+  const rows = rowsFor(r, 'Program.cs', 2);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].what, /not read/);
+});
+
+test('R6 the second route call on one line is reported', async () => {
+  const cs = await extract(repo({ 'Api.csproj': WEB, 'Program.cs': TOP + 'app.MapGet("/a", () => 1); app.MapPost("/b", () => 2);\n' }));
+  assert.deepEqual(cs.facts.endpoints.map(e => e.node), ['Api/GET /a']);
+  const rows = rowsFor(cs, 'Program.cs', 2);
+  assert.equal(rows.length, 1);
+  assert.match(rows[0].what, /MapPost.*not read/);
+  const js = await extract(jsRepo("app.get('/a', (q, s) => s.end()); app.post('/b', (q, s) => s.end());\n"));
+  assert.deepEqual(js.facts.endpoints.map(e => e.node), ['nodeapi/GET /a']);
+  const jr = rowsFor(js, 'server.js', 2);
+  assert.equal(jr.length, 1);
+  assert.match(jr[0].what, /post.*not read/);
+});
+
+test('R7 regex literals are blanked, division is not mistaken for one', async () => {
+  const r = await extract(jsRepo([
+    "app.get('/p', (req, res) => {", // 2
+    '  res.send(/\\)/.test(req.url));',
+    '});', // 4
+    "app.get('/q', (req, res) => {", // 5
+    '  res.send(req.url.replace(/"/g, \'\'));',
+    '});', // 7
+    "app.get('/d', (req, res) => {", // 8
+    '  const half = req.n / 2 / (3);', // 9
+    "  res.send('(');",
+    '});', // 11
+    "app.get('/c', (req, res) => { const k = [/[)/]/]; res.end(); });", // 12
+  ].join('\n') + '\n'));
+  const span = n => { const h = find(r, n).handler; return h && [h.line, h.endLine]; };
+  assert.deepEqual(span('nodeapi/GET /p'), [2, 4]);
+  assert.deepEqual(span('nodeapi/GET /q'), [5, 7]);
+  assert.deepEqual(span('nodeapi/GET /d'), [8, 11]);
+  assert.deepEqual(span('nodeapi/GET /c'), [12, 12]);
+  assert.equal(r.facts.unresolved.filter(u => u.file === 'server.js' && /handler/.test(u.what)).length, 0);
+});
+
+test('R8 an F# type variable does not swallow the handlers after it, and csharp.blankComments is unchanged for others', async () => {
+  const r = await extract(repo({ 'Svc.fsproj': WEB, 'Program.fs': 'let app = WebApplication.CreateBuilder().Build()\napp.MapPost("/rate", Func<_,_>(fun (x: \'a) -> x)) |> ignore\napp.MapPost("/two", Func<_>(fun () -> 1)) |> ignore\n' }));
+  const span = n => { const h = find(r, n).handler; return h && [h.line, h.endLine]; };
+  assert.deepEqual(span('Svc/POST /rate'), [2, 2]);
+  assert.deepEqual(span('Svc/POST /two'), [3, 3]);
+  const { blankComments } = require('../extract/csharp.js');
+  assert.equal(blankComments("var c = 'a'; // x\nvar s = \"q\";"), "var c = 'a';     \nvar s = \"q\";");
+  assert.equal(blankComments("'a x'", true), "'   '");
+});
