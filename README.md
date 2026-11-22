@@ -25,7 +25,7 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | View | What it is for | What you do there |
 | --- | --- | --- |
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
-| **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC009) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
+| **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC014) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
 | **Parity** | Does the new app match the legacy one | Scenarios replayed on both apps by the recorder (`scripts/parity-record.js`), compared on structure, interface text and the shape of data, never the data; findings per step with legacy and new screenshots side by side. A work item can require a pass with `done_when: - parity: all` (see `docs/parity-contract.md`) |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
@@ -482,6 +482,9 @@ With split repos (`repos` in `designc.json`) a pattern is relative to the repo t
 - **DC009 (error), reserved path.** A `d.code` that may overlap `tests/acceptance/**`, where the generated acceptance specs live.
 - **DC009 (error).** `d.code` declared on an element inside one that also declares it (one level per branch: a container or its components, not both), or two unrelated elements whose areas may overlap. Overlap is judged by the path pattern contract, so two wildcard segments count as overlapping (`src/*.cs` and `src/a*`). One finding per pair, on the element declared later; suppress with `d.suppress` when the overlap is intended.
 - **DC011 (warning, error).** A relationship that crosses a repo or a zone (both ends declare one, inherited from the container, and they differ) and names neither `d.operation` nor `d.message` is an unknown (warning). A `d.operation` that is not in exactly one pinned OpenAPI file, or a `d.message` that no pinned pack (or more than one) defines, is an error. Person ends and parent/child pairs are skipped; suppress with `d.suppress`.
+- **DC012 (warning).** Where `d.style: event-driven` holds at both ends (set on a system, inherited; a nearer value overrides), a non-structural, non-in-process call between two non-person elements with `d.interaction: sync` is a warning; an undeclared `d.interaction` is an unknown. `request-response` has no rule. Opt-in: no finding without `d.style`.
+- **DC013 (warning, unknown).** A sync call (undeclared counts as sync) from a non-person outside the destination's container into an element whose effective `d.api` is `api-first`, with no `d.operation`. A repo or zone crossing that DC011 already reports is not repeated. `d.api: none` switches it off below.
+- **DC014 (error, warning).** Where a UI element (tagged `UI`, or inside one) has effective `d.ui: thin`, a relationship from it to a store is an error and `d.owns` on it is a warning. `d.ui: none` switches it off below.
 
 **A new project.** When no element declares `d.code` yet, the Design sidebar says so and offers **Suggest code areas**: one folder per container under its system's folder (`godot-agent-harness/agent/**`), each with `d.risk "medium"`, added as its own `properties` block. You see the list before anything is written, and you edit or remove any of them in the model afterwards (a container you will not build can lose both properties). A code area is part of the design, so bound decisions on those containers say changed since promotion until you re-bind them. The repository itself may not exist yet: designc never creates or writes it; the coding pipeline does.
 
@@ -690,7 +693,7 @@ Core logic, the extractors, the ledger, the CLI and the governance checks run in
 | `integrations/DesigncTelemetry.cs` | The tagging convention for the .NET harness |
 | `main.js` | Main process: folder-scoped file access, watcher, ledger appends, check runs, gateway calls |
 | `preload.js` | The only bridge to the UI (context isolation on, Node off in the renderer) |
-| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC009, gate, drift. The one front end: the app, `designc-core` and the `python -m designc check` shim all run it |
+| `renderer/core.js` | The design compiler: DSL parser, DC000 to DC014, gate, drift. The one front end: the app, `designc-core` and the `python -m designc check` shim all run it |
 | `renderer/agent.js` | Agent panel: roles, fail-closed policy, tools, approvals, streaming loop |
 | `acp.js` | ACP client: spawns agents, JSON-RPC over stdio, routes updates, permissions and file requests |
 | `designc-mcp.js` | Stdio MCP server that gives ACP agents designc's tools via the running app, or four read tools headless |

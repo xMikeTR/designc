@@ -32,6 +32,7 @@ this marking is a reading of how the files are written and checked.
 | Finding | Value Object | One diagnostic from a rule: code, severity, message, location, hint. Also called a diagnostic in code (`diags`) |
 | Unknown | Value Object | A finding of warning severity raised because a rule needed an undeclared property to decide |
 | Suppression | Value Object | `d.suppress` on an element or rel: silences a named code there, and stays visible as suppressed |
+| Principle | Value (property) | `d.style`, `d.api` or `d.ui` set on a system and inherited down the tree like `d.zone`; a nearer `none` switches it off below. `Core.principle(model, elementId, prop)` returns `{ value, from }`. Checked by DC012 to DC014; opt-in, so nothing changes until one is set. Changing one changes that system's fingerprint only |
 | Gate | Service | The definition-of-ready check (`Core.gate`). Returns `ready` and a list of clauses |
 | Clause | Value Object | One condition of the gate, blocking or not |
 | Decision | Aggregate | A file in `decisions/`: id, status, effect, requirement, binds, resolves, statement, checks, rationale |
