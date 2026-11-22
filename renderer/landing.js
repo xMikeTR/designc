@@ -4,7 +4,8 @@
    drawing app. It holds where the change enters, the path UI -> API -> handler -> store, and the change points. Every
    place a landing names is a node string:
      <container>                       a container (a store is one)
-     <container>/<name>                a component, or a code type of that container
+     <container>/<name>                a component, or a code type of that container (a container name may itself hold a slash,
+                                       like a scoped package @org/ui: the longest real container name that fits wins)
      <container>/<METHOD> <route>      an HTTP endpoint (ANY when the method is unknown); the route may contain slashes
      <that>#handler                    the endpoint's handler (an inline span, or the named type)
    This module indexes the as-built model, code types and endpoints, resolves a node to what it is on the map (mapped, new,
@@ -51,14 +52,26 @@ const Landing = (() => {
 
   const routeKey = r => String(r == null ? '' : r).trim().replace(/\{[^}]*\}/g, '{}').replace(/(^|\/):[^/]+/g, '$1{}').replace(/\/+$/, '') || '/';
   const containerById = (idx, id) => idx.els.get(id) || null;
-  const nameOfEndpoint = ep => `${ep.method} ${ep.route}`;
+  const methodOf = ep => String(ep.method || 'ANY').toUpperCase();
+  const endpointLabel = ep => `${methodOf(ep)} ${ep.route}`;
+  const nameOfEndpoint = endpointLabel;
 
   const mapped = (idx, node, o) => ({ status: 'mapped', node, kind: o.kind, container: o.container || null, component: o.component || null, type: o.type || null, endpoint: o.endpoint || null, newContainer: false });
   const novel = (node, newContainer, extra = {}) => ({ status: 'new', node, kind: null, container: null, component: null, type: null, endpoint: null, newContainer, ...extra });
+  // Split a node into its container name and the rest. The longest real container name that is the whole node or is followed
+  // by '/' wins (a scoped package such as @org/ui is a container name). Otherwise the container is new: its name is the part
+  // before the first '/', or before the second for a scoped name (@org/name).
+  function splitNode(idx, base) {
+    let best = null;
+    for (const name of idx.containers.keys()) if ((base === name || base.startsWith(name + '/')) && (!best || name.length > best.length)) best = name;
+    if (best) return { cname: best, rest: base === best ? null : base.slice(best.length + 1) };
+    const parts = base.split('/'), n = base.startsWith('@') && parts.length > 1 ? 2 : 1;
+    return { cname: parts.slice(0, n).join('/'), rest: parts.length > n ? parts.slice(n).join('/') : null };
+  }
 
   function endpointResult(idx, node, ep, c, wantHandler) {
     if (!wantHandler) return mapped(idx, node, { kind: 'endpoint', container: c.id, component: ep.component, endpoint: ep.id });
-    if (!ep.handler) return novel(node, false);
+    if (!ep.handler) return novel(node, false, { containerName: c.name, rest: null });
     if (ep.handler.kind === 'inline') return mapped(idx, node, { kind: 'handler', container: c.id, component: ep.component, endpoint: ep.id });
     const named = resolve(idx, ep.handler.node);
     return named.status === 'mapped' ? { ...named, node, endpoint: ep.id } : named;
@@ -70,37 +83,34 @@ const Landing = (() => {
     if (!node) return novel(node, false);
     const wantHandler = node.endsWith('#handler');
     const base = wantHandler ? node.slice(0, -'#handler'.length) : node;
-    const slash = base.indexOf('/');
-    const cname = slash < 0 ? base : base.slice(0, slash), rest = slash < 0 ? null : base.slice(slash + 1);
+    const { cname, rest } = splitNode(idx, base);
     const cands = idx.containers.get(cname) || [];
     if (cands.length > 1) return { ...novel(node, false), status: 'ambiguous', candidates: cands.map(c => c.id) };
-    if (!cands.length) return novel(node, true, { containerName: cname });
+    if (!cands.length) return novel(node, true, { containerName: cname, rest });
     const c = cands[0];
     if (rest === null) return wantHandler ? novel(node, false) : mapped(idx, node, { kind: 'container', container: c.id });
     const m = /^([A-Za-z]+)\s+(\S.*)$/.exec(rest);
     if (m && METHODS.includes(m[1].toUpperCase())) {
       const method = m[1].toUpperCase(), route = routeKey(m[2]);
       const mine = idx.endpoints.filter(e => e.container === c.name && routeKey(e.route) === route);
-      let hit = mine.filter(e => String(e.method).toUpperCase() === method);
+      let hit = mine.filter(e => methodOf(e) === method);
       if (method === 'ANY' && !hit.length) hit = mine;
       if (hit.length === 1) return endpointResult(idx, node, hit[0], c, wantHandler);
       if (hit.length > 1) return { ...novel(node, false), status: 'ambiguous', candidates: hit.map(e => e.node) };
-      return novel(node, false);
+      return novel(node, false, { containerName: c.name, rest });
     }
-    if (wantHandler) return novel(node, false);
+    if (wantHandler) return novel(node, false, { containerName: c.name, rest });
+    // Exactly one component of that name always wins over types of that name. Two components, or two types and no
+    // component, are ambiguous: never a guess.
     const comps = (idx.compsOf.get(c.id) || []).filter(e => e.name === rest);
     if (comps.length > 1) return { ...novel(node, false), status: 'ambiguous', candidates: comps.map(e => e.id) };
+    if (comps.length === 1) return mapped(idx, node, { kind: 'component', container: c.id, component: comps[0].id });
     const types = new Map();
-    for (const comp of idx.compsOf.get(c.id) || []) for (const t of idx.typesOf.get(comp.id) || []) {
-      if (t.name !== rest && t.key !== rest) continue;
-      if (comps.length && comps[0].id === comp.id) continue; // a component wins over a type of the same name inside it
-      types.set(t.id, t);
-    }
-    const all = [...comps.map(e => ({ comp: e })), ...[...types.values()].map(t => ({ type: t }))];
-    if (all.length > 1) return { ...novel(node, false), status: 'ambiguous', candidates: all.map(a => (a.comp ? a.comp.id : a.type.id)) };
-    if (!all.length) return novel(node, false);
-    if (all[0].comp) return mapped(idx, node, { kind: 'component', container: c.id, component: all[0].comp.id });
-    return mapped(idx, node, { kind: 'type', container: c.id, component: all[0].type.component, type: all[0].type.id });
+    for (const comp of idx.compsOf.get(c.id) || []) for (const t of idx.typesOf.get(comp.id) || []) if (t.name === rest || t.key === rest) types.set(t.id, t);
+    const ts = [...types.values()];
+    if (ts.length > 1) return { ...novel(node, false), status: 'ambiguous', candidates: ts.map(t => t.id) };
+    if (!ts.length) return novel(node, false, { containerName: c.name, rest });
+    return mapped(idx, node, { kind: 'type', container: c.id, component: ts[0].component, type: ts[0].id });
   }
 
   // The endpoints (with their handler) listed for the selected container or component.
@@ -110,15 +120,23 @@ const Landing = (() => {
   }
   const endpointNode = ep => ep.node;
   const handlerNode = ep => (ep.handler ? (ep.handler.kind === 'inline' ? ep.handler.node : ep.handler.node) : null);
-  // The node string for a selected box id: a container, a component, or a code type.
+  // The node string for a selected box id: a container, a component, or a code type. It must resolve back to that same box
+  // (by name, else for a type by its key); when nothing does, it hands back null, never another box's node.
   function nodeOfBox(idx, id) {
     const e = idx.els.get(id);
-    if (e) {
-      if (e.kind === 'container') return e.name;
-      if (e.kind === 'component') { const c = idx.els.get(e.parent); return c ? `${c.name}/${e.name}` : null; }
-      return null;
+    let cands = [], back;
+    if (e && e.kind === 'container') { cands = [e.name]; back = r => r.kind === 'container' && r.container === id; }
+    else if (e && e.kind === 'component') { const c = idx.els.get(e.parent); if (c) cands = [`${c.name}/${e.name}`]; back = r => r.kind === 'component' && r.component === id; }
+    else if (!e) {
+      for (const [compId, ts] of idx.typesOf) {
+        const t = ts.find(x => x.id === id); if (!t) continue;
+        const comp = idx.els.get(compId), c = comp && idx.els.get(comp.parent);
+        if (c) cands = [...new Set([`${c.name}/${t.name}`, `${c.name}/${t.key}`])];
+        back = r => r.kind === 'type' && r.type === id;
+        break;
+      }
     }
-    for (const [compId, ts] of idx.typesOf) { const t = ts.find(x => x.id === id); if (t) { const comp = idx.els.get(compId), c = comp && idx.els.get(comp.parent); return c ? `${c.name}/${t.name}` : null; } }
+    for (const n of cands) { const r = resolve(idx, n); if (r.status === 'mapped' && back(r)) return n; }
     return null;
   }
 
@@ -220,8 +238,14 @@ const Landing = (() => {
   // ---------- save ----------
   // What a save would write, or why it must not. loadedText: the file's text when the layer was loaded (null when new);
   // currentText: what is on disk now (null when absent). A person's save never overwrites a file that changed meanwhile.
-  function prepareSave({ draft, loadedText = null, currentText = null, yaml }) {
-    const file = fileFor(draft && draft.requirement);
+  // file: the path the layer was loaded from (landings/<id>.yaml or .yml), so a .yml saves back to itself; null for a new one.
+  function saveFile(req, loaded) {
+    if (loaded == null) return fileFor(req);
+    const m = /^landings\/([^/\\]+)\.(yaml|yml)$/.exec(String(loaded));
+    return m && safeId(req) && m[1] === req ? String(loaded) : null;
+  }
+  function prepareSave({ draft, loadedText = null, currentText = null, yaml, file: loadedFile = null }) {
+    const file = saveFile(draft && draft.requirement, loadedFile);
     if (!file) return { ok: false, error: 'The requirement id is not safe to use as a file name.' };
     if (loadedText == null && currentText != null) return { ok: false, error: `${file} appeared since this layer was loaded. Reload the layer before saving.` };
     if (loadedText != null && currentText == null) return { ok: false, error: `${file} was removed since this layer was loaded. Reload the layer before saving.` };
@@ -236,25 +260,30 @@ const Landing = (() => {
   }
 
   // ---------- the layer for one view level ----------
-  const OWN_LABEL = { endpoint: 'Endpoint', handler: 'Handler', new: 'New component', container: 'New container' };
-  // view: the view model drawn at this level (its elements say which boxes exist). Returns
-  //   items   every line of the landing in order, each with its resolution
+  const OWN_LABEL = { endpoint: 'Endpoint', handler: 'Handler', new: 'Not on the map', container: 'Not on the map' };
+  const HIDDEN = 'not shown at this level', NEWTXT = 'not on the map', AMBIG = 'ambiguous, not drawn';
+  // view: the view model drawn at this level (its elements say which boxes exist); opts.scope: the container or component the
+  // view is scoped to, when it is. Returns
+  //   items   every line of the landing in order, each with its resolution and a mark when it is not drawn as a box
   //   boxes   Map box id -> notes, for boxes already on the map
   //   own     boxes the layer adds (dashed): endpoints, inline handlers and new nodes at Components, a new container at Containers
   //   edges   the path's consecutive steps, as {from, to, n, label} between boxes
-  function layerFor(idx, rec, level, view) {
+  function layerFor(idx, rec, level, view, opts = {}) {
     const ids = new Set(values(view && view.elements).map(e => e.id));
     const parentOf = id => { const e = view.elements.get(id); return e ? e.parent : null; };
+    // a container is drawn open (its components inside) when the view holds a component of it
+    const open = new Set(values(view && view.elements).filter(e => e.kind === 'component').map(e => e.parent));
     const items = [];
     if (rec.entry) items.push({ role: 'entry', kind: rec.entry.kind, node: rec.entry.node });
-    list(rec.path).forEach((s, i) => items.push({ role: 'path', n: i + 1, stage: s.stage, node: s.node }));
+    list(rec.path).forEach((s, i) => items.push({ role: 'path', i, n: i + 1, stage: s.stage, node: s.node }));
     list(rec.changes).forEach((c, i) => items.push({ role: 'change', i, what: c.what, node: c.node }));
-    const noteOf = it => (it.role === 'entry' ? { role: 'entry', text: `Entry (${it.kind})` } : it.role === 'path' ? { role: 'path', text: `Path ${it.n}: ${it.stage}` } : { role: 'change', text: `Change: ${it.what}` });
+    const noteOf = it => (it.role === 'entry' ? { role: 'entry', text: `Entry (${it.kind})` } : it.role === 'path' ? { role: 'path', n: it.n, stage: it.stage, text: `Path ${it.n}: ${it.stage}` } : { role: 'change', text: `Change: ${it.what}` });
     const boxes = new Map(), ownMap = new Map();
     const system = idx.system && ids.has(idx.system) ? idx.system : null;
     const own = (key, spec) => { if (!ownMap.has(key)) ownMap.set(key, { id: `layer:${key}`, key, notes: [], ...spec }); return ownMap.get(key); };
     const showsContainerBoxes = level === 'component' || level === 'container';
     const ownContainer = (name) => own(`nc:${name}`, { kind: 'container', name, parent: system, notOnMap: true, node: name });
+    const firstVisible = chain => chain.find(id => id && ids.has(id)) || null;
     const place = it => {
       const r = it.res = resolve(idx, it.node);
       if (level === 'code') {
@@ -262,39 +291,44 @@ const Landing = (() => {
         return t ? { box: t } : null;
       }
       if (r.status === 'new') {
-        const cname = r.containerName || String(r.node).split('/')[0];
-        if (r.newContainer && showsContainerBoxes) {
+        const cname = r.containerName != null ? r.containerName : String(r.node).split('/')[0];
+        const nm = r.rest != null ? r.rest : String(r.node);
+        if (r.newContainer) {
+          if (!showsContainerBoxes) return system ? { box: system } : null;
+          if (level === 'component' && opts.scope) return null; // a scoped view is not the place for a new container
           const oc = ownContainer(cname);
-          if (level === 'container' || String(r.node).indexOf('/') < 0) return { own: oc };
-          return { own: own(`new:${r.node}`, { kind: 'new', name: r.node.slice(r.node.indexOf('/') + 1), parent: oc.id, notOnMap: true, node: r.node }) };
+          if (level === 'container' || r.rest == null) return { own: oc };
+          return { own: own(`new:${r.node}`, { kind: 'new', name: nm, parent: oc.id, notOnMap: true, node: r.node }) };
         }
-        if (!r.newContainer && level === 'component') {
-          const cont = [...(idx.containers.get(cname) || [])][0];
-          return { own: own(`new:${r.node}`, { kind: 'new', name: r.node.slice(r.node.indexOf('/') + 1), parent: cont && ids.has(cont.id) ? cont.id : null, notOnMap: true, node: r.node }) };
+        const cont = (idx.containers.get(cname) || [])[0];
+        if (level === 'component') {
+          if (!cont || !open.has(cont.id)) return null;
+          return { own: own(`new:${r.node}`, { kind: 'new', name: nm, parent: cont.id, notOnMap: true, node: r.node }) };
         }
-        if (!r.newContainer) { const cont = (idx.containers.get(cname) || [])[0]; return cont ? { box: firstVisible([cont.id]) } : null; }
-        return system ? { box: system } : null;
+        return cont ? { box: firstVisible([cont.id]) } : null;
       }
       if (r.status === 'ambiguous') return null;
       if (level === 'component' && (r.kind === 'endpoint' || r.kind === 'handler') && r.endpoint) {
+        if (!open.has(r.container)) return null; // outside the scope of this view: not drawn, never floating
         const ep = idx.endpoints.find(e => e.id === r.endpoint);
-        if (r.kind === 'endpoint') return { own: own(`ep:${ep.id}`, { kind: 'endpoint', name: nameOfEndpoint(ep), parent: ids.has(r.container) ? r.container : null, notOnMap: false, node: ep.node }) };
-        return { own: own(`h:${ep.id}`, { kind: 'handler', name: `handler ${nameOfEndpoint(ep)}`, parent: ids.has(r.container) ? r.container : null, notOnMap: false, node: `${ep.node}#handler` }) };
+        if (r.kind === 'endpoint') return { own: own(`ep:${ep.id}`, { kind: 'endpoint', name: nameOfEndpoint(ep), parent: r.container, notOnMap: false, node: ep.node }) };
+        return { own: own(`h:${ep.id}`, { kind: 'handler', name: `handler ${nameOfEndpoint(ep)}`, parent: r.container, notOnMap: false, node: `${ep.node}#handler` }) };
       }
       const chain = [r.type, r.component, r.container];
       for (let p = parentOf(r.container); p; p = parentOf(p)) chain.push(p);
       if (system) chain.push(system);
       return { box: firstVisible(chain) };
     };
-    const firstVisible = chain => chain.find(id => id && ids.has(id)) || null;
     const where = new Map();
     for (const it of items) {
       const p = place(it);
-      if (!p) { where.set(it, null); continue; }
+      const r = it.res;
+      const drawn = !!(p && (p.own || p.box));
+      it.mark = r.status === 'ambiguous' ? AMBIG : r.status === 'new' ? (drawn || level === 'code' ? NEWTXT : `${NEWTXT}, ${HIDDEN}`) : drawn ? null : HIDDEN;
+      if (!drawn) { where.set(it, null); continue; }
       const note = noteOf(it);
       if (p.own) { p.own.notes.push(note); where.set(it, p.own.id); }
-      else if (p.box) { if (!boxes.has(p.box)) boxes.set(p.box, []); boxes.get(p.box).push(note); where.set(it, p.box); }
-      else where.set(it, null);
+      else { if (!boxes.has(p.box)) boxes.set(p.box, []); boxes.get(p.box).push(note); where.set(it, p.box); }
     }
     const ownList = [...ownMap.values()].sort((a, b) => (a.kind === 'container' ? 0 : 1) - (b.kind === 'container' ? 0 : 1));
     const steps = items.filter(i => i.role === 'path');
@@ -314,9 +348,19 @@ const Landing = (() => {
     }
     return CORE._shared.makeModel(view.name, els, view.rels.slice(), view.errors);
   }
-  const noteText = notes => trunc(notes.map(n => n.text).join(' · '), 44);
+  const noteText = (notes, max = 44) => trunc(notes.map(n => n.text).join(' · '), max);
+  // The short note drawn on a box ('entry 1 ui +change', 'new 4 store'); the full text is the tooltip and the panel.
+  function shortNote(notes, { isNew = false } = {}) {
+    const bits = [];
+    if (isNew) bits.push('new');
+    if (notes.some(n => n.role === 'entry')) bits.push('entry');
+    for (const n of notes) if (n.role === 'path') bits.push(`${n.n} ${n.stage}`);
+    if (notes.some(n => n.role === 'change')) bits.push('+change');
+    return bits.join(' ');
+  }
+  const fullNote = notes => notes.map(n => n.text).join('\n');
 
-  return { ENTRY_KINDS, STAGES, AUTHORS, STATUSES, EDGE_STYLE, OWN_LABEL, buildIndex, resolve, endpointsOf, endpointNode, handlerNode, nodeOfBox, validate, normalize, parseFile, newRecord, editable, statusText, fileFor, safeId,
+  return { ENTRY_KINDS, STAGES, AUTHORS, STATUSES, EDGE_STYLE, OWN_LABEL, buildIndex, resolve, endpointsOf, endpointNode, handlerNode, nodeOfBox, endpointLabel, saveFile, shortNote, fullNote, validate, normalize, parseFile, newRecord, editable, statusText, fileFor, safeId,
     defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText };
 })();
 if (typeof module !== 'undefined') module.exports = Landing;
