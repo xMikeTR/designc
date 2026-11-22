@@ -159,7 +159,7 @@ async function loadRegistry() {
   for (const c of hv.children.filter(n => n.dir)) A.handovers.push(...await loadYamlDir(`handovers/${c.name}`));
   A.handovers.sort((a, b) => (+new Date(a.created) || 0) - (+new Date(b.created) || 0) || String(a.id).localeCompare(String(b.id)));
   A.decisions.forEach(d => { d.status = d.status || 'minted'; d.effect = d.effect || 'fix'; });
-  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains(); await loadUi();
+  await loadTaxonomy(); await loadFactoryTasks(); await loadLabels(); await loadWork(); await loadStudies(); await loadDomains(); await loadUi(); await loadLandings();
 }
 // domain/<key>.yaml: the pinned copies of domain packs. The source of each pin is read from the sibling registry the
 // pin names (read-only); null when it cannot be read, which the gate states as an unknown, never as a block.
@@ -776,6 +776,7 @@ async function onDiskChanged(paths) {
   if (any('telemetry')) loadTelemetry();
   if (paths.some(p => (p === A.cfg.model || Core.modelFiles([p], A.cfg.model).length) && !(A.buffers.get(p) || {}).dirty)) await loadModel();
   if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (any('landings')) await loadLandings();
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
   recompile(); renderAll({ keepEditor: true });

@@ -858,3 +858,65 @@ test('user can rename an element in the editor and every reference follows @crit
   await page.keyboard.press('F2');
   await expect(page.getByText('nothing to rename here').first()).toBeVisible({ timeout: 15000 });
 });
+
+// S2: a requirement's change layer, drawn by hand on the code map with real clicks, saved to landings/, drawn again after a reload.
+test('user can draw a requirement change layer on the code map and keep it', async () => {
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-1.yaml'), 'id: FARE-1\ntitle: Filter fares by cedant\nversion: 1\n');
+  session = await launch(reg);
+  let { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.endpoints.length).toBeGreaterThan(0);
+  const ep = facts.endpoints.find(e => e.container === 'Shop.Api');
+  expect(ep).toBeTruthy();
+  const box = id => page.locator(`#cmcanvas .node[data-cm="${id}"]`);
+  const panel = page.locator('[data-ly-panel]');
+  // None draws as before; picking the layer adds the panel.
+  await expect(panel).toHaveCount(0);
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(panel).toContainText('Layer FARE-1');
+  // Three steps: ui, the API container's endpoint row, the store. The first step is also the entry.
+  await box('e_ui').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_snowflake').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await expect(panel.locator('[data-ly-line="path"]')).toHaveCount(3);
+  await expect(panel.locator('[data-ly-line="entry"]')).toContainText('ui');
+  // A change on the endpoint, and a node that is not on the map, typed.
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByLabel('What changes here').fill('accept the cedant filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api/CedantFilter');
+  await expect(panel.locator('[data-ly-target]')).toContainText('not on the map');
+  await panel.getByLabel('What changes here').fill('new filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await expect(panel.locator('[data-ly-unsaved]').first()).toBeVisible();
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved landings/FARE-1.yaml.')).toBeVisible();
+  const text = fs.readFileSync(path.join(reg, 'landings/FARE-1.yaml'), 'utf8');
+  expect(text).toMatch(/author: human/);
+  expect(text).toMatch(/status: proposed/);
+  expect(text).toMatch(/accept the cedant filter/);
+  expect(text).toMatch(/Shop\.Api\/CedantFilter/);
+  expect(text.match(/stage: /g).length).toBe(3);
+  // Reload the app: the layer comes back from the file, drawn with its own dashed box for the new node.
+  await session.app.close(); session = null;
+  session = await launch(reg);
+  page = session.page;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Re-extract' }).waitFor();
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(page.locator('[data-ly-panel] [data-ly-status]')).toContainText('human, proposed');
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await page.locator('.cm-seg button[data-level="component"]').click();
+  await expect(page.locator('#cmcanvas')).toContainText('not on the map');
+});

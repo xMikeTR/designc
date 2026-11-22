@@ -251,6 +251,7 @@ function renderCodemap() {
   const f = A.facts || { repo: '', extractedAt: null };
   el.innerHTML = `<div class="cm"><div class="cm-bar">${cmBarHead(f)}
       ${cmSeg()}
+      ${lyBar()}
       ${A.cmLevel === 'code' ? '<span class="legend"><i class="lg ghost"></i>type in another component</span>' : ''}
       ${A.cmLevel !== 'context' && A.cmLevel !== 'code' && A.cmLevel !== 'ui' ? `<span class="legend"><i class="lg ok"></i>in the design <i class="lg warn"></i>not in the design ${A.drift ? '<i class="lg ghost"></i>designed, not in code' : ''}</span>` : ''}
       ${A.cmLevel === 'ui' ? cmUiBar() : ''}
@@ -264,13 +265,13 @@ function drawCodemap() {
   if (A.cmLevel === 'ui') return drawUi();
   const host_ = $('#cmcanvas'); if (!host_ || !A.asbuilt) return;
   if (A.cmLevel === 'code') return drawCode(host_);
-  const lvl = A.cmLevel, m = cmModel(), L = layout(m, { groupEdges: lvl === 'component' });
+  const lvl = A.cmLevel, m = lyPrepare(cmModel()), L = layout(m, { groupEdges: lvl === 'component' });
   const d = lvl === 'context' ? null : A.drift, cd = lvl === 'component' ? A.cdrift : null;
   const full = A.asbuiltFull;
   const compOf = id => { const e = m.elements.get(id); return e && e.kind === 'component' ? e : null; };
   const ghosts = lvl === 'container' && d ? d.unrealised.map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' }))
     : cd ? cd.unrealised.filter(u => m.elements.has(u.src) && m.elements.has(u.dst)).map(u => ({ src: u.src, dst: u.dst, label: 'designed, not in code' })) : [];
-  host_.innerHTML = drawModel(m, L, {
+  host_.innerHTML = lyDecorate(drawModel(m, L, {
     attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
     extra: A.showGhost ? ghosts : [],
     edgeStyle: r => {
@@ -280,7 +281,7 @@ function drawCodemap() {
       if (st === 'undeclared' || (!compRel && d && st !== 'matched')) return { color: 'var(--warn)', width: hot ? 2.8 : 2.1, dash: as ? '6 4' : '', marker: 'warning', labelColor: 'var(--warn)', label: `${r.description}${st === 'undeclared' ? ' (not in design)' : ''}` };
       return { color: hot ? 'var(--accent)' : 'var(--ink3)', width: hot ? 2.2 : 1.3, dash: as ? '6 4' : '', label: r.description };
     },
-    nodeStyle: e => {
+    nodeStyle: lyStyle(e => {
       const on = A.cmSel === e.id;
       const q = cmQualityBadge(e);
       if (e.kind === 'component') {
@@ -289,18 +290,18 @@ function drawCodemap() {
       }
       const mapped = !d || d.toDesign.has(e.id);
       return { ...q, stroke: on ? 'var(--accent)' : mapped ? 'var(--ink)' : 'var(--warn)', sw: on ? 2.8 : mapped ? 1.5 : 2.2, dash: mapped ? '' : '6 3', note: mapped ? '' : 'not in design' };
-    },
-  });
+    }),
+  }), L);
   renderCmSide();
 }
 // The Code level: the types of one component and what they refer to, drawn with the shared layout and drawing.
 function drawCode(host_) {
-  const m = cmModel(), L = layout(m);
-  host_.innerHTML = drawModel(m, L, {
+  const m = lyPrepare(cmModel()), L = layout(m);
+  host_.innerHTML = lyDecorate(drawModel(m, L, {
     attr: 'cm', zoom: fitZoom(host_, L, A.cmZoom),
     edgeStyle: r => { const hot = A.cmSel && (r.src === A.cmSel || r.dst === A.cmSel); return { color: hot ? 'var(--accent)' : 'var(--ink3)', width: hot ? 2.2 : 1.3, dash: r.description === 'uses' ? '6 4' : '', label: r.description }; },
-    nodeStyle: e => { const on = A.cmSel === e.id; return { ...cmQualityBadge(e), stroke: on ? 'var(--accent)' : e.outside ? 'var(--ink3)' : 'var(--ink)', sw: on ? 2.8 : 1.5, dash: e.outside ? '6 3' : '', note: e.outside ? cmCompName(e.component) : '' }; },
-  });
+    nodeStyle: lyStyle(e => { const on = A.cmSel === e.id; return { ...cmQualityBadge(e), stroke: on ? 'var(--accent)' : e.outside ? 'var(--ink3)' : 'var(--ink)', sw: on ? 2.8 : 1.5, dash: e.outside ? '6 3' : '', note: e.outside ? cmCompName(e.component) : '' }; }),
+  }), L);
   renderCmSide();
 }
 // The UI level: one screen's controls by component, read from source (facts.ui, extract/ui.js). A row opens file:line.
@@ -385,7 +386,8 @@ function cmTypeSide(t) {
     <h4>Files</h4>${t.files.map(x => `<div class="evrow" data-code="${esc(x.file)}" data-line="${x.line}"><div class="evfile">${esc(x.file)}:${x.line}</div></div>`).join('')}
     ${edges('out') ? `<h4>Depends on</h4>${edges('out')}` : ''}${edges('in') ? `<h4>Used by</h4>${edges('in')}` : ''}`;
 }
-function renderCmSide() {
+function renderCmSide() { cmSideBase(); lyDecorateSide(); }
+function cmSideBase() {
   const side = $('#cmside'); if (!side) return;
   const f = A.facts; const d = A.cmLevel === 'container' ? A.drift : null;
   if (A.cmLevel === 'ui') { side.innerHTML = cmUiSide(); return; }
