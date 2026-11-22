@@ -7,7 +7,7 @@ const path = require('path');
 
 const AGENT_PACKAGES = ['@agentclientprotocol/claude-agent-acp', '@zed-industries/codex-acp', '@google/gemini-cli'];
 const AGENT_COMMANDS = ['copilot', 'claude', 'codex', 'gemini'];
-const SECRET_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_CODE_|DESIGNC_LLM_|AWS_BEARER_TOKEN_BEDROCK)/;
+const SECRET_ENV = /^(ANTHROPIC_|OPENAI_|GEMINI_|GOOGLE_API_KEY|GH_TOKEN|GITHUB_TOKEN|CLAUDE_CODE_|DESIGNC_LLM_|LANGFUSE_|AWS_BEARER_TOKEN_BEDROCK)/;
 
 const quote = s => `'${String(s).replace(/'/g, `'\\''`)}'`;
 

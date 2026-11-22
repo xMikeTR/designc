@@ -1246,6 +1246,10 @@ async function bindDecision(d, { confirmed = false } = {}) {
   // It says what it replaces: offer to supersede those still live, each with its own confirmation (supersedeDecision).
   const replaced = (d.supersedes || []).map(x => A.decisions.find(o => o.id === String(x))).filter(o => o && ['minted', 'checked', 'bound'].includes(o.status));
   if (replaced.length) { await loadRegistry(); for (const o of replaced) await supersedeDecision(A.decisions.find(x => x.id === o.id) || o); }
+  // A technical fix decision with no runnable check gets its checker drafted (agent.js startChecker). Never for rebindAll: one panel, no burst of turns.
+  // Decided from the reloaded decision: the pre-bind object may predate a check added meanwhile.
+  const fresh = A.decisions.find(x => x.id === d.id) || d;
+  if (!confirmed && needsChecker(fresh)) startChecker(d.id);
 }
 // Human-only, like bindDecision: one confirmation for every decision the gate blocks on promotion.
 async function rebindAll() {
@@ -1410,7 +1414,7 @@ async function runChecks(list) {
   const targets = (list || A.decisions).filter(d => written(d).length);
   if (!targets.length) {
     const todo = (list || A.decisions).filter(d => Records.runs(d).some(c => /^TODO/.test(c)));
-    toast(todo.length ? `${todo.map(d => d.id).join(', ')} only ${todo.length === 1 ? 'has' : 'have'} a TODO check. Replace it in the decision file with a command that exits 0 when the decision holds.` : 'No decision has a runnable check yet.', 'warning');
+    toast(todo.length ? `${todo.map(d => d.id).join(', ')} only ${todo.length === 1 ? 'has' : 'have'} a TODO check. Use Write the check on ${todo.length === 1 ? 'it' : 'each'} (in the gate or on the decision): the agent drafts the script and you approve it.` : 'No decision has a runnable check yet.', 'warning');
     return;
   }
   A.running = true; showPanel('output'); renderStatus();
@@ -1631,7 +1635,7 @@ function clauseHelp(c) {
   if (c.kind === 'registry') return 'Open the file and fix the YAML (indentation, a missing colon or an unclosed quote). Until it parses, the gate cannot read it.';
   if (c.kind === 'duplicate') return 'Two files use this id. Rename one or delete the one made by mistake.';
   if (c.kind === 'decision' && / has kind /.test(c.text)) return 'Set kind to business or technical in the decision file.';
-  if (c.kind === 'decision' && / has no check$/.test(c.text)) return 'A bound technical decision needs a command that exits 0 when it holds, or a TODO line saying what it must prove. Add one under checks: in the decision file.';
+  if (c.kind === 'decision' && / has no check$/.test(c.text)) return 'A bound technical decision needs a check. Use Draft a check: the agent writes the script, tells you when it passes and fails, and you approve it once.';
   if (c.kind === 'decision' && /builds a fix but names no work item$/.test(c.text)) return 'Add work: <item id> to the decision, or change its effect. Create the item in Work if there is none.';
   if (c.kind === 'decision' && /: work item .* does not exist$/.test(c.text)) return 'Fix the work: id in the decision, or create that item in Work.';
   if (c.kind === 'decision' && /, but the model still raises it$/.test(c.text)) return 'Either the model still has the problem (fix the model), or the decision is wrong (supersede it and record a new one).';
@@ -1647,14 +1651,14 @@ function evidenceHost(c) { const m = c.kind === 'evidence' && /evidence host (\S
 function clauseActions(c) {
   const b = (attr, v, label, title) => `<button class="lnk" ${attr}="${esc(String(v))}"${title ? ` title="${esc(title)}"` : ''}>${esc(label)}</button>`;
   if (c.kind === 'finding') { const fi = A.diags.indexOf(c.finding), dec = Core.decisionsFor(c.finding, A.decisions)[0]; if (dec) return b('data-file', dec._path, decisionNote(dec), 'Open the decision'); return fi < 0 ? '' : b('data-fixfi', fi, 'Record decision') + (c.finding.sev !== 'note' && !c.finding.unknown ? b('data-accfi', fi, 'Accept risk') + b('data-bldfi', fi, 'Build it') : '') + b('data-askfi', fi, 'Ask the tutor'); }
-  if (c.kind === 'decision' && / has no check$/.test(c.text) && c.decision) return b('data-draftcheck', c.decision, 'Draft a check', 'Grill-me proposes one check line; you approve the edit');
+  if (c.kind === 'decision' && / has no check$/.test(c.text) && c.decision) return b('data-draftcheck', c.decision, 'Draft a check', 'The agent drafts the check script; you read it before it is saved');
   if (c.kind === 'decision' && / is (minted|checked), not bound$/.test(c.text)) return b('data-bind', c.decision, 'Bind', 'Bind the decision after reading it');
   if (c.kind === 'domain' && c.pack && /not pinned|changed in its registry|edited after/.test(c.text)) return b('data-pin', c.pack, /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the pack from its registry into domain/ and records that you accepted it');
   if (c.kind === 'ui' && /No UI pack is pinned|is not pinned|edited after it was pinned|changed in its registry/.test(c.text)) return b('data-pinui', c.pack || '*', /edited after|changed in/.test(c.text) ? 'Re-pin' : 'Pin', 'Copies the UI pack from its registry into ui/pack/, after showing what changes, and records that you accepted it');
   if (c.kind === 'promotion') return b('data-bind', c.decision, 'Re-bind', 'Records the current state of what the decision binds as accepted');
   if (c.kind === 'check') {
     const d = A.decisions.find(x => x.id === c.decision), runs = d ? Records.runs(d) : [];
-    const todo = runs.some(x => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(x || '')), real = runs.some(x => x && !/^TODO/.test(x));
+    const todo = offerChecker(d), real = runs.some(x => x && !/^TODO/.test(x));
     const run = b('data-run', c.decision, 'Run check');
     const write = b('data-wcheck', c.decision, 'Write the check', 'The agent drafts the check script; you read it before it is saved');
     if (/last check failed$/.test(c.text)) return run + b('data-whyfail', c.decision, 'Why did it fail?', 'Grill-me explains the failure; it writes nothing');
@@ -1802,7 +1806,7 @@ function designSidebar() {
   const decs = A.decisions.map(d => `<div class="item" data-open="${esc(d._path)}">
       <div class="l1"><span class="dot ${checkState(d.id)}" title="${checkState(d.id) === 'pass' ? 'Last check passed' : checkState(d.id) === 'fail' ? 'Last check failed' : 'No check result yet'}"></span><span class="id">${esc(d.id)}</span><span class="tag ${esc(d.status)}">${esc(d.status)}</span>${d.effect === 'accept' ? '<span class="tag">accepted risk</span>' : ''}</div>
       <div class="l2">${esc(d.statement || 'No statement yet')}${Array.isArray(d.assumptions) && d.assumptions.length ? ` · ${plural(d.assumptions.length, 'assumption')}${overdueAssumptions(d).length ? `, ${overdueAssumptions(d).length} overdue` : ''}` : ''}${Array.isArray(d.informed_by) && d.informed_by.length ? ` · informed by ${esc(d.informed_by.map(x => `${x.registry}/${x.topic}`).join(', '))}` : ''}</div>
-      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${Records.runs(d).some(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || '')) ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
+      <div class="acts">${overdueAssumptions(d).length ? `<button class="lnk" data-review="${esc(d.id)}">Mark reviewed</button>` : ''}${d.status !== 'bound' ? `<button class="lnk" data-bind="${esc(d.id)}">Bind</button>` : Core.rebindable(A.gate).includes(d.id) ? `<button class="lnk" data-bind="${esc(d.id)}">Re-bind</button>` : ''}${Records.runs(d).some(c => c && !/^TODO/.test(c)) ? `<button class="lnk" data-run="${esc(d.id)}">Run check</button>` : ''}${offerChecker(d) ? (Records.runs(d).length ? `<button class="lnk" data-wcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Write the check</button>` : `<button class="lnk" data-draftcheck="${esc(d.id)}" title="The agent drafts the check script; you read it before it is saved">Draft a check</button>`) : ''}${d.status === 'minted' || d.status === 'checked' ? `<button class="lnk" data-delfile="${esc(d._path)}" title="Delete this decision file. A bound decision is superseded instead.">Delete</button>` : ''}${d.status === 'bound' ? `<button class="lnk" data-supersede="${esc(d.id)}" title="Stop counting this decision. Its file stays as the record.">Supersede</button>` : ''}</div></div>`).join('')
     || '<div class="hint">No decisions yet. Use the lightbulb on a problem in the model, or the + above.</div>';
   const reqs = A.requirements.map(r => `<div class="item" data-open="${esc(r._path)}"><div class="l1"><span class="id">${esc(r.id)}</span>${(r.elements || []).length ? '' : `<button class="lnk" data-mapreq="${esc(r.id)}" title="Grill-me reads the imported page and proposes the elements; you approve">Map to elements</button>`}</div><div class="l2">${esc(r.title || '')}${(r.elements || []).length ? ` → ${esc(r.elements.join(', '))}` : ''}</div>${chainHtml(r.id)}<div class="acts"><button class="lnk" data-draftts="${esc(r.id)}" title="Grill-me reads the imported page and proposes BDD test scenarios; you approve">Draft test scenarios</button>${TestScenarios.earlierRun((A.testScenarios || []).map(t => ({ ...t.rec, _path: t.path })), r.id, '').tag ? `<button class="lnk" data-variance="${esc(r.id)}" title="A fresh Grill-me extracts the page again; disagreements become questions">Check variance</button>` : ''}<button class="lnk" data-delreq="${esc(r.id)}" title="Delete this requirement file">Delete</button></div></div>`).join('')
     || '<div class="hint">No requirements yet. Add the Jira keys this design answers.</div>';

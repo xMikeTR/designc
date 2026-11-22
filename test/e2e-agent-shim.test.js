@@ -46,3 +46,8 @@ test('isolated env drops model keys and base urls and puts the shims first', () 
   const env = isolatedEnv({ PATH: '/usr/bin', ANTHROPIC_API_KEY: 'x', OPENAI_API_KEY: 'x', DESIGNC_LLM_BASE_URL: 'x', DESIGNC_LLM_API_KEY: 'x', CLAUDE_CODE_OAUTH_TOKEN: 'x', HOME: '/h' }, '/shims');
   assert.deepStrictEqual(Object.keys(env).sort(), ['HOME', 'PATH']); assert.strictEqual(env.PATH, '/shims:/usr/bin');
 });
+
+test('isolated env also drops LANGFUSE_* variables', () => {
+  const env = isolatedEnv({ PATH: '/usr/bin', LANGFUSE_SECRET_KEY: 'x', LANGFUSE_HOST: 'x', LANGFUSE_PUBLIC_KEY: 'x', HOME: '/h' }, '/shims');
+  assert.deepStrictEqual(Object.keys(env).sort(), ['HOME', 'PATH']);
+});

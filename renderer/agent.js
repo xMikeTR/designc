@@ -11,7 +11,7 @@ Rules:
 - Use tools to look before you answer. Cite evidence as model line numbers ("line 53") or file:line for code.
 - You cannot change anything directly. Tools marked as needing approval show the user a card; nothing happens unless they approve. Never say you changed something unless a tool result says "Applied" or "Created".
 - Prefer one precise proposal over several vague ones. Keep answers short and concrete.
-- A decision check is a shell command run in the registry folder that exits 0 when the decision holds (for example ./checks/playtest-clean.sh or p check -tc tcOptimistic); designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" and say what script is needed.
+- A decision check is a shell command run in the registry folder that exits 0 when the decision holds (for example ./checks/playtest-clean.sh or p check -tc tcOptimistic); designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" as a placeholder. designc drafts the script itself when the decision is bound, with write_check, so never ask the person to write it.
 - The lint rules: DC001 duplicate processing, DC002 lost update, DC003 compound availability, DC004 retry duplicates side effects, DC005 single point of failure, DC006 trust boundary. Design properties are listed in the model.
 - When the user gives a budget or asks what something costs, call get_forecast. Say which elements are priced and which have no history, plan scope so the expected figure fits and the high figure is named as the risk, and propose what to cut or defer. Never invent a figure the tool did not give; a budget is a constraint you plan around, not something you can enforce.`;
 // How a role that teaches finds sources: web search where it works, web fetch where search is blocked (as at work).
@@ -22,7 +22,7 @@ const ROLES = {
     instructions: 'You are the Architect: a design partner for the engineer. Explain findings, compare the design with the code map and telemetry, and propose precise model edits or decisions.',
     starters: ['Why is the gate blocked, and what are my options?', 'Compare the code map with the design and propose edits for the drift', 'Which element is costing the most agent effort, and is the design the cause?'] },
   grill: { label: 'Grill-me', system: 'S1', allow: [...READ_TOOLS.filter(t => t !== 'get_telemetry'), 'read_import_page', 'read_parity', ...UI_READ_TOOLS], ask: ['mint_decision', 'mint_acceptance', 'map_requirement', 'mint_test_scenarios', 'propose_parity_cover', 'write_check', 'set_check', 'suggest_stage'],
-    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a TODO naming the script still to write. For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When asked to draft test scenarios for a requirement: read its page with read_import_page, then call mint_test_scenarios once with one case per behaviour the page states, each quoting the sentence it comes from, given, when and then as short plain sentences. Never invent behaviour; where the page is unclear, say so in your reply instead of writing a case. Pass the run tag the request names to mint_test_scenarios; for a second extraction, never read or recall the earlier scenarios. That requirement only. Parity diagnosis: for a failing parity finding, read_parity, then judge the cause with evidence. If a requirement removes or changes it, call propose_parity_cover kind br (removes) or, for an added or changed element, mint_acceptance. If the code differs, call propose_parity_cover kind tech citing file:line. If neither is clear, do not write: name the one question the BA or QA must answer. Never decide the cause without citing the requirement or file. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
+    instructions: 'You are Grill-me. Interrogate the design one question at a time, starting with what blocks the gate. When the user answers, offer to mint a decision that records it, with a check that would prove it: a shell command, or a "TODO <what it must prove>" placeholder (designc drafts the script when the decision is bound; never ask the person to write it). For every requirement that touches a UI element (tagged UI), ask what the user sees in each state: ready, loading, empty, error, and forbidden where a sign-in guards it; ask how the user sees the failure of each bound decision on a UI element. Record the answers as an acceptance criterion with mint_acceptance, one case per state, given and then in the user\'s words. When the user says they do not know, first say whether the question is technical or for the business. Technical: research it before moving on. ' + RESEARCH_RULE + ' Then give two or three options with their trade-offs, tied to the elements of the model they affect, the sources you used, and the one you recommend; ask the user to choose and keep the question open until they do. When they choose, the decision is theirs: the statement is their choice, and the rationale says "Chosen by the user.", then "Suggested by Grill-me: " with your recommendation and sources, then, only if the user gave their own reasoning, "User\'s view: " with their words. For the business: do not research or suggest an answer, because the business decides. Say who should answer, the options to put to them and what each would mean for the design, and offer to mint a business decision whose statement starts with PROPOSED:. Keep a list of the questions the user did not know and repeat it when they ask or the grilling ends. When asked to map an imported requirement: read its page with read_import_page, read the model, then propose the elements it concerns with map_requirement, naming only elements that exist in the model and saying which sentence of the page points to each. Map that one requirement only; never change its title, source or version, and never invent a requirement. When asked to draft test scenarios for a requirement: read its page with read_import_page, then call mint_test_scenarios once with one case per behaviour the page states, each quoting the sentence it comes from, given, when and then as short plain sentences. Never invent behaviour; where the page is unclear, say so in your reply instead of writing a case. Pass the run tag the request names to mint_test_scenarios; for a second extraction, never read or recall the earlier scenarios. That requirement only. Parity diagnosis: for a failing parity finding, read_parity, then judge the cause with evidence. If a requirement removes or changes it, call propose_parity_cover kind br (removes) or, for an added or changed element, mint_acceptance. If the code differs, call propose_parity_cover kind tech citing file:line. If neither is clear, do not write: name the one question the BA or QA must answer. Never decide the cause without citing the requirement or file. When a screen has a spec (read_ui_spec), use its state names, not your own: ask what the person expects in each state, and ask about states nothing reaches, states with no acceptance case, and transitions that commit a change with no mock behind them. When a UI element has no spec yet, call suggest_stage with stage compose so the person can start the Compose stage; never write the spec yourself. You may suggest which states to keep hidden from the build as a holdout with suggest_holdout on mint_acceptance; the person decides, and ui/holdout/ is never readable by you.',
     starters: ['Grill me on this design', 'Grill me on Bookings DB only', 'What would you ask the business, not me?'] },
   analyst: { label: 'Analyst', system: 'S4', allow: [...READ_TOOLS, 'list_reviews', 'get_system3'], ask: ['mint_proposal', 'group_reviews', 'draft_eval_task'],
     instructions: 'You are the Analyst for Improve, the evals and improvement loop. You improve the factory (lint rules, P properties, grill-me questions, gate clauses, eval cases, routing), never the product. Every proposal cites an escape or a run as evidence and says how to prove it works. When reviewing decisions, check each against this rubric: does it state an assumption with a review date (list_decisions shows them); is any assumption overdue or untested by a check; does an accepted risk rely on a bound business decision; would the escapes seen so far have been caught if its assumption were false. Name the decision id and the rubric line it fails. You cannot mark an assumption reviewed; only the human can. When asked to group failure notes (error analysis): call list_reviews, read every failed note, and group them by the first thing that went wrong, reusing a mode of the taxonomy where it fits and naming a new one (a short phrase for the failure, not its cause) only where none does. A note that fits nowhere stays ungrouped. Propose the grouping with group_reviews, saying why each group belongs together; the person approves it. You never change a verdict or a note. When asked to draft an eval task for a failure mode: call list_reviews, pick the failed reviews in that mode that show it most plainly, and draft one task with draft_eval_task whose title says what the pipeline must get right (not what went wrong). It is minted; a person checks and binds it. System 3: get_system3 gives time to signal, escape rate, review and QA veto and recovery per screen and stage, and the escapes without their text. For a `catalogue_gap` escape, draft a catalogue gap proposal for the pack owner with mint_proposal (kind catalogue gap, the pinned pack and the component): the pack\'s source registry is its target and you never write there.',
@@ -64,9 +64,9 @@ const TOOLS = {
   get_system3: { d: 'System 3 for the UI stages: per stage (and per screen) the time to signal, the escape rate, review and QA veto and recovery, and caught-but-reached-QA; plus every escape as {id, caught_by, origin, screen} with no description. With a screen, only that screen.', p: obj({ screen: { type: 'string' } }) },
   get_telemetry: { d: 'Agent runs from Langfuse per design element and task: attempts, outcomes, tokens, cost, errors; plus tasks suggested as escapes and recorded escapes.', p: obj({}) },
   propose_model_edit: { d: 'Propose an edit to the design model. find must match the model text exactly once (copy it from read_model without line numbers). The user sees a diff and approves or declines.', p: obj({ find: { type: 'string' }, replace: { type: 'string' }, reason: { type: 'string' } }, ['find', 'replace', 'reason']) },
-  set_check: { d: 'Put one check line on an existing decision that has no check. The check is a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>" when no command exists yet. One line, this decision only. The user approves the edit.', p: obj({ decision: { type: 'string' }, check: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'check', 'summary']) },
-  write_check: { d: 'Write the shell script for a decision whose check is still "TODO ./checks/<name>.sh: <what it must prove>". The script path comes from that TODO. It must be bash, read-only (read model/, behaviour/, decisions/ and other registry files; no network, no deletes, no writes outside a temp dir) and exit 0 only when the decision holds, printing why when it fails. The user reads the script and approves; only then is it saved and the TODO replaced by the command that runs it.', p: obj({ decision: { type: 'string' }, script: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'script', 'summary']) },
-  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
+  set_check: { d: 'Put one check line on an existing decision that has no check. The check is a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" when no command exists yet (designc then drafts the script with write_check). One line, this decision only. The user approves the edit.', p: obj({ decision: { type: 'string' }, check: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'check', 'summary']) },
+  write_check: { d: 'Draft the shell script that proves a decision, for a decision with no runnable check: an empty checks list or any "TODO ..." placeholder. designc picks the path (the one a TODO names, else checks/<decision id>.sh) and never replaces an existing script. The script must be bash, read-only (read model/, behaviour/, decisions/ and other registry files; no network, no deletes, no writes outside a temp dir), and able to fail: exit 1 and print why when the decision does not hold (a script that can only exit 0 is refused). summary is two plain lines for someone who does not read bash: "Passes when: ..." and "Fails when: ...". The user reads them above the script and approves once; only then is the script saved, the TODO replaced by the command that runs it, and the check run.', p: obj({ decision: { type: 'string' }, script: { type: 'string' }, summary: { type: 'string' } }, ['decision', 'script', 'summary']) },
+  mint_decision: { d: 'Propose a new decision (status minted). The user approves it; binding stays a human action. checks: a shell command that exits 0 when it holds, or a "TODO <what it must prove>" placeholder; designc drafts the script with write_check when the decision is bound, so never ask the person to write one.', p: obj({ statement: { type: 'string' }, effect: { type: 'string', enum: ['fix', 'accept'] }, binds: { type: 'array', items: { type: 'string' } }, resolves: { type: 'array', items: { type: 'string' } }, requirement: { type: 'string' }, checks: { type: 'array', items: { type: 'string' } }, rationale: { type: 'string' }, kind: { type: 'string', enum: ['business', 'technical'] }, relies_on: { type: 'array', items: { type: 'string' } }, supersedes: { type: 'array', items: { type: 'string' }, description: 'ids of decisions this one replaces; required when one already answers the same finding on the same element' } }, ['statement', 'effect', 'binds', 'checks', 'rationale']) },
   mint_acceptance: { d: 'Propose an acceptance criterion for a UI element (written to acceptance/, a person reviews it). element is its elements.json id, e.g. System/Container/Component. One case per state; ready, loading, empty and error are required, forbidden where a sign-in guards the element.', p: obj({ requirement: { type: 'string' }, element: { type: 'string' }, decision: { type: 'string' }, states: { type: 'array', items: { type: 'string' } }, cases: { type: 'array', items: obj({ state: { type: 'string' }, given: { type: 'string' }, when: { type: 'string' }, then: { type: 'string' } }, ['state', 'given', 'then']) }, suggest_holdout: { type: 'array', items: { type: 'string' }, description: 'states whose case you suggest the person keeps hidden from the build; shown on the card, never written' } }, ['requirement', 'element', 'cases']) },
   read_ui_spec: { d: 'Read the UI screen specs in ui/specs/. With no screen, one row per spec (screen, path, status, component, state names). With a screen, that spec in full. ui/holdout/ is never shown.', p: obj({ screen: { type: 'string' } }) },
   read_ui_pack: { d: 'The pinned UI pack a spec may use: every component manifest, every template with its slots, and the token groups (space, color, density, tone) with their token names. Use nothing outside it.', p: obj({}) },
@@ -250,6 +250,169 @@ function uiCatalogueWriter(kind, doc, a) {
       AG.approved.set(m.path, Date.now()); await host.write(m.path, m.text); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll(); return `Wrote ${m.path} as minted. A person binds it.`;
     } };
 }
+// ---------------------------------------------------------------- decision checkers
+// checker:begin
+// A technical fix decision with no runnable check (empty, or only TODO) gets its checker drafted, not left for a person:
+// the agent proposes the script with write_check, the person reads one card, and one approval saves the script,
+// replaces the TODO (apply) and runs it through runChecks (run). A failing run is shown, never auto-fixed.
+const runnable = c => c && !/^TODO/.test(c);
+const isTodo = c => /^TODO/.test(c || '');
+const liveDecision = d => !!d && d.status !== 'superseded' && d.status !== 'retired';
+// Auto-start on bind: technical fix decisions with no runnable check.
+function needsChecker(d) {
+  return liveDecision(d) && d.kind !== 'business' && d.effect !== 'accept' && d.effect !== 'build' && !Records.runs(d).some(runnable);
+}
+// The buttons (gate row, decision card): that, or any TODO on a live decision, whatever its kind and whatever sits beside it.
+function offerChecker(d) { return needsChecker(d) || (liveDecision(d) && Records.runs(d).some(isTodo)); }
+// One approval, two steps: a card's apply() saves; its optional run(saved) runs and reports. A failed or declined
+// apply never runs; a throw in run still says what was saved.
+async function approveCard(w) {
+  const saved = await w.apply();
+  if (!w.run) return saved;
+  try { return await w.run(saved); } catch (e) { return `${saved} The check is saved, but could not run: ${e.message}`; }
+}
+// Static and shallow, not a parser: it looks for a way to exit non-zero: an `exit` with a non-zero or computed code,
+// a command that can fail while errexit (set -e) is on, or a last statement that can fail. A command guarded by
+// `|| true`, `|| :`, `|| echo ...` or `|| exit 0` cannot fail the script; heredoc bodies, strings and comments are
+// ignored. It cannot decide constant conditions (`[ 1 = 1 ]`, `if false`), functions that are never called, or
+// whether a check is meaningful; `python -c` and `node -e` are not caught either, so the person reading the
+// script stays the real protection.
+function scriptProblem(script) {
+  const lines = []; let stop = null;
+  for (const raw of String(script).split('\n').slice(1)) {
+    if (stop) { if (raw.trim() === stop) stop = null; continue; }
+    const h = /<<-?\s*['"]?(\w+)['"]?/.exec(raw); if (h) stop = h[1];
+    lines.push(raw.replace(/"[^"]*"|'[^']*'/g, '""').replace(/(^|\s)#.*$/, ''));
+  }
+  const head = p => { p = p.trim(); for (let q = ''; q !== p;) { q = p; p = p.replace(/^(then|do|else|\{|!)\s*/, '').replace(/^case\b.*?\sin\s+/, '').replace(/^[^\s()=]*\)\s*/, ''); } return p; };
+  const closer = p => /^(fi|done|esac|\}|\)|)$/.test(p);
+  const neutral = p => !!p.split('|').every(x => { x = head(x).replace(/^exec\s+/, ''); return /^(echo|printf|true|:|set|cd|export|local|declare|readonly|shift|unset|sleep|wait|if|elif|while|until|for|select)(\s|$)/.test(x) || /^[A-Za-z_]\w*=/.test(x) && !/\$\(|`/.test(x) || closer(x); });
+  const exitCode = p => { const m = /^exit(?:\s+(\S+))?/.exec(head(p)); return !m ? null : m[1] == null ? 0 : /^\d+$/.test(m[1]) ? m[1] % 256 : 1; };
+  let errexit = false, last = false;
+  for (const stmt of lines.join('\n').split(/[;\n]+/)) {
+    const parts = stmt.split(/(&&|\|\|)/).filter(p => p !== '&&' && p !== '||'), hasOr = stmt.includes('||'), tail = head(parts[parts.length - 1] || '');
+    if (!head(stmt)) continue;
+    if (parts.some(p => exitCode(p)) ) return null;
+    const set = /^set\s+(.*)$/.exec(head(stmt));
+    if (set) { for (const m of set[1].matchAll(/([-+])(?:o\s+(errexit)|([a-z]*e[a-z]*))/g)) errexit = m[1] === '-'; }
+    const guarded = hasOr && (tail === '' || neutral(tail) || exitCode(tail) === 0);
+    last = !guarded && parts.some(p => !neutral(p) && exitCode(p) == null);
+    if (last && errexit) return null;
+  }
+  if (last) return null;
+  return 'The script has no failing path: it can only exit 0. A check must fail with a reason when the decision does not hold (for example `grep -q ... || { echo "why"; exit 1; }`).';
+}
+// The script path: the one a TODO names, else checks/<decision id>.sh. Always a plain file name inside checks/.
+function checkTarget(d, todo) {
+  const m = todo && /^TODO\s+\.\/checks\/([\w.-]+\.sh)\b/.exec(todo), name = m ? m[1] : `${d.id}.sh`;
+  return /^[A-Za-z0-9][\w.-]*$/.test(name) && !name.includes('..') ? { file: `checks/${name}` } : { error: `${d.id} cannot name a script file: "${name}" is not a plain file name for checks/.` };
+}
+// Replaces the TODO run (or fills an empty list) in a decision file's text, keeping the other checks, every comment and
+// the line ends. Every candidate edit is parsed back and used only if its one difference is that this run became cmd
+// (other checks, ids and fields equal); otherwise it throws, writing nothing.
+function replaceCheck(text, todo, cmd) {
+  const lines = text.split('\n'), cr = text.includes('\r\n') ? '\r' : '', item = yamlStr(cmd), fail = why => { throw new Error(`${why} Nothing was written.`); };
+  let before; try { before = jsyaml.load(text) || {}; } catch (e) { fail(`The decision file does not parse (${e.message.split('\n')[0]}).`); }
+  const list = v => (Array.isArray(v) ? v : v == null ? [] : [v]), eq = (a, b) => JSON.stringify(a) === JSON.stringify(b), runOf = c => (c && typeof c === 'object' ? c.run : c);
+  const onlyThisRun = out => {
+    let after; try { after = jsyaml.load(out) || {}; } catch { return false; }
+    const bl = list(before.checks).filter(c => todo != null || c != null), al = list(after.checks);
+    if (!eq({ ...before, checks: 0 }, { ...after, checks: 0 })) return false;
+    if (todo == null) return !bl.length && al.length === 1 && al[0] === cmd;
+    const changed = bl.map((c, i) => i).filter(i => !eq(bl[i], al[i]));
+    if (bl.length !== al.length || changed.length !== 1) return false;
+    const i = changed[0]; return runOf(bl[i]) === todo && eq(typeof bl[i] === 'string' ? cmd : { ...bl[i], run: cmd }, al[i]);
+  };
+  const c = lines.findIndex(l => /^checks:/.test(l));
+  if (todo != null) {
+    if (c < 0) fail('There is no checks: list in the decision file.');
+    let end = c + 1; while (end < lines.length && !/^[^\s#-]/.test(lines[end])) end++;
+    for (let i = c; i < end; i++) for (const f of [JSON.stringify(todo), `'${todo.replace(/'/g, "''")}'`, todo]) {
+      for (let at = lines[i].indexOf(f); at >= 0; at = lines[i].indexOf(f, at + 1)) {
+        const rest = lines[i].slice(at + f.length), plain = f === todo;
+        if (plain && !(/(?:^\s*-\s+|[[{,]\s*|:\s+)$/.test(lines[i].slice(0, at)) && /^\s*([,\]}#]|$)/.test(rest))) continue;
+        const out = [...lines.slice(0, i), lines[i].slice(0, at) + item + rest, ...lines.slice(i + 1)].join('\n');
+        if (onlyThisRun(out)) return out;
+      }
+    }
+    return fail('Could not find the TODO check line in the decision file, or editing it would change more than that one check.');
+  }
+  if (c < 0) { while (lines.length && lines[lines.length - 1] === '') lines.pop(); return [...lines, `checks:${cr}`, `  - ${item}${cr}`, ''].join('\n'); }
+  const m = /^checks:\s*(?:\[\s*\]|~|null)?\s*(#.*?)?\s*$/.exec(lines[c]);
+  if (!m) fail('The checks: line in the decision file is not empty.');
+  let j = c + 1; while (j < lines.length && /^\s*-\s*$/.test(lines[j])) j++;
+  lines.splice(c, j - c, `checks:${m[1] ? `   ${m[1]}` : ''}${cr}`, `  - ${item}${cr}`);
+  const out = lines.join('\n'); return onlyThisRun(out) ? out : fail('Editing the checks: list would change more than the new check.');
+}
+// "Passes when" / "Fails when" lines from the summary, in the person's words; the rest stays as detail. Either order, on
+// one line or several.
+function whenLines(summary) {
+  const out = { passes: '', fails: '', rest: [] };
+  for (const l of String(summary || '').split(/\s+(?=(?:passes|fails) when\s*:)/i).flatMap(x => x.split('\n'))) {
+    const m = /^\s*(passes|fails) when\s*:?\s*(.*)$/i.exec(l);
+    if (m) out[m[1].toLowerCase()] = out[m[1].toLowerCase()] || m[2].trim(); else if (l.trim()) out.rest.push(l.trim());
+  }
+  return out;
+}
+function writeCheck(a) {
+  const d = A.decisions.find(x => x.id === a.decision);
+  if (!d || !d._path) return { error: `Decision ${a.decision} is not in the registry.` };
+  if (!liveDecision(d)) return { error: `${d.id} is ${d.status}; its checks are not read.` };
+  const runs = Records.runs(d), todos = runs.filter(isTodo);
+  if (!todos.length && runs.some(runnable)) return { error: `${d.id} already has a runnable check and no TODO, so there is nothing to draft.` };
+  const todo = todos.find(c => /^TODO\s+\.\/checks\//.test(c)) || todos[0] || null;
+  const t = checkTarget(d, todo); if (t.error) return t;
+  const file = t.file, script = String(a.script || '').replace(/\r\n/g, '\n');
+  if (!/^#!\/(usr\/bin\/env bash|bin\/bash)\n/.test(script)) return { error: 'The script must start with #!/usr/bin/env bash.' };
+  if (script.split('\n').length > 200) return { error: 'Keep the script under 200 lines; split the decision if it needs more.' };
+  const bad = /\b(curl|wget|nc|ncat|ssh|scp|sudo|eval|mkfs|dd)\b|\brm\s+-|git\s+(push|reset|clean|checkout)|>\s*\/(?!dev\/null|tmp\/)|\bchmod\b|\|\s*(ba|z)?sh\b/.exec(script);
+  if (bad) return { error: `The script uses "${bad[0]}". Check scripts only read the registry and exit 0 or 1: no network, no deletes, no writes outside a temp dir.` };
+  const noFail = scriptProblem(script); if (noFail) return { error: noFail };
+  const taken = `${file} already exists and designc never replaces a script. Read it; if it is the check, set the decision's check to "bash ./${file}".`;
+  if (treePaths(A.tree).includes(file)) return { error: taken };
+  const cmd = `bash ./${file}`;
+  const w = whenLines(a.summary), say = (k, v) => `<div class="note"><b>${k}</b> ${esc(v)}</div>`;
+  const mine = () => A.ledger.filter(e => e.kind === 'check' && e.decision === d.id && e.check === cmd).length;
+  let ranBefore = 0;
+  return { title: `Write check ${file} for ${d.id}`, detail: w.rest.join(' '), ok: 'Approve and run',
+    preview: `${w.passes && w.fails ? say('Passes when', w.passes) + say('Fails when', w.fails) : `<div class="note" style="color:var(--warn)">The agent did not say when it passes or fails. Read the script before approving.</div>${w.passes ? say('Passes when', w.passes) : ''}${w.fails ? say('Fails when', w.fails) : ''}`}<div class="note">${todo ? `Replaces <code>${esc(todo)}</code> with` : 'Adds'} <code>${esc(cmd)}</code> in ${esc(d._path)} and saves a new script, ${esc(file)}. Nothing is saved or run until you approve; approving then runs it here, which is the first time it executes on this machine. Read the script.</div><pre class="yamlprev">${esc(script)}</pre>`,
+    // Step 1: save the script and replace the TODO. Writes nothing unless both can be written.
+    apply: async () => {
+      if (await host.exists(file)) throw new Error(`${taken} Nothing was written.`);
+      const next = replaceCheck(await host.read(d._path), todo, cmd);
+      ranBefore = mine();
+      AG.approved.set(file, Date.now()); AG.approved.set(d._path, Date.now());
+      await host.write(file, script.endsWith('\n') ? script : script + '\n');
+      try { await host.write(d._path, next); } catch (e) {
+        throw new Error(`${file} was saved, but ${d._path} could not be written (${e.message}), so the decision is not changed. Either set its check to "${cmd}" yourself, or delete ${file} and ask again.`);
+      }
+      A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll();
+      return `Saved ${file} and set the check in ${d._path} to "${cmd}".`;
+    },
+    // Step 2: run it and say what happened to this check (not another one, and not an older result).
+    run: async saved => {
+      await runChecks([A.decisions.find(x => x.id === d.id) || d]);
+      await loadLedger(); recompile(); renderAll();
+      const rows = A.ledger.filter(e => e.kind === 'check' && e.decision === d.id && e.check === cmd), last = Core.latestCheck(rows, d.id);
+      if (!last || rows.length <= ranBefore) return `${saved} The check did not run (others are running, or the folder is not trusted). Use Run check on the decision.`;
+      if (last.outcome === 'pass') { toast(`${d.id}: the new check passed.`); return `${saved} Ran it: it passed.`; }
+      toast(`${d.id}: the new check FAILED (exit ${last.exit_code}). Nothing was changed to make it pass; see Output.`, 'warning');
+      return `${saved} Ran it: it FAILED (exit ${last.exit_code}). The script and the decision are not changed to make it pass; read Output, then decide.`;
+    } };
+}
+// Starts the draft in the panel: the selected agent, or the configured llm, else the first agent. The caller's action
+// (a bind, a button) has already succeeded; with no agent, or a busy one, this only says why and returns.
+function startChecker(id) {
+  const d = A.decisions.find(x => x.id === id); if (!d) return 'none';
+  if (AG.busy) { toast(`The agent is still answering, so the check for ${id} was not drafted. Stop it or wait, then use Draft a check.`, 'warning'); return 'busy'; }
+  const text = `Decision ${id} ("${d.statement || id}") has no runnable check. Read the decision and the model, then call write_check once to draft the shell script that proves it holds: bash, read-only, and it must be able to fail, exiting 1 and printing why when the decision does not hold. Put two plain lines in summary, for someone who does not read bash: "Passes when: ..." and "Fails when: ...". This decision only.`;
+  if (Setup.llmReady(A.cfg.llm) || AG.agent !== 'builtin') { if (AG.role !== 'grill') setRole('grill'); toggleAgent(true); send(text); return 'started'; }
+  if (!grillInPanel(text)) { toast(`No agent is set up to draft the check for ${id}. Add an ACP agent or set llm in designc.json, then use Draft a check.`, 'warning'); return 'no-agent'; }
+  return 'started';
+}
+function draftCheck(id) { return startChecker(id); }
+// checker:end
+
 const WRITERS = {
   add_source: a => studyWriter(a.topic, t => Study.addSource(t, a), (r, t) => `Add source ${r.index} to ${t.id}`, a.url),
   add_finding: a => studyWriter(a.topic, t => Study.addFinding(t, a), (r, t) => `Add finding ${r.index} to ${t.id}`, `${a.good_or_bad}: ${a.pattern}`),
@@ -274,32 +437,7 @@ const WRITERS = {
       },
     };
   },
-  write_check: a => {
-    const d = A.decisions.find(x => x.id === a.decision);
-    if (!d || !d._path) return { error: `Decision ${a.decision} is not in the registry.` };
-    const todo = Records.runs(d).find(c => /^TODO\s+\.\/checks\/[\w.-]+\.sh\b/.test(c || ''));
-    if (!todo) return { error: `${d.id} has no check of the form "TODO ./checks/<name>.sh: <what it proves>", so there is no script to write.` };
-    const file = /\.\/(checks\/[\w.-]+\.sh)/.exec(todo)[1];
-    const script = String(a.script || '').replace(/\r\n/g, '\n');
-    if (!/^#!\/(usr\/bin\/env bash|bin\/bash)\n/.test(script)) return { error: 'The script must start with #!/usr/bin/env bash.' };
-    if (script.split('\n').length > 200) return { error: 'Keep the script under 200 lines; split the decision if it needs more.' };
-    const bad = /\b(curl|wget|nc|ncat|ssh|scp|sudo|eval|mkfs|dd)\b|\brm\s+-|git\s+(push|reset|clean|checkout)|>\s*\/(?!dev\/null|tmp\/)|\bchmod\b|\|\s*(ba|z)?sh\b/.exec(script);
-    if (bad) return { error: `The script uses "${bad[0]}". Check scripts only read the registry and exit 0 or 1: no network, no deletes, no writes outside a temp dir.` };
-    const cmd = `bash ./${file}`;
-    return { title: `Write check ${file} for ${d.id}`, detail: a.summary,
-      preview: `<div class="note">Replaces <code>${esc(todo)}</code> with <code>${esc(cmd)}</code> in ${esc(d._path)}. Read the script before approving: it runs on this machine when checks run.</div><pre class="yamlprev">${esc(script)}</pre>`,
-      apply: async () => {
-        const text = await host.read(d._path), key = todo.split(':')[0];
-        const lines = text.split('\n'), i = lines.findIndex(l => /^\s*-\s/.test(l) && l.includes(key));
-        if (i < 0) throw new Error(`Could not find the TODO check line in ${d._path}. Nothing was written.`);
-        lines[i] = lines[i].replace(/-\s.*$/, `- ${yamlStr(cmd)}`);
-        AG.approved.set(file, Date.now()); AG.approved.set(d._path, Date.now());
-        await host.write(file, script.endsWith('\n') ? script : script + '\n');
-        await host.write(d._path, lines.join('\n'));
-        A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll();
-        return `Saved ${file} and replaced the TODO in ${d._path} with "${cmd}". Run the check from the decision card.`;
-      } };
-  },
+  write_check: writeCheck,
   set_check: a => {
     const d = A.decisions.find(x => x.id === a.decision);
     if (!d || !d._path) return { error: `Decision ${a.decision} is not in the registry.` };
@@ -308,7 +446,7 @@ const WRITERS = {
     const check = String(a.check || '').trim();
     if (!check || /[\r\n]/.test(check)) return { error: 'The check must be one line.' };
     const prose = Policy.checkProblem(check);
-    if (prose) return { error: `Check "${check}": ${prose} Write a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>".` };
+    if (prose) return { error: `Check "${check}": ${prose} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>"; designc drafts the script.` };
     return { title: `Add a check to ${d.id}`, detail: a.summary,
       preview: `<div class="note">Adds <code>${esc(check)}</code> under checks: in ${esc(d._path)}. Nothing else in the file changes.</div>`,
       apply: async () => {
@@ -326,7 +464,7 @@ const WRITERS = {
   },
   mint_decision: a => {
     const prose = (a.checks || []).find(c => Policy.checkProblem(c));
-    if (prose != null) return { error: `Check "${prose}": ${Policy.checkProblem(prose)} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" when none exists yet.` };
+    if (prose != null) return { error: `Check "${prose}": ${Policy.checkProblem(prose)} Write a shell command that exits 0 when the decision holds, or "TODO <what it must prove>" as a placeholder: designc drafts the script when the decision is bound.` };
     const business = a.kind === 'business';
     if (business) a = { ...a, statement: `PROPOSED: ${String(a.statement).replace(/^PROPOSED:\s*/i, '')}` };
     // Write-time conflict check: a second answer to one finding must say what it supersedes.
@@ -590,7 +728,7 @@ async function runTool(role, name, args, c, { showReads = true } = {}) {
     else {
       chip.status = 'waiting'; chip.card = w; renderAgent();
       const ok = await waitFor(chip);
-      if (ok) { try { out = await w.apply(); chip.status = 'approved'; } catch (e) { out = `Error while applying: ${e.message}`; chip.status = 'error'; } }
+      if (ok) { chip.status = 'applying'; renderAgent(); try { out = await approveCard(w); chip.status = 'approved'; } catch (e) { out = `Error while applying: ${e.message}`; chip.status = 'error'; } }
       else { out = 'The user declined this. Do not retry the same change; ask what they would prefer.'; chip.status = 'declined'; }
     }
   }
@@ -647,7 +785,7 @@ async function send(text) {
 // ---------------------------------------------------------------- ACP agents
 const ACP_RULES = `[designc] You are connected to designc, a system design IDE, through the Agent Client Protocol. The workspace is a design registry; the design model (Structurizr DSL) is the source of truth and code is generated from it.
 Use the "designc" MCP tools to read the model, findings, gate, decisions, code map and telemetry. Change the model or create decisions/proposals with the designc tools that need approval, or by writing files inside the registry; every change is shown to the user as a diff to approve. The codebase is read-only here. Do not bind decisions: that is a human action.
-A decision check is a shell command run in the registry folder that exits 0 when the decision holds; designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>".`;
+A decision check is a shell command run in the registry folder that exits 0 when the decision holds; designc runs it and records the result. Never write a check as a description such as "Model: ..." or "Test: ...": when no command exists yet, write "TODO <what it must prove>" as a placeholder: designc drafts the script itself when the decision is bound, so never ask the person to write it.`;
 async function sendAcp(text) {
   const c = chat(), key = AG.agent;
   c.items.push({ kind: 'user', text }); AG.busy = true; renderAgent();
@@ -976,7 +1114,7 @@ function md(t) {
   }
   return h;
 }
-const STATUS = { running: ['…', 'running'], ok: ['✓', ''], denied: ['⊘', 'denied by policy'], invalid: ['!', 'rejected before asking you'], waiting: ['?', 'waiting for you'], approved: ['✓', 'approved'], declined: ['✕', 'declined'], error: ['!', 'error'] };
+const STATUS = { running: ['…', 'running'], ok: ['✓', ''], denied: ['⊘', 'denied by policy'], invalid: ['!', 'rejected before asking you'], waiting: ['?', 'waiting for you'], applying: ['…', 'saving and running'], approved: ['✓', 'approved'], declined: ['✕', 'declined'], error: ['!', 'error'] };
 function argSummary(n, a) { return n === 'search_codebase' ? `"${a.query}"` : n === 'read_code' || n === 'read_registry_file' ? a.path : n === 'read_model' && a.from ? `lines ${a.from}-${a.to || '…'}` : ''; }
 function renderAgent() {
   const panel = $('#agent'); if (!panel) return;
@@ -1155,11 +1293,6 @@ function askScenarioQuestions(id) {
   const qs = (Array.isArray(t.rec.questions) ? t.rec.questions : []).filter(q => typeof q === 'string' && q.trim());
   const text = `Test scenario ${id} ("${t.rec.title || id}", requirement ${t.rec.requirement}) cannot be bound: it has ${qs.length} open question(s):\n${qs.map((q, i) => `${i + 1}. ${q}`).join('\n')}\nGo through them one at a time. Say which ones the requirement page already answers, and route business questions to the BA instead of guessing. Do not edit the file; the person answers in ${t.path} and removes each question, then binds.`;
   if (!grillInPanel(text)) toast('Ask in Grill-me needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
-}
-function draftCheck(id) {
-  const d = A.decisions.find(x => x.id === id); if (!d) return;
-  const text = `Decision ${id} ("${d.statement || id}") is bound but has no check. Read the decision and the model, then propose one check line with set_check: a shell command that exits 0 when the decision holds, or "TODO ./checks/<name>.sh: <what it must prove>" if no command exists yet. This decision only.`;
-  if (!grillInPanel(text)) toast('Draft a check needs an agent: add an ACP agent or set llm in designc.json.', 'warning');
 }
 // Read-only: Grill-me explains why the latest check of one decision failed. The ledger keeps the exit code and reason, not the output.
 function explainCheckFail(id) {

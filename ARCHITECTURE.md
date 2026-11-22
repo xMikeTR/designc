@@ -4,7 +4,9 @@
 > whenever module boundaries or interfaces change.
 > Source of truth for blast radius assessment, onboarding, and enterprise
 > architecture aggregation.
-> Last updated: 2026-11-02 — QA bugs against recorded parity (intelligence plane phase 1): `renderer/parity-qa.js` (pure: behaviour table, grouped diff, QA file, buckets), `scripts/parity-qa.js` (read-only CLI), QA bugs block in `renderer/parityview.js`, step `state` labels in `parity.js`.
+> Last updated: 2026-11-22 — Checker drafts: binding a technical fix decision with no runnable check starts an agent draft of the script (`write_check`, `needsChecker`/`startChecker` in `renderer/agent.js`; Approve and run saves, replaces the TODO and runs it); e2e launches isolate real agents (`e2e/agent-shim.js`).
+>
+> Earlier, 2026-11-02 — QA bugs against recorded parity (intelligence plane phase 1): `renderer/parity-qa.js` (pure: behaviour table, grouped diff, QA file, buckets), `scripts/parity-qa.js` (read-only CLI), QA bugs block in `renderer/parityview.js`, step `state` labels in `parity.js`.
 >
 > Previously 2026-10-18 — read-only references: `designc.json` `references` (`{key: {kind: "legacy", path}}`) read by `Dispatch.references`/`legacy` in `renderer/dispatch.js`; `Core.handoverPlan` takes `references`, lists `{key, kind}` (no path) in `handover.yaml` inside the id hash, and `buildBrief` adds a never-write rule; `{legacy}` fills dispatch and resume commands (`terminalview.js`); freeze confirmation names them unchecked; Set up has a Read-only references section. `fixtures/migration/` is a WPF-to-JS trial fixture (not app code).
 > Earlier the same day: exploration finished. canvas, agent panel, ACP hub, MCP server,

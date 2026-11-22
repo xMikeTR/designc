@@ -66,7 +66,7 @@ const Policy = (() => {
         if (reviewed) return no('An assumption is marked reviewed by a human, not an agent; leave reviewed_by and reviewed_at out.');
         // A check is a command or {id, run}; the command is what is judged.
         const prose = (Array.isArray(doc.checks) ? doc.checks : []).map(c => c && typeof c === 'object' && !Array.isArray(c) ? (typeof c.run === 'string' ? c.run : '') : c).find(c => checkProblem(c));
-        if (prose != null) return no(`Check "${prose}": ${checkProblem(prose)} A check is a shell command run in the registry folder that exits 0 when the decision holds. Write the command, or "TODO <what it must prove>" when none exists yet.`);
+        if (prose != null) return no(`Check "${prose}": ${checkProblem(prose)} A check is a shell command run in the registry folder that exits 0 when the decision holds. Write the command, or "TODO <what it must prove>" as a placeholder: designc drafts the script when the decision is bound.`);
       }
     }
     if (/^ui\//.test(rel)) {
