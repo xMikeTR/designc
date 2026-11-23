@@ -190,8 +190,19 @@ function lyPanel() {
   if (L.bad) return `<div ${LY_PANEL}><h3>Layer ${esc(L.req)}</h3><p style="color:var(--warn)">${esc(L.bad.path)} cannot be read, so it is not drawn and cannot be edited here: ${esc(L.bad.errors.join(' '))}</p>${badList}</div>`;
   const rec = L.draft; if (!rec || !idx) return '';
   const ro = !Landing.editable(rec);
-  const head = `<h3>Layer ${esc(L.req)}${L.dirty ? ' <span class="tag warning" data-ly-unsaved>unsaved</span>' : ''}</h3><div class="muted" data-ly-status>${esc(Landing.statusText(rec))}${lyFind(L.req) ? '' : ' · not saved yet'}</div>`;
-  if (ro) return `<div ${LY_PANEL}>${head}<p>This landing was written by an agent. It is shown read-only; designc cannot edit it here.</p>${lyLines(rec, true)}${badList}</div>`;
+  const head = `<h3>Layer ${esc(L.req)}${L.dirty ? ' <span class="tag warning" data-ly-unsaved>unsaved</span>' : ''}</h3><div class="muted" data-ly-status>${esc(Landing.statusText(rec, A.ledger))}${lyFind(L.req) ? '' : ' · not saved yet'}</div>`;
+  const saved = !!lyFind(L.req);
+  const ask = `<div style="display:flex;gap:6px;flex-wrap:wrap;margin:6px 0">${saved ? '<button class="btn" data-a="ly-ask-review">Ask Grill-me to review</button>' : '<button class="btn" data-a="ly-ask-propose">Ask Grill-me to propose</button>'}</div>`;
+  const rv = Landing.reviewFor(A.landingReviews, L.req, rec);
+  const review = rv ? `<h4>Agent review</h4><div class="muted">Kept for this session only; it is not saved to disk.</div>${rv.map(f => `<div class="evrow" data-ly-review>${f.node ? `<b>${esc(f.node)}</b>: ` : ''}${esc(f.text)}</div>`).join('')}` : '';
+  const fx = Landing.effects(idx, A.asbuiltFull || A.asbuilt, rec);
+  const names = l => l.map(x => x.name).join(', ');
+  const effects = `<div data-ly-effects><h4>Effects</h4>${[['callers', fx.callers], ['readers', fx.readers], ['consumers', fx.consumers]].map(([k, l]) => `<div class="desc" data-ly-fx="${k}">${l.length} ${k}${l.length ? `: ${esc(names(l))}` : ''}</div>`).join('')}${fx.unknown.map(u => `<div class="desc" data-ly-fx="unknown" style="color:var(--warn)">unknown: ${esc(u.node)}, ${esc(u.why)}</div>`).join('')}</div>`;
+  const can_ = Landing.approvable(rec, { model: A.model, proposals: A.proposals }), isCor = Landing.corrected(rec);
+  const why = !saved ? 'Save the note first.' : L.dirty ? 'Save your edits first.' : !can_.ok ? can_.why : '';
+  const done = Landing.isApproved(rec, A.ledger);
+  const approve = `<div style="margin:10px 0"><button class="btn primary" data-a="ly-approve" ${why || done ? 'disabled' : ''} ${why ? `title="${esc(why)}"` : ''}>Approve</button>${why ? ` <span class="muted" data-ly-why>${esc(why)}</span>` : ''}</div>`;
+  if (ro) return `<div ${LY_PANEL}>${head}<p>This landing was written by an agent. It is shown read-only. Correct makes an editable copy of it.</p><div style="margin:6px 0"><button class="btn" data-a="ly-correct">Correct</button></div>${ask}${lyLines(rec, true)}${review}${effects}${saved ? approve : ''}${badList}</div>`;
   const tg = lyTarget(), r = tg && tg.node ? Landing.resolve(idx, tg.node) : null;
   const stage = L.stage || (tg && tg.node ? Landing.defaultStage(idx, tg.node, rec) : 'ui');
   const target = tg && tg.node ? `<div data-ly-target><span class="muted">Target</span> <b>${esc(tg.node)}</b> <span class="desc">${esc(lyResText(r))}</span></div>`
@@ -205,7 +216,12 @@ function lyPanel() {
     <div style="display:flex;gap:6px;align-items:center;margin:6px 0"><input data-ly-what type="text" placeholder="What changes here" aria-label="What changes here" value="${esc(L.what)}" style="flex:1;min-width:0;box-sizing:border-box"><button class="btn" data-a="ly-change" ${can}>Change here</button></div>
     <div style="margin:6px 0"><input data-ly-node type="text" placeholder="Or type a node, for example Shop.Api/DiscountFilter" aria-label="Node" value="${esc(L.typed)}" style="width:100%;box-sizing:border-box"></div>`;
   const save = `<div style="display:flex;gap:6px;margin:10px 0"><button class="btn primary" data-a="ly-save" ${L.dirty ? '' : 'disabled'}>Save</button><button class="btn" data-a="ly-discard" ${L.dirty ? '' : 'disabled'}>Discard</button></div>`;
-  return `<div ${LY_PANEL}>${head}${target}${draw}${save}${lyLines(rec, false)}${lyRows(idx)}${badList}<hr></div>`;
+  const pr = isCor && rec.correction && rec.correction.principle || {};
+  const corr = isCor ? `<div data-ly-correction><h4>Correction</h4><div class="muted">You changed what the agent proposed. Say what the next proposal should learn: a principle in the model, or a rule proposal.</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin:6px 0"><select data-ly-cprop aria-label="Principle">${Landing.PRINCIPLE_PROPS.map(x => `<option ${x === pr.prop ? 'selected' : ''}>${x}</option>`).join('')}</select><input data-ly-celem type="text" placeholder="Design element" aria-label="Design element" value="${esc(pr.element || '')}" style="flex:1;min-width:0;box-sizing:border-box"><button class="btn" data-a="ly-cprinciple">Use this principle</button></div>
+      <div class="muted">Edit the model first: the principle counts once the element has it.</div>
+      <div style="margin:6px 0"><button class="btn" data-a="ly-draftrule">Draft rule proposal</button>${rec.correction && rec.correction.proposal ? ` <span class="desc">${esc(rec.correction.proposal)}</span>` : ''}</div></div>` : '';
+  return `<div ${LY_PANEL}>${head}${target}${draw}${save}${ask}${lyLines(rec, false)}${review}${corr}${effects}${approve}${lyRows(idx)}${badList}<hr></div>`;
 }
 // Called after the side panel is drawn: puts the layer panel above it.
 function lyDecorateSide() {
@@ -247,6 +263,52 @@ async function lySave() {
     toast(`Saved ${r.path}.${same || !here ? '' : ' Edits made while saving are not saved yet.'}`);
   } finally { L.saving = false; }
 }
+// Approve: a person only. The file is written first, then the ledger row; the note is approved only once both exist.
+async function lyApprove() {
+  const L = A.layer; if (!L.draft || L.dirty || L.saving || !L.file) return;
+  const req = L.req, rec = L.draft;
+  let cur = null;
+  try { cur = (await host.exists(L.file)) ? await host.read(L.file) : null; }
+  catch (e) { return toast(`Could not read ${L.file} to check it did not change (${lyMsg(e)}). Nothing was approved.`, 'error'); }
+  const fx = Landing.effects(lyIndex(), A.asbuiltFull || A.asbuilt, rec);
+  // map_commit is null: the extracted facts record no commit.
+  const r = Landing.prepareApprove({ rec, loadedText: L.loadedText, currentText: cur, yaml: jsyaml, file: L.file, by: A.user, at: new Date().toISOString(), mapCommit: null, effects: fx, model: A.model, proposals: A.proposals });
+  if (!r.ok) return toast(r.error, 'error');
+  if (!confirm(`Approve the landing for ${req}? You, ${A.user}, say this is where it lands${r.ledgerRow.corrected ? ', as you corrected it' : ''}. Editing the note afterwards undoes the approval.`)) return;
+  L.saving = true;
+  try {
+    try { await host.write(r.path, r.text); } catch (e) { return toast(`Could not write ${r.path} (${lyMsg(e)}). Nothing was approved.`, 'error'); }
+    await recordEvent('landing_approved', r.ledgerRow);
+    await loadLandings(); lyOpen(req); renderCodemap();
+    toast(`Approved ${r.path}.`);
+  } finally { L.saving = false; }
+  await lyOfferElements(req, r.record);
+}
+// After Approve: the design elements the note touches that the requirement does not list yet, offered as the same update map_requirement makes.
+async function lyOfferElements(req, rec) {
+  const q = (A.requirements || []).find(x => String(x.id) === String(req)), idx = lyIndex();
+  if (!q || !q._path || !idx || !A.drift || !A.drift.toDesign) return;
+  const nodes = [...(rec.entry ? [rec.entry.node] : []), ...(rec.path || []).map(x => x.node), ...(rec.changes || []).map(x => x.node)];
+  const have = new Set(q.elements || []), miss = new Set();
+  for (const n of nodes) { const d = A.drift.toDesign.get(Landing.resolve(idx, n).container); if (d && !have.has(d.name)) miss.add(d.name); }
+  if (!miss.size) return;
+  if (!confirm(`${req} does not list ${[...miss].join(', ')} as ${miss.size === 1 ? 'an element' : 'elements'} it concerns. Add ${miss.size === 1 ? 'it' : 'them'} to the requirement? Cancel leaves the requirement as it is.`)) return;
+  const text = await readText(q._path), next = text == null ? null : RequirementImport.setElements(text, [...have, ...miss]);
+  if (next == null) return toast(`${q._path} lists elements in a shape designc cannot edit safely. Edit it by hand.`, 'warning');
+  await host.write(q._path, next); A.tree = await host.tree(); await loadRegistry(); recompile(); renderAll({ keepEditor: true });
+}
+function lyCorrect() { const L = A.layer; if (!L.draft) return; L.draft = Landing.correct(L.draft); L.dirty = true; renderCodemap(); }
+function lySetCorrection(corr) { lyEdit(rec => ({ ...rec, status: 'proposed', approved: {}, correction: corr })); }
+async function lyDraftRule() {
+  const L = A.layer; if (!L.draft) return;
+  const d = Landing.draftProposal(L.draft, { taken: (A.proposals || []).map(x => x.id) });
+  if (!d) return toast('Only a corrected note has something to learn from.', 'warning');
+  try { if (await host.exists(d.path)) return toast(`${d.path} already exists.`, 'error'); await host.write(d.path, d.text); }
+  catch (e) { return toast(`Could not write ${d.path} (${lyMsg(e)}).`, 'error'); }
+  A.tree = await host.tree(); await loadRegistry();
+  lySetCorrection({ proposal: d.id });
+  await lySave();
+}
 function lyDiscard() { const L = A.layer; if (L.req) lyOpen(L.req); renderCodemap(); }
 
 document.addEventListener('click', e => {
@@ -255,6 +317,12 @@ document.addEventListener('click', e => {
   if (a === 'ly-pick') { lySyncSel(); L.pick = t.dataset.node; L.pickFor = A.cmSel; L.typed = ''; L.stage = ''; return renderCmSide(); }
   if (a === 'ly-save') return lySave();
   if (a === 'ly-discard') return lyDiscard();
+  if (a === 'ly-approve') return lyApprove();
+  if (a === 'ly-correct') return lyCorrect();
+  if (a === 'ly-draftrule') return lyDraftRule();
+  if (a === 'ly-ask-propose') return askLanding(L.req, 'propose');
+  if (a === 'ly-ask-review') return askLanding(L.req, 'review');
+  if (a === 'ly-cprinciple') { const pe = document.querySelector('[data-ly-cprop]'), el = document.querySelector('[data-ly-celem]'); if (!el || !String(el.value).trim()) return toast('Name the design element first.', 'warning'); return lySetCorrection({ principle: { prop: pe.value, element: el.value.trim() } }); }
   const tg = lyTarget(); if (!(tg && tg.node) && !/ly-del/.test(a)) return;
   const stage = () => { const s = document.querySelector('[data-ly-stage]'); return s ? s.value : undefined; };
   if (a === 'ly-entry') return lyEdit(rec => Landing.setEntry(idx, rec, tg.node));
