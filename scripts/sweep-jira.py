@@ -4,7 +4,7 @@
     JIRA_TOKEN=... python3 scripts/sweep-jira.py <base-url> <registry-folder> [--jql "<query>"] [--max N]
 
 Default query: assignee = currentUser() AND (created >= -1d OR updated >= -1d) AND statusCategory != Done. Each issue
-found becomes `inbox/<KEY>.yaml` (id, title, jira: type/labels/components/priority, target: {jira: KEY}, swept date). An
+found becomes `inbox/<KEY>.yaml` (id, title, jira: type/labels/components/priority, link: <base>/browse/KEY, target: {jira: KEY}, swept date). An
 issue is skipped when work/ already has an item targeting it, or inbox/ (or inbox/dismissed/) already has its entry. The
 description is never copied. An inbox entry is only a suggestion: the Work view's Accept makes the work item, a person
 does. Auth, https rule and the GET-only guarantee are those of fetch-jira.py (same environment variables and options
@@ -41,12 +41,13 @@ def tracked_keys(reg):
     return keys
 
 
-def entry(issue, today):
+def entry(issue, today, base):
     key = issue['key']
     fields = issue.get('fields') or {}
     one = lambda v: json.dumps(v, ensure_ascii=False, separators=(', ', ': '))
     return (f'id: {key}\ntitle: {one(fj.one_line(fields.get("summary")))}\n'
-            f'jira: {one(fj.jira_block(fields))}\ntarget: {{ jira: {key} }}\nswept: {today}\n')
+            f'jira: {one(fj.jira_block(fields))}\nlink: {one(base.rstrip("/") + "/browse/" + key)}\n'
+            f'target: {{ jira: {key} }}\nswept: {today}\n')
 
 
 def main(argv):
@@ -96,7 +97,7 @@ def main(argv):
             continue
         os.makedirs(os.path.join(reg, 'inbox'), exist_ok=True)
         with open(os.path.join(reg, 'inbox', key + '.yaml'), 'w', encoding='utf-8') as fh:
-            fh.write(entry(issue, today))
+            fh.write(entry(issue, today, base))
         have.add(key)
         new += 1
     print(f'swept {new} new, {already} already tracked' + (f'; stopped at --max {limit}, there may be more' if len(found) == limit else ''))
