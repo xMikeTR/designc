@@ -8,12 +8,12 @@ const PROPS = D.props(Vocabulary), PROP = D.byKey(PROPS);
 const at = (line, c) => D.completeAt(line, c === undefined ? line.length : c, PROP, PROPS);
 
 test('props is the base table then the canvas vocabulary, in order; counts as at e05d17e', () => {
-  assert.equal(D.BASE.length, 23);
+  assert.equal(D.BASE.length, 26);
   assert.equal(Vocabulary.propsList().length, 30);
-  assert.equal(PROPS.length, 53);
-  assert.deepEqual(PROPS.slice(0, 23), D.BASE);
-  assert.deepEqual(PROPS.slice(23), Vocabulary.propsList());
-  assert.equal(D.props().length, 23);
+  assert.equal(PROPS.length, 56);
+  assert.deepEqual(PROPS.slice(0, 26), D.BASE);
+  assert.deepEqual(PROPS.slice(26), Vocabulary.propsList());
+  assert.equal(D.props().length, 26);
 });
 
 test('value branch: after "d.retry" " lists the values with from at the value start', () => {

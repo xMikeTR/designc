@@ -333,6 +333,7 @@ const Core = (() => {
       'd.latency.max': { k: 'int' }, 'd.fanout': { k: 'enum', v: ['sequential', 'parallel'] }, 'd.retry.budget': { k: 'int' },
       'd.aka': { k: 'list' }, 'd.suppress': { k: 'suppress' },
       'd.code': { k: 'list' }, 'd.repo': { k: 'str' }, 'd.risk': { k: 'enum', v: ['low', 'medium', 'high'] },
+      'd.style': { k: 'enum', v: ['event-driven', 'request-response'] }, 'd.api': { k: 'enum', v: ['api-first', 'none'] }, 'd.ui': { k: 'enum', v: ['thin', 'none'] }, // N5 principles, inherited
       'd.idempotent': { k: 'enum', v: YN }, 'd.cached': { k: 'str' }, // claims the health overlay checks; see docs/health.example.json
     },
   };
@@ -413,6 +414,8 @@ const Core = (() => {
   const interaction = r => get(r, 'd.interaction');
   const isStore = e => (e.props['d.store'] != null ? get(e, 'd.store') === 'yes' : e.tags.has('Database'));
   function zone(m, id) { let c = m.elements.get(id); while (c) { const z = get(c, 'd.zone'); if (z) return z; c = c.parent ? m.elements.get(c.parent) : null; } return null; }
+  // N5 principle: the element's own value, else its nearest ancestor's; `from` is the id of the element that set it.
+  function principle(m, id, prop) { let c = m.elements.get(id); while (c) { const v = get(c, prop); if (v != null) return { value: v, from: c.id }; c = c.parent ? m.elements.get(c.parent) : null; } return { value: null, from: null }; }
   const structural = (m, r) => m.isAncestor(r.src, r.dst) || m.isAncestor(r.dst, r.src);
   // Two components of the same container run in one process: they are up or down together.
   const inProcess = (m, r) => { const a = m.elements.get(r.src), b = m.elements.get(r.dst); return a.kind === 'component' && b.kind === 'component' && a.parent === b.parent; };
@@ -738,6 +741,53 @@ const Core = (() => {
             const res = Core.resolveMessage(b.events || [], msg);
             if (res.error) out.push(D('DC011', 'error', res.error, m.locRel(r)));
           }
+        }
+        return out;
+      } },
+    { code: 'DC012', title: 'Sync call in an event-driven system', source: 'N5 principles (designc-factory-consolidated)',
+      doc: 'Where d.style: event-driven holds at both ends (set on a system, inherited), a call between two elements should be async. A sync call is a warning; an undeclared d.interaction is unknown. Active only once d.style is set.',
+      fn(m) {
+        const out = [];
+        for (const r of m.rels) {
+          if (structural(m, r) || inProcess(m, r)) continue;
+          if (m.elements.get(r.src).kind === 'person' || m.elements.get(r.dst).kind === 'person') continue;
+          if (principle(m, r.src, 'd.style').value !== 'event-driven' || principle(m, r.dst, 'd.style').value !== 'event-driven') continue;
+          const i = interaction(r);
+          if (i === 'sync') out.push(D('DC012', 'warning', 'sync call in an event-driven system', m.locRel(r), { hint: 'make it async, or record why with d.suppress' }));
+          else if (i == null) out.push(D('DC012', 'warning', 'event-driven system, interaction undeclared', m.locRel(r), { hint: 'set d.interaction: async | sync', unknown: true }));
+        }
+        return out;
+      } },
+    { code: 'DC013', title: 'API-first call without an operation', source: 'N5 principles (designc-factory-consolidated)',
+      doc: 'A sync call into an element with d.api: api-first (set on a system, inherited) from outside its container must name d.operation. A gap DC011 already reports is not repeated. Active only once d.api is set.',
+      fn(m) {
+        const out = [];
+        const repoOf = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.props['d.repo'] != null) return String(c.props['d.repo']).trim(); return null; };
+        for (const r of m.rels) {
+          if (!syncCall(m, r) || inProcess(m, r) || get(r, 'd.operation') != null) continue;
+          if (principle(m, r.dst, 'd.api').value !== 'api-first') continue;
+          if (get(r, 'd.message') == null) { // DC011 reports a repo or zone crossing that names nothing: one finding per gap
+            const rs = repoOf(m.elements.get(r.src)), rd = repoOf(m.elements.get(r.dst)), zs = zone(m, r.src), zd = zone(m, r.dst);
+            if ((rs && rd && rs !== rd) || (zs && zd && zs !== zd)) continue;
+          }
+          out.push(D('DC013', 'warning', 'calls an api-first element without naming d.operation', m.locRel(r), { hint: 'set d.operation: <operationId>', unknown: true }));
+        }
+        return out;
+      } },
+    { code: 'DC014', title: 'Thick UI', source: 'N5 principles (designc-factory-consolidated)',
+      doc: 'A UI element (tagged UI, or inside one) with d.ui: thin (set on a system, inherited) must not reach a store directly and must not own data. Active only once d.ui is set.',
+      fn(m) {
+        const out = [];
+        const inUi = e => { for (let c = e; c; c = c.parent ? m.elements.get(c.parent) : null) if (c.tags.has('UI')) return true; return false; };
+        const thin = e => inUi(e) && principle(m, e.id, 'd.ui').value === 'thin';
+        for (const r of m.rels) {
+          const es = m.elements.get(r.src), ed = m.elements.get(r.dst);
+          if (structural(m, r) || !isStore(ed) || !thin(es)) continue;
+          out.push(D('DC014', 'error', `a thin UI reaches the store "${ed.name}" directly`, m.locRel(r), { hint: 'go through the API, or record why with d.suppress' }));
+        }
+        for (const e of m.elements.values()) {
+          const owns = get(e, 'd.owns');
+          if (owns && owns.length && thin(e)) out.push(D('DC014', 'warning', `a thin UI owns data (${owns.join(', ')})`, m.locEl(e), { hint: 'move ownership to the service behind it' }));
         }
         return out;
       } },
@@ -1268,7 +1318,7 @@ function gateRecord({ modelText, modelIncludes = [], diags, gate, source, git })
   }
   const specsFor = target => ({ ...SPECS[target] });
 
-  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, KINDS, SKIP, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, registerProperties, registerRules, specsFor };
+  return { includePath, modelFiles, locFile, _shared: { makeModel, hash16, KINDS, SKIP, RESERVED_TEST_PATH, DM, PP, get, structural, SURCHARGES }, parse, check, gate, domainOwners, scopedGate, acceptanceClauses, tokenClauses, DEFAULT_MIN_TEXT, decisionsFor, bindProblems, slugId, diffModels, timing, amplificationFrom, fingerprint, resolveBinding, modelRevision, verdictHash, gateRecord, GATE_INPUTS, LOCATOR_ROLES, dirtyInputs, latestCheck, RULES, get, isStore, interaction, principle, registerProperties, registerRules, specsFor };
 })();
 if (typeof module !== 'undefined') {
   module.exports = Core;
