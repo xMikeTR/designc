@@ -475,15 +475,14 @@ const Landing = (() => {
     const outgoing = id => model.rels.filter(r => r.src === id && !CORE._shared.structural(model, r));
     for (const ch of list(rec && rec.changes)) {
       const node = str(ch && ch.node), r = resolve(idx, node);
-      const start = r.status === 'mapped' ? (r.type || r.component || r.container) : null;
-      const S = start && els.has(start) ? start : (r.status === 'mapped' && els.has(r.container) ? r.container : null);
+      const S = r.status === 'mapped' ? [r.type, r.component, r.container].find(id => id && els.has(id)) || null : null;
       if (!S) { addUnknown(node, 'not on the code map'); continue; }
       const C = els.get(S).kind === 'component' && els.get(S).parent && els.has(els.get(S).parent) ? els.get(S).parent : null;
       const found = { callers: 0, readers: 0, consumers: 0 };
       const callersOf = (id, via) => {
         const b = CORE.blastRadius(model, id, { mode: 'misbehaves' });
         for (const x of [...b.down, ...b.degraded, ...b.unknown]) {
-          if (related(x.id, S) || (C && related(x.id, C))) continue;
+          if (related(x.id, S) || (via === 'container' && (x.id === C || model.isAncestor(x.id, C)))) continue;
           const had = callers.get(x.id);
           if (had && (had.via === 'component' || via === 'container')) continue;
           callers.set(x.id, { id: x.id, name: x.name, via });

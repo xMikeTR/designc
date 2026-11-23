@@ -100,3 +100,29 @@ test('the result is sorted and de-duplicated; the model is not touched', () => {
   assert.equal(new Set(ids(r.callers)).size, r.callers.length);
   assert.equal(JSON.stringify(model.rels), before);
 });
+
+// S4 retry 1: a type or named-handler node starts at its component; siblings in the same container are callers.
+const DSL2 = `workspace "T" { model {
+ s = softwareSystem "S" {
+  web = container "Web" "" "React"
+  api = container "Api" "" ".NET" {
+    orders = component "Orders"
+    checkout = component "Checkout"
+    health = component "Health"
+  }
+ }
+ checkout -> orders "calls" "in-proc" ${sync}
+ web -> api "calls" "HTTPS" ${sync}
+}}`;
+const model2 = Core.parse(DSL2);
+const facts2 = { code: { types: [{ id: 't1', key: 'OrdersHandler', name: 'OrdersHandler', kind: 'class', component: 'orders', container: 'Api' }] },
+  endpoints: [{ id: 'e1', node: 'Api/POST /orders', container: 'Api', component: 'orders', method: 'POST', route: '/orders', handler: { kind: 'named', node: 'Api/OrdersHandler' } }] };
+const idx2 = Landing.buildIndex(model2, facts2);
+for (const node of ['Api/OrdersHandler', 'Api/POST /orders#handler', 'Api/Orders']) {
+  test(`siblings in the same container call the changed component: ${node}`, () => {
+    const r = Landing.effects(idx2, model2, rec(node));
+    const by = Object.fromEntries(r.callers.map(c => [c.id, c.via]));
+    assert.deepEqual(by, { checkout: 'component', web: 'container' }, JSON.stringify(r));
+    assert.equal(by.health, undefined);
+  });
+}
