@@ -200,10 +200,15 @@ const Work = (() => {
     return [];
   }
 
+  // `review: landing` (D7): satisfied by a tick, or by an approved, unchanged landing of every requirement of the item.
+  // landings: { requirement: hash } of the approved ones (the caller judges them with Landing.approvalState); landingWhy: { requirement: reason } for the others.
+  const isLanding = e => !!e && typeof e.review === 'string' && e.review.trim() === 'landing';
+  const landed = (item, e, landings) => isLanding(e) && reqs(item).length > 0 && reqs(item).every(r => !!(landings || {})[r]);
+  const landingEvidence = (item, landings) => reqs(item).filter(r => (landings || {})[r]).map(r => `landing:${r}@${String(landings[r]).slice(0, 12)}`);
   // Everything still missing before this item may be recorded done. [] means it may.
   // events: ledger events; commit: the commit being declared done (repo items); onMain: true, false or
   // null (could not be checked); ticks: entryKey strings a person ticked; scenarios: ids in parity/scenarios/.
-  function doneProblems(item, { events = [], commit = null, onMain = null, ticks = [], scenarios = [] } = {}) {
+  function doneProblems(item, { events = [], commit = null, onMain = null, ticks = [], scenarios = [], landings = null, landingWhy = {} } = {}) {
     const out = [];
     const repo = isRepo(item);
     if (repo) {
@@ -221,7 +226,10 @@ const Work = (() => {
         const ok = last && last.outcome === 'pass' && !last.dirty;
         if (!ok) out.push(`${e.gate} has no passing run${repo && commit ? ` at ${short(commit)}` : ''}. Run it from the Work view.`);
       } else if (k === 'checklist' || k === 'review') {
-        if (!list(ticks).includes(entryKey(e))) out.push(`${k === 'review' ? 'Review by' : 'Checklist'}: ${e[k]} is not ticked.`);
+        if (!list(ticks).includes(entryKey(e)) && !(k === 'review' && landed(item, e, landings))) {
+          const miss = k === 'review' && isLanding(e) && landings ? reqs(item).filter(r => !(landings || {})[r]) : [];
+          out.push(`${k === 'review' ? 'Review by' : 'Checklist'}: ${e[k]} is not ticked.${miss.length ? ` Not approved: ${miss.map(r => ((landingWhy || {})[r] ? `${r} (${landingWhy[r]})` : r)).join(', ')}.` : ''}`);
+        }
       } else if (k === 'parity' && repo) {
         out.push(...parityProblems(item, e, { events, commit, scenarios }));
       } else if (k === 'ui' && repo) {
@@ -358,6 +366,6 @@ const Work = (() => {
       .replace(/\n*$/, '') + `\ntarget: { jira: ${JSON.stringify(key)} }\n`;
   }
 
-  return { inboxKey, inboxPending, fromInbox, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
+  return { inboxKey, inboxPending, fromInbox, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, isLanding, landed, landingEvidence, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

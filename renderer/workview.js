@@ -565,13 +565,18 @@ async function workDone(id) {
     const r = commit ? await host.workOnMain(workRel(it), commit) : { error: null };
     if (r.error) notes.push(r.error); else if (commit) { onMain = r.onMain; commit = r.commit; }
   }
+  // An approved, unchanged landing of every requirement answers `review: landing` (D7); Landing.approvalState judges, never the status.
+  const lr = Landing.forHandover(A.landings, Work.reqs(it), A.ledger), landings = {}, landingWhy = {};
+  for (const x of lr.items) landings[x.requirement] = x.hash;
+  for (const x of lr.skipped) landingWhy[x.requirement] = x.reason;
   const ticks = [];
   for (const e of (it.done_when || [])) {
     const k = Work.KINDS.find(x => e && e[x] !== undefined);
     if (k !== 'checklist' && k !== 'review') continue;
+    if (k === 'review' && Work.landed(it, e, landings)) continue;
     if (confirm(`${id}\n\n${k === 'review' ? `Has ${e[k]} reviewed this?` : `Is this true: ${e[k]}?`}\n\nOK records that you checked it.`)) ticks.push(Work.entryKey(e));
   }
-  const problems = [...notes, ...Work.doneProblems(it, { events: A.ledger, commit, onMain, ticks, scenarios: A.parityIds || [] })];
+  const problems = [...notes, ...Work.doneProblems(it, { events: A.ledger, commit, onMain, ticks, scenarios: A.parityIds || [], landings, landingWhy })];
   WK.refused[id] = problems;
   if (problems.length) {
     toast(`${id} is not done: ${problems.length} thing${problems.length === 1 ? '' : 's'} missing. See the Work view.`, 'warning');
@@ -579,7 +584,8 @@ async function workDone(id) {
     return renderAll({ keepEditor: true });
   }
   const evidence = [...(it.done_when || []).filter(e => e && e.gate !== undefined).map(e => `gate:${e.gate}${commit ? `@${commit.slice(0, 7)}` : ''}`),
-    ...(it.done_when || []).filter(e => e && e.parity !== undefined).flatMap(e => Work.parityIds(e, A.parityIds || [])).map(sc => `parity:${sc}${commit ? `@${commit.slice(0, 7)}` : ''}`), ...ticks];
+    ...(it.done_when || []).filter(e => e && e.parity !== undefined).flatMap(e => Work.parityIds(e, A.parityIds || [])).map(sc => `parity:${sc}${commit ? `@${commit.slice(0, 7)}` : ''}`), ...ticks,
+    ...((it.done_when || []).some(e => Work.landed(it, e, landings) && !ticks.includes(Work.entryKey(e))) ? Work.landingEvidence(it, landings) : [])];
   await recordEvent('item_done', { item: id, commit: repo ? commit : null, evidence });
   toast(`${id} is done.`, 'info');
 }
