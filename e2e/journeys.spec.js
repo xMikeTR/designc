@@ -730,7 +730,7 @@ test('a gate clause on a check offers the next step, and the TODO is replaced on
   await expect(rows.filter({ hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
   // Approving the card (its apply is what the Approve button runs) replaces the TODO; then the check can run.
   await page.evaluate(async () => {
-    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\nexit 0\n', summary: 'x' });
+    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\n[ -f decisions/D-0003.yaml ] || { echo "missing"; exit 1; }\nexit 0\n', summary: 'x' });
     await card.apply();
   });
   await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0003.yaml'), 'utf8')).toMatch(/bash \.\/checks\/occ\.sh/);
@@ -1144,4 +1144,74 @@ test('freezing a work item with parity and Jira evidence puts it in the handover
   expect(build.split('\n').filter(l => /^## /.test(l))[0]).toBe("## What's wrong");
   expect(fs.readFileSync(path.join(dir, 'handover.yaml'), 'utf8')).toMatch(/^evidence: "evidence.json"$/m);
   fs.writeFileSync(path.join(__dirname, '..', 'test-results', 's7-evidence.json'), raw);
+});
+
+// S1c: binding a technical fix decision with no runnable check starts the checker draft; one card, one approval.
+// The agent is e2e/mock-checker-agent.js (no model); the real presets are switched off or refused by the shim.
+const NO_PRESETS = { claude: { enabled: false }, codex: { enabled: false }, gemini: { enabled: false }, copilot: { enabled: false } };
+function checkerRegistry({ agent, body, summary = 'Passes when: the decision file names its id.\nFails when: the model text is missing.' }) {
+  const { reg } = copyRegistry('sample-registry');
+  fs.writeFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'id: D-0002\nstatus: minted\nkind: technical\neffect: fix\nrequirement: DEMO-1234\nbinds: [Bookings DB]\nresolves: [DC009]\nstatement: "Writers use rowversion"\nchecks: []\nrationale: "why"\n');
+  const cfgFile = path.join(reg, 'designc.json');
+  const mock = agent ? { mock: { label: 'Mock checker', command: 'node', args: [path.join(__dirname, 'mock-checker-agent.js')], env: { MOCK_DECISION: 'D-0002', MOCK_SCRIPT_BODY: body, MOCK_SUMMARY: summary } } } : {};
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), acpAgents: { ...NO_PRESETS, ...mock } }, null, 2));
+  return reg;
+}
+async function bindD2(page) {
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Bind', exact: true }).click();
+}
+const PASSING = '#!/usr/bin/env bash\ngrep -q "id: D-0002" decisions/D-0002.yaml || { echo "decision file lost its id"; exit 1; }\nexit 0\n';
+const FAILING = '#!/usr/bin/env bash\ngrep -q "no-such-text" model/workspace.dsl || { echo "model text is missing"; exit 1; }\nexit 0\n';
+
+test('binding a decision with no check drafts it; Approve and run saves, replaces and records a pass', async () => {
+  test.setTimeout(90000);
+  const reg = checkerRegistry({ agent: true, body: PASSING });
+  session = await launch(reg);
+  const { page } = session;
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await bindD2(page);
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('Passes when');
+  await expect(card).toContainText('Fails when');
+  await expect(card.locator('pre')).toContainText('exit 1');
+  // Nothing is written or run before the person approves.
+  expect(fs.existsSync(path.join(reg, 'checks/D-0002.sh'))).toBe(false);
+  expect(fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks: \[\]$/m);
+  expect(readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002')).toEqual([]);
+  await card.getByRole('button', { name: 'Approve and run' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'checks/D-0002.sh'))).toBe(true);
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/bash \.\/checks\/D-0002\.sh/);
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').map(e => e.outcome)).toEqual(['pass']);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'D-0002: the new check passed' })).toBeVisible();
+});
+
+test('a drafted check that fails is shown as failed and is never auto-fixed', async () => {
+  test.setTimeout(90000);
+  const reg = checkerRegistry({ agent: true, body: FAILING });
+  session = await launch(reg);
+  const { page } = session;
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await bindD2(page);
+  const card = page.locator('#agent .agcard');
+  await card.getByRole('button', { name: 'Approve and run' }).click();
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').map(e => e.outcome)).toEqual(['fail']);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'the new check FAILED' })).toBeVisible();
+  expect(fs.readFileSync(path.join(reg, 'checks/D-0002.sh'), 'utf8')).toBe(FAILING);
+  await page.waitForTimeout(1500);
+  expect(readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').length).toBe(1);
+  await expect(page.locator('#sbBody .clause', { hasText: 'D-0002: last check failed' })).toBeVisible();
+});
+
+test('with no agent, bind still succeeds, says why, and the Draft a check button stays', async () => {
+  const reg = checkerRegistry({ agent: false });
+  session = await launch(reg);
+  const { page } = session;
+  await bindD2(page);
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^status: bound/m);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'No agent is set up to draft the check for D-0002' })).toBeVisible();
+  await expect(page.locator('#sbBody .clause', { hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
+  await expect(page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
 });
