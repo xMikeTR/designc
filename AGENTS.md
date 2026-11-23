@@ -229,7 +229,7 @@ designc opens a registry folder. Everything is plain files so git provides revie
 | `acceptance/*.yaml` | UI acceptance criteria: `id, requirement, element` (elements.json id), `decision?, states[], locators {name: {role, name}}, cases[{state, given, when?, then}]`. See "Acceptance criteria (slice 27)" | Human (the Acceptance section's New criterion) |
 | `design-tokens/tokens.json` | W3C design tokens (groups of `{$value, $type}`) | Human |
 | `handovers/*.yaml` | `id, revision, created, by, model, requirements[], decisions[]` | Freeze Handover |
-| `work/*.yaml` | `id, requirement` (one id or a list, `Work.reqs`) `+ elements[]` (each listed by one of those requirements) or `target {document\|jira\|investigation}`, `repo?, writes[], depends_on[], done_when[]` (entries `gate`, `checklist`, `review`, `judge`) | Human (Work view New item) |
+| `work/*.yaml` | `id, requirement` (one id or a list, `Work.reqs`) `+ elements[]` (each listed by one of those requirements) or `target {document\|jira\|investigation}`, `repo?, writes[], depends_on[], done_when[]` (entries `gate`, `checklist`, `review`, `judge`), `evidence[]?` (repo items only; each `{parity, step}`, `{jira}` or `{escape}`; ids and numbers only; `Work.validate` in JS and Python, `Work.prefill` writes it; a jira key in evidence takes the entry out of the Inbox) | Human (Work view New item, New item from this, Fix as repo item) |
 | `asbuilt/workspace.dsl`, `asbuilt/facts.json` | Generated as-built model and evidence | Extract Code Map |
 | `asbuilt/ui-<key>.json` | UI graph of a `references` repo (`designc.ui.graph/1` plus `extractedAt`) | Extract <key> on the Code map's UI level |
 | `ledger/*.jsonl` | One JSON event per line, append-only | Pipeline, app, agents |

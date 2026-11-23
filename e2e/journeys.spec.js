@@ -1057,3 +1057,63 @@ test('an approved landing goes into the item handover and counts as its landing 
   await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.evidence])).toEqual([['W-land', [`gate:true@${commit.slice(0, 7)}`, `landing:QT-1@${ap.ledgerRow.hash.slice(0, 12)}`]]]);
   expect(asked.filter(m => /reviewed this/.test(m))).toEqual([]);
 });
+
+test('a failing parity step becomes a repo item that names it as evidence', async () => {
+  const { reg } = copyRegistry('fixtures/parity-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API, Bookings DB]\n');
+  fs.writeFileSync(path.join(reg, 'parity/scenarios/tags-list.yaml'), 'id: tags-list\ntitle: The tags list, sorted by inception\nscreen: tags\ntest_scenarios: [QT-1-ts-01]\nsteps:\n  - goto: { path: /tags }\n    state: list\n  - goto: { path: /tags }\n    state: list\n    expect: { sorted: Inception }\n');
+  const rp = path.join(reg, 'parity/reports/tags-list.json');
+  const rep = JSON.parse(fs.readFileSync(rp, 'utf8'));
+  const f = rep.result.steps[0].findings;
+  rep.result.steps = [{ ...rep.result.steps[0], n: 1, findings: [] }, { ...rep.result.steps[0], n: 2, findings: f }];
+  fs.writeFileSync(rp, JSON.stringify(rep));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const special = page.locator('#special');
+  await special.getByRole('button', { name: 'Show parity' }).first().click();
+  await page.locator('#sbBody').getByText('tags-list', { exact: true }).click();
+  await expect(special.getByRole('heading', { name: /^tags-list/ })).toBeVisible();
+  // Only the failing step offers it.
+  await expect(special.getByRole('button', { name: 'New item from this' })).toHaveCount(1);
+  await expect(special.locator('.runhead', { hasText: 'Step 1' }).getByRole('button', { name: 'New item from this' })).toHaveCount(0);
+  await special.locator('.runhead', { hasText: 'Step 2' }).getByRole('button', { name: 'New item from this' }).click();
+  await page.locator('.askcard').getByRole('button', { name: 'All 2 elements' }).click();
+  await expect(page.locator('.askcard input')).toHaveValue('Fix parity tags-list step 2');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  const made = () => fs.readdirSync(path.join(reg, 'work')).filter(x => x.endsWith('.yaml') && x !== 'W-parity.yaml');
+  await expect.poll(() => made().length).toBe(1);
+  const text = fs.readFileSync(path.join(reg, 'work', made()[0]), 'utf8');
+  expect(text).toMatch(/^requirement: QT-1$/m);
+  expect(text).toMatch(/^elements: \["Bookings API","Bookings DB"\]$/m);
+  expect(text).toMatch(/^evidence:\n  - \{ parity: tags-list, step: 2 \}$/m);
+  expect(text).toMatch(/^done_when:\n  - gate: "TODO[^\n]*"\n  - parity: tags-list$/m);
+  expect(text).not.toMatch(/^target:/m);
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  await expect(page.locator('#panelBody')).not.toContainText('evidence');
+});
+
+test('a swept Jira issue can become a repo item that names it as evidence', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API, Bookings DB]\n');
+  fs.mkdirSync(path.join(reg, 'inbox'));
+  fs.writeFileSync(path.join(reg, 'inbox/ZZ-7.yaml'), 'id: ZZ-7\ntitle: "Fares wrong"\njira: {"type": "Bug", "labels": [], "components": []}\ntarget: { jira: ZZ-7 }\nswept: 2026-11-05\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const inbox = page.locator('[data-inbox]');
+  await inbox.locator('li', { hasText: 'Fares wrong' }).getByRole('button', { name: 'Fix as repo item' }).click();
+  await page.locator('.askcard').getByRole('button', { name: /^QT-1/ }).click();
+  await page.locator('.askcard').getByRole('button', { name: 'Bookings DB' }).click();
+  await expect(page.locator('.askcard input')).toHaveValue('Fares wrong');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => fs.readdirSync(path.join(reg, 'work')).filter(x => x.endsWith('.yaml')).length).toBe(1);
+  const text = fs.readFileSync(path.join(reg, 'work', fs.readdirSync(path.join(reg, 'work')).find(x => x.endsWith('.yaml'))), 'utf8');
+  expect(text).toMatch(/^requirement: QT-1$/m);
+  expect(text).toMatch(/^elements: \["Bookings DB"\]$/m);
+  expect(text).toMatch(/^evidence:\n  - \{ jira: ZZ-7 \}$/m);
+  expect(text).not.toMatch(/^target:/m);
+  await page.getByRole('tab', { name: /^WK Work/ }).click();
+  await expect(page.locator('[data-workitem]')).toHaveCount(1);
+  await expect(page.locator('[data-inbox]')).toHaveCount(0);
+});
