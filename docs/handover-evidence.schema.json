@@ -1,0 +1,73 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.evidence/1",
+  "title": "Handover evidence",
+  "description": "evidence.json in a frozen handover (handovers/<id>/), written by Core.handoverPlan at freeze only when the work item being frozen has an evidence list (work/<id>.yaml), listed and hashed in handover.yaml (named there as `evidence:`). It says what is wrong, in the item's order, and names kinds, keys and counts only, never values from the apps or from Jira. A parity entry holds that step's failing findings from the latest parity report (kind and key; msg only for a shape finding, whose message is built from roles, column names and shapes). A jira entry holds the issue's key, title, type and link and nothing else. An escape entry holds the id. Nothing else of a parity report or an inbox entry is copied. Its hash joins the handover id. designc owns this contract; consumers conform to it. docs/handover-evidence.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "evidence"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.evidence/1" },
+    "evidence": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "oneOf": [
+          {
+            "type": "object",
+            "required": ["kind", "scenario", "step", "report", "status", "counts", "findings"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "const": "parity" },
+              "scenario": { "type": "string" },
+              "step": { "type": "integer", "minimum": 1 },
+              "report": { "description": "recorded: parity/reports/<scenario>.json was readable; missing: it was absent or unreadable.", "enum": ["recorded", "missing"] },
+              "status": { "description": "That step's status in the report; null when the report or the step is absent.", "type": ["string", "null"] },
+              "counts": {
+                "type": "object",
+                "required": ["fail", "by_kind"],
+                "additionalProperties": false,
+                "properties": {
+                  "fail": { "type": "integer", "minimum": 0 },
+                  "by_kind": { "type": "object", "additionalProperties": { "type": "integer", "minimum": 1 } }
+                }
+              },
+              "findings": {
+                "description": "That step's findings with severity fail, in report order.",
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "required": ["kind", "key"],
+                  "additionalProperties": false,
+                  "properties": {
+                    "kind": { "type": "string" },
+                    "key": { "type": "string" },
+                    "msg": { "description": "Only on a shape finding.", "type": "string" }
+                  }
+                }
+              }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "key", "title", "type", "link"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "const": "jira" },
+              "key": { "type": "string" },
+              "title": { "type": ["string", "null"] },
+              "type": { "type": ["string", "null"] },
+              "link": { "type": ["string", "null"] }
+            }
+          },
+          {
+            "type": "object",
+            "required": ["kind", "id"],
+            "additionalProperties": false,
+            "properties": { "kind": { "const": "escape" }, "id": { "type": "string" } }
+          }
+        ]
+      }
+    }
+  }
+}
