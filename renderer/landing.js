@@ -420,6 +420,47 @@ const Landing = (() => {
     return { id, path: `proposals/${id}.yaml`, text: `id: ${id}\nstatus: minted\nkind: ${q('lint rule')}\nevidence: ${q(evidence)}\nstatement: ${q(statement)}\ncheck: ${q('TODO')}\ndrafted_by: designc\n` };
   }
 
+  // ---------- what an agent may propose (S4 T, D1, D5) ----------
+  // The refusals are decided here, in this order, each an {error}; the prompt is never the guard. args are the tool's arguments: only
+  // requirement, entry, path, changes and principle are read, so a status, an author or an approval in them goes nowhere.
+  // ctx: requirements (registry), idx (as-built index), model (the design), toDesign (Map as-built container id -> design element,
+  // Core.driftModels), existing (the landing now on disk or null), ledger.
+  function proposalCheck(args, { requirements, idx, model, toDesign, existing = null, ledger = [] } = {}) {
+    const a = isObj(args) ? args : {};
+    const req = list(requirements).find(r => r && String(r.id) === String(a.requirement));
+    if (!req) return { error: `Requirement ${a.requirement} is not in the registry. Agents never create requirements.` };
+    if (existing && (existing.author === 'human' || isApproved(existing, ledger))) return { error: `${req.id}: a person has drawn this one. Do not propose over it; review it with review_landing instead.` };
+    const rec = { requirement: String(req.id), author: 'agent', status: 'proposed', entry: isObj(a.entry) ? a.entry : null, path: list(a.path), changes: list(a.changes) };
+    if (isObj(a.principle)) rec.principle = a.principle;
+    const problems = validate(rec, { file: fileFor(rec.requirement) });
+    if (problems.length) return { error: `The proposal is not valid: ${problems.join(' ')}` };
+    const nodes = [...(rec.entry ? [rec.entry.node] : []), ...rec.path.map(s => s.node), ...rec.changes.map(c => c.node)];
+    const resolved = nodes.map(n => ({ node: n, res: resolve(idx, n) }));
+    for (const { node, res } of resolved) if (res.status !== 'mapped') return { error: `${node} is ${res.status === 'ambiguous' ? 'ambiguous' : 'new'}: draw this one yourself.` };
+    const elementNames = list(req.elements);
+    if (!elementNames.length) return { error: `${req.id} lists no elements: map the requirement first, then propose.` };
+    const els = [...values(model && model.elements)];
+    const high = el => { for (let c = el; c; c = c.parent && model.elements.get(c.parent)) if (CORE.get(c, 'd.risk') === 'high') return c; return null; };
+    for (const n of elementNames) { const el = els.find(e => e.name === n || e.id === n); const h = el && high(el); if (h) return { error: `${h.name} is high-risk: draw this one yourself.` }; }
+    for (const { node, res } of resolved) {
+      const d = toDesign && toDesign.get(res.container);
+      if (!d) return { error: `${node} is new: draw this one yourself (its container is not in the design).` };
+      const h = high(d); if (h) return { error: `${h.name} is high-risk: draw this one yourself.` };
+    }
+    const full = { ...rec, entry: rec.entry };
+    return { record: { ...full, principle: rec.principle || null, proposed: asJson(contentOf({ ...full, principle: rec.principle || null })), correction: {}, approved: {} } };
+  }
+  // A review is kept in memory against the note's content hash, so an edit hides it. Not persisted.
+  function reviewCheck(args, { existing } = {}) {
+    const a = isObj(args) ? args : {};
+    if (!existing) return { error: `There is no landing note for ${a.requirement} to review. Only an existing note is reviewed.` };
+    const fs_ = list(a.findings);
+    if (!fs_.length) return { error: 'findings is empty. Give at least one finding with its text.' };
+    if (fs_.some(f => !isObj(f) || !str(f.text))) return { error: 'Every finding needs text.' };
+    return { review: { hash: contentHash(existing), findings: fs_.map(f => (str(f.node) ? { node: str(f.node), text: str(f.text) } : { text: str(f.text) })) } };
+  }
+  const reviewFor = (reviews, req, rec) => { const r = reviews && reviews[req]; return r && rec && r.hash === contentHash(rec) ? r.findings : null; };
+
   // ---------- effects (S4 E, D6) ----------
   // What a landing touches beyond its own nodes, read off the as-built model: never written by anyone. Each change node starts
   // at its component (a named handler's type's component; an inline handler's enclosing component, else the container) and the
@@ -491,6 +532,6 @@ const Landing = (() => {
 
   return { ENTRY_KINDS, STAGES, AUTHORS, STATUSES, EDGE_STYLE, OWN_LABEL, buildIndex, resolve, endpointsOf, endpointNode, handlerNode, nodeOfBox, endpointLabel, saveFile, shortNote, fullNote, validate, normalize, parseFile, newRecord, editable, statusText, fileFor, safeId,
     defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText, effects,
-    contentHash, approvalState, isApproved, effectCounts, correct, corrected, correctionProblem, approvable, prepareApprove, draftProposal, PRINCIPLE_PROPS };
+    contentHash, approvalState, isApproved, effectCounts, correct, corrected, correctionProblem, approvable, prepareApprove, draftProposal, PRINCIPLE_PROPS, proposalCheck, reviewCheck, reviewFor };
 })();
 if (typeof module !== 'undefined') module.exports = Landing;
