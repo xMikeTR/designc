@@ -14,6 +14,7 @@ const code = require('./code');
 const coverage = require('./coverage');
 const intent = require('./intent');
 const ui = require('./ui');
+const endpoints = require('./endpoints');
 
 const SKIP = new Set(['bin', 'obj', 'node_modules', '.git', '.vs', '.idea', 'packages', 'TestResults', 'artifacts', '.venv',
   'dist', 'build', 'coverage', 'out', '.next', 'playwright-report', 'test-results', 'junit-results']);
@@ -81,6 +82,7 @@ async function extract(target, opts = {}) {
   const units = [];
   const tests = [];
   let unresolved = [];
+  const endpointSites = [], endpointProblems = []; // kept apart from `unresolved`: stats.unresolved counts what it always did
 
   const scanned = [];
   for (const pr of perRoot) for (const scanner of SCANNERS) scanned.push({ pr, facts: await scanner.scan(pr.ctx) });
@@ -117,6 +119,8 @@ async function extract(target, opts = {}) {
     consumes.push(...(facts.consumes || []).map(c => ({ ...c, owner: qual(pr, c.owner) })));
     provides.push(...(facts.provides || []).map(c => ({ ...c, owner: qual(pr, c.owner) })));
     unresolved.push(...(facts.unresolved || []));
+    endpointSites.push(...(facts.endpoints || []).map(s => ({ ...s, owner: qual(pr, s.owner) })));
+    endpointProblems.push(...(facts.endpointProblems || []));
     tests.push(...(facts.tests || []).map(t => (multi ? { ...t, repo: pr.r.key } : t)));
     units.push(...(facts.units || []).map(u => ({ ...u, owners: (u.owners || []).map(o => qual(pr, o)) })));
   }
@@ -137,6 +141,7 @@ async function extract(target, opts = {}) {
 
   const compFacts = [...comp.components.values()].map(c => ({ id: `c_${c.owner}_${c.key}`, container: elements.get(c.owner).name, files: [...new Set(c.evidence.map(v => v.file))].sort() }));
   const codeFacts = await code.build({ components: compFacts, read: readV });
+  const ep = await endpoints.build({ sites: endpointSites, elements, components: compFacts, types: codeFacts.types, typeEdges: codeFacts.typeEdges, read: readV });
 
   // Coverage reports named by designc.json extract.coverage give each method its `coverage`; without them CRAP stays unknown.
   const cov = multi ? { files: [], problems: opts.coverage ? ['extract.coverage is not supported with repos yet; coverage is not applied'] : [], map: new Map() } : await coverage.load(roots[0].root, opts.coverage);
@@ -158,12 +163,14 @@ async function extract(target, opts = {}) {
     elements: els.map(e => ({ key: keyOf(e.name), name: e.name, kind: e.kind, tech: e.tech, project: e.project || null,
       ...(e.role ? { role: e.role } : {}), ...(e.ports && e.ports.length ? { ports: e.ports } : {}), evidence: e.evidence })),
     edges: edges.map(e => ({ from: elements.get(e.from).name, to: elements.get(e.to).name, kind: e.kind, label: e.label, tech: e.tech, evidence: e.evidence })),
-    unresolved: [...unresolved, ...comp.unresolved, ...codeFacts.unresolved, ...covProblems],
+    unresolved: [...unresolved, ...comp.unresolved, ...codeFacts.unresolved, ...covProblems, ...endpointProblems, ...ep.unresolved],
     components: [...comp.components.values()].map(c => ({
       id: `c_${c.owner}_${c.key}`, key: c.key, container: elements.get(c.owner).name, name: c.name, owner: elements.get(c.owner).name,
       basis: c.basis, tech: '', files: [...new Set(c.evidence.map(v => v.file))].sort(), evidence: c.evidence,
     })),
     internal,
+    // One node per HTTP endpoint and its handler (extract/endpoints.js); the screen-to-store landing path draws these.
+    endpoints: ep.endpoints,
     componentEdges: comp.componentEdges,
     code: { types: codeFacts.types, typeEdges: codeFacts.typeEdges, ...(covStats ? { coverage: covStats } : {}) },
     ...(multi ? { repos: roots.map(r => r.key) } : {}),

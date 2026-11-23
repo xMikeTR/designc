@@ -3,10 +3,13 @@
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { execFileSync } = require('child_process');
 const { _electron: electron } = require('@playwright/test');
+const { makeAgentShim, attempts, isolatedEnv } = require('./agent-shim');
 
 const APP = path.resolve(__dirname, '..');
 const made = [];
+const shims = [];
 
 function scratch(prefix = 'designc-e2e-') {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), prefix));
@@ -15,8 +18,11 @@ function scratch(prefix = 'designc-e2e-') {
 }
 
 // Removes every folder this test made. Call after closing the app.
+// It throws if a started app tried to start a real agent (e2e/agent-shim.js).
 function cleanup() {
+  const tried = shims.splice(0).flatMap(attempts);
   for (const dir of made.splice(0)) fs.rmSync(dir, { recursive: true, force: true });
+  if (tried.length) throw new Error(`e2e tried to start a real agent: ${tried.join('; ')}`);
 }
 
 // Copies `registry` (relative to the app) into a scratch folder outside any git repo.
@@ -44,10 +50,13 @@ function copyRegistry(registry, { codebase = false, siblings = [] } = {}) {
 async function launch(reg, { ready = page => page.getByRole('button', { name: /^Gate: / }) } = {}) {
   const userData = scratch('designc-e2e-ud-');
   fs.writeFileSync(path.join(userData, 'state.json'), JSON.stringify({ trustAllFolders: true }));
+  let realNpx = ''; try { realNpx = execFileSync('which', ['npx'], { encoding: 'utf8' }).trim(); } catch {}
+  const shim = makeAgentShim(scratch('designc-e2e-shim-'), { realNpx });
+  shims.push(shim.log);
   const app = await electron.launch({
     args: [APP, `--user-data-dir=${userData}`, '--no-sandbox', '--disable-gpu', reg],
     cwd: APP,
-    env: { ...process.env, DESIGNC_E2E: '1' },
+    env: { ...isolatedEnv(process.env, shim.bin), DESIGNC_E2E: '1' },
   });
   const page = await app.firstWindow();
   page.on('dialog', d => d.accept());

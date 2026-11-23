@@ -1,0 +1,56 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.handover.landing/1",
+  "title": "Handover landing",
+  "description": "landing.json in a frozen handover (handovers/<id>/), written by Core.handoverPlan at freeze only when a requirement the handover carries has an approved, unchanged landing note (landings/<requirement>.yaml, judged by Landing.approvalState), listed and hashed in handover.yaml (named there as `landing:`). It is derived, not a copy of the note: no approver and no time (approved.by and approved.at stay out), only the note's own content, whether a person corrected it, and the effect counts stored at approval. Sorted by requirement. The nodes are code-map nodes: they say where inside the elements' code areas the change goes and never widen them. Each landing's requirement and hash join the handover id. designc owns this contract; consumers conform to it. docs/handover-landing.example.json is the shared fixture.",
+  "type": "object",
+  "required": ["schema", "landings"],
+  "additionalProperties": false,
+  "properties": {
+    "schema": { "const": "designc.handover.landing/1" },
+    "landings": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["requirement", "hash", "author", "corrected", "entry", "path", "changes", "principle", "effects"],
+        "additionalProperties": false,
+        "properties": {
+          "requirement": { "type": "string" },
+          "hash": { "description": "The note's content hash at approval (Landing.contentHash), as in the landing_approved ledger row.", "type": "string", "pattern": "^[0-9a-f]{64}$" },
+          "author": { "enum": ["agent", "human"] },
+          "corrected": { "description": "True when the person changed what the agent proposed before approving.", "type": "boolean" },
+          "entry": {
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "required": ["kind", "node"], "additionalProperties": false, "properties": { "kind": { "enum": ["screen", "action", "endpoint"] }, "node": { "type": "string" } } }
+            ]
+          },
+          "path": {
+            "description": "The path in order, UI to store.",
+            "type": "array",
+            "items": { "type": "object", "required": ["stage", "node"], "additionalProperties": false, "properties": { "stage": { "enum": ["ui", "api", "handler", "store"] }, "node": { "type": "string" } } }
+          },
+          "changes": {
+            "type": "array",
+            "items": { "type": "object", "required": ["node", "what"], "additionalProperties": false, "properties": { "node": { "type": "string" }, "what": { "type": "string" } } }
+          },
+          "principle": {
+            "description": "The design principle the change follows: a property (d.style, d.api, d.ui) on an element, a decision id, or none with why. null when the note names none.",
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "additionalProperties": false, "properties": { "prop": { "type": "string" }, "element": { "type": "string" }, "decision": { "type": "string" }, "none": { "type": "string" }, "why": { "type": "string" } } }
+            ]
+          },
+          "effects": {
+            "description": "The counts stored in the note's approved.effects; null when the note has none.",
+            "oneOf": [
+              { "type": "null" },
+              { "type": "object", "required": ["callers", "readers", "consumers", "unknown"], "additionalProperties": false, "properties": { "callers": { "type": "integer", "minimum": 0 }, "readers": { "type": "integer", "minimum": 0 }, "consumers": { "type": "integer", "minimum": 0 }, "unknown": { "type": "integer", "minimum": 0 } } }
+            ]
+          }
+        }
+      }
+    }
+  }
+}

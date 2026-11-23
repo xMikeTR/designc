@@ -86,3 +86,17 @@ test('a missing token or a non-https base url is refused before any request', as
   assert.equal((await run(['https://x.example', os.tmpdir()], {})).code, 2);
   assert.equal((await run(['http://x.example', os.tmpdir()], { JIRA_TOKEN: 't' })).code, 2);
 });
+
+test('an inbox entry carries a link to the issue; a trailing slash on the base gives one slash', async () => {
+  for (const suffix of ['', '/']) {
+    const server = await serve([]);
+    const reg = registry();
+    const base = `http://127.0.0.1:${server.address().port}`;
+    const r = await run([base + suffix, reg], { JIRA_TOKEN: 't' });
+    server.close();
+    assert.equal(r.code, 0, r.out);
+    const text = fs.readFileSync(path.join(reg, 'inbox/ZZ-1.yaml'), 'utf8');
+    assert.match(text, new RegExp(`^link: "${base.replace(/[.]/g, '\\.')}/browse/ZZ-1"$`, 'm'));
+    assert.equal(jsyaml.load(text).link, `${base}/browse/ZZ-1`);
+  }
+});

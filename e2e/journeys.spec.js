@@ -730,7 +730,7 @@ test('a gate clause on a check offers the next step, and the TODO is replaced on
   await expect(rows.filter({ hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
   // Approving the card (its apply is what the Approve button runs) replaces the TODO; then the check can run.
   await page.evaluate(async () => {
-    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\nexit 0\n', summary: 'x' });
+    const card = WRITERS.write_check({ decision: 'D-0003', script: '#!/usr/bin/env bash\n[ -f decisions/D-0003.yaml ] || { echo "missing"; exit 1; }\nexit 0\n', summary: 'x' });
     await card.apply();
   });
   await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0003.yaml'), 'utf8')).toMatch(/bash \.\/checks\/occ\.sh/);
@@ -739,6 +739,155 @@ test('a gate clause on a check offers the next step, and the TODO is replaced on
   // set_check fills a decision that has none.
   await page.evaluate(async () => { await WRITERS.set_check({ decision: 'D-0002', check: 'bash ./checks/b.sh', summary: 'x' }).apply(); });
   await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks:\n  - "?bash \.\/checks\/b\.sh/m);
+});
+
+// S2: a requirement's change layer, drawn by hand on the code map with real clicks, saved to landings/, drawn again after a reload.
+test('user can draw a requirement change layer on the code map and keep it', async () => {
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-1.yaml'), 'id: FARE-1\ntitle: Filter fares by discount code\nversion: 1\n');
+  session = await launch(reg);
+  let { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const facts = JSON.parse(fs.readFileSync(path.join(reg, 'asbuilt/facts.json'), 'utf8'));
+  expect(facts.endpoints.length).toBeGreaterThan(0);
+  const ep = facts.endpoints.find(e => e.container === 'Shop.Api');
+  expect(ep).toBeTruthy();
+  const box = id => page.locator(`#cmcanvas .node[data-cm="${id}"]`);
+  const panel = page.locator('[data-ly-panel]');
+  // None draws as before; picking the layer adds the panel.
+  await expect(panel).toHaveCount(0);
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(panel).toContainText('Layer FARE-1');
+  // Four steps: ui, the API container's endpoint row, its handler row, the store. The first step is also the entry.
+  await box('e_ui').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await panel.getByRole('button', { name: '↳ handler', exact: true }).click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await box('e_snowflake').click();
+  await panel.getByRole('button', { name: 'Add to path' }).click();
+  await expect(panel.locator('[data-ly-line="path"]')).toHaveCount(4);
+  await expect(panel.locator('[data-ly-line="entry"]')).toContainText('ui');
+  // A change on the endpoint, and a node that is not on the map, typed.
+  await box('e_shopapi').click();
+  await panel.getByRole('button', { name: `${ep.method} ${ep.route}` }).click();
+  await panel.getByLabel('What changes here').fill('accept the discount code filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api/DiscountFilter');
+  await expect(panel.locator('[data-ly-target]')).toContainText('not on the map');
+  // The typed node is not sticky: selecting a box drops it and the target is that box.
+  await box('e_ui').click();
+  await expect(panel.getByLabel('Node', { exact: true })).toHaveValue('');
+  await expect(panel.locator('[data-ly-target]')).toContainText('ui');
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api/DiscountFilter');
+  await expect(panel.locator('[data-ly-target]')).toContainText('not on the map');
+  await panel.getByLabel('What changes here').fill('new filter');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await expect(panel.locator('[data-ly-unsaved]').first()).toBeVisible();
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved landings/FARE-1.yaml.')).toBeVisible();
+  const text = fs.readFileSync(path.join(reg, 'landings/FARE-1.yaml'), 'utf8');
+  expect(text).toMatch(/author: human/);
+  expect(text).toMatch(/status: proposed/);
+  expect(text).toMatch(/accept the discount code filter/);
+  expect(text).toMatch(/Shop\.Api\/DiscountFilter/);
+  expect(text.match(/stage: /g).length).toBe(4);
+  // Reload the app: the layer comes back from the file, drawn with its own dashed box for the new node.
+  await session.app.close(); session = null;
+  session = await launch(reg);
+  page = session.page;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Re-extract' }).waitFor();
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  await expect(page.locator('[data-ly-panel] [data-ly-status]')).toContainText('human, proposed');
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(2);
+  await page.locator('.cm-seg button[data-level="component"]').click();
+  await expect(page.locator('#cmcanvas')).toContainText(/not on the map/i);
+  await expect(page.locator('#cmcanvas [data-ly-edge]')).toHaveCount(3);
+  // Readable: at four steps and two changes no note, number or box overlaps another, and the panel does not scroll sideways.
+  const geo = await page.evaluate(() => {
+    const R = e => e.getBoundingClientRect(), hit = (a, b) => a.left < b.right - 0.5 && b.left < a.right - 0.5 && a.top < b.bottom - 0.5 && b.top < a.bottom - 0.5;
+    const marks = [...document.querySelectorAll('#cmcanvas [data-ly-note], #cmcanvas [data-ly-edge] circle')].map(e => ({ what: e.getAttribute('data-ly-note') || 'edge number', r: R(e) }));
+    const problems = [];
+    for (let i = 0; i < marks.length; i++) for (let j = i + 1; j < marks.length; j++) if (hit(marks[i].r, marks[j].r)) problems.push(`${marks[i].what} overlaps ${marks[j].what}`);
+    const boxes = [...document.querySelectorAll('#cmcanvas g.node')].map(g => ({ id: g.getAttribute('data-cm'), r: R(g.querySelector('rect, path')) }));
+    for (const c of document.querySelectorAll('#cmcanvas [data-ly-edge] circle')) for (const b of boxes) if (hit(R(c), b.r)) problems.push(`an edge number sits on ${b.id}`);
+    for (const n of document.querySelectorAll('#cmcanvas g.node [data-ly-note]')) { const b = boxes.find(x => x.id === n.closest('g.node').getAttribute('data-cm')), r = R(n); if (r.left < b.r.left - 1 || r.right > b.r.right + 1) problems.push(`a note spills out of ${b.id}`); }
+    const side = document.querySelector('#cmside');
+    return { problems, notes: marks.length, sideways: side.scrollWidth - side.clientWidth };
+  });
+  expect(geo.notes).toBeGreaterThan(5);
+  expect(geo.problems).toEqual([]);
+  expect(geo.sideways).toBeLessThanOrEqual(0);
+});
+
+// S4: an agent proposes where a requirement lands, a person corrects it and approves it. The agent is scripted: its tool calls go through
+// runTool exactly as a real agent's do (card, Approve), but no model runs. A high-risk area is refused before any card.
+test('user can approve an agent landing proposal after correcting it', async () => {
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  const dsl = path.join(reg, 'model/workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('"d.code" "src/**" "d.risk" "low"', '"d.code" "src/**" "d.risk" "high"'));
+  fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-1.yaml'), 'id: FARE-1\ntitle: Filter fares by discount code\nversion: 1\nelements: ["Shop.Api"]\n');
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-2.yaml'), 'id: FARE-2\ntitle: Show the discount in the page\nversion: 1\nelements: ["ui"]\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const ask = (name, args) => page.evaluate(([n, a]) => { toggleAgent(true); runTool('grill', n, a, chat()); }, [name, args]);
+  const card = page.locator('#agent .agcard');
+  // A high-risk area is refused with no card and no file.
+  await ask('propose_landing', { requirement: 'FARE-2', entry: { kind: 'action', node: 'ui' }, path: [{ stage: 'ui', node: 'ui' }], changes: [{ node: 'ui', what: 'show it' }] });
+  await expect(page.locator('#agent')).toContainText('ui is high-risk: draw this one yourself');
+  expect(fs.existsSync(path.join(reg, 'landings/FARE-2.yaml'))).toBe(false);
+  // The proposal on a low-risk area comes as a card; Approve writes an agent note, proposed.
+  await ask('propose_landing', { requirement: 'FARE-1', entry: { kind: 'action', node: 'Shop.Api' }, path: [{ stage: 'api', node: 'Shop.Api' }], changes: [{ node: 'Shop.Api', what: 'accept the discount code' }] });
+  await card.getByRole('button', { name: 'Approve' }).click();
+  const file = path.join(reg, 'landings/FARE-1.yaml');
+  await expect.poll(() => fs.existsSync(file)).toBe(true);
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/author: agent/);
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: proposed/);
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  const panel = page.locator('[data-ly-panel]');
+  await expect(panel.locator('[data-ly-status]')).toContainText('agent, proposed');
+  await expect(panel.locator('[data-ly-effects]')).toContainText(/\d+ callers/);
+  // Correct: an editable human copy. Changing a line makes it corrected; Approve stays off until there is a correction.
+  await panel.getByRole('button', { name: 'Correct', exact: true }).click();
+  await panel.locator('[data-ly-line="change"] button', { hasText: 'Remove' }).click();
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api');
+  await panel.getByLabel('What changes here').fill('accept the discount code and reject a stale one');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved landings/FARE-1.yaml.')).toBeVisible();
+  await expect(panel.locator('[data-ly-correction]')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+  // Draft rule proposal writes proposals/<id>.yaml (lint rule) and records it as the correction.
+  await panel.getByRole('button', { name: 'Draft rule proposal' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'proposals')) && fs.readdirSync(path.join(reg, 'proposals')).length).toBe(1);
+  const prop = fs.readFileSync(path.join(reg, 'proposals', fs.readdirSync(path.join(reg, 'proposals'))[0]), 'utf8');
+  expect(prop).toMatch(/kind: "lint rule"/);
+  await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+  // Approve: the file says approved with a hash, and the ledger has the row.
+  await panel.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(panel.locator('[data-ly-status]')).toContainText('human, approved');
+  const rows = () => fs.readdirSync(path.join(reg, 'ledger')).flatMap(f => fs.readFileSync(path.join(reg, 'ledger', f), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))).filter(r => r.kind === 'landing_approved');
+  expect(rows().length).toBe(1);
+  expect(rows()[0]).toMatchObject({ requirement: 'FARE-1', author: 'human', corrected: true });
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: approved/);
+  // Edit: the approval is undone.
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api');
+  await panel.getByLabel('What changes here').fill('one more change');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(panel.locator('[data-ly-status]')).toContainText('human, proposed');
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: proposed/);
 });
 
 test('user can see health on the C4 sheet @critical', async () => {
@@ -857,4 +1006,212 @@ test('user can rename an element in the editor and every reference follows @crit
   });
   await page.keyboard.press('F2');
   await expect(page.getByText('nothing to rename here').first()).toBeVisible({ timeout: 15000 });
+});
+
+// S5: an approved landing travels in the item's handover (landing.json, "Where it lands") and answers `review: landing` at Done, with no second tick.
+// The note is approved with Landing.prepareApprove and the ledger row is written by the app's own recordEvent, the two things the panel's Approve does
+// (S4's journey drives the panel itself); nothing runs a model.
+test('an approved landing goes into the item handover and counts as its landing review', async () => {
+  const { execFileSync } = require('child_process');
+  const yaml = require('js-yaml');
+  const Landing = require('../renderer/landing.js');
+  const { reg, dir } = copyRegistry('e2e/fixtures/ready-registry');
+  const repo = path.join(dir, 'repo');
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
+  const git = (...a) => execFileSync('git', a, { cwd: repo, env, encoding: 'utf8' }).trim();
+  fs.mkdirSync(repo);
+  git('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n'); git('add', '-A'); git('commit', '-q', '-m', 'the work');
+  const commit = git('rev-parse', 'HEAD');
+  fs.mkdirSync(path.join(reg, 'work'));
+  fs.writeFileSync(path.join(reg, 'work/W-land.yaml'), ['id: W-land', 'title: Booking endpoint', 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo', 'writes: ["src/**"]', 'done_when:', '  - gate: "true"', '  - review: landing', ''].join('\n'));
+  const rec = { requirement: 'QT-1', author: 'human', status: 'proposed', entry: { kind: 'action', node: 'Bookings API' }, path: [{ stage: 'api', node: 'Bookings API' }], changes: [{ node: 'Bookings API', what: 'accept the booking request' }], principle: { none: 'plumbing' }, proposed: {}, correction: {}, approved: {} };
+  const text = yaml.dump(rec, { lineWidth: -1, noRefs: true });
+  const ap = Landing.prepareApprove({ rec, loadedText: text, currentText: text, yaml, file: 'landings/QT-1.yaml', by: 'e2e', at: '2026-11-23T10:00:00Z', effects: { callers: [], readers: [], consumers: [], unknown: [] } });
+  expect(ap.ok).toBe(true);
+  fs.mkdirSync(path.join(reg, 'landings'));
+  fs.writeFileSync(path.join(reg, 'landings/QT-1.yaml'), ap.text);
+
+  session = await launch(reg);
+  const { page } = session;
+  const asked = [];
+  page.on('dialog', d => asked.push(d.message()));
+  await page.evaluate(row => recordEvent('landing_approved', row), ap.ledgerRow);
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'landing_approved').length).toBe(1);
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const item = page.locator('[data-workitem="W-land"]');
+  await item.getByRole('button', { name: 'Freeze item' }).click();
+  await expect(item.getByText('Design unchanged for this item since it was frozen.')).toBeVisible();
+  const id = fs.readdirSync(path.join(reg, 'handovers'))[0];
+  const landing = JSON.parse(fs.readFileSync(path.join(reg, 'handovers', id, 'landing.json'), 'utf8'));
+  expect(landing.landings.map(l => [l.requirement, l.hash])).toEqual([['QT-1', ap.ledgerRow.hash]]);
+  expect(fs.readFileSync(path.join(reg, 'handovers', id, 'BUILD.md'), 'utf8')).toContain('## Where it lands');
+  expect(fs.readFileSync(path.join(reg, 'handovers', id, 'handover.yaml'), 'utf8')).toMatch(/^landing: "landing.json"$/m);
+
+  await item.getByRole('button', { name: 'Start' }).click();
+  await item.getByRole('button', { name: 'Run gates' }).click();
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.kind === 'item_gate').map(e => e.outcome)).toEqual(['pass']);
+  await item.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.askcard input').fill(commit);
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.evidence])).toEqual([['W-land', [`gate:true@${commit.slice(0, 7)}`, `landing:QT-1@${ap.ledgerRow.hash.slice(0, 12)}`]]]);
+  expect(asked.filter(m => /reviewed this/.test(m))).toEqual([]);
+});
+
+test('a failing parity step becomes a repo item that names it as evidence', async () => {
+  const { reg } = copyRegistry('fixtures/parity-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API, Bookings DB]\n');
+  fs.writeFileSync(path.join(reg, 'parity/scenarios/tags-list.yaml'), 'id: tags-list\ntitle: The tags list, sorted by inception\nscreen: tags\ntest_scenarios: [QT-1-ts-01]\nsteps:\n  - goto: { path: /tags }\n    state: list\n  - goto: { path: /tags }\n    state: list\n    expect: { sorted: Inception }\n');
+  const rp = path.join(reg, 'parity/reports/tags-list.json');
+  const rep = JSON.parse(fs.readFileSync(rp, 'utf8'));
+  const f = rep.result.steps[0].findings;
+  rep.result.steps = [{ ...rep.result.steps[0], n: 1, findings: [] }, { ...rep.result.steps[0], n: 2, findings: f }];
+  fs.writeFileSync(rp, JSON.stringify(rep));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const special = page.locator('#special');
+  await special.getByRole('button', { name: 'Show parity' }).first().click();
+  await page.locator('#sbBody').getByText('tags-list', { exact: true }).click();
+  await expect(special.getByRole('heading', { name: /^tags-list/ })).toBeVisible();
+  // Only the failing step offers it.
+  await expect(special.getByRole('button', { name: 'New item from this' })).toHaveCount(1);
+  await expect(special.locator('.runhead', { hasText: 'Step 1' }).getByRole('button', { name: 'New item from this' })).toHaveCount(0);
+  await special.locator('.runhead', { hasText: 'Step 2' }).getByRole('button', { name: 'New item from this' }).click();
+  await page.locator('.askcard').getByRole('button', { name: 'All 2 elements' }).click();
+  await expect(page.locator('.askcard input')).toHaveValue('Fix parity tags-list step 2');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  const made = () => fs.readdirSync(path.join(reg, 'work')).filter(x => x.endsWith('.yaml') && x !== 'W-parity.yaml');
+  await expect.poll(() => made().length).toBe(1);
+  const text = fs.readFileSync(path.join(reg, 'work', made()[0]), 'utf8');
+  expect(text).toMatch(/^requirement: QT-1$/m);
+  expect(text).toMatch(/^elements: \["Bookings API","Bookings DB"\]$/m);
+  expect(text).toMatch(/^evidence:\n  - \{ parity: tags-list, step: 2 \}$/m);
+  expect(text).toMatch(/^done_when:\n  - gate: "TODO[^\n]*"\n  - parity: tags-list$/m);
+  expect(text).not.toMatch(/^target:/m);
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  await expect(page.locator('#panelBody')).not.toContainText('evidence');
+});
+
+test('a swept Jira issue can become a repo item that names it as evidence', async () => {
+  const { reg } = copyRegistry('e2e/fixtures/ready-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API, Bookings DB]\n');
+  fs.mkdirSync(path.join(reg, 'inbox'));
+  fs.writeFileSync(path.join(reg, 'inbox/ZZ-7.yaml'), 'id: ZZ-7\ntitle: "Fares wrong"\njira: {"type": "Bug", "labels": [], "components": []}\ntarget: { jira: ZZ-7 }\nswept: 2026-11-05\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const inbox = page.locator('[data-inbox]');
+  await inbox.locator('li', { hasText: 'Fares wrong' }).getByRole('button', { name: 'Fix as repo item' }).click();
+  await page.locator('.askcard').getByRole('button', { name: /^QT-1/ }).click();
+  await page.locator('.askcard').getByRole('button', { name: 'Bookings DB' }).click();
+  await expect(page.locator('.askcard input')).toHaveValue('Fares wrong');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => fs.readdirSync(path.join(reg, 'work')).filter(x => x.endsWith('.yaml')).length).toBe(1);
+  const text = fs.readFileSync(path.join(reg, 'work', fs.readdirSync(path.join(reg, 'work')).find(x => x.endsWith('.yaml'))), 'utf8');
+  expect(text).toMatch(/^requirement: QT-1$/m);
+  expect(text).toMatch(/^elements: \["Bookings DB"\]$/m);
+  expect(text).toMatch(/^evidence:\n  - \{ jira: ZZ-7 \}$/m);
+  expect(text).not.toMatch(/^target:/m);
+  await page.getByRole('tab', { name: /^WK Work/ }).click();
+  await expect(page.locator('[data-workitem]')).toHaveCount(1);
+  await expect(page.locator('[data-inbox]')).toHaveCount(0);
+});
+
+// S7: a work item's evidence travels in its handover as evidence.json (kinds, keys, counts) and "What's wrong" first in BUILD.md. No model runs.
+test('freezing a work item with parity and Jira evidence puts it in the handover without any app values', async () => {
+  const { reg } = copyRegistry('fixtures/parity-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API]\n');
+  fs.writeFileSync(path.join(reg, 'work/W-fix.yaml'), ['id: W-fix', 'title: Fix the tags list', 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo', 'writes: ["src/**"]',
+    'evidence:', '  - { parity: tags-list, step: 1 }', '  - { jira: ZZ-7 }', 'done_when:', '  - gate: "true"', ''].join('\n'));
+  fs.mkdirSync(path.join(reg, 'inbox'));
+  fs.writeFileSync(path.join(reg, 'inbox/ZZ-7.yaml'), 'id: ZZ-7\ntitle: "Fares wrong"\njira: {"type": "Bug", "labels": ["LABELMARK"], "components": []}\nlink: "https://jira.example.test/browse/ZZ-7"\ntarget: { jira: ZZ-7 }\nswept: 2026-11-05\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const item = page.locator('[data-workitem="W-fix"]');
+  await item.getByRole('button', { name: 'Freeze item' }).click();
+  await expect(item.getByText('Design unchanged for this item since it was frozen.')).toBeVisible();
+  const id = fs.readdirSync(path.join(reg, 'handovers'))[0];
+  const dir = path.join(reg, 'handovers', id);
+  const raw = fs.readFileSync(path.join(dir, 'evidence.json'), 'utf8');
+  const ev = JSON.parse(raw).evidence;
+  expect(ev[0]).toMatchObject({ kind: 'parity', scenario: 'tags-list', step: 1, report: 'recorded', counts: { fail: 1, by_kind: { shape: 1 } } });
+  expect(ev[0].findings.map(f => f.key)).toEqual(['table:Programs/column:Inception']);
+  expect(ev[1]).toEqual({ kind: 'jira', key: 'ZZ-7', title: 'Fares wrong', type: 'Bug', link: 'https://jira.example.test/browse/ZZ-7' });
+  for (const leak of ['Adhoc tags', 'program-search', 'LABELMARK', '3dc21ad15244', '1111111111111111', 'W-parity']) expect(raw).not.toContain(leak);
+  const build = fs.readFileSync(path.join(dir, 'BUILD.md'), 'utf8');
+  expect(build.split('\n').filter(l => /^## /.test(l))[0]).toBe("## What's wrong");
+  expect(fs.readFileSync(path.join(dir, 'handover.yaml'), 'utf8')).toMatch(/^evidence: "evidence.json"$/m);
+  fs.writeFileSync(path.join(__dirname, '..', 'test-results', 's7-evidence.json'), raw);
+});
+
+// S1c: binding a technical fix decision with no runnable check starts the checker draft; one card, one approval.
+// The agent is e2e/mock-checker-agent.js (no model); the real presets are switched off or refused by the shim.
+const NO_PRESETS = { claude: { enabled: false }, codex: { enabled: false }, gemini: { enabled: false }, copilot: { enabled: false } };
+function checkerRegistry({ agent, body, summary = 'Passes when: the decision file names its id.\nFails when: the model text is missing.' }) {
+  const { reg } = copyRegistry('sample-registry');
+  fs.writeFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'id: D-0002\nstatus: minted\nkind: technical\neffect: fix\nrequirement: DEMO-1234\nbinds: [Bookings DB]\nresolves: [DC009]\nstatement: "Writers use rowversion"\nchecks: []\nrationale: "why"\n');
+  const cfgFile = path.join(reg, 'designc.json');
+  const mock = agent ? { mock: { label: 'Mock checker', command: 'node', args: [path.join(__dirname, 'mock-checker-agent.js')], env: { MOCK_DECISION: 'D-0002', MOCK_SCRIPT_BODY: body, MOCK_SUMMARY: summary } } } : {};
+  fs.writeFileSync(cfgFile, JSON.stringify({ ...JSON.parse(fs.readFileSync(cfgFile, 'utf8')), acpAgents: { ...NO_PRESETS, ...mock } }, null, 2));
+  return reg;
+}
+async function bindD2(page) {
+  await page.getByRole('button', { name: 'Design', exact: true }).click();
+  await page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Bind', exact: true }).click();
+}
+const PASSING = '#!/usr/bin/env bash\ngrep -q "id: D-0002" decisions/D-0002.yaml || { echo "decision file lost its id"; exit 1; }\nexit 0\n';
+const FAILING = '#!/usr/bin/env bash\ngrep -q "no-such-text" model/workspace.dsl || { echo "model text is missing"; exit 1; }\nexit 0\n';
+
+test('binding a decision with no check drafts it; Approve and run saves, replaces and records a pass', async () => {
+  test.setTimeout(90000);
+  const reg = checkerRegistry({ agent: true, body: PASSING });
+  session = await launch(reg);
+  const { page } = session;
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await bindD2(page);
+  const card = page.locator('#agent .agcard');
+  await expect(card).toContainText('Passes when');
+  await expect(card).toContainText('Fails when');
+  await expect(card.locator('pre')).toContainText('exit 1');
+  // Nothing is written or run before the person approves.
+  expect(fs.existsSync(path.join(reg, 'checks/D-0002.sh'))).toBe(false);
+  expect(fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^checks: \[\]$/m);
+  expect(readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002')).toEqual([]);
+  await card.getByRole('button', { name: 'Approve and run' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'checks/D-0002.sh'))).toBe(true);
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/bash \.\/checks\/D-0002\.sh/);
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').map(e => e.outcome)).toEqual(['pass']);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'D-0002: the new check passed' })).toBeVisible();
+});
+
+test('a drafted check that fails is shown as failed and is never auto-fixed', async () => {
+  test.setTimeout(90000);
+  const reg = checkerRegistry({ agent: true, body: FAILING });
+  session = await launch(reg);
+  const { page } = session;
+  await page.locator('[data-agenttoggle]').first().click();
+  await page.locator('#agAgent').selectOption('mock');
+  await bindD2(page);
+  const card = page.locator('#agent .agcard');
+  await card.getByRole('button', { name: 'Approve and run' }).click();
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').map(e => e.outcome)).toEqual(['fail']);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'the new check FAILED' })).toBeVisible();
+  expect(fs.readFileSync(path.join(reg, 'checks/D-0002.sh'), 'utf8')).toBe(FAILING);
+  await page.waitForTimeout(1500);
+  expect(readLedger(reg, 'checks.jsonl').filter(e => e.decision === 'D-0002').length).toBe(1);
+  await expect(page.locator('#sbBody .clause', { hasText: 'D-0002: last check failed' })).toBeVisible();
+});
+
+test('with no agent, bind still succeeds, says why, and the Draft a check button stays', async () => {
+  const reg = checkerRegistry({ agent: false });
+  session = await launch(reg);
+  const { page } = session;
+  await bindD2(page);
+  await expect.poll(() => fs.readFileSync(path.join(reg, 'decisions/D-0002.yaml'), 'utf8')).toMatch(/^status: bound/m);
+  await expect(page.locator('#toasts .toast').filter({ hasText: 'No agent is set up to draft the check for D-0002' })).toBeVisible();
+  await expect(page.locator('#sbBody .clause', { hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
+  await expect(page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
 });
