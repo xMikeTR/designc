@@ -84,6 +84,8 @@ A work item names the elements it changes (`in_scope`). A pipeline works only th
 
 **Dependencies.** A handover with at least one element that has a code area carries `dependencies.json` (`designc.handover.dependencies/1`, `docs/handover-dependencies.schema.json`, example `docs/handover-dependencies.example.json`; named as `dependencies:` in `handover.yaml`), derived from the relationships and outside the id. One entry per coded element of the whole model (`element`, `code`, `repo` when declared, `allows`): the elements its code may depend on. A relationship endpoint maps to code: the element itself if coded, else its nearest coded ancestor, else its coded descendants. Direction is the relationship's; person and structural relationships add nothing. Entries and `allows` are sorted, so the file is deterministic. The Factory pins it in X1.
 
+**Landing.** A handover whose requirements have an approved, unchanged landing note (`landings/<requirement>.yaml`, judged by `Landing.approvalState`, never by `status` alone) carries `landing.json` (`designc.handover.landing/1`, `docs/handover-landing.schema.json`, example `docs/handover-landing.example.json`; named as `landing:` in `handover.yaml`, after `tests:`), derived and hashed in `files:`. Per requirement, sorted: `hash`, `author`, `corrected`, `entry`, `path`, `changes`, `principle` and the `effects` counts stored at approval; no approver and no time. The requirement and hash of each landing join the id. BUILD.md gains `## Where it lands`. The nodes are code-map nodes: they say where inside the code areas the change goes and never widen them. A handover without one is byte-identical to before. The Factory reader hashes it like any frozen file and ignores the key.
+
 
 ## Item handover
 

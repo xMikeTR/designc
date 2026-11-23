@@ -1007,3 +1007,53 @@ test('user can rename an element in the editor and every reference follows @crit
   await page.keyboard.press('F2');
   await expect(page.getByText('nothing to rename here').first()).toBeVisible({ timeout: 15000 });
 });
+
+// S5: an approved landing travels in the item's handover (landing.json, "Where it lands") and answers `review: landing` at Done, with no second tick.
+// The note is approved with Landing.prepareApprove and the ledger row is written by the app's own recordEvent, the two things the panel's Approve does
+// (S4's journey drives the panel itself); nothing runs a model.
+test('an approved landing goes into the item handover and counts as its landing review', async () => {
+  const { execFileSync } = require('child_process');
+  const yaml = require('js-yaml');
+  const Landing = require('../renderer/landing.js');
+  const { reg, dir } = copyRegistry('e2e/fixtures/ready-registry');
+  const repo = path.join(dir, 'repo');
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
+  const git = (...a) => execFileSync('git', a, { cwd: repo, env, encoding: 'utf8' }).trim();
+  fs.mkdirSync(repo);
+  git('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n'); git('add', '-A'); git('commit', '-q', '-m', 'the work');
+  const commit = git('rev-parse', 'HEAD');
+  fs.mkdirSync(path.join(reg, 'work'));
+  fs.writeFileSync(path.join(reg, 'work/W-land.yaml'), ['id: W-land', 'title: Booking endpoint', 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo', 'writes: ["src/**"]', 'done_when:', '  - gate: "true"', '  - review: landing', ''].join('\n'));
+  const rec = { requirement: 'QT-1', author: 'human', status: 'proposed', entry: { kind: 'action', node: 'Bookings API' }, path: [{ stage: 'api', node: 'Bookings API' }], changes: [{ node: 'Bookings API', what: 'accept the booking request' }], principle: { none: 'plumbing' }, proposed: {}, correction: {}, approved: {} };
+  const text = yaml.dump(rec, { lineWidth: -1, noRefs: true });
+  const ap = Landing.prepareApprove({ rec, loadedText: text, currentText: text, yaml, file: 'landings/QT-1.yaml', by: 'e2e', at: '2026-11-23T10:00:00Z', effects: { callers: [], readers: [], consumers: [], unknown: [] } });
+  expect(ap.ok).toBe(true);
+  fs.mkdirSync(path.join(reg, 'landings'));
+  fs.writeFileSync(path.join(reg, 'landings/QT-1.yaml'), ap.text);
+
+  session = await launch(reg);
+  const { page } = session;
+  const asked = [];
+  page.on('dialog', d => asked.push(d.message()));
+  await page.evaluate(row => recordEvent('landing_approved', row), ap.ledgerRow);
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'landing_approved').length).toBe(1);
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const item = page.locator('[data-workitem="W-land"]');
+  await item.getByRole('button', { name: 'Freeze item' }).click();
+  await expect(item.getByText('Design unchanged for this item since it was frozen.')).toBeVisible();
+  const id = fs.readdirSync(path.join(reg, 'handovers'))[0];
+  const landing = JSON.parse(fs.readFileSync(path.join(reg, 'handovers', id, 'landing.json'), 'utf8'));
+  expect(landing.landings.map(l => [l.requirement, l.hash])).toEqual([['QT-1', ap.ledgerRow.hash]]);
+  expect(fs.readFileSync(path.join(reg, 'handovers', id, 'BUILD.md'), 'utf8')).toContain('## Where it lands');
+  expect(fs.readFileSync(path.join(reg, 'handovers', id, 'handover.yaml'), 'utf8')).toMatch(/^landing: "landing.json"$/m);
+
+  await item.getByRole('button', { name: 'Start' }).click();
+  await item.getByRole('button', { name: 'Run gates' }).click();
+  await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.kind === 'item_gate').map(e => e.outcome)).toEqual(['pass']);
+  await item.getByRole('button', { name: 'Done', exact: true }).click();
+  await page.locator('.askcard input').fill(commit);
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done').map(e => [e.item, e.evidence])).toEqual([['W-land', [`gate:true@${commit.slice(0, 7)}`, `landing:QT-1@${ap.ledgerRow.hash.slice(0, 12)}`]]]);
+  expect(asked.filter(m => /reviewed this/.test(m))).toEqual([]);
+});

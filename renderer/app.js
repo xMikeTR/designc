@@ -1340,10 +1340,12 @@ async function freezeOnce(item) {
   }
   // The as-built facts, only to map tests to elements (D6): hashed into the id, never copied.
   const factsRaw = await readText('asbuilt/facts.json'), factsIn = factsRaw ? { text: factsRaw } : null;
+  // An approved, unchanged landing of a requirement this handover carries travels in it (S5); Landing.approvalState judges, never the status.
+  const lr = Landing.forHandover(A.landings, item ? Work.reqs(item) : A.requirements.map(r => String(r.id)), A.ledger);
   let plan;
   try {
     plan = Core.handoverPlan({
-      ui: uiIn, facts: factsIn, testScenarios: await read('test-scenarios', ['.yaml', '.yml']), criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
+      landings: lr.items, ui: uiIn, facts: factsIn, testScenarios: await read('test-scenarios', ['.yaml', '.yml']), criteria: A.acceptance, yamlDump: o => jsyaml.dump(o),
       date: new Date().toISOString().slice(0, 10), now: new Date().toISOString(), by: A.user, forecast: frozen,
       references: refs ? refs.refs : [], contracts,
       // OpenAPI contracts the registry owns (contracts/openapi/*.yaml): the cross-repo seam, pinned like any other file.
@@ -1373,7 +1375,8 @@ async function freezeOnce(item) {
     ? `Freeze work item ${item.id}?\n\nIn scope: ${(item.elements || []).join(', ')}.\nThe handover holds the whole model with these elements marked, and only the requirement, decisions, scenarios and evals they touch. ${scoped.outside} blocking clause${scoped.outside === 1 ? '' : 's'} outside them ${scoped.outside === 1 ? 'is' : 'are'} not counted.${scoped.warnings.length ? `\n\n${plural(scoped.warnings.length, 'warning')} on these elements ${scoped.warnings.length === 1 ? 'is' : 'are'} still unanswered. They do not block this freeze.` : ''}`
     : `Freeze a handover of ${A.cfg.model}?\n\n${priced}\n\nThe forecast is written into the handover and compared with the actual spend in Build.`) + refNote;
   const uncovered = plan.testsUnmapped && plan.testsUnmapped.length ? `\n\nNo existing test covers: ${plan.testsUnmapped.map(u => u.element).join(', ')}. The tests the agent writes are their only cover (tests.json).` : '';
-  if (!confirm(ask + uncovered)) return;
+  const unlanded = lr.skipped.length ? `\n\n${lr.skipped.map(s => `Landing ${s.requirement} is not approved (${s.reason}), so the handover does not carry its landing.`).join(' ')}` : '';
+  if (!confirm(ask + uncovered + unlanded)) return;
   // Preview pictures are binary: the main process copies them first, re-hashing every one against the id and writing nothing
   // unless all still match (a picture changed since approval refuses the freeze before any file is written).
   if ((plan.binaryCopies || []).length) {
