@@ -353,7 +353,7 @@ export { expect };
   // pipeline, no time and no person, so the same content always gives the same text.
   // focus: the element names the requirements and bound decisions name (a whole handover only); they become "Build these"
   // and every other code area is context the agent may write only when the change needs it.
-  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null, dependencies = false }) {
+  function buildBrief({ id, elements, item, focus, requirements, decisions, scenarios, evals, acceptance, tokens, specs, domain = null, references = [], ui = null, tests = null, scenarioTests = null, dependencies = false, landings = [] }) {
     const code = s => '`' + s + '`';
     const list = (xs, f = code) => xs.map(x => `- ${f(x)}`).join('\n');
     const coded = e => e.code && e.code.length;
@@ -376,8 +376,22 @@ export { expect };
     else out.push('No element declares a code area (`d.code`), so there is no safe place to write. Stop and ask the designer where this code lives.');
     if (tests && tests.unmapped.length) out.push('', `No existing test covers: ${tests.unmapped.map(u => u.element).join(', ')}; the tests you write are its only cover. ${code('tests.json')} lists, per element, the tests to turn green and the existing ones that must stay green.`);
     else if (tests) out.push('', `${code('tests.json')} lists, per element, the tests to turn green and the existing ones that must stay green.`);
-    out.push('', `${code('elements.json')} resolves every element, its code area and relationships by id; ${code('model/')} holds the design itself.`, '',
-      '## Rules', '',
+    out.push('', `${code('elements.json')} resolves every element, its code area and relationships by id; ${code('model/')} holds the design itself.`, '');
+    if (landings.length) {
+      out.push('', '## Where it lands', '');
+      for (const l of landings) {
+        const r = l.record, p = r.principle || {};
+        out.push(`### ${code(l.requirement)}`, '');
+        out.push(r.entry ? `Entry: ${r.entry.kind} ${code(r.entry.node)}` : 'Entry: none named', '');
+        if ((r.path || []).length) out.push('Path:', '', ...r.path.map(s => `- ${s.stage}: ${s.node}`), '');
+        if ((r.changes || []).length) out.push('Changes:', '', ...r.changes.map(c => `- ${c.node}: ${c.what}`), '');
+        out.push(`Principle: ${p.prop ? `${code(p.prop)} on ${code(p.element)}` : p.decision ? `decision ${code(p.decision)}` : `none: ${p.why || p.none || 'not stated'}`}`, '');
+        const e = l.effects;
+        out.push(e ? `Effects: ${e.callers} callers, ${e.readers} readers, ${e.consumers} consumers, ${e.unknown} unknown` : 'Effects: not recorded', '');
+      }
+      out.push(`The designer approved ${landings.length === 1 ? 'this landing' : 'these landings'}; ${code('landing.json')} holds ${landings.length === 1 ? 'it' : 'them'}. The nodes are code-map nodes: they say where inside the code areas above the change goes and never widen them. A node outside those areas, or code that disagrees with the path, means stop and ask the designer.`, '');
+    }
+    out.push('## Rules', '',
       '1. Write only inside the code areas listed above. Each file belongs to one element.',
       `2. Never write ${(elements.reserved || ['tests/acceptance/**']).map(code).join(', ')}: designc generates those specs and they are how the work is judged.`,
       '3. Do not change the design. If it is wrong or incomplete, stop and say what you need decided; a design change is a new handover.',
@@ -533,7 +547,7 @@ export { expect };
     return { copies, json: { path: 'scenarios.json', text: JSON.stringify(doc, null, 2) + '\n' }, idEntries, paths: copies.map(c => c.path), hasApi: api.length > 0 };
   }
 
-  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null, testScenarios = [] }) {
+  function handoverPlan({ date, now, by, model, requirements = [], decisions = [], behaviour = [], vocabulary = [], evals = [], scenarios = [], acceptance: acceptanceIn = [], tokens = null, specs = { files: [], loop: null }, forecast = null, item = null, focus = [], domain = [], references = [], contracts = null, apiContracts: apiIn = [], ui: uiIn = null, criteria = null, yamlDump = null, facts = null, testScenarios = [], landings = [] }) {
     const apiContracts = apiIn || [];
     let acceptance = acceptanceIn;
     // A reference is a name and a kind, never a path: paths are machine-local, and they must not change the id of a handover.
@@ -554,18 +568,21 @@ export { expect };
     const testsDoc = handoverTests(elementsDoc, facts, specs, uiPart ? uiPart.components : []);
     // Compiled agent contracts (Contracts.forFreeze): verbatim copies, so inside the id; a different policy is a different handover.
     const ctr = contracts ? [contracts.result, ...contracts.files] : [];
+    // Approved landings (Landing.forHandover; an item without its record and hash is not one): a derived landing.json, sorted by requirement. No person and no time: approved.by and approved.at stay out.
+    const landingItems = (landings || []).filter(l => l && l.record && l.hash).sort((a, b) => (a.requirement < b.requirement ? -1 : a.requirement > b.requirement ? 1 : 0));
     const content = [{ path: model.path, text: model.text }, ...includes, ...(dom ? dom.copies : []), ...ctr, ...apiContracts, ...requirements, ...decisions, ...evals, ...scenarios, ...acceptance, ...(tokens ? [tokens] : []), ...behaviour, ...vocabulary, ...(uiPart ? uiPart.copies : []), ...(scn ? scn.copies : [])].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
-    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(scn ? scn.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : [])].join('\0\0')).slice(0, 8)}`;
+    const id = `${String(date).replace(/-/g, '')}-${hash16([...content.map(f => `${f.path}\0${f.text}`), ...(item ? [`work_item\0${item.id}`] : []), ...refs.map(r => `reference\0${r.key}\0${r.kind}`), ...(uiPart ? uiPart.idEntries : []), ...(scn ? scn.idEntries : []), ...(testsDoc && testsDoc.facts ? [`tests-facts\0${testsDoc.facts.sha256}`] : []), ...landingItems.map(l => `landing\0${l.requirement}\0${l.hash}`)].join('\0\0')).slice(0, 8)}`;
     const dir = `handovers/${id}/`;
     const elements = { path: 'elements.json', text: JSON.stringify(elementsDoc, null, 2) + '\n' };
     const idOf = f => { const m = /^id:\s*["']?([^"'\n#]+?)["']?\s*(#.*)?$/m.exec(f.text); return m ? m[1] : f.path.split('/').pop().replace(/\.ya?ml$/, ''); };
     const reqProfile = requirementProfile(requirements);
     const agentsDoc = handoverAgents(src);
     const agents = agentsDoc.agents.length ? { path: 'agents.json', text: JSON.stringify(agentsDoc, null, 2) + '\n' } : null;
-    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn, dependencies: !!depsDoc }) };
+    const build = { path: 'BUILD.md', text: buildBrief({ id, elements: JSON.parse(elements.text), item, focus, requirements: requirements.map(f => idOf(f)), decisions, scenarios, evals, acceptance, tokens, specs, domain: !!dom, references: refs, ui: uiPart, tests: testsDoc, scenarioTests: scn, dependencies: !!depsDoc, landings: landingItems }) };
     const depsFile = depsDoc ? { path: 'dependencies.json', text: JSON.stringify(depsDoc, null, 2) + '\n' } : null;
     const testsFile = testsDoc ? { path: 'tests.json', text: JSON.stringify(testsDoc, null, 2) + '\n' } : null;
-    const frozen = [...content, elements, build, ...(depsFile ? [depsFile] : []), ...(testsFile ? [testsFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
+    const landingFile = landingItems.length ? { path: 'landing.json', text: JSON.stringify({ schema: 'designc.handover.landing/1', landings: landingItems.map(l => ({ requirement: l.requirement, hash: l.hash, author: l.record.author, corrected: !!l.corrected, entry: l.record.entry || null, path: l.record.path || [], changes: l.record.changes || [], principle: l.record.principle || null, effects: l.effects || null })) }, null, 2) + '\n' } : null;
+    const frozen = [...content, elements, build, ...(depsFile ? [depsFile] : []), ...(testsFile ? [testsFile] : []), ...(landingFile ? [landingFile] : []), ...(agents ? [agents] : []), ...(dom ? [dom.json] : []), ...(uiPart ? [uiPart.json] : []), ...(scn ? [scn.json] : []), ...specs.files].sort((a, b) => (a.path < b.path ? -1 : a.path > b.path ? 1 : 0));
     const q = JSON.stringify;
     const head = `id: ${id}
 revision: ${modelRevision(model.text, includes)}
@@ -574,7 +591,7 @@ by: ${q(by)}
 model: ${q(model.path)}
 elements: ${q(elements.path)}
 ${depsFile ? `dependencies: ${q(depsFile.path)}\n` : ''}build: ${q(build.path)}
-${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text, includes)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
+${agents ? `agents: ${q(agents.path)}\n` : ''}${contracts ? `contracts: ${q({ result: contracts.result.path, agents: contracts.agents, uncontracted: contracts.uncontracted, ...(contracts.compiler ? { compiler: contracts.compiler } : {}) })}\n` : ''}${apiContracts.length ? `contracts_api: ${q(apiContracts.map(f => f.path).sort())}\n` : ''}${dom ? `domain: ${q(dom.json.path)}\n` : ''}${uiPart ? `ui: ${q(uiPart.json.path)}\nui_screens: ${q(uiPart.screens)}\n` : ''}${testsFile ? `tests: ${q(testsFile.path)}\n` : ''}${landingFile ? `landing: ${q(landingFile.path)}\n` : ''}${scn ? `scenario_tests: ${q(scn.json.path)}\n` : ''}${item ? `work_item: ${q(item.id)}\ndesign_version: ${modelRevision(model.text, includes)}\nin_scope: ${q(item.elements)}\n` : ''}${reqProfile.risk ? `requirement_risk: ${q(reqProfile.risk)}\n` : ''}${reqProfile.dataClass ? `requirement_data_class: ${q(reqProfile.dataClass)}\n` : ''}requirements: ${q(requirements.map(idOf))}
 decisions: ${q(decisions.map(idOf))}
 evals: ${q(Object.fromEntries(evals.map(f => [idOf(f), evalHash({ _text: f.text })])))}
 scenarios: ${q(scenarios.map(idOf))}

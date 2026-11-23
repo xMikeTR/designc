@@ -417,7 +417,7 @@ const Landing = (() => {
       const st = approvalState(rec, ledger);
       if (st.state === 'approved') {
         const e = isObj(rec.approved) && isObj(rec.approved.effects) ? rec.approved.effects : null;
-        items.push({ requirement: rec.requirement, record: rec, hash: contentHash(rec), effects: e ? { callers: e.callers, readers: e.readers, consumers: e.consumers, unknown: e.unknown } : null });
+        items.push({ requirement: rec.requirement, record: rec, hash: contentHash(rec), corrected: corrected(rec), effects: e ? { callers: e.callers, readers: e.readers, consumers: e.consumers, unknown: e.unknown } : null });
       } else skipped.push({ requirement: rec.requirement, reason: st.reason || 'not approved' });
     }
     const by = (a, b) => (a.requirement < b.requirement ? -1 : a.requirement > b.requirement ? 1 : 0);

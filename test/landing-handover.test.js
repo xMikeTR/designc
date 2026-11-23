@@ -21,6 +21,7 @@ test('forHandover: an approved note of a listed requirement is an item with the 
   assert.equal(r.items[0].requirement, 'RE-1');
   assert.equal(r.items[0].hash, Landing.contentHash(a.rec));
   assert.equal(r.items[0].record, a.rec);
+  assert.equal(r.items[0].corrected, false);
   assert.deepEqual(r.items[0].effects, { callers: 2, readers: 1, consumers: 0, unknown: 0 });
 });
 

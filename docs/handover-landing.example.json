@@ -1,0 +1,22 @@
+{
+  "schema": "designc.handover.landing/1",
+  "landings": [
+    {
+      "requirement": "RE-1",
+      "hash": "ea9dbf57e36cb7d45e65d64aa88ac4bba0c60cf5a3df62951a6ec9f7b048e32f",
+      "author": "agent",
+      "corrected": true,
+      "entry": { "kind": "screen", "node": "Shop.Ui" },
+      "path": [
+        { "stage": "ui", "node": "Shop.Ui" },
+        { "stage": "api", "node": "Shop.Api/GET /customers" },
+        { "stage": "handler", "node": "Shop.Api/CustomersController" }
+      ],
+      "changes": [
+        { "node": "Shop.Api/CustomersController", "what": "accept the discount code filter" }
+      ],
+      "principle": { "prop": "d.api", "element": "Shop.Api" },
+      "effects": { "callers": 2, "readers": 1, "consumers": 0, "unknown": 0 }
+    }
+  ]
+}
