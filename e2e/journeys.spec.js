@@ -827,6 +827,69 @@ test('user can draw a requirement change layer on the code map and keep it', asy
   expect(geo.sideways).toBeLessThanOrEqual(0);
 });
 
+// S4: an agent proposes where a requirement lands, a person corrects it and approves it. The agent is scripted: its tool calls go through
+// runTool exactly as a real agent's do (card, Approve), but no model runs. A high-risk area is refused before any card.
+test('user can approve an agent landing proposal after correcting it', async () => {
+  const { reg } = copyRegistry('fixtures/split-registry', { siblings: ['fixtures/fullstack/api', 'fixtures/fullstack/ui'] });
+  const dsl = path.join(reg, 'model/workspace.dsl');
+  fs.writeFileSync(dsl, fs.readFileSync(dsl, 'utf8').replace('"d.code" "src/**" "d.risk" "low"', '"d.code" "src/**" "d.risk" "high"'));
+  fs.mkdirSync(path.join(reg, 'requirements'), { recursive: true });
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-1.yaml'), 'id: FARE-1\ntitle: Filter fares by discount code\nversion: 1\nelements: ["Shop.Api"]\n');
+  fs.writeFileSync(path.join(reg, 'requirements/FARE-2.yaml'), 'id: FARE-2\ntitle: Show the discount in the page\nversion: 1\nelements: ["ui"]\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Code map' }).click();
+  await page.locator('#sbBody').getByRole('button', { name: 'Extract the as-built map' }).click();
+  await expect(page.getByText(/^Mapped \d+ deployables?/)).toBeVisible();
+  const ask = (name, args) => page.evaluate(([n, a]) => { toggleAgent(true); runTool('grill', n, a, chat()); }, [name, args]);
+  const card = page.locator('#agent .agcard');
+  // A high-risk area is refused with no card and no file.
+  await ask('propose_landing', { requirement: 'FARE-2', entry: { kind: 'action', node: 'ui' }, path: [{ stage: 'ui', node: 'ui' }], changes: [{ node: 'ui', what: 'show it' }] });
+  await expect(page.locator('#agent')).toContainText('ui is high-risk: draw this one yourself');
+  expect(fs.existsSync(path.join(reg, 'landings/FARE-2.yaml'))).toBe(false);
+  // The proposal on a low-risk area comes as a card; Approve writes an agent note, proposed.
+  await ask('propose_landing', { requirement: 'FARE-1', entry: { kind: 'action', node: 'Shop.Api' }, path: [{ stage: 'api', node: 'Shop.Api' }], changes: [{ node: 'Shop.Api', what: 'accept the discount code' }] });
+  await card.getByRole('button', { name: 'Approve' }).click();
+  const file = path.join(reg, 'landings/FARE-1.yaml');
+  await expect.poll(() => fs.existsSync(file)).toBe(true);
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/author: agent/);
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: proposed/);
+  await page.getByLabel('Layer').selectOption('FARE-1');
+  const panel = page.locator('[data-ly-panel]');
+  await expect(panel.locator('[data-ly-status]')).toContainText('agent, proposed');
+  await expect(panel.locator('[data-ly-effects]')).toContainText(/\d+ callers/);
+  // Correct: an editable human copy. Changing a line makes it corrected; Approve stays off until there is a correction.
+  await panel.getByRole('button', { name: 'Correct', exact: true }).click();
+  await panel.locator('[data-ly-line="change"] button', { hasText: 'Remove' }).click();
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api');
+  await panel.getByLabel('What changes here').fill('accept the discount code and reject a stale one');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(page.getByText('Saved landings/FARE-1.yaml.')).toBeVisible();
+  await expect(panel.locator('[data-ly-correction]')).toBeVisible();
+  await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeDisabled();
+  // Draft rule proposal writes proposals/<id>.yaml (lint rule) and records it as the correction.
+  await panel.getByRole('button', { name: 'Draft rule proposal' }).click();
+  await expect.poll(() => fs.existsSync(path.join(reg, 'proposals')) && fs.readdirSync(path.join(reg, 'proposals')).length).toBe(1);
+  const prop = fs.readFileSync(path.join(reg, 'proposals', fs.readdirSync(path.join(reg, 'proposals'))[0]), 'utf8');
+  expect(prop).toMatch(/kind: "lint rule"/);
+  await expect(panel.getByRole('button', { name: 'Approve', exact: true })).toBeEnabled();
+  // Approve: the file says approved with a hash, and the ledger has the row.
+  await panel.getByRole('button', { name: 'Approve', exact: true }).click();
+  await expect(panel.locator('[data-ly-status]')).toContainText('human, approved');
+  const rows = () => fs.readdirSync(path.join(reg, 'ledger')).flatMap(f => fs.readFileSync(path.join(reg, 'ledger', f), 'utf8').split('\n').filter(Boolean).map(l => JSON.parse(l))).filter(r => r.kind === 'landing_approved');
+  expect(rows().length).toBe(1);
+  expect(rows()[0]).toMatchObject({ requirement: 'FARE-1', author: 'human', corrected: true });
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: approved/);
+  // Edit: the approval is undone.
+  await panel.getByLabel('Node', { exact: true }).fill('Shop.Api');
+  await panel.getByLabel('What changes here').fill('one more change');
+  await panel.getByRole('button', { name: 'Change here' }).click();
+  await panel.getByRole('button', { name: 'Save', exact: true }).click();
+  await expect(panel.locator('[data-ly-status]')).toContainText('human, proposed');
+  expect(fs.readFileSync(file, 'utf8')).toMatch(/status: proposed/);
+});
+
 test('user can see health on the C4 sheet @critical', async () => {
   const { reg } = copyRegistry('sample-registry');
   // The model holds the claims; health.json holds the evidence, keyed by the handover id (names joined by "/").
