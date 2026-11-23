@@ -343,6 +343,55 @@ const Landing = (() => {
     return { level, items, boxes, own: ownList, edges, where };
   }
 
+  // ---------- effects (S4 E, D6) ----------
+  // What a landing touches beyond its own nodes, read off the as-built model: never written by anyone. Each change node starts
+  // at its component (a named handler's type's component; an inline handler's enclosing component, else the container) and the
+  // parent container's callers are added (marked via 'container': the extractor often draws calls at container level only).
+  // One hop forward, never further: readers of a store, consumers over async rels. An undeclared interaction, a node that is
+  // not on the code map and a start with nothing found at all are `unknown` rows, never a bare "affects nothing".
+  function effects(idx, model, rec) {
+    const els = model.elements, nm = id => (els.get(id) || {}).name || id;
+    const callers = new Map(), readers = new Map(), consumers = new Map(), unknown = new Map();
+    const addUnknown = (node, why) => unknown.set(`${node}\0${why}`, { node, why });
+    const related = (a, b) => a === b || model.isAncestor(a, b) || model.isAncestor(b, a);
+    const outgoing = id => model.rels.filter(r => r.src === id && !CORE._shared.structural(model, r));
+    for (const ch of list(rec && rec.changes)) {
+      const node = str(ch && ch.node), r = resolve(idx, node);
+      const start = r.status === 'mapped' ? (r.type || r.component || r.container) : null;
+      const S = start && els.has(start) ? start : (r.status === 'mapped' && els.has(r.container) ? r.container : null);
+      if (!S) { addUnknown(node, 'not on the code map'); continue; }
+      const C = els.get(S).kind === 'component' && els.get(S).parent && els.has(els.get(S).parent) ? els.get(S).parent : null;
+      const found = { callers: 0, readers: 0, consumers: 0 };
+      const callersOf = (id, via) => {
+        const b = CORE.blastRadius(model, id, { mode: 'misbehaves' });
+        for (const x of [...b.down, ...b.degraded, ...b.unknown]) {
+          if (related(x.id, S) || (C && related(x.id, C))) continue;
+          const had = callers.get(x.id);
+          if (had && (had.via === 'component' || via === 'container')) continue;
+          callers.set(x.id, { id: x.id, name: x.name, via });
+          found.callers++;
+        }
+      };
+      callersOf(S, 'component');
+      if (C) callersOf(C, 'container');
+      const stores = new Set(CORE.isStore(els.get(S)) ? [S] : []);
+      for (const rel of outgoing(S)) if (els.has(rel.dst) && CORE.isStore(els.get(rel.dst))) stores.add(rel.dst);
+      for (const t of stores) for (const rel of model.rels) {
+        if (rel.dst !== t || related(rel.src, S) || CORE._shared.structural(model, rel)) continue;
+        readers.set(rel.src, { id: rel.src, name: nm(rel.src) }); found.readers++;
+      }
+      for (const rel of outgoing(S)) {
+        const i = CORE.interaction(rel);
+        if (i === 'async') { consumers.set(rel.dst, { id: rel.dst, name: nm(rel.dst) }); found.consumers++; }
+        else if (i == null || i === '') addUnknown(node, `interaction undeclared to ${nm(rel.dst)}`);
+      }
+      if (!found.callers && !found.readers && !found.consumers) addUnknown(node, 'no callers found on the code map');
+    }
+    const byName = (a, b) => (a.name || '').localeCompare(b.name || '') || String(a.id).localeCompare(String(b.id));
+    return { callers: [...callers.values()].sort(byName), readers: [...readers.values()].sort(byName), consumers: [...consumers.values()].sort(byName),
+      unknown: [...unknown.values()].sort((a, b) => a.node.localeCompare(b.node) || a.why.localeCompare(b.why)) };
+  }
+
   // A copy of the view model with the layer's own boxes added. The input model is never touched.
   function augment(view, layer) {
     const els = new Map(view.elements);
@@ -364,6 +413,6 @@ const Landing = (() => {
   const fullNote = notes => notes.map(n => n.text).join('\n');
 
   return { ENTRY_KINDS, STAGES, AUTHORS, STATUSES, EDGE_STYLE, OWN_LABEL, buildIndex, resolve, endpointsOf, endpointNode, handlerNode, nodeOfBox, endpointLabel, saveFile, shortNote, fullNote, validate, normalize, parseFile, newRecord, editable, statusText, fileFor, safeId,
-    defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText };
+    defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText, effects };
 })();
 if (typeof module !== 'undefined') module.exports = Landing;
