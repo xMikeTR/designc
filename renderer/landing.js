@@ -12,6 +12,7 @@
    or ambiguous: it never guesses between two), validates a record, computes what a view level draws, and holds the edits. */
 const Landing = (() => {
   const CORE = typeof Core !== 'undefined' ? Core : (typeof require !== 'undefined' ? require('./core.js') : null);
+  const UI = typeof Ui !== 'undefined' ? Ui : (typeof require !== 'undefined' ? require('./ui.js') : null); // sha256 and canon: the helpers ui_preview_approved hashes with
   const ENTRY_KINDS = ['screen', 'action', 'endpoint'];
   const STAGES = ['ui', 'api', 'handler', 'store'];
   const AUTHORS = ['agent', 'human'];
@@ -189,10 +190,15 @@ const Landing = (() => {
   }
   const newRecord = req => ({ requirement: req, author: 'human', status: 'proposed', entry: null, path: [], changes: [], principle: null, proposed: {}, correction: {}, approved: {} });
   const editable = rec => !!rec && rec.author === 'human';
-  const statusText = rec => `${rec.author || '?'}, ${rec.status || '?'}${rec.status === 'approved' ? ' (approval not verified: designc does not check this approval yet)' : ''}`;
+  // With the ledger, the status is what approvalState says; without one an approval cannot be checked and is said so.
+  const statusText = (rec, ledger) => {
+    if (ledger === undefined) return `${rec.author || '?'}, ${rec.status || '?'}${rec.status === 'approved' ? ' (approval not verified: designc does not check this approval yet)' : ''}`;
+    const a = approvalState(rec, ledger);
+    return `${rec.author || '?'}, ${a.state}${a.reason ? ` (${a.reason})` : ''}`;
+  };
 
   // ---------- edits (pure; every edit empties approved) ----------
-  const cleared = rec => ({ ...rec, approved: {} });
+  const cleared = rec => ({ ...rec, status: 'proposed', approved: {} });
   const isStoreEl = e => !!e && ((e.props && e.props['d.store'] != null ? String(e.props['d.store']) === 'yes' : false) || (e.tags && e.tags.has && e.tags.has('Database')));
   const isUiEl = e => !!e && /react|vue|angular|svelte|\bspa\b|vite|next\.?js|front-?end/i.test(String(e.technology || ''));
   function defaultStage(idx, node, rec) {
@@ -343,6 +349,77 @@ const Landing = (() => {
     return { level, items, boxes, own: ownList, edges, where };
   }
 
+  // ---------- approval and correction (S4 A, C; D8, D9) ----------
+  // The note's content: what a person approves. Not who drew it, its status or the approval itself.
+  const contentOf = rec => ({ entry: isObj(rec.entry) ? rec.entry : null, path: list(rec.path), changes: list(rec.changes), principle: isObj(rec.principle) ? rec.principle : null });
+  const asJson = v => JSON.parse(JSON.stringify(v));
+  const contentHash = rec => UI.sha256(UI.canon(asJson({ requirement: rec.requirement == null ? null : rec.requirement, ...contentOf(rec), proposed: isObj(rec.proposed) ? rec.proposed : {}, correction: isObj(rec.correction) ? rec.correction : {} })));
+  // approved only when the file says so, its hash is the content's hash AND the ledger holds a landing_approved row with it.
+  function approvalState(rec, ledger) {
+    if (!rec || rec.status !== 'approved') return { state: 'proposed', reason: null };
+    const a = isObj(rec.approved) ? rec.approved : {};
+    if (!a.hash) return { state: 'proposed', reason: 'no approval recorded' };
+    const h = contentHash(rec);
+    if (a.hash !== h) return { state: 'proposed', reason: 'edited after approval' };
+    const row = list(ledger).some(e => e && e.kind === 'landing_approved' && e.requirement === rec.requirement && e.hash === h);
+    return row ? { state: 'approved', reason: null } : { state: 'proposed', reason: 'no approval recorded' };
+  }
+  const isApproved = (rec, ledger) => approvalState(rec, ledger).state === 'approved';
+  const effectCounts = e => ({ callers: list(e && e.callers).length, readers: list(e && e.readers).length, consumers: list(e && e.consumers).length, unknown: list(e && e.unknown).length });
+  // An agent note is read-only; Correct makes the person's editable copy. proposed keeps the agent's version (once set, it stays).
+  const correct = rec => ({ ...rec, author: 'human', status: 'proposed', approved: {}, proposed: isObj(rec.proposed) && Object.keys(rec.proposed).length ? rec.proposed : asJson(contentOf(rec)) });
+  const proposedContent = rec => { const p = isObj(rec.proposed) ? rec.proposed : {}; return Object.keys(p).length ? contentOf(p) : null; };
+  const corrected = rec => { const p = proposedContent(rec); return !!p && UI.canon(asJson(p)) !== UI.canon(asJson(contentOf(rec))); };
+  const PRINCIPLE_PROPS = ['d.style', 'd.api', 'd.ui'];
+  // null when the correction is valid, else why not. Principle: the person edited the model, so the element now has the value.
+  // Proposal: proposals/<id>.yaml exists with kind lint rule.
+  function correctionProblem(rec, { model, proposals } = {}) {
+    const c = isObj(rec.correction) ? rec.correction : {};
+    const p = c.principle, id = c.proposal;
+    if (isObj(p)) {
+      if (!PRINCIPLE_PROPS.includes(p.prop)) return `correction principle prop must be ${PRINCIPLE_PROPS.join(', ')}.`;
+      const el = model && [...values(model.elements)].find(e => e.id === p.element || e.name === p.element);
+      if (!el) return `correction principle: ${str(p.element) || 'no element'} is not in the model.`;
+      return CORE.principle(model, el.id, p.prop).value != null ? null : `${p.prop} is not set on ${el.name} in the model yet: edit the model first.`;
+    }
+    if (id) return list(proposals).some(x => x && x.id === id && x.kind === 'lint rule') ? null : `proposals/${id}.yaml does not exist as a lint rule.`;
+    return 'a corrected note needs a correction: a principle in the model or a lint rule proposal.';
+  }
+  const approvable = (rec, { model, proposals } = {}) => {
+    const errors = validate(rec);
+    if (errors.length) return { ok: false, why: errors.join(' ') };
+    if (corrected(rec)) { const why = correctionProblem(rec, { model, proposals }); if (why) return { ok: false, why }; }
+    return { ok: true, why: null };
+  };
+  // What Approve would write and record, or why it must not. The note must be saved (loadedText is what the layer loaded, currentText
+  // what is on disk) and valid; a corrected one needs its correction. The ledger row is recorded by the UI after the file is written.
+  function prepareApprove({ rec, loadedText = null, currentText = null, yaml, file = null, by, at, mapCommit = null, effects, model, proposals }) {
+    const path = file && saveFile(rec && rec.requirement, file);
+    if (!path || loadedText == null) return { ok: false, error: 'Save the note first: only a saved note can be approved.' };
+    if (currentText !== loadedText) return { ok: false, error: `${path} changed on disk since this layer was loaded. Reload the layer before approving.` };
+    const can = approvable(rec, { model, proposals });
+    if (!can.ok) return { ok: false, error: can.why };
+    const hash = contentHash(rec), isCorrected = corrected(rec);
+    const next = { ...rec, status: 'approved', approved: { by, at, hash, map_commit: mapCommit == null ? null : mapCommit, effects: effectCounts(effects) } };
+    if (next.entry == null) delete next.entry;
+    if (next.principle == null) delete next.principle;
+    const text = yaml.dump(next, { lineWidth: -1, noRefs: true, sortKeys: false });
+    const ledgerRow = { requirement: rec.requirement, hash, author: rec.author, corrected: isCorrected, ...(isCorrected ? { correction: rec.correction } : {}) };
+    return { ok: true, path, text: text.endsWith('\n') ? text : text + '\n', record: next, ledgerRow };
+  }
+  // A lint rule proposal drafted from the difference between what the agent proposed and what the person has now. Same fields and
+  // id helper as the mint_proposal handler. null when the note is not corrected.
+  function draftProposal(rec, { taken = [] } = {}) {
+    if (!corrected(rec)) return null;
+    const was = proposedContent(rec), now = contentOf(rec);
+    const diff = ['entry', 'path', 'changes', 'principle'].filter(k => UI.canon(asJson(was[k] == null ? (k === 'path' || k === 'changes' ? [] : null) : was[k])) !== UI.canon(asJson(now[k] == null ? (k === 'path' || k === 'changes' ? [] : null) : now[k])));
+    const statement = `Landing ${rec.requirement} was corrected by a person (${diff.join(', ')}): proposals like it should land where the person put it`;
+    const evidence = `landings/${rec.requirement}.yaml: ` + diff.map(k => `${k}: agent ${JSON.stringify(was[k] == null ? null : was[k])}, person ${JSON.stringify(now[k] == null ? null : now[k])}`).join('; ');
+    const id = CORE.slugId(statement, new Set(taken));
+    const q = s => JSON.stringify(String(s || ''));
+    return { id, path: `proposals/${id}.yaml`, text: `id: ${id}\nstatus: minted\nkind: ${q('lint rule')}\nevidence: ${q(evidence)}\nstatement: ${q(statement)}\ncheck: ${q('TODO')}\ndrafted_by: designc\n` };
+  }
+
   // ---------- effects (S4 E, D6) ----------
   // What a landing touches beyond its own nodes, read off the as-built model: never written by anyone. Each change node starts
   // at its component (a named handler's type's component; an inline handler's enclosing component, else the container) and the
@@ -413,6 +490,7 @@ const Landing = (() => {
   const fullNote = notes => notes.map(n => n.text).join('\n');
 
   return { ENTRY_KINDS, STAGES, AUTHORS, STATUSES, EDGE_STYLE, OWN_LABEL, buildIndex, resolve, endpointsOf, endpointNode, handlerNode, nodeOfBox, endpointLabel, saveFile, shortNote, fullNote, validate, normalize, parseFile, newRecord, editable, statusText, fileFor, safeId,
-    defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText, effects };
+    defaultStage, entryKind, setEntry, addStep, removeStep, addChange, removeChange, clearEntry, prepareSave, layerFor, augment, noteText, effects,
+    contentHash, approvalState, isApproved, effectCounts, correct, corrected, correctionProblem, approvable, prepareApprove, draftProposal, PRINCIPLE_PROPS };
 })();
 if (typeof module !== 'undefined') module.exports = Landing;
