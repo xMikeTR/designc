@@ -1117,3 +1117,31 @@ test('a swept Jira issue can become a repo item that names it as evidence', asyn
   await expect(page.locator('[data-workitem]')).toHaveCount(1);
   await expect(page.locator('[data-inbox]')).toHaveCount(0);
 });
+
+// S7: a work item's evidence travels in its handover as evidence.json (kinds, keys, counts) and "What's wrong" first in BUILD.md. No model runs.
+test('freezing a work item with parity and Jira evidence puts it in the handover without any app values', async () => {
+  const { reg } = copyRegistry('fixtures/parity-registry');
+  fs.writeFileSync(path.join(reg, 'requirements/QT-1.yaml'), 'id: QT-1\ntitle: A reseller can request a booking\nsource: ""\nversion: 1\nelements: [Bookings API]\n');
+  fs.writeFileSync(path.join(reg, 'work/W-fix.yaml'), ['id: W-fix', 'title: Fix the tags list', 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo', 'writes: ["src/**"]',
+    'evidence:', '  - { parity: tags-list, step: 1 }', '  - { jira: ZZ-7 }', 'done_when:', '  - gate: "true"', ''].join('\n'));
+  fs.mkdirSync(path.join(reg, 'inbox'));
+  fs.writeFileSync(path.join(reg, 'inbox/ZZ-7.yaml'), 'id: ZZ-7\ntitle: "Fares wrong"\njira: {"type": "Bug", "labels": ["LABELMARK"], "components": []}\nlink: "https://jira.example.test/browse/ZZ-7"\ntarget: { jira: ZZ-7 }\nswept: 2026-11-05\n');
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const item = page.locator('[data-workitem="W-fix"]');
+  await item.getByRole('button', { name: 'Freeze item' }).click();
+  await expect(item.getByText('Design unchanged for this item since it was frozen.')).toBeVisible();
+  const id = fs.readdirSync(path.join(reg, 'handovers'))[0];
+  const dir = path.join(reg, 'handovers', id);
+  const raw = fs.readFileSync(path.join(dir, 'evidence.json'), 'utf8');
+  const ev = JSON.parse(raw).evidence;
+  expect(ev[0]).toMatchObject({ kind: 'parity', scenario: 'tags-list', step: 1, report: 'recorded', counts: { fail: 1, by_kind: { shape: 1 } } });
+  expect(ev[0].findings.map(f => f.key)).toEqual(['table:Programs/column:Inception']);
+  expect(ev[1]).toEqual({ kind: 'jira', key: 'ZZ-7', title: 'Fares wrong', type: 'Bug', link: 'https://jira.example.test/browse/ZZ-7' });
+  for (const leak of ['Adhoc tags', 'program-search', 'LABELMARK', '3dc21ad15244', '1111111111111111', 'W-parity']) expect(raw).not.toContain(leak);
+  const build = fs.readFileSync(path.join(dir, 'BUILD.md'), 'utf8');
+  expect(build.split('\n').filter(l => /^## /.test(l))[0]).toBe("## What's wrong");
+  expect(fs.readFileSync(path.join(dir, 'handover.yaml'), 'utf8')).toMatch(/^evidence: "evidence.json"$/m);
+  fs.writeFileSync(path.join(__dirname, '..', 'test-results', 's7-evidence.json'), raw);
+});

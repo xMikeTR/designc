@@ -65,6 +65,20 @@ async function loadInbox() {
   }
   A.inbox.sort((a, b) => String(a.id).localeCompare(String(b.id)));
 }
+// What a freeze carries for an item's evidence (S7): the parity report read fresh from disk, the inbox entry for a Jira key. Core.handoverPlan cuts it down.
+async function freezeEvidence(item) {
+  const out = [];
+  for (const e of item && Array.isArray(item.evidence) ? item.evidence : []) {
+    if (!e || typeof e !== 'object') continue;
+    if (e.parity != null) {
+      let report = null;
+      try { report = JSON.parse(await host.read(`parity/reports/${e.parity}.json`)); } catch { report = null; }
+      out.push({ parity: e.parity, step: e.step, report });
+    } else if (e.jira != null) out.push({ jira: e.jira, inbox: (A.inbox || []).find(x => Work.inboxKey(x) === String(e.jira)) || null });
+    else if (e.escape != null) out.push({ escape: e.escape });
+  }
+  return out;
+}
 function inboxHtml() {
   const rows = Work.inboxPending(A.inbox, A.work);
   if (!rows.length) return '';
