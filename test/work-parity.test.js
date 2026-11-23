@@ -32,6 +32,14 @@ const FILES = {
   'parity-unknown': 'id: parity-unknown\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\n  - parity: nope\n',
   'parity-alone': 'id: parity-alone\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - parity: all\n',
   'parity-target': 'id: parity-target\ntarget: { jira: DEMO-7 }\ndone_when:\n  - checklist: a\n  - parity: all\n',
+  'ev-ok': 'id: ev-ok\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence:\n  - { parity: tags-list, step: 2 }\n  - { jira: RE-1234 }\n  - { escape: E-0012 }\n',
+  'ev-not-list': 'id: ev-not-list\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence: RE-1\n',
+  'ev-target': 'id: ev-target\ntarget: { jira: DEMO-8 }\ndone_when:\n  - checklist: a\nevidence:\n  - { jira: RE-1 }\n  - { escape: E-1 }\n',
+  'ev-keys': 'id: ev-keys\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence:\n  - { parity: tags-list, step: 1, why: x }\n  - { jira: RE-1, step: 1 }\n  - { jira: RE-1, escape: E-1 }\n  - plain\n  - { escape: "" }\n',
+  'ev-step': 'id: ev-step\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence:\n  - { parity: tags-list }\n  - { parity: tags-list, step: 0 }\n  - { parity: tags-list, step: "3" }\n  - { parity: tags-list, step: 2.5 }\n  - { parity: tags-list, step: 3.0 }\n  - { parity: tags-list, step: true }\n',
+  'ev-scenario': 'id: ev-scenario\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence:\n  - { parity: nope, step: 1 }\n  - { parity: all, step: 1 }\n',
+  'ev-jira': 'id: ev-jira\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence:\n  - { jira: abc }\n  - { jira: "RE-1\\n" }\n',
+  'ev-empty-list': 'id: ev-empty-list\nrequirement: DEMO-1\nelements: [Fares API]\ndone_when:\n  - gate: x\nevidence: []\n',
 };
 
 test('the Python work report matches renderer/work.js on the same files', { skip }, () => {
@@ -63,6 +71,9 @@ test('the Python work report matches renderer/work.js on the same files', { skip
     assert.equal(row.state, st[it.id], `state for ${it.id}`);
     assert.deepEqual(row.conflicts.map(c => [c.with, c.reason, c.detail]), Work.conflicts(it, active).map(c => [c.with, c.reason, c.detail]), `conflicts for ${it.id}`);
   }
+  const evp = id => py.items.find(x => x.id === id).problems.filter(m => /evidence/.test(m));
+  assert.deepEqual([evp('ev-ok'), evp('ev-empty-list')], [[], []]);
+  assert.deepEqual([evp('ev-not-list').length, evp('ev-target').length, evp('ev-keys').length, evp('ev-step').length, evp('ev-scenario').length, evp('ev-jira').length], [1, 1, 5, 5, 2, 1]);
   assert.equal(r.status, 1, 'problems give exit 1');
   assert.deepEqual(py.errors, [{ path: 'parity/scenarios/no-id.yaml', msg: 'parity/scenarios/no-id.yaml has no id; a parity scenario is recorded and judged by its id.' }]);
   assert.ok(py.items.find(x => x.id === 'clash').conflicts.length >= 1);

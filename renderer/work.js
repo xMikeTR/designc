@@ -8,6 +8,8 @@ const Work = (() => {
   const LG = typeof Ledger !== 'undefined' ? Ledger : require('./ledger.js');
   const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity', 'ui'];
   const TARGETS = ['document', 'jira', 'investigation'];
+  const EVIDENCE_KINDS = ['parity', 'jira', 'escape'];
+  const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,30}-\d{1,10}$/;
 
   const isRepo = item => !item.target;
   const entryKind = e => KINDS.filter(k => e && e[k] !== undefined);
@@ -54,6 +56,24 @@ const Work = (() => {
     for (const w of list(item.writes)) {
       const r = PP.create(w);
       if (!r.ok) out.push(`${id}: writes entry is not a path pattern: ${r.error}`);
+    }
+    // evidence: what is wrong that this item fixes (a parity step, a Jira bug, an earlier escape). Repo items only: it travels in the handover.
+    if (item.evidence != null) {
+      if (!Array.isArray(item.evidence)) out.push(`${id}: evidence must be a list of entries, each { parity, step }, { jira } or { escape }.`);
+      else if (item.evidence.length && hasTarget) out.push(`${id}: evidence is allowed only on a repo item: it travels in the handover. Take it out, or make the item a repo item.`);
+      else item.evidence.forEach((e, i) => {
+        const ks = e && typeof e === 'object' && !Array.isArray(e) ? Object.keys(e) : [];
+        const known = ks.filter(k => EVIDENCE_KINDS.includes(k));
+        const unknown = ks.filter(k => !EVIDENCE_KINDS.includes(k) && !(k === 'step' && known.includes('parity')));
+        if (unknown.length) return out.push(`${id}: evidence entry ${i + 1} has unknown key ${unknown.join(', ')}; use parity (with step), jira or escape.`);
+        if (known.length !== 1) return out.push(`${id}: evidence entry ${i + 1} must have exactly one of parity, jira or escape.`);
+        const k = known[0], v = String(e[k] == null ? '' : e[k]).trim();
+        if (!v) return out.push(`${id}: evidence entry ${i + 1} (${k}) is empty.`);
+        if (k === 'parity') {
+          if (typeof e.step !== 'number' || !Number.isInteger(e.step) || e.step < 1) out.push(`${id}: evidence entry ${i + 1} (parity) needs step, the step number of the failing step (1 or more).`);
+          else if (Array.isArray(scenarios) && !scenarios.includes(v)) out.push(`${id}: evidence entry ${i + 1} names parity scenario ${v}, which is not in parity/scenarios/.`);
+        } else if (k === 'jira' && !JIRA_KEY.test(v)) out.push(`${id}: evidence entry ${i + 1} (jira) is not a Jira key like ABC-123.`);
+      });
     }
     const dw = list(item.done_when);
     if (!dw.length) out.push(`${id}: done_when is empty; say what done means with at least one gate, checklist or review entry.`);
@@ -354,7 +374,6 @@ const Work = (() => {
 
   // Inbox entries (inbox/<KEY>.yaml, written by scripts/sweep-jira.py) still waiting for a person: not already the target of
   // a work item. The key is target.jira, else the id; an entry whose key is not a Jira key is not offered.
-  const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,30}-\d{1,10}$/;
   const inboxKey = e => String((e && e.target && e.target.jira) || (e && e.id) || '');
   function inboxPending(inbox, items) {
     const taken = new Set((items || []).map(i => i.target && i.target.jira).filter(Boolean).map(String));

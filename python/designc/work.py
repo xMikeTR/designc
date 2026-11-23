@@ -1,10 +1,13 @@
 """Work items: the Python mirror of the file rules in renderer/work.js (validate, states, conflicts).
 A work item is a file in work/. Done is judged in the app, from recorded evidence and git; this mirror
 lets an agent session ask what is active and what clashes: `designc work <registry>`."""
+import re
 from . import pathpattern
 
 KINDS = ('gate', 'checklist', 'review', 'judge', 'parity', 'ui')
 TARGETS = ('document', 'jira', 'investigation')
+EVIDENCE_KINDS = ('parity', 'jira', 'escape')
+JIRA_KEY = re.compile(r'[A-Z][A-Z0-9_]{0,30}-[0-9]{1,10}')
 
 
 def _list(v): return v if isinstance(v, list) else []
@@ -60,6 +63,27 @@ def validate(item, requirements, item_ids, scenarios=None, screens=None):
     for w in _list(item.get('writes')):
         v, err = pathpattern.create(w)
         if v is None: out.append(f'{iid}: writes entry is not a path pattern: {err}')
+    ev = item.get('evidence')
+    if ev is not None:
+        if not isinstance(ev, list): out.append(f'{iid}: evidence must be a list of entries, each {{ parity, step }}, {{ jira }} or {{ escape }}.')
+        elif ev and has_target: out.append(f'{iid}: evidence is allowed only on a repo item: it travels in the handover. Take it out, or make the item a repo item.')
+        else:
+            for i, e in enumerate(ev):
+                n = i + 1
+                ks = list(e.keys()) if isinstance(e, dict) else []
+                known = [k for k in ks if k in EVIDENCE_KINDS]
+                unknown = [k for k in ks if k not in EVIDENCE_KINDS and not (k == 'step' and 'parity' in known)]
+                if unknown: out.append(f"{iid}: evidence entry {n} has unknown key {', '.join(unknown)}; use parity (with step), jira or escape."); continue
+                if len(known) != 1: out.append(f'{iid}: evidence entry {n} must have exactly one of parity, jira or escape.'); continue
+                k = known[0]; v = _str(e[k]).strip()
+                if not v: out.append(f'{iid}: evidence entry {n} ({k}) is empty.'); continue
+                if k == 'parity':
+                    st = e.get('step')
+                    ok = not isinstance(st, bool) and ((isinstance(st, int)) or (isinstance(st, float) and st.is_integer())) and st >= 1
+                    if not ok: out.append(f'{iid}: evidence entry {n} (parity) needs step, the step number of the failing step (1 or more).')
+                    elif isinstance(scenarios, list) and v not in scenarios: out.append(f'{iid}: evidence entry {n} names parity scenario {v}, which is not in parity/scenarios/.')
+                elif k == 'jira' and not JIRA_KEY.fullmatch(v):
+                    out.append(f'{iid}: evidence entry {n} (jira) is not a Jira key like ABC-123.')
     dw = _list(item.get('done_when'))
     if not dw: out.append(f'{iid}: done_when is empty; say what done means with at least one gate, checklist or review entry.')
     kinds = []
