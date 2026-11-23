@@ -1,0 +1,93 @@
+{
+  "schema": "designc.handover.evidence/1",
+  "evidence": [
+    {
+      "kind": "parity",
+      "scenario": "tags-list",
+      "step": 1,
+      "report": "recorded",
+      "status": "compared",
+      "counts": {
+        "fail": 4,
+        "by_kind": {
+          "shape": 1,
+          "text": 2,
+          "missing": 1
+        }
+      },
+      "findings": [
+        {
+          "kind": "shape",
+          "key": "table:Programs/column:Inception",
+          "msg": "column \"Inception\" is date:dddd-0d-dd; legacy shows date:dd/0d/dddd"
+        },
+        {
+          "kind": "text",
+          "key": "heading:Adhoc tags"
+        },
+        {
+          "kind": "missing",
+          "key": "button:Export"
+        },
+        {
+          "kind": "text",
+          "key": "cell[Program]"
+        }
+      ]
+    },
+    {
+      "kind": "parity",
+      "scenario": "tags-list",
+      "step": 2,
+      "report": "recorded",
+      "status": "compared",
+      "counts": {
+        "fail": 0,
+        "by_kind": {}
+      },
+      "findings": []
+    },
+    {
+      "kind": "parity",
+      "scenario": "tags-list",
+      "step": 7,
+      "report": "recorded",
+      "status": null,
+      "counts": {
+        "fail": 0,
+        "by_kind": {}
+      },
+      "findings": []
+    },
+    {
+      "kind": "parity",
+      "scenario": "gone",
+      "step": 1,
+      "report": "missing",
+      "status": null,
+      "counts": {
+        "fail": 0,
+        "by_kind": {}
+      },
+      "findings": []
+    },
+    {
+      "kind": "jira",
+      "key": "ZZ-9",
+      "title": "Totals wrong `on` **export**",
+      "type": "Bug",
+      "link": "https://jira.example/browse/ZZ-9"
+    },
+    {
+      "kind": "jira",
+      "key": "ZZ-8",
+      "title": null,
+      "type": null,
+      "link": null
+    },
+    {
+      "kind": "escape",
+      "id": "E-0012"
+    }
+  ]
+}

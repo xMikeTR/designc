@@ -68,7 +68,7 @@ JIRA_TOKEN=<token> python3 scripts/sweep-jira.py <base-url> <registry-folder> [-
 
 GET only, same auth and https rule as `fetch-jira.py`. The default query is
 `assignee = currentUser() AND (created >= -1d OR updated >= -1d) AND statusCategory != Done`; `--jql` replaces it. Each
-issue becomes `inbox/<KEY>.yaml` (`id`, `title`, `jira:` type/labels/components/priority, `target: { jira: KEY }`, `swept`);
+issue becomes `inbox/<KEY>.yaml` (`id`, `title`, `jira:` type/labels/components/priority, `link:` (`<base>/browse/KEY`), `target: { jira: KEY }`, `swept`);
 the description is never copied. An issue is skipped when a `work/` item already targets it, or `inbox/` or
 `inbox/dismissed/` has its entry. The report is counts only. In the Work view, **Accept** opens New item with the Jira
 target filled in (the work item is written by that human action, not by the sweep) and **Dismiss** moves the entry to
