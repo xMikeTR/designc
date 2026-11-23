@@ -72,13 +72,19 @@ function inboxHtml() {
     const k = Work.inboxKey(e), j = e.jira && typeof e.jira === 'object' ? e.jira : {};
     const tags = [j.type, ...(Array.isArray(j.labels) ? j.labels : []), ...(Array.isArray(j.components) ? j.components : [])].filter(x => typeof x === 'string');
     return `<li><span class="id">${esc(k)}</span> ${esc(e.title || '')}${tags.length ? ` <span class="desc">${esc(tags.join(', '))}</span>` : ''}${e.swept ? ` <span class="desc">swept ${esc(e.swept instanceof Date ? e.swept.toISOString().slice(0, 10) : String(e.swept).slice(0, 10))}</span>` : ''}
-      <button class="btn primary" data-work="inboxaccept" data-key="${esc(k)}">Accept</button> <button class="btn" data-work="inboxdismiss" data-key="${esc(k)}">Dismiss</button></li>`;
+      <button class="btn primary" data-work="inboxaccept" data-key="${esc(k)}">Accept</button> <button class="btn" data-work="inboxfix" data-key="${esc(k)}">Fix as repo item</button> <button class="btn" data-work="inboxdismiss" data-key="${esc(k)}">Dismiss</button></li>`;
   };
-  return `<div class="block" data-inbox><h3>Inbox (${rows.length})</h3><div class="note">Jira issues assigned to you that scripts/sweep-jira.py found. Accept opens New item with the Jira target filled in; Dismiss keeps the issue from coming back.</div><ul>${rows.map(li).join('')}</ul></div>`;
+  return `<div class="block" data-inbox><h3>Inbox (${rows.length})</h3><div class="note">Jira issues assigned to you that scripts/sweep-jira.py found. Accept opens New item with the Jira target filled in (Fix as repo item makes a freezable repo item that names the issue as evidence); Dismiss keeps the issue from coming back.</div><ul>${rows.map(li).join('')}</ul></div>`;
 }
 async function workInboxAccept(key) {
   const e = Work.inboxPending(A.inbox, A.work).find(x => Work.inboxKey(x) === key); if (!e) return;
   await workNew({ jira: key, title: e.title || '' });
+}
+async function workInboxFix(key) {
+  const e = Work.inboxPending(A.inbox, A.work).find(x => Work.inboxKey(x) === key); if (!e) return;
+  const requirement = await pickRequirement(null, true); if (!requirement) return;
+  const elements = await pickElements(requirement); if (!elements) return;
+  await workNew({ requirement, elements, evidence: [{ jira: key }], title: e.title || '' });
 }
 async function workInboxDismiss(key) {
   const e = (A.inbox || []).find(x => Work.inboxKey(x) === key && x._path && !x._path.startsWith('inbox/dismissed/')); if (!e) return;
@@ -479,13 +485,29 @@ function renderWork() {
 }
 
 async function workNew(prefill) {
-  const title = await askText('What is this work? (a short title)', prefill ? (prefill.jira ? prefill.title : `Build ${prefill.elements.join(', ')}`) : ''); if (title == null) return;
+  const title = await askText('What is this work? (a short title)', prefill ? (prefill.title != null ? prefill.title : `Build ${prefill.elements.join(', ')}`) : ''); if (title == null) return;
   const id = Core.slugId(`W ${title}`.trim(), new Set((A.work || []).map(i => i.id)));
   let text = WORK_TEMPLATE(id).replace('title: ""', `title: ${yamlStr(title.trim())}`);
   if (prefill && prefill.jira) text = Work.fromInbox(text, prefill.jira);
-  else if (prefill) text = text.replace('requirement: TODO', `requirement: ${prefill.requirement}`).replace('elements: []', `elements: ${JSON.stringify(prefill.elements)}`);
+  else if (prefill) text = Work.prefill(text, prefill);
   await host.write(`work/${id}.yaml`, text); A.tree = await host.tree();
   await openFile(`work/${id}.yaml`); await loadWork(); recompile(); renderAll({ keepEditor: true });
+}
+
+// The requirement a repo item made from a finding is for: one of `options` (default all requirements). null when cancelled or none exist.
+async function pickRequirement(options, always) {
+  const all = A.requirements || [], named = options && options.length ? all.filter(r => options.includes(r.id)) : [], rs = named.length ? named : all;
+  if (!rs.length) { toast('Add a requirement first: a repo item needs one.', 'warning'); return null; }
+  if (rs.length === 1 && !always) return rs[0].id;
+  return askChoice('Which requirement is this item for?', rs.map(r => ({ label: `${r.id}${r.title ? `: ${trunc(r.title, 50)}` : ''}`, value: r.id })));
+}
+// The elements the new item changes: the requirement's only element, or a choice (all of them first). null when none or cancelled.
+async function pickElements(reqId) {
+  const r = (A.requirements || []).find(x => x.id === reqId), els = r && Array.isArray(r.elements) ? r.elements : [];
+  if (!els.length) { toast(`Requirement ${reqId} lists no elements. Add them first: a repo item changes design elements.`, 'warning'); return null; }
+  if (els.length === 1) return els;
+  const c = await askChoice('Which elements does this item change?', [{ label: `All ${els.length} elements`, value: '*', primary: true }, ...els.map(e => ({ label: String(e), value: e }))]);
+  return c == null ? null : c === '*' ? els : [c];
 }
 
 // Human only, like binding: it edits a requirement, which the gate reads.
@@ -604,6 +626,7 @@ document.addEventListener('click', e => {
   else if (t.dataset.work === 'addreq') workAddToRequirement(id, t.dataset.el);
   else if (t.dataset.work === 'additem') workAddToItem(t.dataset.req, t.dataset.el);
   else if (t.dataset.work === 'inboxaccept') workInboxAccept(t.dataset.key);
+  else if (t.dataset.work === 'inboxfix') workInboxFix(t.dataset.key);
   else if (t.dataset.work === 'inboxdismiss') workInboxDismiss(t.dataset.key);
   else if (t.dataset.work === 'newfor') workNew({ requirement: t.dataset.req, elements: [t.dataset.el] });
 });

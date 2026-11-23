@@ -376,7 +376,8 @@ const Work = (() => {
   // a work item. The key is target.jira, else the id; an entry whose key is not a Jira key is not offered.
   const inboxKey = e => String((e && e.target && e.target.jira) || (e && e.id) || '');
   function inboxPending(inbox, items) {
-    const taken = new Set((items || []).map(i => i.target && i.target.jira).filter(Boolean).map(String));
+    const fixed = (items || []).flatMap(i => (Array.isArray(i && i.evidence) ? i.evidence : [])).map(e => e && e.jira).filter(Boolean).map(String);
+    const taken = new Set([...(items || []).map(i => i.target && i.target.jira).filter(Boolean).map(String), ...fixed]);
     return (inbox || []).filter(e => JIRA_KEY.test(inboxKey(e)) && !taken.has(inboxKey(e)));
   }
   // The work-item template with its requirement and elements lines replaced by a Jira target.
@@ -385,6 +386,23 @@ const Work = (() => {
       .replace(/\n*$/, '') + `\ntarget: { jira: ${JSON.stringify(key)} }\n`;
   }
 
-  return { inboxKey, inboxPending, fromInbox, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, isLanding, landed, landingEvidence, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
+  // The item template with its requirement and elements filled in (as the New item flow always did), an evidence block
+  // before done_when and extra done_when entries after the TODO gate. evidence: [{ parity, step } | { jira } | { escape }];
+  // doneWhen: [{ <kind>: value }]. Only ids, keys and step numbers: never a finding message or a Jira title.
+  function prefill(text, { requirement, elements, evidence = [], doneWhen = [] } = {}) {
+    const q = v => (/^[A-Za-z0-9._-]+$/.test(String(v)) ? String(v) : JSON.stringify(String(v)));
+    const ev = e => { const [k] = EVIDENCE_KINDS.filter(x => e[x] !== undefined); return `  - { ${k}: ${q(e[k])}${k === 'parity' ? `, step: ${Number(e.step)}` : ''} }`; };
+    const lines = String(text).replace('requirement: TODO', () => `requirement: ${requirement}`).replace('elements: []', () => `elements: ${JSON.stringify(elements)}`).split('\n');
+    const at = lines.findIndex(l => l.startsWith('done_when:'));
+    if (at >= 0 && doneWhen.length) {
+      let end = at + 1;
+      while (end < lines.length && /^\s+-\s/.test(lines[end])) end++;
+      lines.splice(end, 0, ...doneWhen.map(d => { const [k] = entryKind(d); return `  - ${k}: ${q(d[k])}`; }));
+    }
+    if (at >= 0 && evidence.length) lines.splice(at, 0, 'evidence:', ...evidence.map(ev));
+    return lines.join('\n');
+  }
+
+  return { inboxKey, inboxPending, fromInbox, prefill, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, isLanding, landed, landingEvidence, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

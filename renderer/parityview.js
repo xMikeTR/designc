@@ -203,7 +203,8 @@ function parityReportHtml(s) {
   const res = rep.result, c = res.counts || {};
   const steps = (res.steps || []).map(st => {
     const fs = (st.findings || []).map(f => `<li><span class="tag ${f.severity === 'covered' ? 'pass' : 'fail'}">${esc(f.severity)}</span> <span class="code">${esc(f.kind)}</span> ${esc(f.msg)}${f.by ? ` <span class="desc">covered by ${esc(f.by)}</span>` : ''}</li>`).join('');
-    return `<div class="runhead"><b>Step ${esc(String(st.n))}</b> ${esc(stepText((s.steps || [])[st.n - 1]))} <span class="desc">${esc(String(st.status || '').replace(/_/g, ' '))}${st.reason ? `: ${esc(st.reason)}` : ''}</span></div>
+    const fix = (st.findings || []).some(f => f.severity === 'fail') ? ` <button class="btn" data-pr="newitem" data-id="${esc(s.id)}" data-step="${esc(String(st.n))}">New item from this</button>` : '';
+    return `<div class="runhead"><b>Step ${esc(String(st.n))}</b> ${esc(stepText((s.steps || [])[st.n - 1]))} <span class="desc">${esc(String(st.status || '').replace(/_/g, ' '))}${st.reason ? `: ${esc(st.reason)}` : ''}</span>${fix}</div>
       ${fs ? `<ul class="pvfind">${fs}</ul>` : '<div class="note">No differences.</div>'}
       <div class="pvshots">${shotImg(st.legacyShot, 'Legacy')}${shotImg(st.nextShot, 'New app')}</div>`;
   }).join('');
@@ -372,6 +373,16 @@ async function loadShots(el) {
   }
 }
 
+// New item from a failing parity step: a repo item that carries the scenario and step as evidence and asks for the scenario to pass.
+// The requirement comes from the test scenarios the parity scenario proves. Human only: it writes a file through New item.
+async function parityNewItem(id, n) {
+  const s = (A.parity || []).find(x => x.id === id); if (!s) return;
+  const named = [...new Set((s.test_scenarios || []).map(t => { const x = (A.testScenarios || []).find(y => y.rec.id === t); return x ? x.rec.requirement : null; }).filter(Boolean))];
+  const requirement = await pickRequirement(named, !named.length); if (!requirement) return;
+  const elements = await pickElements(requirement); if (!elements) return;
+  await workNew({ requirement, elements, evidence: [{ parity: id, step: n }], doneWhen: [{ parity: id }], title: `Fix parity ${id} step ${n}` });
+}
+
 // The recording buttons. Human only: no agent tool reaches them, and designc runs nothing. They only type a line.
 document.addEventListener('click', e => {
   const t = e.target.closest('[data-pr]'); if (!t || t.disabled) return;
@@ -380,6 +391,7 @@ document.addEventListener('click', e => {
   else if (act === 'result') recordParityResult();
   else if (act === 'import') draftParityScenarios();
   else if (act === 'new') newParityScenario();
+  else if (act === 'newitem') parityNewItem(t.dataset.id, Number(t.dataset.step));
   else if (act === 'qaescapes') recordQaEscapes(t.dataset.screen);
   else if (act === 'url') setParityUrl(t.dataset.side);
   else if (act === 'chromium') typeInTerminal(`node ${A.platform === 'win32' ? `'${PV.tools.install.replace(/'/g, "''")}'` : `'${PV.tools.install.replace(/'/g, "'\\''")}'`} install chromium`, 'the button');
