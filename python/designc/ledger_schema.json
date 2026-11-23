@@ -706,6 +706,32 @@
       },
       "rules": []
     },
+    "landing_approved": {
+      "stream": "designc.jsonl",
+      "required": [
+        "requirement",
+        "hash",
+        "author",
+        "corrected"
+      ],
+      "optional": [
+        "correction"
+      ],
+      "enums": {
+        "author": [
+          "agent",
+          "human"
+        ]
+      },
+      "types": {
+        "requirement": "string",
+        "hash": "string",
+        "author": "string",
+        "corrected": "boolean",
+        "correction": "object"
+      },
+      "rules": []
+    },
     "needs_decision": {
       "stream": "pipeline.jsonl",
       "required": [

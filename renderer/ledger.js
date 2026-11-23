@@ -83,6 +83,7 @@ const Ledger = (() => {
     ui_preview_rendered: 'designc.jsonl',
     ui_preview_approved: 'designc.jsonl',
     ui_spec_bound: 'designc.jsonl',
+    landing_approved: 'designc.jsonl',
     trace_review: 'designc.jsonl',
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
@@ -417,6 +418,16 @@ const Ledger = (() => {
       enums: {},
       types: { screen: 'string', hash: 'string' },
       rules: ['spec_bound_shape'],
+    },
+    // A person approved where a requirement lands (landings/<requirement>.yaml). `hash` is the content hash of the note, `author` who
+    // drew it (agent | human), `corrected` whether a person changed the agent's proposal, `correction` what the change became (a
+    // principle or a lint-rule proposal). Human only: not a Factory kind, `designc record` refuses it.
+    landing_approved: {
+      required: ['requirement', 'hash', 'author', 'corrected'],
+      optional: ['correction'],
+      enums: { author: ['agent', 'human'] },
+      types: { requirement: 'string', hash: 'string', author: 'string', corrected: 'boolean', correction: 'object' },
+      rules: [],
     },
     // Error analysis: a person's verdict on one task attempt of a pipeline run (`observation` is its task span in
     // telemetry). Written by the app only; the latest per observation wins. `failure_mode` names a mode in
