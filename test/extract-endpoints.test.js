@@ -67,7 +67,8 @@ test('existing extraction output is unchanged apart from endpoints and added unr
     const { endpoints, unresolved, extractedAt, ...rest } = r.facts;
     const { unresolved: gu, extractedAt: ge, ...grest } = gold.facts;
     assert.deepEqual(rest, grest, `${name} facts`);
-    assert.equal(r.dsl, gold.dsl, `${name} dsl`);
+    const normDate = t => t.replace(/ on \d{4}-\d{2}-\d{2}\./, ' on <date>.');
+    assert.equal(normDate(r.dsl), normDate(gold.dsl), `${name} dsl`);
     assert.deepEqual(r.stats, gold.stats, `${name} stats`);
     // every old unresolved row is still there, in order
     let i = 0;
