@@ -1215,3 +1215,15 @@ test('with no agent, bind still succeeds, says why, and the Draft a check button
   await expect(page.locator('#sbBody .clause', { hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
   await expect(page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
 });
+
+test('a decision card says how many options were considered, and says nothing when there are none', async () => {
+  const { reg } = copyRegistry('sample-registry');
+  const dec = (id, extra) => `id: ${id}\nstatus: bound\neffect: fix\nrequirement: DEMO-1234\nbinds: [Bookings DB]\nresolves: [DC009]\nstatement: "${id} statement"\n${extra}checks: []\n`;
+  fs.writeFileSync(path.join(reg, 'decisions/D-0005.yaml'), dec('D-0005', 'options: [a, b]\n'));
+  fs.writeFileSync(path.join(reg, 'decisions/D-0006.yaml'), dec('D-0006', ''));
+  session = await launch(reg);
+  const { page } = session;
+  await page.getByRole('button', { name: 'Design' }).click();
+  await expect(page.locator('#sbBody .item', { hasText: 'D-0005' }).first()).toContainText('2 options considered');
+  await expect(page.locator('#sbBody .item', { hasText: 'D-0006' }).first()).not.toContainText('option');
+});

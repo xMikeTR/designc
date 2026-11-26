@@ -97,6 +97,9 @@
     for (const f of ['when', 'then']) if (rec[f] != null && !(list(rec[f]).length && list(rec[f]).every(str))) errs.push(`${f}: a non-empty list of strings`);
   }
 
+  // How many options a decision records: its non-empty string entries (a lone string counts 1).
+  const optionsCount = rec => rec ? list(rec.options).filter(str).length : 0;
+
   function validate(kind, rec) {
     const errs = [];
     if (!KINDS.includes(kind)) return [`kind: must be one of ${KINDS.join('|')}`];
@@ -221,5 +224,5 @@
     return inv;
   }
 
-  return { isStructuredScenario, KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, validate, lint, inverse };
+  return { isStructuredScenario, KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, optionsCount, validate, lint, inverse };
 });

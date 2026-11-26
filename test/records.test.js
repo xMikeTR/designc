@@ -186,3 +186,12 @@ test('decision options: the JSON schema accepts string and list, and refuses a n
   assert.equal(v(dec({ options: 3 })), false);
   assert.equal(v(dec({ options: ['a', ''] })), false);
 });
+
+test('optionsCount: the non-empty strings in options; anything else counts 0', () => {
+  assert.equal(R.optionsCount({ options: 'one' }), 1);
+  assert.equal(R.optionsCount({ options: ['a', 'b'] }), 2);
+  assert.equal(R.optionsCount({ options: ['a', '', '  ', 3, null, 'b'] }), 2);
+  for (const o of [undefined, null, [], '', '  ', 3, {}]) assert.equal(R.optionsCount({ options: o }), 0);
+  assert.equal(R.optionsCount({}), 0);
+  assert.equal(R.optionsCount(null), 0);
+});
