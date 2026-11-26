@@ -56,3 +56,19 @@ test('escapeRow: an item with no element still gives a valid row without one', (
   assert.ok(!('element' in r));
   assert.deepEqual(valid(r), []);
 });
+
+test('escapeRow: a missing or blank title falls back to the Jira key', () => {
+  for (const title of [undefined, '', '   ']) {
+    const r = Work.escapeRow(item({ title }), { countermeasure: 'test', gate: 'g' }, UUID);
+    assert.equal(r.description, 'W-fix: fixed RE-1234');
+    assert.deepEqual(valid(r), []);
+  }
+});
+
+test('jiraKey: the first non-blank string jira entry, trimmed, else null', () => {
+  assert.equal(Work.jiraKey(item()), 'RE-1234');
+  assert.equal(Work.jiraKey({ evidence: [{ jira: '  ' }, { jira: 5 }, { jira: ' RE-7 ' }] }), 'RE-7');
+  assert.equal(Work.jiraKey({ evidence: [{ parity: 'x', step: 1 }] }), null);
+  assert.equal(Work.jiraKey({}), null);
+  assert.equal(Work.jiraKey(null), null);
+});

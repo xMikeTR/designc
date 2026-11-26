@@ -147,7 +147,7 @@ test('README dispatch example: a fix target that opens Claude Code on the handov
   const fix = s.targets.find(t => t.key === 'fix');
   assert.ok(fix, 'a target named fix');
   assert.equal(fix.label, 'Fix with Claude Code');
-  for (const [platform, q] of [['linux', "'"], ['win32', "'"]]) {
+  for (const platform of ['linux', 'win32']) {
     const line = Dispatch.command(fix.command, { ...vars, repo: "../o'neil repo" }, platform);
     assert.equal(typeof line, 'string', line.error);
     assert.doesNotMatch(line, /[\r\n]/);
