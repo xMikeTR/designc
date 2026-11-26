@@ -36,6 +36,8 @@
       "properties": {
         "statement": { "type": "string", "minLength": 1 },
         "rationale": { "type": "string" },
+        "options": { "oneOf": [ { "type": "string", "minLength": 1 }, { "type": "array", "items": { "type": "string", "minLength": 1 } } ],
+          "description": "The options considered before deciding, each a short phrase" },
         "checks": { "type": "array", "items": { "$ref": "#/$defs/check" } },
         "enforced_by": { "oneOf": [ { "type": "string" }, { "type": "array", "items": { "type": "string" } } ],
           "description": "Check ids (chk-..., or an {id, run} check's id), gate:<clause kind>, or mlang:<rule id>" }

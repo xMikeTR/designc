@@ -112,3 +112,18 @@ test('recordAction: a CreateFile-shaped draft with the slug id', () => {
   assert.match(r.text, /binds: \[Fares API, Escalation Worker\]/);
   assert.match(r.text, /statement: TODO what was decided/);
 });
+
+test('decisionDraft options: a YAML list right after statement that parses back; none or empty leaves the draft as it was', () => {
+  const yaml = require('js-yaml');
+  const base = { id: 'o1', statement: 'Use a queue', binds: ['A'], resolves: ['DC001'], checks: ['npm test'] };
+  const opts = ['keep the queue', 'move to a stream: costly', 'do nothing'];
+  const text = Refactor.decisionDraft({ ...base, options: opts });
+  assert.deepEqual(yaml.load(text).options, opts);
+  const lines = text.split('\n'), i = lines.findIndex(l => l.startsWith('statement:'));
+  assert.equal(lines[i + 1], 'options:');
+  assert.equal(lines[i + 2], '  - "keep the queue"');
+  assert.equal(yaml.load(text).statement, 'Use a queue');
+  assert.deepEqual(require('../renderer/records.js').validate('decision', { ...yaml.load(text), status: 'bound' }), []);
+  assert.equal(Refactor.decisionDraft({ ...base, options: [] }), Refactor.decisionDraft(base));
+  assert.equal(/options/.test(Refactor.decisionDraft(base)), false);
+});

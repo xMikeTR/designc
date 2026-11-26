@@ -114,6 +114,7 @@
     if (kind === 'decision') {
       if (!str(rec.statement)) errs.push('statement: required');
       if (rec.rationale != null && typeof rec.rationale !== 'string') errs.push('rationale: must be a string');
+      if (rec.options != null && !list(rec.options).every(str)) errs.push('options: must be a string or a list of strings');
       list(rec.checks).forEach((c, i) => {
         if (isObj(c)) {
           if (!str(c.run)) errs.push(`checks[${i}]: run must be a command`);
