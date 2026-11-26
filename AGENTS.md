@@ -285,7 +285,8 @@ rationale: "..."
   "agents": { "architect": { "model": "...", "instructions": "...", "allow": [], "ask": [], "deny": [] } },
   "acpAgents": { "claude": { "label": "Claude Code", "command": "npx", "args": ["-y", "@agentclientprotocol/claude-agent-acp"], "env": {}, "enabled": true } },
   "references": { "wpf": { "kind": "legacy", "path": "../legacy-wpf", "label": "WPF app" } },
-  "dispatch": { "pipeline": { "label": "Build it", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}", "resume": "my-build --handover {handover} --run-id {run}" } },
+  "dispatch": { "pipeline": { "label": "Build it", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}", "resume": "my-build --handover {handover} --run-id {run}" },
+    "fix": { "label": "Fix with Claude Code", "command": "cd {repo} && claude --add-dir {handover} \"Read BUILD.md in the added handover folder, then fix what its What's wrong section describes.\"" } },
   "aguiAgents": { "maf-architect": { "label": "Architect (MAF)", "url": "http://127.0.0.1:5100/architect", "headers": { "Authorization": "Bearer ${env:DESIGNC_MAF_TOKEN}" }, "clientTools": true, "sendState": true } }
 }
 ```

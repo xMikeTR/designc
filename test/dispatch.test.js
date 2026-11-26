@@ -132,3 +132,28 @@ test('parityCodegen: records the legacy walk, then drafts the scenario linked to
   assert.ok(Dispatch.parityCodegen({ ...a, url: '' }, 'linux').error);
   assert.ok(!/allow-writes/.test(Dispatch.parityCodegen(a, 'linux')));
 });
+
+// S8: the README's own dispatch example (named targets) is parsed and filled, so the docs cannot drift from what the app accepts.
+const readmeDispatch = () => {
+  const text = require('node:fs').readFileSync(require('node:path').join(__dirname, '..', 'README.md'), 'utf8');
+  const block = [...text.matchAll(/```json\n([\s\S]*?)```/g)].map(m => m[1]).find(b => /"dispatch"\s*:\s*\{\s*\n\s*"pipeline"/.test(b));
+  assert.ok(block, 'README.md shows a named-targets dispatch example');
+  return JSON.parse(`{${block}}`).dispatch;
+};
+
+test('README dispatch example: a fix target that opens Claude Code on the handover, one line, nothing left unfilled', () => {
+  const s = Dispatch.settings(readmeDispatch());
+  assert.equal(s.error, undefined);
+  const fix = s.targets.find(t => t.key === 'fix');
+  assert.ok(fix, 'a target named fix');
+  assert.equal(fix.label, 'Fix with Claude Code');
+  for (const [platform, q] of [['linux', "'"], ['win32', "'"]]) {
+    const line = Dispatch.command(fix.command, { ...vars, repo: "../o'neil repo" }, platform);
+    assert.equal(typeof line, 'string', line.error);
+    assert.doesNotMatch(line, /[\r\n]/);
+    assert.doesNotMatch(line, /\{[a-z]+\}/);
+    assert.match(line, /^cd '\.\.\/o/);
+    assert.match(line, /claude --add-dir 'handovers\/20261014-99e5021f' "Read BUILD\.md/);
+    assert.ok(line.includes(platform === 'win32' ? "o''neil" : "o'\\''neil"));
+  }
+});

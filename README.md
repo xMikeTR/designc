@@ -435,11 +435,12 @@ To offer more than one build (your own pipeline, a headless coding agent, a coll
 "dispatch": {
   "pipeline": { "label": "Build with my pipeline", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" },
   "headless": { "label": "Headless agent", "command": "cd {repo} && my-agent --prompt \"$(cat {handover}/BUILD.md)\"" },
+  "fix":      { "label": "Fix with Claude Code", "command": "cd {repo} && claude --add-dir {handover} \"Read BUILD.md in the added handover folder, then fix what its What's wrong section describes.\"" },
   "old":      { "command": "legacy-build {handover}", "enabled": false }
 }
 ```
 
-With two or more targets the button reads **Dispatch** and asks which one before typing its line; with one it shows that target's label. A target without `label` is shown by its key, and `"enabled": false` leaves it out. A headless agent on its own gets no worktrees, scope checks or ledger rows from designc; Done on a work item still needs a passing gate at a commit on main, whatever built it.
+With two or more targets the button reads **Dispatch** and asks which one before typing its line; with one it shows that target's label. A target without `label` is shown by its key, and `"enabled": false` leaves it out. The `fix` target is for a small fix, such as a QA bug: it types a Claude Code line that works in the repo and reads the handover, with no worktree, scope checks or ledger rows from designc. Done still needs the gates at a commit on main and the parity pass the item names. A headless agent on its own gets no worktrees, scope checks or ledger rows from designc; Done on a work item still needs a passing gate at a commit on main, whatever built it.
 
 With the `openai` provider, grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
