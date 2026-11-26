@@ -79,6 +79,7 @@ function create(fixture, name = 'fixture') {
           const base = String(params.baseUrl || 'http://fixture.test').replace(/\/$/, '');
           const body = v => v === undefined ? undefined : JSON.stringify(v);
           const entries = (fx.requests || []).map(r => ({
+            ...(Number.isInteger(r.step) ? { _step: r.step } : {}),
             request: { method: r.method, url: base + r.path, ...(r.request === undefined ? {} : { postData: { mimeType: 'application/json', text: body(r.request) } }) },
             response: { status: r.status || 200, content: { mimeType: 'application/json', ...(r.response === undefined ? {} : { text: body(r.response) }) } },
           }));
