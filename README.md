@@ -702,6 +702,7 @@ Core logic, the extractors, the ledger, the CLI and the governance checks run in
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
 | `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score, parity done_when; the Work view |
+| `renderer/featuremap.js`, `renderer/featureview.js` | Feature map: `features/<id>.yaml` (what a feature is and how it is proved), checks FM001 ids, FM002 states, FM003 grammar, FM004 proof as Problems rows, and the Features list in the Work view. Contract: `docs/feature-map-contract.md` |
 | `renderer/parity.js`, `renderer/parityview.js`, `recorder/` | Legacy parity: the comparison contract, the Parity view, and the recorder run outside the app |
 | `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
 | `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |

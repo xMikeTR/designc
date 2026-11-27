@@ -23,6 +23,7 @@ async function loadWork() {
   A.work = []; A.workErrors = []; A.workWarnings = [];
   await loadTestScenarios();
   await loadParityScenarios();
+  await loadFeatures();
   let files = [];
   try { files = await host.list('work', ['.yaml', '.yml']); } catch { files = []; }
   for (const f of files) {
@@ -493,7 +494,7 @@ function renderWork() {
   };
   el.innerHTML = `<div class="dash"><div class="block"><h3>Work<span class="spacer"></span><button class="btn primary" data-work="new">New item</button></h3>
     <div class="note">One file per request in <code>work/</code>. Start pulls an item into active work and warns about clashes. Done is accepted only when the commit is on <code>${esc((A.cfg.work || {}).mainBranch || 'main')}</code> and every gate passed at that commit: what an agent says is never evidence.</div></div>
-    ${digestHtml()}${inboxHtml()}${scopeBlockHtml()}${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
+    ${digestHtml()}${inboxHtml()}${scopeBlockHtml()}${featuresHtml()}${group('active', 'Active')}${group('backlog', 'Backlog')}${group('done', 'Done')}</div>`;
   refreshRecheck();
   refreshDigest();
 }
