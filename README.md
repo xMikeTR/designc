@@ -382,6 +382,8 @@ Run designc from source (`npm start`), because an installer does not include the
 
 No scenario yet for a test scenario? On a requirement's chain, **Record from legacy** types a `playwright codegen` line for the legacy app followed by `parity-import --id --link`. Walk the legacy app, close the browser, and the scenario is drafted and linked to that test scenario. The Design sidebar shows each requirement's stage (imported, mapped, described, automated, proven) and the next step.
 
+With `--har` the recorder also counts the calls each step makes; a rebuilt screen that calls an endpoint more often than legacy fails with a `calls` finding, which a bound decision with `calls: [{method, path}]` can cover (see `docs/parity-contract.md`, Counts per step).
+
 An agent can run the recorder instead (`scripts/parity-record.js`, see `docs/parity-contract.md`), from the Terminal or a separate session. An agent in the panel writing to `parity/` is flagged as an unapproved change.
 
 **Login.** The recorder does not sign in. It stops at a login wall: a redirect to another host, or a page with exactly one visible password field. On legacy this is an error and any existing baseline stays as it was; on the new app the scenario is `could_not_run`, which never counts as a pass. It cannot see an email-first sign-in page on the same host, which is why step 3 checks the screenshot.
