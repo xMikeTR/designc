@@ -97,6 +97,12 @@ def ui_screens(root):
     return sorted(n[:-5] for n in os.listdir(d) if n.endswith('.json')) if os.path.isdir(d) else []
 
 
+def feature_ids(root):
+    """The feature ids: base names of features/*.yaml|yml (FM001 makes the id equal the file name)."""
+    d = os.path.join(root, 'features')
+    return sorted(n.rsplit('.', 1)[0] for n in os.listdir(d) if n.endswith(('.yaml', '.yml'))) if os.path.isdir(d) else []
+
+
 def work_cmd(root, as_json):
     """Exit 0 when every work item file is sound, 1 when one has a problem, 2 when the folder cannot be read."""
     if not os.path.isdir(root):
@@ -106,7 +112,7 @@ def work_cmd(root, as_json):
     errors = []
     items = load_yaml_dir(root, 'work', errors)
     reg = load_registry(root)
-    r = work.report(items, reg['requirements'], load_ledger(root), errors, parity_scenarios(root, errors), ui_screens(root))
+    r = work.report(items, reg['requirements'], load_ledger(root), errors, parity_scenarios(root, errors), ui_screens(root), feature_ids(root))
     if as_json: print(json.dumps(r, ensure_ascii=False, indent=2))
     else:
         for row in r['items']:

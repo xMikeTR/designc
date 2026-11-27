@@ -2,7 +2,7 @@
 
 The feature map says what a user can do with the app, in the user's words, how they reach each thing, and what end state proves it works. It is the index an agent reads before it drives the app: it turns "the export on bordereaux doesn't work" into a screen, a state, the elements behind it, and a journey to replay. It follows Lauren Tan's verification skills (pstack, MIT): a map kept in the repo, one file per feature, maintained by a loop that reads source and drives every feature live.
 
-Status: **slice 1 built** (the format, the schema and example, the reader `renderer/featuremap.js`, checks 1 to 4 as the Problems codes FM001 to FM004, the Features list in the Work view, seed features in the fixtures). **The executor and the ready probe are built** (`recorder/journey.js`, `scripts/feature-run.js`; see [The Factory side](#the-factory-side-not-built), Runner). **Everything else is still design**: checks 5 and 6, the `feature_result` ledger row, the handover, the Factory side, the ledger row, `done_when: feature`, escapes and the maintenance loop. Sections not built say so. [Slices](#slices) gives the build order.
+Status: **slice 1 built** (the format, the schema and example, the reader `renderer/featuremap.js`, checks 1 to 4 as the Problems codes FM001 to FM004, the Features list in the Work view, seed features in the fixtures). **The executor and the ready probe are built** (`recorder/journey.js`, `scripts/feature-run.js`; see [The Factory side](#the-factory-side-not-built), Runner). **The `feature_result` ledger row and `done_when: feature` are built** (S12b; the Factory records the row in S13). **Everything else is still design**: checks 5 and 6, the handover, the Factory side, escapes and the maintenance loop. Sections not built say so. [Slices](#slices) gives the build order.
 
 **The split.** As with acceptance criteria and the UI contract: designc owns what a feature is and how it is proved (`features/*.yaml`, checks, approvals). It never runs app code. The Factory drives the app, judges journeys and writes `feature_result`. Read with [ui-contract.md](ui-contract.md), [parity-contract.md](parity-contract.md) and [pipeline-contract.md](pipeline-contract.md).
 
@@ -126,13 +126,13 @@ An item handover adds `features: [{id, path, sha256}]`: every feature that names
 - **Not judged yet.** `proves.ui.state` has no visible signature and `proves.effect` is a read-back: both are the Factory's job (S13). A run whose journey has an `effect` carries `effect: 'unchecked'` in the executor's result, so a `pass` here does not mean the effect holds. Step `state` keys are carried and not acted on.
 - **Adapters.** Session `act` also takes `{press: '<keys>'}` and `{wait: {role, name | text}}`; the session has `request({method, path})` -> `{status}`. The fixture adapter follows the first `on` entry `{screen, press: '<keys>', go}` for `press` (else does nothing), finds a `wait` target on the current screen, and answers `request` from `api: {'GET /health': 200}` (404 when not listed).
 
-### The ledger row (not built)
+### The ledger row (built)
 
-`feature_result {feature, commit, outcome, journeys[{journey, entry, outcome, failures?[≤50 {step, kind, msg}]}], item?}` in `pipeline.jsonl`, a Factory kind like `ui_result`. `outcome` is `pass` (every journey × entry point passed), `fail` (any failed) or `could_not_run` (none failed, at least one could not run). A `failure.kind` is `step` (an action could not complete), `state` (`proves.ui` did not hold), `effect` (the read-back failed or had the wrong shape) or `ready`. No trees, bodies or data in the row.
+`feature_result {feature, commit, outcome, journeys[{journey, entry, outcome, failures?[≤50 {step, kind, msg}]}], item?}` in `pipeline.jsonl`, a Factory kind like `ui_result`. `outcome` is `pass` (every journey × entry point passed), `fail` (any failed) or `could_not_run` (none failed, at least one could not run). A `failure.kind` is `step` (an action could not complete), `state` (`proves.ui` did not hold), `effect` (the read-back failed or had the wrong shape) or `ready`. No trees, bodies or data in the row. The schema is `FINAL_KIND_FIELDS.feature_result` with the rule `journeys_shape` (`renderer/ledger.js`, mirrored in `python/designc/ledger.py`); the row's `outcome` must agree with its journeys. Example: `docs/feature-result.example.json`.
 
-### Done (not built)
+### Done (built)
 
-A work item may list `feature: <id>` in `done_when` (repo items only, beside a `gate`). It is met when the latest `feature_result` for that feature at the item's done commit, recorded before `item_done`, is `pass`. `could_not_run` leaves it unmet. In the Factory this is a new `Check` case, `Feature of string`, judged like `Parity`.
+A work item may list `feature: <id>` in `done_when` (repo items only, beside a `gate`). It is met when the latest `feature_result` for that feature at the item's done commit, recorded before `item_done`, is `pass`. `could_not_run` leaves it unmet. In the Factory this is a new `Check` case, `Feature of string`, judged like `Parity`. In designc, `Work.validate({features})` checks the id against the base names of `features/*.yaml|yml` (`null` means not judged; Python `feature_ids`) and `Work.doneProblems` judges the row. A `feature` entry is not the `gate` a repo item needs.
 
 ### Escapes (not built)
 
