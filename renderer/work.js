@@ -425,6 +425,33 @@ const Work = (() => {
     return lines.join('\n');
   }
 
-  return { inboxKey, inboxPending, fromInbox, prefill, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, isLanding, landed, landingEvidence, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
+  // S8: the checks an escape can name, lowest (cheapest, earliest) first: a repo lint rule, a test, a feature-map journey, a designc rule.
+  const COUNTERMEASURES = ['lint', 'test', 'journey', 'designc_rule'];
+  // The fields for recordEvent('escape', ...) when a repo item that fixed a Jira bug is Done, or `{error}`. Only the key, the item id and
+  // its title are used; nothing else from Jira. `Ledger.escapeId` makes the id from `uuid`. No caught_by or origin: a person classifies it in Improve.
+  // The first non-blank string `jira` in the item's evidence, trimmed, or null.
+  function jiraKey(item) {
+    const j = ((item && item.evidence) || []).find(e => e && typeof e.jira === 'string' && e.jira.trim());
+    return j ? j.jira.trim() : null;
+  }
+  function escapeRow(item, { countermeasure, gate, strengthens } = {}, uuid) {
+    const id = (item && item.id) || 'This item';
+    const key = jiraKey(item);
+    if (!key) return { error: `${id} has no Jira evidence, so there is no bug to record as an escape.` };
+    if (!COUNTERMEASURES.includes(countermeasure)) return { error: `The countermeasure is ${COUNTERMEASURES.slice(0, -1).join(', ')} or ${COUNTERMEASURES[COUNTERMEASURES.length - 1]}.` };
+    const g = typeof gate === 'string' ? gate.trim() : '';
+    if (!g) return { error: 'Name the check that now stops this: a lint rule id, a test name, a journey or a designc rule.' };
+    const st = typeof strengthens === 'string' ? strengthens.trim() : '';
+    if (st && countermeasure !== 'journey') return { error: 'Only a journey can strengthen an existing one.' };
+    const el = (item.elements || [])[0];
+    return {
+      id: LG.escapeId(uuid), description: `${item.id}: ${typeof item.title === 'string' && item.title.trim() ? item.title : `fixed ${key}`}`, source: 'designc-done',
+      ...(el ? { element: el } : {}),
+      ref: { kind: 'jira', id: key },
+      payload: { item: item.id, countermeasure, gate: g, ...(st ? { strengthens: st } : {}), reference: key },
+    };
+  }
+
+  return { COUNTERMEASURES, escapeRow, jiraKey, inboxKey, inboxPending, fromInbox, prefill, KINDS, TARGETS, isRepo, reqs, entryKey, validate, states, conflicts, coverage, addToList, doneProblems, isLanding, landed, landingEvidence, frozenBy, horizon, digest, digestSignature, judgeScore, parityIds };
 })();
 if (typeof module !== 'undefined') module.exports = Work;

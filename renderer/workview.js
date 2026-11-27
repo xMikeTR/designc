@@ -625,6 +625,28 @@ async function workDone(id) {
     ...((it.done_when || []).some(e => Work.landed(it, e, landings) && !ticks.includes(Work.entryKey(e))) ? Work.landingEvidence(it, landings) : [])];
   await recordEvent('item_done', { item: id, commit: repo ? commit : null, evidence });
   toast(`${id} is done.`, 'info');
+  if (Work.isRepo(it) && Work.jiraKey(it)) await workRecordEscape(it);
+}
+
+// S8: a fixed Jira bug leaves a record of the check that now stops it. Each prompt can be cancelled; nothing is written until the last answer.
+const COUNTERMEASURE_LABELS = { lint: 'Repo lint rule', test: 'Test', journey: 'Feature-map journey', designc_rule: 'designc rule' };
+async function workRecordEscape(it) {
+  const key = Work.jiraKey(it);
+  if (!confirm(`Record ${key} as an escape? It says which check now stops this kind of bug.`)) return;
+  const countermeasure = await askChoice('Pick the lowest one that would have caught it.', Work.COUNTERMEASURES.map((c, i) => ({ label: COUNTERMEASURE_LABELS[c], value: c, primary: i === 0 })));
+  if (!countermeasure) return;
+  const gate = await askText("The check's name: the lint rule id, the test name, the journey or the designc rule.");
+  if (gate == null || !gate.trim()) return;
+  let strengthens;
+  if (countermeasure === 'journey') {
+    const s = await askText('Which journey does it strengthen, as <feature>/<journey>? Leave empty for a new journey.');
+    if (s == null) return;
+    strengthens = s;
+  }
+  const row = Work.escapeRow(it, { countermeasure, gate, strengthens }, crypto.randomUUID());
+  if (row.error) { toast(row.error, 'error'); return; }
+  await recordEvent('escape', row);
+  toast(`Recorded ${row.id}. Classify it in Improve.`, 'info');
 }
 
 document.addEventListener('click', e => {
