@@ -95,6 +95,7 @@ C4Container
 | `renderer/featuremap.js` | Feature map (`features/*.yaml`): `parseFile` (never throws) and `problems(features, ctx)` for FM001 to FM004; reuses `Parity.stepProblem`. Pure, dual-loaded | `FeatureMap.parseFile`, `problems`, `CODES` | `renderer/featureview.js`, tests | none |
 | `renderer/featureview.js` | Loader for `features/` (not a REG_DIR; reads `ui/specs` itself) and the Features list in the Work view; sets `A.featureProblems` for the Problems panel | `loadFeatures`, `featuresHtml` | `renderer/workview.js`, `renderer/app.js` | `host.list` |
 | `renderer/parity.js` | Legacy parity contract: shapes, normalise, exceptions from acceptance and business decisions, diff, compare, `parity_result`. Pure, dual-loaded | `Parity.normalise, snapshot, diff, compare, resultEvent, scenarioProblems, detect` | `renderer/parityview.js`, `renderer/agent.js`, `recorder/`, `scripts/parity-record.js`, tests | none |
+| `recorder/journey.js`, `scripts/feature-run.js` | Feature journey executor beside the parity recorder, Node only, outside the app: `runs` (one run per journey x entry point), `resolveStep`, `findText`, `ready` (the `verify.ready` probe), `runFeature`; the CLI prints `{feature, outcome, journeys}` and writes no ledger. Takes `press`, `wait` and `request` from the adapters; `recorder/index.js` and parity's grammar are unchanged. Contract `docs/feature-map-contract.md` | `Journey.runFeature`, `ready` | `scripts/feature-run.js`, `recorder/adapters/fixture.js`, tests | `recorder/index.js`, `renderer/featuremap.js` |
 | `renderer/parity-qa.js` | QA bugs against recorded parity: behaviour table, grouped diff (missing, divergent, new-only), `parity/qa/<screen>.yaml` reader, buckets (caught, not captured, state not recorded, not flagged, triage), and the join of UI-graph controls to the recording (7f). Pure, dual-loaded, fixed rules | `ParityQa.behaviour, group, read, report, fromCode` | `renderer/parityview.js`, `scripts/parity-qa.js`, tests | none |
 | `renderer/parityview.js` | Parity view: scenarios, ledger results, report findings (New item from a failing step), screenshots | `loadParityScenarios`, `renderParity`, `parityNote` | `renderer/workview.js`, `renderer/app.js` hooks | `host.parityShot`, `host.list`, `host.read` |
 | `renderer/study.js` | Study topics: parse, validate, append-only edits (sources, findings, questions, PoCs), human-only opinion and status, decision draft from a settled topic. Pure, dual-loaded | `Study.parse, addSource, addFinding, answerQuestion, setStatus, decisionDraft` | `renderer/agent.js` (Researcher tools), `renderer/studyview.js`, `test/study.test.js` | none |
@@ -151,7 +152,7 @@ graph TD
   main --> telemetry[telemetry.js]
   main --> acp[acp.js]
   mcp[designc-mcp.js] --> main
-  recorder[recorder/ + scripts/parity-record.js] -. outside the app .-> parity
+  recorder[recorder/ + scripts/parity-record.js + scripts/feature-run.js] -. outside the app .-> parity
   qacli[scripts/parity-qa.js] -. outside the app .-> parityqa
   recorder --> store
 ```

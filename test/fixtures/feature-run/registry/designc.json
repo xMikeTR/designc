@@ -1,0 +1,1 @@
+{ "verify": { "ready": { "goto": "/orders", "expect": { "role": "heading", "name": "Orders" }, "api": { "method": "GET", "path": "/health" } } } }
