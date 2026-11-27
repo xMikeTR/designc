@@ -1,0 +1,19 @@
+id: orders-export
+title: Export orders
+intent: A clerk exports the orders they are looking at as a spreadsheet.
+screens: [orders]
+entry_points:
+  - id: header-button
+    from: orders:ready
+    via: { click: { role: button, name: Export } }
+  - id: shortcut
+    from: orders:ready
+    via: { press: Control+E }
+journeys:
+  - id: export-all
+    from: orders:ready
+    steps:
+      - entry
+      - wait: { role: status, text: Export ready }
+    proves:
+      ui: { state: ready, contains: [{ role: link, name: Download }] }

@@ -2,7 +2,7 @@
 
 The feature map says what a user can do with the app, in the user's words, how they reach each thing, and what end state proves it works. It is the index an agent reads before it drives the app: it turns "the export on bordereaux doesn't work" into a screen, a state, the elements behind it, and a journey to replay. It follows Lauren Tan's verification skills (pstack, MIT): a map kept in the repo, one file per feature, maintained by a loop that reads source and drives every feature live.
 
-Status: **slice 1 built** (the format, the schema and example, the reader `renderer/featuremap.js`, checks 1 to 4 as the Problems codes FM001 to FM004, the Features list in the Work view, seed features in the fixtures). **Everything else is still design**: checks 5 and 6, `verify.ready`, the handover, the Factory side, the ledger row, `done_when: feature`, escapes and the maintenance loop. Sections not built say so. [Slices](#slices) gives the build order.
+Status: **slice 1 built** (the format, the schema and example, the reader `renderer/featuremap.js`, checks 1 to 4 as the Problems codes FM001 to FM004, the Features list in the Work view, seed features in the fixtures). **The executor and the ready probe are built** (`recorder/journey.js`, `scripts/feature-run.js`; see [The Factory side](#the-factory-side-not-built), Runner). **Everything else is still design**: checks 5 and 6, the `feature_result` ledger row, the handover, the Factory side, the ledger row, `done_when: feature`, escapes and the maintenance loop. Sections not built say so. [Slices](#slices) gives the build order.
 
 **The split.** As with acceptance criteria and the UI contract: designc owns what a feature is and how it is proved (`features/*.yaml`, checks, approvals). It never runs app code. The Factory drives the app, judges journeys and writes `feature_result`. Read with [ui-contract.md](ui-contract.md), [parity-contract.md](parity-contract.md) and [pipeline-contract.md](pipeline-contract.md).
 
@@ -94,7 +94,7 @@ Checks 1 to 4 are built (slice 1) as their own Problems codes, **FM001 to FM004*
 5. **Coverage** (not built; display only, never a gate input, like "not automated yet"): spec states no journey reaches, and in-scope UI elements of a frozen item that no feature names.
 6. **Stale** (not built; display only): a file under the feature's screens' `ui.graph` roots or its elements' code areas changed after `sync.commit`. The map may no longer describe the app; the [maintenance loop](#maintenance) clears it.
 
-### Ready, not just up (not built)
+### Ready, not just up (built in `recorder/journey.js`)
 
 `designc.json`:
 
@@ -104,17 +104,27 @@ Checks 1 to 4 are built (slice 1) as their own Problems codes, **FM001 to FM004*
 
 Before the first journey, and again after any journey that failed in a way the Factory did not expect, the driver checks this: the page renders a signed-in screen and the API answers. A health endpoint alone is not ready; a data read can still fail behind it. A failed ready check makes every journey `could_not_run`, never `fail`. The Factory never drives an instance it did not start.
 
+As built: `ready(session, cfg)` acts `goto`, checks `expect` (`{role, name}` or `{role, text}`) in the captured tree, and, when `api` is set, calls `session.request({method, path})` and needs a 2xx status. `api.method` must be `GET` or `HEAD`, otherwise the probe fails without calling. No `verify.ready`, or an `api` check on a session with no `request`, is a failed probe with a message that says why: never a pass.
+
 ### Handover (not built)
 
 An item handover adds `features: [{id, path, sha256}]`: every feature that names one of the item's `in_scope` elements or screens, frozen by hash like specs. The pipeline reads, never writes, `features/`. Adding a journey is a design change, made in designc.
 
-### The Factory side (not built)
+### The Factory side (executor built; Factory parts not built)
 
 - **Reader.** `WorkRegistryReader` reads `features/*.yaml` the way it reads `parity/scenarios/` (only what it needs; a file it cannot read is a problem, not a crash).
 - **Briefs.** The implementer's and test author's brief lists the handover's features for the task's elements, with entry points and `proves`. The `playwright_cli` self-check follows them instead of exploring.
 - **Repro.** `s2-repro` matches a bug summary to features by `aliases`, `title` and screen, then replays the matching journeys on every entry point. No match is itself a finding (see [Escapes](#escapes)).
 - **Runner.** `factory-s2 features --repo --handover [--feature <id>] [--journey <id>]` launches the app the way QA does, runs the ready check, then runs each journey × entry point. Per journey it keeps a Playwright trace, the ARIA tree and a screenshot at `proves.ui`, and the `effect` response, in the run dir. Exits as parity: `0` pass, `1` a journey failed, `2` an error (nothing judged), `3` could not run.
 - **Result.** One `feature_result` per feature at a commit, written with `designc record`.
+
+**The executor (built, designc side).** `scripts/feature-run.js --registry <dir> --feature <id|all> [--journey <id>] [--adapter web|fixture:<file>] [--base-url <url>] [--param n=v]... [--allow-writes] [--out <dir>] [--json]` runs `recorder/journey.js` through the same adapters as parity and prints, per feature, `{feature, outcome, journeys: [{journey, entry, outcome, failures}]}` (the `feature_result` row without `kind`, `commit` or `by`). It writes no ledger; `--out` keeps each run's final capture (`.json`) and screenshot (`.png`) outside the registry. Exit: `0` pass, `1` a journey failed, `2` an error (a feature file that does not parse or has an FM problem is refused), `3` could not run. Parity's grammar and meaning are unchanged: `scenarioProblems` still rejects `press`, `wait` and `entry`.
+
+- **Every run starts from the ready page.** Each run opens a fresh session, the ready probe does `goto verify.ready.goto`, and the steps continue from there. A journey that needs another start puts a `goto` first.
+- **Outcomes per run.** The ready probe fails, a `{param}` is missing, a committing click (parity's `COMMITS` rule) is not allowed, or the adapter reports a login wall: `could_not_run`. The adapter reports a missing control, or throws: `fail`, kind `step` (for a feature the app under test is the new app, so a missing control is a real failure). Each `proves.ui.contains` item absent from the final capture: `fail`, kind `state`, one failure per item. Otherwise `pass`. `step` is 1-based over the expanded run steps (0 for the ready probe); failures are capped at 50. Feature outcome: `fail` if any run failed, else `could_not_run` if any could not run, else `pass`.
+- **Matching.** `{role, name}` is an exact accessible name (with `index`); `{role, text}` is a node of that role whose subtree's names, joined with spaces, include the text.
+- **Not judged yet.** `proves.ui.state` has no visible signature and `proves.effect` is a read-back: both are the Factory's job (S13). A run whose journey has an `effect` carries `effect: 'unchecked'` in the executor's result, so a `pass` here does not mean the effect holds. Step `state` keys are carried and not acted on.
+- **Adapters.** Session `act` also takes `{press: '<keys>'}` and `{wait: {role, name | text}}`; the session has `request({method, path})` -> `{status}`. The fixture adapter follows the first `on` entry `{screen, press: '<keys>', go}` for `press` (else does nothing), finds a `wait` target on the current screen, and answers `request` from `api: {'GET /health': 200}` (404 when not listed).
 
 ### The ledger row (not built)
 

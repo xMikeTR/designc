@@ -1,0 +1,21 @@
+{
+  "start": "list",
+  "paths": { "/orders": "list" },
+  "api": { "GET /health": 200 },
+  "screens": {
+    "list": { "role": "RootWebArea", "name": "Orders", "box": null, "children": [
+      { "role": "heading", "name": "Orders", "box": null, "children": [] },
+      { "role": "button", "name": "Export", "box": null, "children": [] },
+      { "role": "button", "name": "Save changes", "box": null, "children": [] }
+    ] },
+    "done": { "role": "RootWebArea", "name": "Orders", "box": null, "children": [
+      { "role": "heading", "name": "Orders", "box": null, "children": [] },
+      { "role": "status", "name": "", "box": null, "children": [ { "role": "text", "name": "Export ready", "box": null, "children": [] } ] },
+      { "role": "link", "name": "Download", "box": null, "children": [] }
+    ] }
+  },
+  "on": [
+    { "screen": "list", "click": { "role": "button", "name": "Export" }, "go": "done" },
+    { "screen": "list", "press": "Control+E", "go": "done" }
+  ]
+}
