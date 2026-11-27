@@ -351,29 +351,39 @@ const Parity = (() => {
   const templatePath = p => p.split('/').map(s => /^\d+$/.test(s) || /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(s) ? ':id' : s).join('/');
   const STATIC = new Set(['document', 'script', 'stylesheet', 'image', 'font', 'media', 'manifest', 'texttrack']);
 
+  // The one rule for which HAR entries are the app's data requests: same origin as baseUrl, and fetch or xhr, a JSON
+  // response or not a GET (never the page, scripts, styles, images or fonts). Null for any other entry; never throws.
+  function dataRequest(e, origin) {
+    const rq = e && e.request;
+    const rs = (e && e.response) || {};
+    let u;
+    try { u = new URL(rq.url); } catch { return null; }
+    if (u.origin !== origin) return null;
+    const method = String(rq.method || 'GET').toUpperCase();
+    const mime = String((rs.content && rs.content.mimeType) || '');
+    const type = e._resourceType;
+    const data = type ? !STATIC.has(type) : (/json/i.test(mime) || method !== 'GET');
+    return data ? { method, path: templatePath(u.pathname), rq, rs } : null;
+  }
+
+  const harEntries = har => har && har.log && Array.isArray(har.log.entries) ? har.log.entries : [];
+  const originOf = baseUrl => { try { return new URL(baseUrl).origin; } catch { return null; } };
+
   // The data requests a recorded HAR (Playwright recordHar, content embedded) shows the app made to baseUrl's host:
   // [{method, path, status, request, response}], in recorded order, identical ones once. The query is dropped; request
   // and response are shapes, or null for no body. A request is data when it is fetch or xhr, a JSON response or not a
   // GET; the page, scripts, styles, images and fonts are not. Never throws on a bad HAR: it lists nothing.
   function requests(har, { baseUrl } = {}) {
-    const entries = har && har.log && Array.isArray(har.log.entries) ? har.log.entries : [];
-    let origin = null;
-    try { origin = new URL(baseUrl).origin; } catch { return []; }
+    const origin = originOf(baseUrl);
+    if (!origin) return [];
     const out = [];
     const seen = new Set();
-    for (const e of entries) {
-      const rq = e && e.request;
-      const rs = (e && e.response) || {};
-      let u;
-      try { u = new URL(rq.url); } catch { continue; }
-      if (u.origin !== origin) continue;
-      const method = String(rq.method || 'GET').toUpperCase();
-      const mime = String((rs.content && rs.content.mimeType) || '');
-      const type = e._resourceType;
-      const data = type ? !STATIC.has(type) : (/json/i.test(mime) || method !== 'GET');
-      if (!data) continue;
+    for (const e of harEntries(har)) {
+      const d = dataRequest(e, origin);
+      if (!d) continue;
+      const { rq, rs } = d;
       const row = {
-        method, path: templatePath(u.pathname), status: Number(rs.status) || 0,
+        method: d.method, path: d.path, status: Number(rs.status) || 0,
         request: bodyShape(rq.postData && rq.postData.text),
         response: bodyShape(rs.content && rs.content.text, rs.content && rs.content.encoding),
       };
@@ -385,10 +395,42 @@ const Parity = (() => {
     return out;
   }
 
+  // How many times each data request was made in each step: one entry per mark (mark k is when step k began),
+  // [{method, path, count}] in first-seen order, [] for a step that made none. Same data-request rule as `requests`.
+  // An entry with an integer `_step` (the fixture adapter writes it) goes to that step; otherwise it goes to the last
+  // mark at or before its startedDateTime, and one before the first mark is ignored. The count is capped at 3, meaning
+  // "3 or more" (the tier 1 one-record rule: how many rows a screen has is data, and 3 is enough to tell one call from
+  // one per row). Unknown is null, never zero: no marks, a bad baseUrl, or a data entry with neither `_step` nor a date.
+  function stepCalls(har, { baseUrl, marks } = {}) {
+    try {
+      const origin = originOf(baseUrl);
+      if (!origin || !Array.isArray(marks) || !marks.length || marks.some(m => !Number.isFinite(m))) return null;
+      const steps = marks.map(() => new Map());
+      for (const e of harEntries(har)) {
+        const d = dataRequest(e, origin);
+        if (!d) continue;
+        let k = -1;
+        if (Number.isInteger(e._step)) k = e._step - 1;
+        else {
+          const t = Date.parse(e.startedDateTime);
+          if (!Number.isFinite(t)) return null;
+          for (let i = 0; i < marks.length; i++) if (marks[i] <= t) k = i;
+        }
+        if (k < 0 || k >= steps.length) continue;
+        const key = d.method + ' ' + d.path;
+        const cur = steps[k].get(key);
+        if (cur) cur.count = Math.min(3, cur.count + 1);
+        else steps[k].set(key, { method: d.method, path: d.path, count: 1 });
+      }
+      return steps.map(m => [...m.values()]);
+    } catch { return null; }
+  }
+
   // ---- exceptions ----
 
   // What a requirement allows. added: acceptance criterion locators {role, name} (an element the new app adds or
   // changes); removed: a bound business decision's removes [{role, name, screen?}] (an element it drops).
+  // calls: [{method, path, by}], from every bound decision with calls: [{method, path}] (a request count it accepts).
   function exceptions({ acceptance = [], decisions = [] } = {}) {
     const added = [];
     for (const ac of acceptance) {
@@ -401,7 +443,20 @@ const Parity = (() => {
       if (!d || d.status !== 'bound' || d.kind !== 'business' || !Array.isArray(d.removes)) continue;
       for (const r of d.removes) if (r && typeof r.role === 'string') removed.push({ role: r.role, name: clean(r.name), screen: r.screen || null, by: String(d.id) });
     }
-    return { added, removed };
+    const calls = [];
+    for (const d of decisions) {
+      if (!d || d.status !== 'bound' || !Array.isArray(d.calls)) continue;
+      for (const c of d.calls) if (c && typeof c.method === 'string' && typeof c.path === 'string') calls.push({ method: c.method.toUpperCase(), path: c.path, by: String(d.id) });
+    }
+    return { added, removed, calls };
+  }
+
+  function callsProblems(d) {
+    if (!d || d.calls == null) return [];
+    if (!Array.isArray(d.calls)) return [`${d.id}: calls must be a list of {method, path}`];
+    const out = [];
+    d.calls.forEach((c, i) => { if (!c || typeof c.method !== 'string' || !c.method.trim() || typeof c.path !== 'string' || !c.path.startsWith('/')) out.push(`${d.id}: calls entry ${i + 1} needs a method and a path starting with /`); });
+    return out;
   }
 
   function removesProblems(d) {
@@ -495,6 +550,24 @@ const Parity = (() => {
     return { findings };
   }
 
+  // More calls of a method and path in this step than legacy made: a finding each. Only when both sides recorded counts
+  // (arrays); absent on either side is unknown, never a finding. Fewer or the same is nothing.
+  const COUNT_WORDS = { 1: 'once', 2: 'twice' };
+  function callsFindings(l, n, exc) {
+    if (!Array.isArray(l.calls) || !Array.isArray(n.calls)) return [];
+    const cover = (exc && exc.calls) || [];
+    const out = [];
+    for (const c of n.calls) {
+      const was = (l.calls.find(x => x.method === c.method && x.path === c.path) || {}).count || 0;
+      if (!(c.count > was)) continue;
+      const name = `${c.method} ${c.path}`;
+      const times = c.count >= 3 ? '3 or more times' : COUNT_WORDS[c.count];
+      const by = (cover.find(x => x.method === c.method && x.path === c.path) || {}).by;
+      out.push({ kind: 'calls', key: `calls:${name}`, severity: by ? 'covered' : 'fail', msg: `${name} is called ${times} in this step; legacy ${was ? `calls it ${COUNT_WORDS[was] || '3 or more times'}` : 'does not call it'}`, ...(by ? { by } : {}) });
+    }
+    return out;
+  }
+
   // One scenario: legacy snapshot (the baseline) against the new app's. A step that could not run on either side is
   // could_not_run, never a failure; a step that ran on legacy but errored or was blocked on the new app fails.
   // outcome: fail (an uncovered failure), could_not_run (none, but some step did not run), pass.
@@ -507,7 +580,8 @@ const Parity = (() => {
       if (n.status !== 'ok') {
         return { ...row, status: 'compared', findings: [{ kind: 'step', key: `step ${l.n}`, severity: 'fail', msg: `step ${l.n} (${l.action}) ran on legacy but ${n.status === 'blocked' ? 'was blocked' : 'failed'} on the new app: ${n.reason || n.status}` }] };
       }
-      return { ...row, status: 'compared', findings: diff(l, n, { exceptions: exc, tolerancePx, screen: scenario && scenario.screen }).findings };
+      const findings = diff(l, n, { exceptions: exc, tolerancePx, screen: scenario && scenario.screen }).findings;
+      return { ...row, status: 'compared', findings: [...findings, ...callsFindings(l, n, exc)] };
     });
     const fails = steps.flatMap(s => s.findings.filter(f => f.severity === 'fail').map(f => ({ step: s.n, ...f })));
     const outcome = fails.length ? 'fail' : steps.some(s => s.status === 'could_not_run') ? 'could_not_run' : 'pass';
@@ -572,8 +646,8 @@ const Parity = (() => {
 
   return {
     requirementStage, STAGES, ACTIONS, KINDS, TOLERANCE_PX, MAX_FAILURES, MASK_MODES,
-    shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot, requests,
-    exceptions, removesProblems, diff, compare, failures, resultEvent, detect,
+    shape, sameShape, sortValue, direction, volatile, normalise, stepProblem, scenarioProblems, snapshot, requests, stepCalls,
+    exceptions, removesProblems, callsProblems, diff, compare, failures, resultEvent, detect,
   };
 })();
 if (typeof module !== 'undefined') module.exports = Parity;

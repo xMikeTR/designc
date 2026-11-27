@@ -58,6 +58,29 @@ def _rule(rid, ev):
                     and isinstance(f.get('key'), str) and isinstance(f.get('kind'), str) and isinstance(f.get('msg'), str)):
                 return f'failures[{i}]: must be {{step, key, kind, msg}}'
         if ev.get('outcome') == 'fail' and not fs: return "failures: name at least one when outcome is 'fail'"
+    elif rid == 'journeys_shape':
+        js = ev.get('journeys')
+        if not isinstance(js, list): return None
+        if not js: return 'journeys: name at least one journey'
+        for i, j in enumerate(js):
+            if not (isinstance(j, dict) and isinstance(j.get('journey'), str) and (isinstance(j.get('entry'), str) or ('entry' in j and j['entry'] is None))):
+                return f'journeys[{i}]: must be {{journey, entry, outcome}}'
+            if j.get('outcome') not in ('pass', 'fail', 'could_not_run'): return f'journeys[{i}].outcome: must be pass, fail or could_not_run'
+            if 'failures' in j:
+                fl = j['failures']
+                if not isinstance(fl, list): return f'journeys[{i}].failures: must be a list'
+                if len(fl) > 50: return f'journeys[{i}].failures: at most 50 (the report holds the rest)'
+                for k, f in enumerate(fl):
+                    st = f.get('step') if isinstance(f, dict) else None
+                    if not (isinstance(f, dict) and _is_num(st) and not isinstance(st, bool) and float(st).is_integer() and st >= 0
+                            and f.get('kind') in ('step', 'state', 'effect', 'ready') and isinstance(f.get('msg'), str)):
+                        return f'journeys[{i}].failures[{k}]: must be {{step, kind, msg}}'
+            if j['outcome'] == 'fail' and not (isinstance(j.get('failures'), list) and j['failures']):
+                return f"journeys[{i}].failures: name at least one when the journey outcome is 'fail'"
+        outs = [j['outcome'] for j in js]
+        want = 'fail' if 'fail' in outs else 'could_not_run' if 'could_not_run' in outs else 'pass'
+        if ev.get('outcome') != want:
+            return f"outcome: must be '{want}' when " + {'fail': 'a journey failed', 'pass': 'every journey passed', 'could_not_run': 'a journey could not run and none failed'}[want]
     elif rid == 'budget_shape':
         for k in ('limit_tokens', 'spent_tokens'):
             if k in ev and not (_is_num(ev[k]) and float(ev[k]).is_integer() and ev[k] >= 0):

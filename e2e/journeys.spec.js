@@ -1227,3 +1227,89 @@ test('a decision card says how many options were considered, and says nothing wh
   await expect(page.locator('#sbBody .item', { hasText: 'D-0005' }).first()).toContainText('2 options considered');
   await expect(page.locator('#sbBody .item', { hasText: 'D-0006' }).first()).not.toContainText('option');
 });
+
+// S8: Done on a repo item that fixed a Jira bug offers "Record as escape": which check now stops it. A parity-only item is asked nothing.
+// Scripted only: the dialogs are answered by the test, no agent runs.
+test('Done on a fixed Jira bug records an escape with its countermeasure, and a parity-only fix is not asked', async () => {
+  const { execFileSync } = require('child_process');
+  const { reg, dir } = copyRegistry('e2e/fixtures/ready-registry');
+  const repo = path.join(dir, 'repo');
+  const env = { ...process.env, GIT_AUTHOR_NAME: 'T', GIT_AUTHOR_EMAIL: 't@t', GIT_COMMITTER_NAME: 'T', GIT_COMMITTER_EMAIL: 't@t' };
+  const git = (...a) => execFileSync('git', a, { cwd: repo, env, encoding: 'utf8' }).trim();
+  fs.mkdirSync(repo);
+  git('init', '-q', '-b', 'main');
+  fs.writeFileSync(path.join(repo, 'a.txt'), 'a\n'); git('add', '-A'); git('commit', '-q', '-m', 'the fix');
+  const commit = git('rev-parse', 'HEAD');
+  fs.mkdirSync(path.join(reg, 'parity/scenarios'), { recursive: true });
+  fs.copyFileSync(path.join(__dirname, '..', 'fixtures/parity-registry/parity/scenarios/tags-list.yaml'), path.join(reg, 'parity/scenarios/tags-list.yaml'));
+  fs.mkdirSync(path.join(reg, 'work'));
+  const work = (id, evidence) => fs.writeFileSync(path.join(reg, `work/${id}.yaml`), [`id: ${id}`, `title: Fix for ${id}`, 'requirement: QT-1', 'elements: [Bookings API]', 'repo: ../repo',
+    'writes: ["src/**"]', 'evidence:', `  - ${evidence}`, 'done_when:', '  - gate: "true"', ''].join('\n'));
+  work('W-esc', '{ jira: RE-501 }');
+  work('W-par', '{ parity: tags-list, step: 1 }');
+
+  session = await launch(reg);
+  const { page } = session;
+  const asked = [];
+  page.on('dialog', d => asked.push(d.message()));
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const done = async id => {
+    const item = page.locator(`[data-workitem="${id}"]`);
+    await item.getByRole('button', { name: 'Start' }).click();
+    await item.getByRole('button', { name: 'Run gates' }).click();
+    await expect.poll(() => readLedger(reg, 'checks.jsonl').filter(e => e.kind === 'item_gate' && e.item === id).map(e => e.outcome)).toEqual(['pass']);
+    await item.getByRole('button', { name: 'Done', exact: true }).click();
+    await page.locator('.askcard input').fill(commit);
+    await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+    await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'item_done' && e.item === id).length).toBe(1);
+  };
+
+  await done('W-esc');
+  await expect.poll(() => asked.filter(m => /Record RE-501 as an escape/.test(m)).length).toBe(1);
+  await page.locator('.askcard').getByRole('button', { name: 'Test', exact: true }).click();
+  await page.locator('.askcard input').fill('fares-total.test.js');
+  await page.locator('.askcard').getByRole('button', { name: 'OK' }).click();
+  await expect.poll(() => readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'escape').length).toBe(1);
+  const rows = readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'escape');
+  expect(rows[0]).toMatchObject({ source: 'designc-done', ref: { kind: 'jira', id: 'RE-501' }, description: 'W-esc: Fix for W-esc', element: 'Bookings API',
+    payload: { item: 'W-esc', countermeasure: 'test', gate: 'fares-total.test.js', reference: 'RE-501' } });
+  expect(rows[0].id).toMatch(/^E-[0-9a-f]{8}$/);
+  expect(rows[0].caught_by).toBeUndefined();
+  fs.writeFileSync(path.join(__dirname, '..', 'test-results', 's8-escape.json'), JSON.stringify(rows[0], null, 2));
+
+  await done('W-par');
+  expect(asked.filter(m => /as an escape/.test(m))).toHaveLength(1);
+  await expect(page.locator('.askcard')).toHaveCount(0);
+  expect(readLedger(reg, 'designc.jsonl').filter(e => e.kind === 'escape')).toHaveLength(1);
+});
+
+test('user can see the feature map in Work and what is wrong with a feature file @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/scenario-registry');
+  session = await launch(reg);
+  const { page } = session;
+  // The two seeds are listed (read only: one row each, with its counts), and give no problems.
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const section = page.locator('[data-features]');
+  await expect(section.locator('[data-feature="orders-browse"]')).toContainText('1 journey, 2 entry points');
+  await expect(section.locator('[data-feature="orders-tag"]')).toContainText('Tag orders in bulk');
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  const panel = page.locator('#panelBody');
+  await expect(panel.locator('.pfile', { hasText: 'features/' })).toHaveCount(0);
+  // A feature that leaves the app in a state its spec does not have: an FM002 row under that file.
+  const bad = path.join(reg, 'features/orders-bad.yaml');
+  fs.writeFileSync(bad, fs.readFileSync(path.join(reg, 'features/orders-browse.yaml'), 'utf8').replace('id: orders-browse', 'id: orders-bad').replace('state: ready', 'state: ghost').replace('proves:\n      ui: { state: ready', 'proves:\n      ui: { state: ghost'));
+  await expect(panel.locator('.pfile', { hasText: 'features/orders-bad.yaml' })).toBeVisible();
+  await expect(panel.locator('.prow', { hasText: 'FM002' }).first()).toContainText('orders-bad');
+  await expect(panel.locator('.prow', { hasText: 'FM002' }).first()).toContainText('"ghost"');
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(page.locator('[data-feature="orders-bad"]')).toContainText('problem');
+  // Deleting the file clears the row and the list entry.
+  fs.rmSync(bad);
+  await expect(panel.locator('.pfile', { hasText: 'features/orders-bad.yaml' })).toHaveCount(0);
+  await expect(page.locator('[data-feature="orders-bad"]')).toHaveCount(0);
+  // A file that is not YAML is listed by path as unreadable and shows a row.
+  fs.writeFileSync(path.join(reg, 'features/broken.yaml'), 'id: [\n');
+  await expect(page.locator('[data-feature-bad="features/broken.yaml"]')).toContainText('cannot be read');
+  await expect(panel.locator('.pfile', { hasText: 'features/broken.yaml' })).toBeVisible();
+});

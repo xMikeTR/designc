@@ -1,0 +1,24 @@
+id: bordereaux-filter
+title: Filter bordereaux by cedant
+intent: An underwriter narrows the bordereaux list to one cedant.
+aliases: [cedant filter, filter by cedant]
+screens: [bordereaux]
+elements: [Bordereaux app]
+
+preconditions:
+  role: underwriter
+  data: { cedant: { param: cedant } }
+
+entry_points:
+  - id: deep-link
+    via: { goto: { path: /bordereaux } }
+
+journeys:
+  - id: filter-by-cedant
+    from: bordereaux:ready
+    steps:
+      - entry
+      - fill: { role: combobox, name: Cedant, value: { param: cedant } }
+        state: filtered
+    proves:
+      ui: { state: filtered }

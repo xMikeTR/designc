@@ -27,12 +27,13 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
 | **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC014) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
+| **Feature journeys** | Can a user still do the thing, by every way in | Journeys from `features/*.yaml` run once per entry point on a live app (`scripts/feature-run.js`, after the ready probe in `designc.json` `verify.ready`); prints pass, fail or could not run per journey. Nothing is written to the ledger yet (see `docs/feature-map-contract.md`) |
 | **Parity** | Does the new app match the legacy one | Scenarios replayed on both apps by the recorder (`scripts/parity-record.js`), compared on structure, interface text and the shape of data, never the data; findings per step with legacy and new screenshots side by side. A work item can require a pass with `done_when: - parity: all` (see `docs/parity-contract.md`) |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
 | **Code map** | What the code actually is (as built) | Extract a .NET, TS/JS or F# codebase into a C4 map with evidence, down to **types and methods**, overlaid on the design as drift, with code quality warnings. See [Code map](#code-map) |
 | **Build** | The coding pipeline | Agent runs from Langfuse plus ledger events: tokens per passing task, reruns, decision checks, needs-decision items, drift, handover cost forecast against actual |
-| **Work** | Work items for the build | Backlog and active items, New item, Start, Run gates, Freeze item (against a scoped gate), Done (needs evidence for every `done_when` entry and, for a repo item, a passing gate at a commit on main). A digest at the top says what needs you, what failed a gate, what is done since you last looked and what is waiting, including items over budget. Cards show the pipeline's judge score as a gradient that never decides Done. Swept Jira issues wait in an **Inbox** for you to accept or dismiss |
+| **Work** | Work items for the build | Backlog and active items, New item, Start, Run gates, Freeze item (against a scoped gate), Done (needs evidence for every `done_when` entry and, for a repo item, a passing gate at a commit on main). When a repo item that fixed a Jira bug is Done, **Record as escape** asks which check now stops that kind of bug (a repo lint rule, a test, a feature-map journey or a designc rule, lowest first) and writes an escape row for you to classify in Improve. A digest at the top says what needs you, what failed a gate, what is done since you last looked and what is waiting, including items over budget. Cards show the pipeline's judge score as a gradient that never decides Done. Swept Jira issues wait in an **Inbox** for you to accept or dismiss |
 | **Source control** | Git, daily loop | Branch, fetch, pull (fast-forward only), push (never forces), stage, commit. Freezing a handover pre-fills the commit. Compare tab shows a meaning-level diff of the model |
 | **Improve** | Evals and the improvement loop | Escapes by the stage that should have caught them, rule health, proposals, agent activity, ledger integrity, agent evals, factory suite runs, failure modes, eval tasks, judge calibration, escapes in other registries |
 | **Set up** | First-run settings page | Model file, LLM provider and Langfuse; each skippable, with Test connection. Keys stay in environment variables |
@@ -381,6 +382,8 @@ Run designc from source (`npm start`), because an installer does not include the
 
 No scenario yet for a test scenario? On a requirement's chain, **Record from legacy** types a `playwright codegen` line for the legacy app followed by `parity-import --id --link`. Walk the legacy app, close the browser, and the scenario is drafted and linked to that test scenario. The Design sidebar shows each requirement's stage (imported, mapped, described, automated, proven) and the next step.
 
+With `--har` the recorder also counts the calls each step makes; a rebuilt screen that calls an endpoint more often than legacy fails with a `calls` finding, which a bound decision with `calls: [{method, path}]` can cover (see `docs/parity-contract.md`, Counts per step).
+
 An agent can run the recorder instead (`scripts/parity-record.js`, see `docs/parity-contract.md`), from the Terminal or a separate session. An agent in the panel writing to `parity/` is flagged as an unapproved change.
 
 **Login.** The recorder does not sign in. It stops at a login wall: a redirect to another host, or a page with exactly one visible password field. On legacy this is an error and any existing baseline stays as it was; on the new app the scenario is `could_not_run`, which never counts as a pass. It cannot see an email-first sign-in page on the same host, which is why step 3 checks the screenshot.
@@ -435,11 +438,12 @@ To offer more than one build (your own pipeline, a headless coding agent, a coll
 "dispatch": {
   "pipeline": { "label": "Build with my pipeline", "command": "my-build --handover {handover} --repo {repo} --registry {registry} --base {base}" },
   "headless": { "label": "Headless agent", "command": "cd {repo} && my-agent --prompt \"$(cat {handover}/BUILD.md)\"" },
+  "fix":      { "label": "Fix with Claude Code", "command": "cd {repo} && claude --add-dir {handover} \"Read BUILD.md in the added handover folder, then fix what its What's wrong section describes.\"" },
   "old":      { "command": "legacy-build {handover}", "enabled": false }
 }
 ```
 
-With two or more targets the button reads **Dispatch** and asks which one before typing its line; with one it shows that target's label. A target without `label` is shown by its key, and `"enabled": false` leaves it out. A headless agent on its own gets no worktrees, scope checks or ledger rows from designc; Done on a work item still needs a passing gate at a commit on main, whatever built it.
+With two or more targets the button reads **Dispatch** and asks which one before typing its line; with one it shows that target's label. A target without `label` is shown by its key, and `"enabled": false` leaves it out. The `fix` target is for a small fix, such as a QA bug: it types a Claude Code line that works in the repo and reads the handover, with no worktree, scope checks or ledger rows from designc. Done still needs the gates at a commit on main and the parity pass the item names. A headless agent on its own gets no worktrees, scope checks or ledger rows from designc; Done on a work item still needs a passing gate at a commit on main, whatever built it.
 
 With the `openai` provider, grill-me and proposal drafting call an OpenAI-compatible `/chat/completions` endpoint, so point `baseUrl` at the LiteLLM gateway. The key is read from the environment variable named in `apiKeyEnv` and never stored in the repo. Without these set, everything else works and those two buttons tell you what is missing.
 
@@ -702,6 +706,7 @@ Core logic, the extractors, the ledger, the CLI and the governance checks run in
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
 | `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score, parity done_when; the Work view |
+| `renderer/featuremap.js`, `renderer/featureview.js` | Feature map: `features/<id>.yaml` (what a feature is and how it is proved), checks FM001 ids, FM002 states, FM003 grammar, FM004 proof as Problems rows, and the Features list in the Work view. Contract: `docs/feature-map-contract.md` |
 | `renderer/parity.js`, `renderer/parityview.js`, `recorder/` | Legacy parity: the comparison contract, the Parity view, and the recorder run outside the app |
 | `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
 | `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |

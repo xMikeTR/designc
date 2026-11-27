@@ -129,6 +129,18 @@ function loadExceptions(registry) {
   return Parity.exceptions({ acceptance: docs('acceptance'), decisions: docs('decisions') });
 }
 
+// The adapter with each session.act first pushing Date.now() onto marks: mark k is when step k began, because the k-th act
+// call is always step k (the first step that does not act stops every later one). The recorder is not told.
+function timed(adapter, marks) {
+  return {
+    ...adapter,
+    async open(o) {
+      const session = await adapter.open(o);
+      return { ...session, act: step => { marks.push(Date.now()); return session.act(step); } };
+    },
+  };
+}
+
 async function runOne(o, entry, settings, adapter) {
   const { scenario } = entry;
   const params = { ...((settings.parity || {})[o.side] || {}), ...((scenario.params || {})[o.side] || {}), ...o.params };
@@ -142,7 +154,8 @@ async function runOne(o, entry, settings, adapter) {
   if (o.har && !params.baseUrl) return { scenario: scenario.id, error: '--har needs a base URL (parity.<side>.baseUrl in designc.json, or --base-url) to know which requests are the app\'s' };
   const har = o.har ? harFile(o.registry, scenario.id, o.side) : null;
   if (har) fs.rmSync(har, { force: true });
-  const rec = await Recorder.record({ scenario, side: o.side, adapter, params, screenshots: o.shots, allowWrites: !!o.allowWrites, allowRequests: o.allowRequests, har });
+  const marks = [];
+  const rec = await Recorder.record({ scenario, side: o.side, adapter: har ? timed(adapter, marks) : adapter, params, screenshots: o.shots, allowWrites: !!o.allowWrites, allowRequests: o.allowRequests, har });
   if (rec.error) return { scenario: scenario.id, error: rec.error };
   // A login page is not the legacy app, so it must not replace a baseline. On the new app it is could not run, below.
   if (rec.wall && o.side === 'legacy') return { scenario: scenario.id, error: `legacy stopped at a login wall: ${rec.wall}. No baseline written. Run legacy with sign-in off, then record again.` };
@@ -150,7 +163,12 @@ async function runOne(o, entry, settings, adapter) {
   const snap = Parity.snapshot(rec, scenario, { params });
   // The HAR is read for its shapes alone; an adapter that wrote none (or a scenario that stopped early) leaves the field out.
   const recorded = har && readJson(har);
-  if (recorded) snap.requests = Parity.requests(recorded, { baseUrl: params.baseUrl });
+  if (recorded) {
+    snap.requests = Parity.requests(recorded, { baseUrl: params.baseUrl });
+    // Requests per step (unknown when the HAR can't be placed): `calls` on each step that has a mark, nothing otherwise.
+    const calls = Parity.stepCalls(recorded, { baseUrl: params.baseUrl, marks });
+    if (calls) snap.steps.forEach((s, i) => { if (i < marks.length) s.calls = calls[i]; });
+  }
   if (o.side === 'legacy') {
     writeJson(base, snap);
     const notOk = snap.steps.filter(s => s.status !== 'ok');
@@ -208,4 +226,4 @@ async function main(argv, { log = s => process.stdout.write(s + '\n'), err = s =
 
 if (require.main === module) main(process.argv.slice(2)).then(code => process.exit(code), e => { process.stderr.write(`${e.stack || e}\n`); process.exit(2); });
 
-module.exports = { main, parseArgs, loadScenarios, loadExceptions, exitCode };
+module.exports = { main, parseArgs, loadScenarios, loadExceptions, exitCode, timed };
