@@ -198,64 +198,64 @@ Used by structural-centrality-guard to determine escalation threshold.
 
 | Rule | Location | Type | Notes |
 |------|---------|------|-------|
-| Every renderer path must resolve inside the open folder | `main.js:24` `inside()` | Invariant | `confine` in `paths.js`: lexical and symlink-resolved check |
-| Codebase reads must resolve inside the codebase folder | `main.js:192` | Invariant | Same lexical check |
-| A ledger event is appended only if its kind is known and it validates; nothing is written otherwise | `ledger-store.js:13` | Business rule | Designc kinds get `schema_version`, `event_id`, `ts` (epoch ms); harness kinds get `envelope_version`, ISO `ts`, sorted keys |
-| A designc kind may not carry the harness envelope and vice versa | `ledger-store.js:30` | Invariant | |
-| Decision checks run only in a trusted folder | `main.js:371` | Business rule | Trust is keyed on the registry root path |
-| The ledger is loaded by parsing every `ledger/*.jsonl` in file-name order and concatenating; there is no global sort and no de-duplication by `event_id` | `renderer/app.js:111` `loadLedger` | Implicit invariant | `A.ledgerRaw` is parse output, `A.ledger` is `Ledger.derive(A.ledgerRaw)` |
-| An escape's classification is the last `escape_classified` in load order, not the latest by time | `renderer/ledger.js:283` `derive` | Implicit invariant | Order-dependent; see Known Risks |
-| A needs-decision is resolved if any `needs_decision_resolved` names its `id` | `renderer/ledger.js:287` | Business rule | Order-independent |
-| Element kinds are person, softwareSystem, container, component; nothing else becomes an element | `renderer/core.js:35` `KINDS` | Business rule | |
-| An element's id is its DSL identifier, else `_e<n>` by order of appearance; a rel's id is `r<n>` by order of appearance (unresolved rels leave gaps) | `renderer/core.js:65`, `:130` | Implicit invariant | Position-dependent; see Known Risks |
-| Any keyword the parser does not know, followed by a block, is skipped whole and silently; without a block it is an "unknown keyword" error unless it is in `SKIP` | `renderer/core.js:111` | Implicit invariant | Covers `deploymentEnvironment`, `views`, and also `group`; see Known Risks |
-| A reused identifier is a parse error, and the later element replaces the earlier one in the model | `renderer/core.js:70` | Implicit invariant | |
+| Every renderer path must resolve inside the open folder | `main.js:54` `inside()` | Invariant | `confine` in `paths.js`: lexical and symlink-resolved check |
+| Codebase reads must resolve inside the codebase folder | `main.js:364` `codebase:read` | Invariant | Same lexical check |
+| A ledger event is appended only if its kind is known and it validates; nothing is written otherwise | `ledger-store.js:12` `appendEvent` | Business rule | Designc kinds get `schema_version`, `event_id`, `ts` (epoch ms); harness kinds get `envelope_version`, ISO `ts`, sorted keys |
+| A designc kind may not carry the harness envelope and vice versa | `ledger-store.js:29` | Invariant | |
+| Decision checks run only in a trusted folder | `main.js:606` `check:run` | Business rule | Trust is keyed on the registry root path |
+| The ledger is loaded by parsing every `ledger/*.jsonl` in file-name order, concatenating, then `Ledger.order` drops a repeated `event_id` and sorts by `_ts` (stable, so equal timestamps keep file order) | `renderer/app.js:427` `loadLedger`, `renderer/ledger.js:843` `order` | Implicit invariant | `A.ledgerRaw` is parse output, `A.ledger` is `Ledger.derive(A.ledgerRaw)` |
+| An escape's classification is the last `escape_classified` in load order, not the latest by time | `renderer/ledger.js:849` `derive` | Implicit invariant | Order-dependent; see Known Risks |
+| A needs-decision is resolved if any `needs_decision_resolved` names its `id` | `renderer/ledger.js:853` | Business rule | Order-independent |
+| Element kinds are person, softwareSystem, container, component; nothing else becomes an element | `renderer/core.js:53` `KINDS` | Business rule | |
+| An element's id is its DSL identifier, else `_e<n>` by order of appearance; a rel's id is `r<n>` by order of appearance (unresolved rels leave gaps) | `renderer/core.js:130`, `:270` | Implicit invariant | Position-dependent; see Known Risks |
+| Any keyword the parser does not know, followed by a block, is skipped whole and silently; without a block it is an "unknown keyword" error unless it is in `SKIP` | `renderer/core.js:253` | Implicit invariant | Covers `deploymentEnvironment`, `views`, and also `group`; see Known Risks |
+| A reused identifier is a parse error, and the later element replaces the earlier one in the model | `renderer/core.js:135` | Implicit invariant | |
 | Properties are raw strings on the element; `get()` parses them through `SPECS` on read | `renderer/core.js` `get` | Business rule | Demand-driven: no property is globally required |
-| A finding blocks the gate unless it is suppressed, a note, or covered by a bound `accept` decision whose `resolves` has the code and whose `binds` has one of the finding's element names | `renderer/core.js:364` | Business rule | Match is by exact element name |
-| Every decision that is not `bound` blocks the gate; a bound decision needs at least one check and a passing latest check | `renderer/core.js:370` | Business rule | The "no check" clause applies to every bound decision |
-| A bound `fix` decision blocks the gate while the finding it resolves still fires on an element it binds | `renderer/core.js:376` | Business rule | |
-| A requirement is traced if any decision of any status names it, or an element's exact name is in its `elements` | `renderer/core.js:382` | Business rule | A `minted` decision is enough to trace |
-| The gate never checks that a name in `binds` or `elements` exists in the model | `renderer/core.js:360` | Implicit invariant | See Known Risks |
-| Only the designc `needs_decision` kind with `status: open` blocks the gate | `renderer/core.js:385` | Business rule | Harness `NeedsDecision` never does |
-| Drift matches elements by `key(name)`: lowercase, alphanumerics only, plus `d.aka` | `renderer/core.js:394` | Business rule | The existing "normalised name" |
-| Registry YAML is loaded from four flat folders (`decisions`, `requirements`, `proposals`, `handovers`), one level deep (`work/` and `inbox/` are read the same way by the Work view; `inbox/dismissed/` is never read), open buffers taking precedence over disk, sorted by `id` | `renderer/app.js:94` `loadYamlDir`, `main.js:166` `fs:list` | Implicit invariant | A subfolder is never read |
-| A registry file's `id` is its `id:` field, else its file name; nothing checks that the two agree or that ids are unique | `renderer/app.js:101` | Implicit invariant | Lookups use `find(x => x.id === …)`: first match wins |
-| A decision with no `status` is `minted`; with no `effect` it is `fix` | `renderer/app.js:109` | Business rule | |
-| New decision, proposal, handover and escape ids are `<prefix>-<max+1, 4 digits>` over the loaded list | `renderer/app.js:72` `nextId`; also `renderer/agent.js:124`, `:141` | Business rule | Reads the number after the first `-` |
-| Binding a decision: one confirm, then text-level rewrite of `status`, `promoted_by`, `promoted_at` (date only); no precondition, no ledger event | `renderer/app.js:473` `bindDecision` | Business rule | Saves the whole open buffer, including unrelated unsaved edits |
-| `checked` and `superseded` are never set by code; any status other than `bound` blocks the gate | `renderer/app.js:435`, `renderer/core.js:371` | State machine | In effect `minted -> bound` only; a `superseded` decision blocks for ever |
+| A finding blocks the gate unless it is suppressed, a note, or covered by a bound `accept` decision whose `resolves` has the code and whose `binds` has one of the finding's element names | `renderer/core.js:876` | Business rule | Match is by exact element name |
+| Every decision that is not `bound` blocks the gate; a bound decision needs at least one check and a passing latest check | `renderer/core.js:885`, `:893` | Business rule | The "no check" clause applies to every bound decision |
+| A bound `fix` decision blocks the gate while the finding it resolves still fires on an element it binds | `renderer/core.js:916` | Business rule | |
+| A requirement is traced if any decision of any status names it, or an element's exact name is in its `elements` | `renderer/core.js:920` | Business rule | A `minted` decision is enough to trace |
+| The gate never checks that a name in `binds` or `elements` exists in the model | `renderer/core.js:862` `gate` | Implicit invariant | See Known Risks |
+| Only the designc `needs_decision` kind with `status: open` blocks the gate | `renderer/core.js:961` | Business rule | Harness `NeedsDecision` never does |
+| Drift matches elements by `key(name)`: lowercase, alphanumerics only, plus `d.aka` | `renderer/core-drift.js:7` | Business rule | The existing "normalised name" |
+| Registry YAML is loaded from four flat folders (`decisions`, `requirements`, `proposals`, `handovers`), one level deep (`work/` and `inbox/` are read the same way by the Work view; `inbox/dismissed/` is never read), open buffers taking precedence over disk, sorted by `id` | `renderer/app.js:137` `loadYamlDir`, `main.js:271` `fs:list` | Implicit invariant | A subfolder is never read |
+| A registry file's `id` is its `id:` field, else its file name; nothing checks that the two agree or that ids are unique | `renderer/app.js:145` | Implicit invariant | Lookups use `find(x => x.id === …)`: first match wins |
+| A decision with no `status` is `minted`; with no `effect` it is `fix` | `renderer/app.js:161` | Business rule | |
+| A new decision or proposal id is `Core.slugId(statement, taken)`: the statement's words joined by `-` (48 characters at most), `-2`, `-3`... on a clash; a handover id is `<date>-<content hash>`; an escape id is `Ledger.escapeId(uuid)`, `E-` plus 8 characters of the uuid | `renderer/core.js:813` `slugId`; call sites `renderer/agent.js:480`, `:569`, `:711`, `renderer/app.js:850`, `:1174`; `renderer/core-handover.js:615`; `renderer/ledger.js:839` `escapeId`, `renderer/app.js:2409` | Business rule | `nextId` (`renderer/app.js:73`) is defined and has no callers |
+| Binding a decision: one confirm, then text-level rewrite of `status`, `promoted_by`, `promoted_at` (date only); no precondition, no ledger event | `renderer/app.js:1232` `bindDecision` | Business rule | Saves the whole open buffer, including unrelated unsaved edits |
+| `checked` and `superseded` are never set by code; any status other than `bound` blocks the gate | `renderer/app.js:1244`, `renderer/core.js:885` | State machine | In effect `minted -> bound` only; a `superseded` decision blocks for ever |
 | A handover lists its read-only references as `references: [{key, kind}]` and never a path or commit; designc does not check them | `renderer/core.js` `handoverPlan`, `renderer/dispatch.js` | Contract | The person who dispatches supplies the path through `{legacy}` |
 | A handover carries `elements.json`, the model resolved for any coding agent (schema `designc.handover.elements/1`); a model that does not parse or a `d.code` that is not a path pattern refuses the freeze | `renderer/core.js` `handoverElements`, `handoverPlan` | Contract | designc owns it; consumers conform. Changing it means a new schema id |
 | A work item's handover carries `evidence.json` (`designc.handover.evidence/1`) when the item has evidence: parity findings as kind, key and counts (`msg` for shape only), Jira key, title, type and link, escape ids; never values from the apps or Jira. BUILD.md starts with `## What's wrong` | `renderer/core-handover.js` `handoverEvidence`, `renderer/workview.js` `freezeEvidence` | Contract | designc owns it; Factory ignores the key. Tested at `handoverPlan` (`test/handover-evidence.test.js`) |
-| Freeze Handover is offered only when the gate is ready; it writes `handovers/<id>.yaml` with `revision: r-<hash of the model buffer>` and records a `handover` event | `renderer/app.js:478` | Business rule | Gate and hash are computed from open buffers, not from disk |
-| "Last handover" is the last entry of the id-sorted list | `renderer/app.js:879` | Implicit invariant | |
-| A check starting `TODO` is not runnable | `renderer/app.js:490` | Business rule | It still counts as "has a check" in the gate |
-| Grill-me sends the first 30,000 characters of the model | `renderer/app.js:527` | Magic number | |
-| Grill-me's `business` flag only shows a hint; "Draft decision from answer" ignores it | `renderer/app.js:679`, `:1184` | Business rule | |
-| An ACP agent may not write a decision whose text matches `^status:\s*(bound|superseded)` | `renderer/agent.js:312` | Invariant | Regex on raw text; see Known Risks |
-| The core grammar exists twice: `Core.parse` and the canvas's `locate()`, which must produce the same element order and auto ids | `renderer/canvas/dsl-edit.js:38` | Implicit invariant | Any grammar change is made in both |
+| Freeze Handover is offered only when the gate is ready; it writes `handovers/<id>.yaml` with `revision: r-<hash of the model buffer>` and records a `handover` event | `renderer/app.js:1292` | Business rule | Gate and hash are computed from open buffers, not from disk |
+| "Last handover" is the last entry of the id-sorted list | `renderer/app.js:2141` | Implicit invariant | |
+| A check starting `TODO` is not runnable | `renderer/app.js:1418` | Business rule | It still counts as "has a check" in the gate |
+| Grill-me sends the first 30,000 characters of the model | `renderer/app.js:1469` | Magic number | |
+| Grill-me's `business` flag shows a hint; "Draft decision from answer" ignores it, and "Draft business decision" is a separate button that records `kind: 'business'`, `effect: 'accept'` | `renderer/app.js:1844`, `:1845`, `:2403`, `:2405` | Business rule | |
+| An agent write to `decisions/` is refused when its `status` is `bound` or `superseded` | `renderer/policy.js:61` | Invariant | See Known Risks |
+| The core grammar exists twice: `Core.parse` and the canvas's `locate()`, which must produce the same element order and auto ids | `renderer/canvas/dsl-edit.js:39` | Implicit invariant | Any grammar change is made in both |
 | Canvas edits are text splices on the DSL; an element gets an identifier (camel-cased name, numbered on clash) the first time a rel is drawn to or from it | `renderer/canvas/dsl-edit.js` `ensureIdent`, `identFor` | Business rule | |
 | An agent is an element tagged `Agent`; AG rules read nothing else to find one | `renderer/canvas/agentic-rules.js:17` | Business rule | |
 | AG001: an agent with untrusted input, private data and external communication is an error; private data and external communication are inferred from its outgoing rels when undeclared | `agentic-rules.js` | Business rule | |
 | AG002: an irreversible call without `d.approval: human` is an error; a write by an `autonomous` agent with no approval is a warning | `agentic-rules.js` | Business rule | Calls to `LLM` and `Trace Store` elements are exempt |
 | AG006: `d.agent.codeExec: yes` without `d.agent.sandbox: yes` is an error | `agentic-rules.js` | Business rule | |
 | Trust zone is inherited from the nearest ancestor that declares `d.zone` | `renderer/canvas/review.js:21` | Business rule | |
-| A tool is usable by a role only if listed; deny beats ask beats allow; unlisted is deny | `renderer/agent.js:29` `verdict` | Invariant | `designc.json` `agents.<role>` may replace `allow` and `ask` wholesale |
-| A writer validates first and asks the human only if valid; `apply` runs only on approval | `renderer/agent.js:166` `runTool` | Invariant | |
+| A tool is usable by a role only if listed; deny beats ask beats allow; unlisted is deny | `renderer/agent.js:48` `verdict` | Invariant | `designc.json` `agents.<role>` may replace `allow` and `ask` wholesale |
+| A writer validates first and asks the human only if valid; `apply` runs only on approval | `renderer/agent.js:742` `runTool` | Invariant | |
 | An ACP agent may write only inside the registry and only under its role's folders (architect `model/`, `decisions/`; grill `decisions/`; analyst `proposals/`) | `acp.js` `registryRel`, `renderer/policy.js` `writeVerdict` | Invariant | The main process resolves the path and refuses anything outside, whatever the renderer answers |
 | A write tool always needs approval, even if `designc.json` lists it under `allow` | `renderer/policy.js` `verdict` | Invariant | |
 | An agent-written file in `decisions/` or `proposals/` must be `.yaml` and parse as a mapping; a decision's parsed `status` may not be `bound` or `superseded` | `renderer/policy.js` `writeVerdict` | Invariant | |
 | A registry file that changes during an ACP or AG-UI turn without an approval in the last 8 s is recorded as `unapproved_change`; `asbuilt/`, `telemetry/` and `designc.json` are exempt; a ledger file is cleared only by the app's own append | `renderer/policy.js` `unapprovedChanges` | Business rule | AG-UI approvals open a 30 s window |
-| ACP agents may read any file under the registry or the configured codebase | `acp.js:60` `readable` | Invariant | Lexical check |
-| The latest check for a decision is the one with the highest `_ts` | `renderer/core.js:389` `latestCheck` | Business rule | Order-independent; the gate's only time-sensitive ledger read |
-| A line with no `schema_version` and no `envelope_version` is legacy: upcast, `event_id` `legacy:<file>:<line>`, `_ts` from a numeric `ts` else 0 | `renderer/ledger.js:267` | Business rule | The synthetic id depends on line position |
-| An invalid ledger line is reported as an error against its file and line and is not loaded | `renderer/ledger.js:244` `parse` | Business rule | Counted with YAML errors in the status bar |
-| `STAGES` keys in `app.js` must equal `Ledger.CAUGHT_BY` or the renderer throws at load | `renderer/app.js:38` | Invariant | |
-| Escape ids are sequential (`nextId('E', ...)`) | `renderer/app.js:1188` | Implicit invariant | See Known Risks |
-| The file watcher ignores any path with a segment in `SKIP` | `main.js:57` | Implicit invariant | `.git` changes are never reported to the renderer |
-| Directory tree depth is capped at 8 | `main.js:34` | Magic number | |
-| MCP bridge request body is capped at 2 MB | `main.js:298` | Magic number | |
-| At most 8 recent folders | `main.js:50` | Magic number | |
+| ACP agents may read any file under the registry or the configured codebase | `acp.js:62` `readable` | Invariant | Lexical check |
+| The latest check for a decision is the one with the highest `_ts` | `renderer/core.js:1180` `latestCheck` | Business rule | Order-independent; the gate's only time-sensitive ledger read |
+| A line with no `schema_version` and no `envelope_version` is legacy: upcast, `event_id` `legacy:<file>:<line>`, `_ts` from a numeric `ts` else 0 | `renderer/ledger.js:825` | Business rule | The synthetic id depends on line position |
+| An invalid ledger line is reported as an error against its file and line and is not loaded | `renderer/ledger.js:800` `parse` | Business rule | Counted with YAML errors in the status bar |
+| `STAGES` keys in `app.js` must equal `Ledger.CAUGHT_BY` or the renderer throws at load | `renderer/app.js:16` | Invariant | |
+| Escape ids are `Ledger.escapeId(crypto.randomUUID())` | `renderer/app.js:2409` | Implicit invariant | See Known Risks |
+| The file watcher ignores any path with a segment in `SKIP` | `main.js:101` | Implicit invariant | `.git` changes are never reported to the renderer |
+| Directory tree depth is capped at 8 | `main.js:63` | Magic number | |
+| MCP bridge request body is capped at 2 MB | `main.js:513` | Magic number | |
+| At most 8 recent folders | `main.js:94` | Magic number | |
 
 ## Known Risks
 
