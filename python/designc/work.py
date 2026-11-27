@@ -4,7 +4,7 @@ lets an agent session ask what is active and what clashes: `designc work <regist
 import re
 from . import pathpattern
 
-KINDS = ('gate', 'checklist', 'review', 'judge', 'parity', 'ui')
+KINDS = ('gate', 'checklist', 'review', 'judge', 'parity', 'ui', 'feature')
 TARGETS = ('document', 'jira', 'investigation')
 EVIDENCE_KINDS = ('parity', 'jira', 'escape')
 JIRA_KEY = re.compile(r'[A-Z][A-Z0-9_]{0,30}-[0-9]{1,10}')
@@ -30,7 +30,7 @@ def reqs(item):
     return [s for s in (_str(v).strip() for v in vals) if s]
 
 
-def validate(item, requirements, item_ids, scenarios=None, screens=None):
+def validate(item, requirements, item_ids, scenarios=None, screens=None, features=None):
     """What is wrong with this item. The sentences are identical to Work.validate in work.js.
     scenarios: the ids in parity/scenarios/, when known; a parity entry naming another id is then a problem."""
     out = []
@@ -92,8 +92,8 @@ def validate(item, requirements, item_ids, scenarios=None, screens=None):
         known = [k for k in ks if k in KINDS]
         unknown = [k for k in ks if k not in KINDS]
         n = i + 1
-        if unknown: out.append(f"{iid}: done_when entry {n} has unknown kind {', '.join(unknown)}; use gate, checklist, review, judge, parity or ui.")
-        elif len(known) != 1: out.append(f'{iid}: done_when entry {n} must have exactly one of gate, checklist, review, judge, parity or ui.')
+        if unknown: out.append(f"{iid}: done_when entry {n} has unknown kind {', '.join(unknown)}; use gate, checklist, review, judge, parity, ui or feature.")
+        elif len(known) != 1: out.append(f'{iid}: done_when entry {n} must have exactly one of gate, checklist, review, judge, parity, ui or feature.')
         elif not _str(e[known[0]]).strip(): out.append(f'{iid}: done_when entry {n} ({known[0]}) is empty.')
         else:
             kinds.append(known[0])
@@ -102,6 +102,10 @@ def validate(item, requirements, item_ids, scenarios=None, screens=None):
                 out.append(f'{iid}: done_when entry {n} (parity) is allowed only on a repo item: parity is judged at the commit that finished it.')
             elif known[0] == 'ui' and not has_req:
                 out.append(f'{iid}: done_when entry {n} (ui) is allowed only on a repo item: ui is judged at the commit that finished it.')
+            elif known[0] == 'feature' and not has_req:
+                out.append(f'{iid}: done_when entry {n} (feature) is allowed only on a repo item: feature is judged at the commit that finished it.')
+            elif known[0] == 'feature' and isinstance(features, list) and v not in features:
+                out.append(f'{iid}: done_when entry {n} names feature {v}, which is not in features/.')
             elif known[0] == 'ui' and isinstance(screens, list) and v not in screens:
                 out.append(f'{iid}: done_when entry {n} names ui screen {v}, which has no spec in ui/specs/.')
             elif known[0] == 'parity' and isinstance(scenarios, list) and v != 'all' and v not in scenarios:
@@ -157,14 +161,14 @@ def coverage(items, requirements):
     return out
 
 
-def report(items, requirements, events, parse_errors=(), scenarios=None, screens=None):
+def report(items, requirements, events, parse_errors=(), scenarios=None, screens=None, features=None):
     """One row per item: state, problems, and clashes with the other active items."""
     ids = [i['id'] for i in items]
     st = states(items, events)
     active = [i for i in items if st[i['id']] == 'active']
     rows, seen = [], set()
     for it in items:
-        problems = validate(it, requirements, [x for x in ids if x != it['id']], scenarios, screens)
+        problems = validate(it, requirements, [x for x in ids if x != it['id']], scenarios, screens, features)
         if it['id'] in seen: problems.append(f"{it['id']}: duplicate work item id")
         seen.add(it['id'])
         rows.append({'id': it['id'], 'path': it.get('_path'), 'state': st[it['id']], 'problems': problems,

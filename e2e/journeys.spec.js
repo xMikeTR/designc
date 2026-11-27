@@ -1215,3 +1215,34 @@ test('with no agent, bind still succeeds, says why, and the Draft a check button
   await expect(page.locator('#sbBody .clause', { hasText: 'D-0002 has no check' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
   await expect(page.locator('#sbBody .item', { hasText: 'D-0002' }).getByRole('button', { name: 'Draft a check' })).toBeVisible();
 });
+
+test('user can see the feature map in Work and what is wrong with a feature file @critical', async () => {
+  test.setTimeout(90000);
+  const { reg } = copyRegistry('fixtures/scenario-registry');
+  session = await launch(reg);
+  const { page } = session;
+  // The two seeds are listed (read only: one row each, with its counts), and give no problems.
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  const section = page.locator('[data-features]');
+  await expect(section.locator('[data-feature="orders-browse"]')).toContainText('1 journey, 2 entry points');
+  await expect(section.locator('[data-feature="orders-tag"]')).toContainText('Tag orders in bulk');
+  await page.getByRole('button', { name: /^Problems/ }).click();
+  const panel = page.locator('#panelBody');
+  await expect(panel.locator('.pfile', { hasText: 'features/' })).toHaveCount(0);
+  // A feature that leaves the app in a state its spec does not have: an FM002 row under that file.
+  const bad = path.join(reg, 'features/orders-bad.yaml');
+  fs.writeFileSync(bad, fs.readFileSync(path.join(reg, 'features/orders-browse.yaml'), 'utf8').replace('id: orders-browse', 'id: orders-bad').replace('state: ready', 'state: ghost').replace('proves:\n      ui: { state: ready', 'proves:\n      ui: { state: ghost'));
+  await expect(panel.locator('.pfile', { hasText: 'features/orders-bad.yaml' })).toBeVisible();
+  await expect(panel.locator('.prow', { hasText: 'FM002' }).first()).toContainText('orders-bad');
+  await expect(panel.locator('.prow', { hasText: 'FM002' }).first()).toContainText('"ghost"');
+  await page.getByRole('button', { name: 'Work', exact: true }).click();
+  await expect(page.locator('[data-feature="orders-bad"]')).toContainText('problem');
+  // Deleting the file clears the row and the list entry.
+  fs.rmSync(bad);
+  await expect(panel.locator('.pfile', { hasText: 'features/orders-bad.yaml' })).toHaveCount(0);
+  await expect(page.locator('[data-feature="orders-bad"]')).toHaveCount(0);
+  // A file that is not YAML is listed by path as unreadable and shows a row.
+  fs.writeFileSync(path.join(reg, 'features/broken.yaml'), 'id: [\n');
+  await expect(page.locator('[data-feature-bad="features/broken.yaml"]')).toContainText('cannot be read');
+  await expect(panel.locator('.pfile', { hasText: 'features/broken.yaml' })).toBeVisible();
+});

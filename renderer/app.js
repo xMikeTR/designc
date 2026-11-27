@@ -775,7 +775,7 @@ async function onDiskChanged(paths) {
   if (paths.includes('designc.json')) { await loadSettings(); loadTelemetry(); }
   if (any('telemetry')) loadTelemetry();
   if (paths.some(p => (p === A.cfg.model || Core.modelFiles([p], A.cfg.model).length) && !(A.buffers.get(p) || {}).dirty)) await loadModel();
-  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui')) await loadRegistry();
+  if (REG_DIRS.some(any) || any('factory') || any('work') || any('inbox') || any('verdicts') || any('procedures') || any('study') || any('parity') || any('test-scenarios') || any('domain') || any('behaviour') || any('ui') || any('features')) await loadRegistry();
   if (any('landings')) await loadLandings();
   if (any('ledger')) { await loadLedger(); await loadDomains(); await loadUi(); }
   if (any('asbuilt')) await loadAsbuilt();
@@ -1920,7 +1920,7 @@ function improveSidebar() {
 function renderPanel() {
   const live = A.diags.filter(d => !d.suppressed);
   const qual = A.root ? qualityNow() : { findings: [], problems: [] };
-  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + A.workErrors.length + A.workWarnings.length + qual.findings.length + qual.problems.length;
+  const total = live.length + A.model.errors.length + A.yamlErrors.length + A.ledgerErrors.length + A.workErrors.length + A.workWarnings.length + (A.featureProblems || []).length + qual.findings.length + qual.problems.length;
   $('#probCount').textContent = A.root ? total : '';
   document.querySelectorAll('[data-panel]').forEach(b => b.setAttribute('aria-selected', String(b.dataset.panel === A.panel)));
   $('#panelClear').style.display = A.panel === 'output' ? '' : 'none';
@@ -1931,7 +1931,7 @@ function renderPanel() {
   if (!A.root) { body.innerHTML = '<div class="pempty">No problems have been detected in the workspace.</div>'; return; }
   const groups = [];
   const spans = modelSpans();
-  groups.push(...Problems.rows({ model: A.model, diags: A.diags, cfgModel: A.cfg.model, decisions: A.decisions, yamlErrors: A.yamlErrors, ledgerErrors: A.ledgerErrors, workErrors: A.workErrors, workWarnings: A.workWarnings, proposals: A.proposals }));
+  groups.push(...Problems.rows({ model: A.model, diags: A.diags, cfgModel: A.cfg.model, decisions: A.decisions, yamlErrors: A.yamlErrors, ledgerErrors: A.ledgerErrors, workErrors: A.workErrors, workWarnings: A.workWarnings, featureProblems: A.featureProblems, proposals: A.proposals }));
   const qrows = new Map();
   for (const f of qual.findings) { if (!qrows.has(f.file)) qrows.set(f.file, []); qrows.get(f.file).push({ sev: 'warning', msg: f.msg, code: f.code, line: f.line, codeFile: true }); }
   for (const [file, rows] of qrows) groups.push([file, rows]);

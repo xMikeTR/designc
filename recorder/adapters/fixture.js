@@ -6,9 +6,14 @@
 //     on: [{screen: 'list', click: {role, name, index?}, go: 'dialog'}] }
 // click follows the first matching `on` entry (or does nothing when none matches, as clicking inert text would);
 // fill and select set the node's value on the current screen. A target that is not on the screen is missing.
+// Feature journeys add (parity never sends them):
+//   press follows the first `on` entry {screen, press: '<keys>', go} for the current screen, else does nothing.
+//   wait {role, name|text, index?} is ok when the node is on the current screen (findNode / findText), else missing.
+//   session.request({method, path}) -> {status}: fixture `api: {'GET /health': 200}`, 404 for a call not listed.
 const fs = require('fs');
 const zlib = require('zlib');
 const { findNode } = require('../index.js');
+const { findText } = require('../journey.js');
 
 const copy = t => JSON.parse(JSON.stringify(t));
 
@@ -56,6 +61,16 @@ function create(fixture, name = 'fixture') {
             go(id);
             return { ok: true };
           }
+          if (step.press !== undefined) {
+            const t = (fx.on || []).find(o => o.screen === screen && o.press === step.press);
+            if (t) go(t.go);
+            return { ok: true };
+          }
+          if (step.wait) {
+            const w = step.wait;
+            const hit = w.text != null ? findText(tree, w.role, w.text) : findNode(tree, w.role, w.name, w.index || 0);
+            return hit ? { ok: true } : { missing: `no ${w.role} ${w.text != null ? `with text "${w.text}"` : `named "${w.name}"`} on screen ${screen}` };
+          }
           const [k] = Object.keys(step);
           const a = step[k];
           const node = findNode(tree, a.role, a.name, a.index || 0);
@@ -69,6 +84,10 @@ function create(fixture, name = 'fixture') {
             node.value = a.value;
           }
           return { ok: true };
+        },
+        async request({ method, path: p }) {
+          const v = (fx.api || {})[`${String(method).toUpperCase()} ${p}`];
+          return { status: v == null ? 404 : v };
         },
         async capture() {
           return { tree: copy(tree), viewport: fx.viewport || { width: 1280, height: 800 }, url: screen };

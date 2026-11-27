@@ -1,0 +1,27 @@
+id: orders-browse
+title: Browse orders
+intent: A clerk opens the orders page and sees the list of orders.
+aliases: [order list, orders page, see orders]
+screens: [orders]
+elements: [OrdersList]
+requirements: [ORD-1]
+
+entry_points:
+  - id: deep-link
+    via: { goto: { path: /orders } }
+  - id: nav-link
+    from: orders:loading
+    via: { click: { role: link, name: Orders } }
+
+journeys:
+  - id: list-loads
+    from: orders:loading
+    steps:
+      - entry
+      - wait: { role: table, name: Orders }
+        state: ready
+    proves:
+      ui: { state: ready, contains: [{ role: button, name: Tag orders }] }
+
+gotchas:
+  - The list loads from the API after the page renders; wait for the table, never a fixed sleep.

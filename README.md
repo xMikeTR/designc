@@ -27,6 +27,7 @@ The activity bar on the left switches views. Menu: View, or the shortcuts shown 
 | **Explorer** | The registry folder as files | Open the model, decisions, requirements, scenarios, evals. Right-click the model for "Compare with last handover" |
 | **Design** | The design compiler | Edit the DSL with live lint (DC000 to DC014) and a C4 sheet beside it. Sidebar: findings, decisions (mint, bind, re-bind), requirements, scenarios and fitness functions, agent evals, the **definition-of-ready gate**, grill-me, and **Freeze handover** |
 | **Canvas** | Draw the design | Boxes and arrows that write back to the DSL; connections can start from any side, templates for agent systems |
+| **Feature journeys** | Can a user still do the thing, by every way in | Journeys from `features/*.yaml` run once per entry point on a live app (`scripts/feature-run.js`, after the ready probe in `designc.json` `verify.ready`); prints pass, fail or could not run per journey. Nothing is written to the ledger yet (see `docs/feature-map-contract.md`) |
 | **Parity** | Does the new app match the legacy one | Scenarios replayed on both apps by the recorder (`scripts/parity-record.js`), compared on structure, interface text and the shape of data, never the data; findings per step with legacy and new screenshots side by side. A work item can require a pass with `done_when: - parity: all` (see `docs/parity-contract.md`) |
 | **Deployment** | Where it runs (as designed) | Pick a declared deployment view or a whole environment; click a node to see what is lost and what goes down if it is unavailable |
 | **Agent topology** | Who calls what | Agents and the elements they touch, with irreversible calls that lack human approval flagged |
@@ -704,6 +705,7 @@ Core logic, the extractors, the ledger, the CLI and the governance checks run in
 | `dev/mock-agui-server.js` | Scripted AG-UI service shaped like a MAF host, for demos and tests |
 | `integrations/maf-agui-host/` | Sketch of the MAF host exposing designc's agents over AG-UI |
 | `renderer/work.js`, `renderer/workview.js` | Work items: validation, states, conflicts, digest, judge score, parity done_when; the Work view |
+| `renderer/featuremap.js`, `renderer/featureview.js` | Feature map: `features/<id>.yaml` (what a feature is and how it is proved), checks FM001 ids, FM002 states, FM003 grammar, FM004 proof as Problems rows, and the Features list in the Work view. Contract: `docs/feature-map-contract.md` |
 | `renderer/parity.js`, `renderer/parityview.js`, `recorder/` | Legacy parity: the comparison contract, the Parity view, and the recorder run outside the app |
 | `renderer/requirement-import.js` | Requirement import: read pages, plan, YAML stubs |
 | `git.js`, `terminal.js` | Main-process git (fixed argument arrays, hooks never run) and the integrated terminal |

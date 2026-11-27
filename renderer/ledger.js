@@ -61,6 +61,7 @@ const Ledger = (() => {
     item_judge: 'pipeline.jsonl',
     parity_result: 'pipeline.jsonl',
     ui_result: 'pipeline.jsonl',
+    feature_result: 'pipeline.jsonl',
     stage_verdict: 'pipeline.jsonl',
     run_started: 'pipeline.jsonl',
     run_ended: 'pipeline.jsonl',
@@ -88,7 +89,7 @@ const Ledger = (() => {
   };
   // What a pipeline may append (docs/pipeline-contract.md). verify rule V9 holds pipeline.jsonl to this list; a kind
   // outside it (needs_decision_resolved, escape_classified, decision_promoted...) is a person's judgement.
-  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'ui_result', 'stage_verdict', 'trace', 'outcome'];
+  const PIPELINE_KINDS = ['task', 'check', 'needs_decision', 'asbuilt_edge', 'escape', 'false_positive', 'handover_closed', 'item_gate', 'item_awaiting_human', 'ui_acceptance_failed', 'item_conflict_deferred', 'wip_limit_changed', 'item_budget', 'item_judge', 'run_started', 'run_ended', 'parity_result', 'ui_result', 'feature_result', 'stage_verdict', 'trace', 'outcome'];
   const PIPELINE_STREAM = 'pipeline.jsonl';
 
   const KINDS = Object.keys(STREAM).reduce((m, k) => { m[k] = { stream: STREAM[k] }; return m; }, {});
@@ -250,6 +251,15 @@ const Ledger = (() => {
       optional: ['item'],
       enums: { outcome: ['pass', 'fail', 'could_not_run'] },
       types: { screen: 'string', commit: 'string|null', outcome: 'string', item: 'string' },
+    },
+    // The Factory's run of a feature's journeys at a commit (docs/feature-result.example.json). A Factory kind. The latest per feature at an
+    // item's done commit decides a `feature: <id>` done_when entry, as ui_result does; could_not_run is not a pass.
+    feature_result: {
+      required: ['feature', 'commit', 'outcome', 'journeys'],
+      optional: ['item'],
+      enums: { outcome: ['pass', 'fail', 'could_not_run'] },
+      types: { feature: 'string', commit: 'string|null', outcome: 'string', journeys: 'array', item: 'string' },
+      rules: ['journeys_shape'],
     },
     // One stage's verdict on one change (D7; docs/stage-verdict.example.json). A Factory kind; System 3 times and counts it.
     // `change_ts` is when the change under test was made (epoch ms, null when unknown). A failure never carries detail text.
@@ -456,6 +466,28 @@ const Ledger = (() => {
         if (!isPlainObject(f) || !Number.isInteger(f.step) || typeof f.key !== 'string' || typeof f.kind !== 'string' || typeof f.msg !== 'string') return `failures[${i}]: must be {step, key, kind, msg}`;
       }
       if (ev.outcome === 'fail' && !ev.failures.length) return "failures: name at least one when outcome is 'fail'";
+      return null;
+    },
+    // feature_result.journeys: [{journey, entry, outcome, failures?}]; at most 50 failures of {step, kind, msg} each; a failing journey names one;
+    // the row's outcome is fail if any journey failed, else could_not_run if any could not run, else pass.
+    journeys_shape: ev => {
+      if (!Array.isArray(ev.journeys)) return null;
+      if (!ev.journeys.length) return 'journeys: name at least one journey';
+      const OUT = ['pass', 'fail', 'could_not_run'], FK = ['step', 'state', 'effect', 'ready'];
+      for (const [i, j] of ev.journeys.entries()) {
+        if (!isPlainObject(j) || typeof j.journey !== 'string' || !(typeof j.entry === 'string' || j.entry === null)) return `journeys[${i}]: must be {journey, entry, outcome}`;
+        if (!OUT.includes(j.outcome)) return `journeys[${i}].outcome: must be pass, fail or could_not_run`;
+        if (j.failures !== undefined) {
+          if (!Array.isArray(j.failures)) return `journeys[${i}].failures: must be a list`;
+          if (j.failures.length > 50) return `journeys[${i}].failures: at most 50 (the report holds the rest)`;
+          for (const [k, f] of j.failures.entries()) {
+            if (!isPlainObject(f) || !Number.isInteger(f.step) || f.step < 0 || !FK.includes(f.kind) || typeof f.msg !== 'string') return `journeys[${i}].failures[${k}]: must be {step, kind, msg}`;
+          }
+        }
+        if (j.outcome === 'fail' && !(j.failures && j.failures.length)) return `journeys[${i}].failures: name at least one when the journey outcome is 'fail'`;
+      }
+      const want = ev.journeys.some(j => j.outcome === 'fail') ? 'fail' : ev.journeys.some(j => j.outcome === 'could_not_run') ? 'could_not_run' : 'pass';
+      if (ev.outcome !== want) return `outcome: must be '${want}' when ${want === 'fail' ? 'a journey failed' : want === 'pass' ? 'every journey passed' : 'a journey could not run and none failed'}`;
       return null;
     },
     budget_shape: ev => {
