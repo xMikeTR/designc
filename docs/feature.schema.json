@@ -1,0 +1,130 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "designc.feature/1",
+  "title": "Feature map file",
+  "description": "features/<id>.yaml: one user-facing feature, in the user's words, how it is reached and what end state proves it (docs/feature-map-contract.md). designc owns the format and never runs app code. This schema is the shape only; renderer/featuremap.js adds the checks that need the registry (FM001 ids, FM002 states, FM003 grammar, FM004 proof). Step shapes are parity's (renderer/parity.js stepProblem) plus press, wait and the bare word entry.",
+  "type": "object",
+  "required": ["id", "title", "intent", "screens", "journeys"],
+  "additionalProperties": false,
+  "properties": {
+    "id": { "$ref": "#/$defs/slug", "description": "Equal to the file name, unique across features/." },
+    "title": { "$ref": "#/$defs/text" },
+    "intent": { "$ref": "#/$defs/text" },
+    "aliases": { "type": "array", "items": { "$ref": "#/$defs/text" }, "description": "The words a bug report would use." },
+    "screens": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/text" }, "description": "Screen names: files in ui/specs/." },
+    "elements": { "type": "array", "items": { "$ref": "#/$defs/text" }, "description": "Model elements, by id or name." },
+    "requirements": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "acceptance": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "test_scenarios": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "preconditions": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "role": { "$ref": "#/$defs/text", "description": "The sign-in the app must run as." },
+        "data": { "type": "object", "additionalProperties": { "$ref": "#/$defs/param" }, "description": "Declared params. Values come from the environment, never from this file." }
+      }
+    },
+    "entry_points": { "type": "array", "items": { "$ref": "#/$defs/entryPoint" } },
+    "journeys": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/journey" } },
+    "gotchas": { "type": "array", "items": { "$ref": "#/$defs/text" } },
+    "sync": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "commit": { "type": "string" },
+        "at": { "type": "string", "pattern": "^\\d{4}-\\d{2}-\\d{2}" },
+        "by": { "type": "string" }
+      },
+      "description": "Not read in slice 1; the maintenance loop moves it."
+    }
+  },
+  "$defs": {
+    "text": { "type": "string", "minLength": 1 },
+    "slug": { "type": "string", "pattern": "^[a-z0-9]+(-[a-z0-9]+)*$" },
+    "state": { "type": "string", "minLength": 1, "description": "<screen>:<state>, or a bare state of the current screen." },
+    "param": { "type": "object", "required": ["param"], "additionalProperties": false, "properties": { "param": { "$ref": "#/$defs/text" } } },
+    "value": { "description": "A literal or {param: name}.", "oneOf": [{ "$ref": "#/$defs/param" }, { "type": ["string", "number", "boolean"] }] },
+    "locator": {
+      "type": "object",
+      "required": ["role", "name"],
+      "additionalProperties": false,
+      "properties": { "role": { "$ref": "#/$defs/text" }, "name": { "type": "string" }, "index": { "type": "integer", "minimum": 0 }, "value": { "$ref": "#/$defs/value" } }
+    },
+    "step": {
+      "oneOf": [
+        { "const": "entry", "description": "Where every entry point runs; at most once per journey." },
+        {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "goto": { "type": "object", "required": ["path"], "additionalProperties": false, "properties": { "path": { "$ref": "#/$defs/text" } } },
+            "click": { "$ref": "#/$defs/locator" },
+            "fill": { "$ref": "#/$defs/locator" },
+            "select": { "$ref": "#/$defs/locator" },
+            "press": { "$ref": "#/$defs/text", "description": "Keys, like Control+E." },
+            "wait": {
+              "type": "object",
+              "additionalProperties": false,
+              "properties": { "role": { "$ref": "#/$defs/text" }, "name": { "$ref": "#/$defs/text" }, "text": { "$ref": "#/$defs/text", "description": "A status or live region's text. It is not an accessible name." } },
+              "anyOf": [{ "required": ["name", "role"] }, { "required": ["text"] }],
+              "not": { "required": ["name", "text"] }
+            },
+            "state": { "$ref": "#/$defs/state", "description": "The spec state this step leaves the app in." },
+            "expect": { "type": "object" }
+          },
+          "oneOf": [{ "required": ["goto"] }, { "required": ["click"] }, { "required": ["fill"] }, { "required": ["select"] }, { "required": ["press"] }, { "required": ["wait"] }]
+        }
+      ]
+    },
+    "entryPoint": {
+      "type": "object",
+      "required": ["id", "via"],
+      "additionalProperties": false,
+      "properties": { "id": { "$ref": "#/$defs/slug" }, "from": { "$ref": "#/$defs/state" }, "via": { "type": "object", "$ref": "#/$defs/step" } }
+    },
+    "contains": {
+      "type": "object",
+      "required": ["role"],
+      "additionalProperties": false,
+      "properties": { "role": { "$ref": "#/$defs/text" }, "name": { "$ref": "#/$defs/text" }, "text": { "$ref": "#/$defs/text" } },
+      "oneOf": [{ "required": ["name"] }, { "required": ["text"] }]
+    },
+    "journey": {
+      "type": "object",
+      "required": ["id", "from", "steps", "proves"],
+      "additionalProperties": false,
+      "properties": {
+        "id": { "$ref": "#/$defs/slug" },
+        "from": { "$ref": "#/$defs/state" },
+        "steps": { "type": "array", "items": { "$ref": "#/$defs/step" } },
+        "proves": {
+          "type": "object",
+          "required": ["ui"],
+          "additionalProperties": false,
+          "properties": {
+            "ui": {
+              "type": "object",
+              "required": ["state"],
+              "additionalProperties": false,
+              "properties": { "state": { "$ref": "#/$defs/state" }, "contains": { "type": "array", "items": { "$ref": "#/$defs/contains" } } }
+            },
+            "effect": {
+              "type": "object",
+              "required": ["api"],
+              "additionalProperties": false,
+              "properties": {
+                "api": {
+                  "type": "object",
+                  "required": ["method", "path"],
+                  "additionalProperties": false,
+                  "properties": { "method": { "enum": ["GET", "HEAD"] }, "path": { "type": "string", "pattern": "^/" } }
+                },
+                "expect": { "type": "object", "additionalProperties": false, "properties": { "status": { "type": "integer" }, "shape": { "description": "Parity's shapes, never values. Not checked in slice 1." } } }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+}

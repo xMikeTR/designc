@@ -5,6 +5,8 @@
 // it is not installed. Runs on a machine that can reach the apps (the work VM).
 //
 // open({params, readOnly, allowRequests, har?: HAR file path})
+// Feature journeys add three things (parity never sends them): act {press: '<keys>'} (keyboard), act {wait: {role, name|text}}
+// (waits until visible; a timeout is {missing}), and session.request({method, path}) -> {status} (an API call with the page's cookies).
 // params: { baseUrl, viewport?: {width, height}, locale?, timezoneId?, clock?: ISO time, headless? }
 const IGNORED = new Set(['InlineTextBox', 'LineBreak']);
 
@@ -125,14 +127,30 @@ function create(name = 'web', { timeout = 10000 } = {}) {
             await page.goto(new URL(step.goto.path, params.baseUrl).href);
             return settled();
           }
+          if (step.press !== undefined) {
+            await page.keyboard.press(step.press);
+            return settled();
+          }
+          if (step.wait) {
+            const w = step.wait;
+            const l = w.text != null ? page.getByRole(w.role).filter({ hasText: w.text }).first() : page.getByRole(w.role, { name: w.name, exact: true }).nth(w.index || 0);
+            try { await l.waitFor({ state: 'visible', timeout }); }
+            catch { return { missing: `no ${w.role} ${w.text != null ? `with text "${w.text}"` : `named "${w.name}"`} within ${timeout} ms` }; }
+            return { ok: true };
+          }
           const [k] = Object.keys(step);
+          if (!['click', 'fill', 'select'].includes(k)) throw new Error(`unknown action ${k}`);
           const a = step[k];
           const l = all(a).nth(a.index || 0);
           if ((await all(a).count()) <= (a.index || 0)) return { missing: `no ${a.role} named "${a.name}"${a.index ? ` (#${a.index})` : ''}` };
           if (k === 'click') await l.click({ timeout });
           else if (k === 'fill') await l.fill(a.value, { timeout });
-          else await l.selectOption(a.value, { timeout });
+          else if (k === 'select') await l.selectOption(a.value, { timeout });
           return settled();
+        },
+        async request({ method, path }) {
+          const r = await page.request.fetch(new URL(path, params.baseUrl).href, { method });
+          return { status: r.status() };
         },
         async capture() {
           const out = { tree: await axTree(page), viewport, url: page.url() };

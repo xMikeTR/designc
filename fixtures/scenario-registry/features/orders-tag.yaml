@@ -1,0 +1,37 @@
+id: orders-tag
+title: Tag orders in bulk
+intent: A clerk tags every order that matches a search, in one step, from the orders page.
+aliases: [bulk tag, tag orders, label orders]
+screens: [orders]
+elements: [OrdersList, Orders API]
+requirements: [ORD-1]
+
+preconditions:
+  role: clerk
+  data: { tag: { param: tag } }
+
+entry_points:
+  - id: deep-link
+    via: { goto: { path: /orders } }
+  - id: shortcut
+    from: orders:ready
+    via: { press: Control+T }
+
+journeys:
+  - id: apply-tag
+    from: orders:ready
+    steps:
+      - entry
+      - click: { role: button, name: Tag orders }
+        state: tag-popover
+      - fill: { role: combobox, name: Tag, value: { param: tag } }
+      - click: { role: button, name: Apply }
+        state: tagged
+    proves:
+      ui: { state: tagged }
+      effect:
+        api: { method: GET, path: /api/orders }
+        expect: { status: 200 }
+
+gotchas:
+  - Apply commits the tag; the UI saying "tagged" is not proof, so the journey reads the orders back.

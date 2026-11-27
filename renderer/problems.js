@@ -6,7 +6,7 @@ const Problems = (() => {
   const CR = typeof Core !== 'undefined' ? Core : require('./core.js');
 
   // Same row fields and group order as app.js renderPanel: model rows (by file), then path rows (yaml, ledger, work, work warnings, duplicate proposal ids).
-  function rows({ model, diags = [], cfgModel, decisions = [], yamlErrors = [], ledgerErrors = [], workErrors = [], workWarnings = [], proposals = [] }) {
+  function rows({ model, diags = [], cfgModel, decisions = [], yamlErrors = [], ledgerErrors = [], workErrors = [], workWarnings = [], featureProblems = [], proposals = [] }) {
     const live = diags.filter(d => !d.suppressed);
     const groups = [];
     const mrows = [...model.errors.map(e => ({ sev: 'error', msg: e.msg, code: 'parse', line: e.line, file: CR.locFile(e, cfgModel) })),
@@ -17,6 +17,8 @@ const Problems = (() => {
     const byPath = new Map();
     for (const e of [...yamlErrors, ...ledgerErrors, ...workErrors]) { if (!byPath.has(e.path)) byPath.set(e.path, []); byPath.get(e.path).push({ sev: 'error', msg: e.msg, code: 'yaml', line: e.line }); }
     for (const w of workWarnings) { if (!byPath.has(w.path)) byPath.set(w.path, []); byPath.get(w.path).push({ sev: 'warning', msg: w.msg, code: 'work', line: 1 }); }
+    // features/ (FM001 to FM004, or yaml): rows keep their own code. Never gate clauses; the LSP passes none.
+    for (const p of featureProblems) { if (!byPath.has(p.path)) byPath.set(p.path, []); byPath.get(p.path).push({ sev: 'error', msg: p.msg, code: p.code, line: p.line || 1 }); }
     const seenP = new Set();
     for (const x of proposals) { if (seenP.has(x.id) && x._path) { if (!byPath.has(x._path)) byPath.set(x._path, []); byPath.get(x._path).push({ sev: 'error', msg: `duplicate id ${x.id}`, code: 'id', line: 1 }); } seenP.add(x.id); }
     groups.push(...byPath);

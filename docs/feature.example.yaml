@@ -1,0 +1,43 @@
+id: bordereaux-export
+title: Export bordereaux
+intent: An underwriter exports the bordereaux they are looking at, with the filters applied, as a spreadsheet.
+aliases: [export button, download bordereaux, export to excel]
+screens: [bordereaux]                # ids in ui/specs/
+elements: [Ui.BordereauxPage, Api.BordereauxExport]   # model element ids
+requirements: [RE-1234]
+acceptance: [AC-12, AC-13]           # optional: criteria this feature exercises
+test_scenarios: [TS-7]               # optional
+
+preconditions:
+  role: underwriter                  # the sign-in the app must run as (mock mode in practice)
+  data: { cedant: {param: cedant} }  # params, as in parity: values per environment, never real data
+
+entry_points:
+  - id: header-button
+    from: bordereaux:ready           # <screen>:<state>
+    via: { click: { role: button, name: Export } }
+  - id: shortcut
+    from: bordereaux:ready
+    via: { press: Control+E }
+  - id: deep-link
+    via: { goto: { path: /bordereaux?export=1 } }
+
+journeys:
+  - id: export-filtered
+    from: bordereaux:ready
+    steps:
+      - fill: { role: combobox, name: Cedant, value: {param: cedant} }
+        state: filtered
+      - entry                        # run each entry point here, one journey run per entry point
+      - wait: { role: status, text: Export ready }
+    proves:
+      ui: { state: filtered, contains: [{ role: link, name: Download }] }
+      effect:
+        api: { method: GET, path: /api/bordereaux/exports/:id }
+        expect: { status: 200, shape: { rows: [{ cedant: "text:Aa" }] } }
+
+gotchas:
+  - The export is built in the background; wait for the status, never a fixed sleep.
+  - The shortcut does nothing while focus is in the Cedant combobox.
+
+sync: { commit: 3f2a9c1, at: 2026-11-22, by: mike }

@@ -6,7 +6,7 @@
 const Work = (() => {
   const PP = typeof PathPattern !== 'undefined' ? PathPattern : require('./pathpattern.js');
   const LG = typeof Ledger !== 'undefined' ? Ledger : require('./ledger.js');
-  const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity', 'ui'];
+  const KINDS = ['gate', 'checklist', 'review', 'judge', 'parity', 'ui', 'feature'];
   const TARGETS = ['document', 'jira', 'investigation'];
   const EVIDENCE_KINDS = ['parity', 'jira', 'escape'];
   const JIRA_KEY = /^[A-Z][A-Z0-9_]{0,30}-\d{1,10}$/;
@@ -22,7 +22,7 @@ const Work = (() => {
 
   // What is wrong with this work item file. Plain sentences, each saying what to change.
   // scenarios: the ids in parity/scenarios/, when known; a parity entry naming another id is then a problem.
-  function validate(item, { requirements = [], items = [], scenarios = null, screens = null } = {}) {
+  function validate(item, { requirements = [], items = [], scenarios = null, screens = null, features = null } = {}) {
     const out = [];
     const id = item && item.id ? item.id : '(no id)';
     if (!item || typeof item !== 'object') return ['The work item is not a mapping.'];
@@ -82,14 +82,16 @@ const Work = (() => {
       const ks = e && typeof e === 'object' ? Object.keys(e) : [];
       const known = ks.filter(k => KINDS.includes(k));
       const unknown = ks.filter(k => !KINDS.includes(k));
-      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review, judge, parity or ui.`);
-      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review, judge, parity or ui.`);
+      if (unknown.length) out.push(`${id}: done_when entry ${i + 1} has unknown kind ${unknown.join(', ')}; use gate, checklist, review, judge, parity, ui or feature.`);
+      else if (known.length !== 1) out.push(`${id}: done_when entry ${i + 1} must have exactly one of gate, checklist, review, judge, parity, ui or feature.`);
       else if (!String(e[known[0]] == null ? '' : e[known[0]]).trim()) out.push(`${id}: done_when entry ${i + 1} (${known[0]}) is empty.`);
       else {
         kinds.push(known[0]);
         const v = String(e[known[0]]).trim();
         if (known[0] === 'parity' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (parity) is allowed only on a repo item: parity is judged at the commit that finished it.`);
         else if (known[0] === 'ui' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (ui) is allowed only on a repo item: ui is judged at the commit that finished it.`);
+        else if (known[0] === 'feature' && !hasReq) out.push(`${id}: done_when entry ${i + 1} (feature) is allowed only on a repo item: feature is judged at the commit that finished it.`);
+        else if (known[0] === 'feature' && Array.isArray(features) && !features.includes(v)) out.push(`${id}: done_when entry ${i + 1} names feature ${v}, which is not in features/.`);
         else if (known[0] === 'ui' && Array.isArray(screens) && !screens.includes(v)) out.push(`${id}: done_when entry ${i + 1} names ui screen ${v}, which has no spec in ui/specs/.`);
         else if (known[0] === 'parity' && Array.isArray(scenarios) && v !== 'all' && !scenarios.includes(v)) out.push(`${id}: done_when entry ${i + 1} names parity scenario ${v}, which is not in parity/scenarios/.`);
       }
@@ -220,6 +222,24 @@ const Work = (() => {
     return [];
   }
 
+  // Why a `feature: <id>` entry is not met at this commit: the same rule as ui. The latest feature_result for the feature at the
+  // commit, recorded before the item was declared done there, must be a pass; an unknown outcome is ignored.
+  function featureProblems(item, e, { events, commit }) {
+    const id = String(e.feature).trim();
+    if (!commit) return [];
+    const done = list(events).filter(x => x.kind === 'item_done' && x.item === item.id && x.commit === commit).map(x => x._ts || 0);
+    const cutoff = done.length ? Math.min(...done) : Infinity;
+    const last = list(events).filter(x => x.kind === 'feature_result' && x.feature === id && x.commit === commit && PARITY_OUTCOMES.includes(x.outcome) && (x._ts || 0) <= cutoff)
+      .sort((a, b) => (a._ts || 0) - (b._ts || 0)).pop();
+    if (!last) return [`Feature ${id} has no result at ${short(commit)}. Run its journeys (the Factory's features runner) and record feature_result for ${commit}.`];
+    if (last.outcome === 'fail') {
+      const n = list(last.journeys).filter(j => j && j.outcome === 'fail').length;
+      return [`Feature ${id} failed at ${short(commit)} (${n} journey run${n === 1 ? '' : 's'} failed). Fix the app; never edit a journey to make it pass.`];
+    }
+    if (last.outcome === 'could_not_run') return [`Feature ${id} could not run at ${short(commit)}. Fix what stopped it (the ready check, data or params) and run it again.`];
+    return [];
+  }
+
   // `review: landing` (D7): satisfied by a tick, or by an approved, unchanged landing of every requirement of the item.
   // landings: { requirement: hash } of the approved ones (the caller judges them with Landing.approvalState); landingWhy: { requirement: reason } for the others.
   const isLanding = e => !!e && typeof e.review === 'string' && e.review.trim() === 'landing';
@@ -254,6 +274,8 @@ const Work = (() => {
         out.push(...parityProblems(item, e, { events, commit, scenarios }));
       } else if (k === 'ui' && repo) {
         out.push(...uiProblems(item, e, { events, commit }));
+      } else if (k === 'feature' && repo) {
+        out.push(...featureProblems(item, e, { events, commit }));
       }
     }
     return out;
