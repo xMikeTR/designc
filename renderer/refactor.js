@@ -398,7 +398,7 @@ const Refactor = (() => {
   // The YAML text of a new decision. Moved verbatim out of app.js recordDecision so the app and the language server write the same bytes.
   const yamlList = a => `[${(a || []).map(x => /[:,\[\]{}#&*!|>'"%@`]/.test(x) ? JSON.stringify(x) : x).join(', ')}]`;
   const yamlStr = s => JSON.stringify(String(s || ''));
-  function decisionDraft({ id, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], informed_by = [], work } = {}) {
+  function decisionDraft({ id, statement = '', effect = 'fix', binds, resolves, checks = [], rationale = '', kind = 'technical', relies_on = [], informed_by = [], work, options = [] } = {}) {
     const business = kind === 'business';
     if (business && statement) statement = `PROPOSED: ${statement}`;
     return `id: ${id}
@@ -409,7 +409,7 @@ ${work ? `work: ${work}\n` : ''}${relies_on.length ? `relies_on: ${yamlList(reli
 binds: ${yamlList(binds || [])}
 resolves: ${yamlList(resolves || [])}
 statement: ${statement ? yamlStr(statement) : 'TODO what was decided'}
-${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
+${options.length ? `options:\n${options.map(o => `  - ${yamlStr(o)}`).join('\n')}\n` : ''}${!checks.length && (business || effect === 'accept' || effect === 'build') ? `checks: []          # optional: ${business ? 'a business decision needs evidence, not a check' : effect === 'build' ? 'a build decision is cleared by its work item' : 'an accepted risk rests on its business decision'}` : `checks:
 ${(checks.length ? checks : ['TODO command that proves it, e.g. p check -tc tcOptimistic']).map(c => `  - ${yamlStr(c)}`).join('\n')}`}
 rationale: ${rationale ? yamlStr(rationale) : '""'}
 ${informed_by.length ? `informed_by: ${JSON.stringify(informed_by)}          # study topics behind this decision; shown, never a gate input\n` : ''}assumptions: []          # [{"text": "what must stay true", "review_by": "YYYY-MM-DD"}]; past the date the gate blocks until you review it

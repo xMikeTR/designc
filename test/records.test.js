@@ -165,3 +165,33 @@ test('policy judges the command of an {id, run} check', () => {
   assert.match(v.reason || v.error || JSON.stringify(v), /Model: it holds/);
 });
 
+
+test('decision options: a string or a list of non-empty strings', () => {
+  assert.deepEqual(R.validate('decision', dec({ options: 'keep the queue' })), []);
+  assert.deepEqual(R.validate('decision', dec({ options: ['keep the queue', 'move to a stream'] })), []);
+  assert.deepEqual(R.validate('decision', dec()), []);
+  const msg = 'options: must be a string or a list of strings';
+  assert.ok(R.validate('decision', dec({ options: 3 })).includes(msg));
+  assert.ok(R.validate('decision', dec({ options: ['a', 3] })).includes(msg));
+  assert.ok(R.validate('decision', dec({ options: ['a', ''] })).includes(msg));
+  assert.ok(R.validate('decision', dec({ options: [] })).length === 0, 'an empty list is the same as none');
+});
+
+test('decision options: the JSON schema accepts string and list, and refuses a number or an empty string', () => {
+  const Ajv2020 = require('ajv/dist/2020');
+  const schema = JSON.parse(require('fs').readFileSync(path.join(__dirname, '..', 'docs', 'records.schema.json'), 'utf8'));
+  const v = new Ajv2020({ strict: false }).compile(schema);
+  assert.equal(v(dec({ options: ['a', 'b'] })), true, JSON.stringify(v.errors));
+  assert.equal(v(dec({ options: 'a' })), true);
+  assert.equal(v(dec({ options: 3 })), false);
+  assert.equal(v(dec({ options: ['a', ''] })), false);
+});
+
+test('optionsCount: the non-empty strings in options; anything else counts 0', () => {
+  assert.equal(R.optionsCount({ options: 'one' }), 1);
+  assert.equal(R.optionsCount({ options: ['a', 'b'] }), 2);
+  assert.equal(R.optionsCount({ options: ['a', '', '  ', 3, null, 'b'] }), 2);
+  for (const o of [undefined, null, [], '', '  ', 3, {}]) assert.equal(R.optionsCount({ options: o }), 0);
+  assert.equal(R.optionsCount({}), 0);
+  assert.equal(R.optionsCount(null), 0);
+});

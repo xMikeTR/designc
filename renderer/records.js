@@ -97,6 +97,9 @@
     for (const f of ['when', 'then']) if (rec[f] != null && !(list(rec[f]).length && list(rec[f]).every(str))) errs.push(`${f}: a non-empty list of strings`);
   }
 
+  // How many options a decision records: its non-empty string entries (a lone string counts 1).
+  const optionsCount = rec => rec ? list(rec.options).filter(str).length : 0;
+
   function validate(kind, rec) {
     const errs = [];
     if (!KINDS.includes(kind)) return [`kind: must be one of ${KINDS.join('|')}`];
@@ -114,6 +117,7 @@
     if (kind === 'decision') {
       if (!str(rec.statement)) errs.push('statement: required');
       if (rec.rationale != null && typeof rec.rationale !== 'string') errs.push('rationale: must be a string');
+      if (rec.options != null && !list(rec.options).every(str)) errs.push('options: must be a string or a list of strings');
       list(rec.checks).forEach((c, i) => {
         if (isObj(c)) {
           if (!str(c.run)) errs.push(`checks[${i}]: run must be a command`);
@@ -220,5 +224,5 @@
     return inv;
   }
 
-  return { isStructuredScenario, KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, validate, lint, inverse };
+  return { isStructuredScenario, KINDS, PREFIXES, STATUSES, ALIASES, VERDICTS, GATE_KINDS, hash16, checkRun, checkId, checks, runs, status, parseRef, optionsCount, validate, lint, inverse };
 });
